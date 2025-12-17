@@ -48,7 +48,7 @@ log "Running digest generation..."
 docker compose run --rm news-digest
 
 # Find the latest digest file
-LATEST_DIGEST=$(ls -t digest-*.txt 2>/dev/null | head -1)
+LATEST_DIGEST=$(ls -t output/digest-*.txt 2>/dev/null | head -1)
 
 if [ -z "$LATEST_DIGEST" ]; then
     log "No digest generated"

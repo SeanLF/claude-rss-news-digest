@@ -50,7 +50,7 @@ Get UTC timestamp:
 date -u '+%Y-%m-%d-%H%MZ'
 ```
 
-Write to `/workspace/digest-YYYY-MM-DD-HHMMZ.txt` using this format:
+Write to `/workspace/output/digest-YYYY-MM-DD-HHMMZ.txt` using this format:
 
 ```
 NEWS DIGEST

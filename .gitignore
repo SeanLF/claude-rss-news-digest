@@ -2,8 +2,7 @@
 .env
 
 # Generated output
-digest-*.html
-digest-*.txt
+output/
 
 # Runtime data
 digest.db

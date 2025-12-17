@@ -107,7 +107,9 @@ news-digest/
 ├── claude-config/          # Claude config for Docker
 │   └── commands/
 │       └── news-digest.md  # Slash command (plain text version)
-└── digest-*.txt            # Generated digests
+└── output/                 # Generated digests (gitignored)
+    ├── digest-*.html       # HTML (local runs)
+    └── digest-*.txt        # Plain text (Docker/email)
 ```
 
 ## Sources (28)

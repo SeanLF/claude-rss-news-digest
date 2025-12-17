@@ -16,8 +16,8 @@ Automated news digest: RSS feeds → Claude curation → email delivery.
 1. Always fetch first: `uv run python fetch_feeds.py`
 2. Always check deduplication: query `shown_narratives` for last 7 days
 3. Always record what you show: insert into `shown_narratives` after generating
-4. Local output: HTML to `digest-*.html`
-5. Docker output: plain text to `digest-*.txt`
+4. Local output: HTML to `output/digest-*.html`
+5. Docker output: plain text to `output/digest-*.txt`
 
 ## Content Curation Rules
 
