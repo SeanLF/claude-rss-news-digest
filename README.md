@@ -95,7 +95,7 @@ claude -p /news-digest
 news-digest/
 ├── Dockerfile              # Container build (Python + Claude CLI)
 ├── docker-compose.yml      # Container orchestration
-├── entrypoint.sh           # Container entrypoint (runs full pipeline)
+├── run.py                  # Main pipeline (fetch → Claude → email)
 ├── run-digest.sh           # Host entry script (loads .env, runs container)
 ├── fetch_feeds.py          # RSS fetcher
 ├── send_email.py           # SMTP sender

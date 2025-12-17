@@ -16,9 +16,10 @@ In Docker, paths are `/app/data/*`. Locally, paths are relative to repo root.
 
 ## When Modifying Code
 
+- `run.py` orchestrates the full pipeline (fetch → Claude → email) - keep it simple
 - `fetch_feeds.py` uses `feedparser` (installed in Docker) - no other dependencies
 - `send_email.py` uses only stdlib (smtplib) - keep it that way
-- `entrypoint.sh` runs the full pipeline in Docker - keep it non-interactive
+- `run-digest.sh` just loads .env and runs Docker - minimal shell
 - Docker uses `claude-config/commands/news-digest.md`, local uses `~/.claude/commands/news-digest.md`
 
 ## When Running the Digest
