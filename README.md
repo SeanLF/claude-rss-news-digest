@@ -84,16 +84,22 @@ The container handles:
 # Via Docker (recommended)
 ./run-digest.sh
 
+# Dry run (no email)
+./run-digest.sh --dry-run
+
+# Test email config
+./run-digest.sh --test-email
+
 # Interactive (with Claude Code locally installed)
-cd /path/to/news-digest && uv run python -c "from run import fetch_feeds; fetch_feeds()"
-claude -p /news-digest
+cd /path/to/news-digest && python run.py --dry-run
 ```
 
 ## File Structure
 
 ```
 news-digest/
-├── run.py                  # Everything: fetch, DB, email, pipeline (~300 lines)
+├── run.py                  # Pipeline: fetch, DB, email (~350 lines)
+├── sources.json            # RSS feed definitions (28 sources)
 ├── run-digest.sh           # Host entry: loads .env, runs Docker
 ├── Dockerfile              # Container: Python + Claude CLI + feedparser
 ├── docker-compose.yml      # Container orchestration
@@ -104,7 +110,7 @@ news-digest/
 │       └── news-digest.md  # Slash command definition
 └── data/                   # All runtime data (git-ignored)
     ├── digest.db           # SQLite (runs, shown narratives)
-    ├── digest.log          # Execution logs
+    ├── digest.log          # Execution logs (last 1000 lines)
     ├── fetched/            # RSS JSON cache
     └── output/             # Generated digests
 ```
@@ -145,7 +151,7 @@ Headlines are stored in SQLite and checked against new articles. Stories only re
 Everything runs in a single container - Python, feedparser, Claude CLI. No local dependencies beyond Docker. Works on macOS, Linux, or cloud.
 
 ### Internet Check
-Container pings Anthropic API before running. If offline, exits cleanly - useful when traveling or on spotty connections.
+Container pings Cloudflare (1.1.1.1) before running. If offline, exits cleanly - useful when traveling or on spotty connections.
 
 ### Tiered Output
 - **Must Know (2-4)**: Stories you'd be embarrassed not to know

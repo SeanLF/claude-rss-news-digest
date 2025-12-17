@@ -39,9 +39,20 @@ MAX_LOG_LINES = 1000  # Keep last N log lines
 
 
 def load_sources() -> list[dict]:
-    """Load RSS sources from JSON file."""
+    """Load and validate RSS sources from JSON file."""
     with open(SOURCES_FILE) as f:
-        return json.load(f)
+        sources = json.load(f)
+
+    # Validate schema
+    required_keys = {"id", "name", "url", "bias", "perspective"}
+    for i, source in enumerate(sources):
+        missing = required_keys - set(source.keys())
+        if missing:
+            raise ValueError(f"sources.json[{i}] missing keys: {missing}")
+        if not source["url"].startswith(("http://", "https://")):
+            raise ValueError(f"sources.json[{i}] invalid URL: {source['url']}")
+
+    return sources
 
 
 # =============================================================================
@@ -158,6 +169,39 @@ def record_run(articles_fetched: int, articles_emailed: int = 0):
         log(f"Recorded run: {articles_fetched} fetched, {articles_emailed} emailed")
     except sqlite3.Error as e:
         log(f"DB error recording run: {e}")
+
+
+def get_previous_headlines(days: int = 7) -> list[dict]:
+    """Get headlines shown in the last N days for deduplication."""
+    if not DB_PATH.exists():
+        return []
+    try:
+        with sqlite3.connect(DB_PATH) as conn:
+            cursor = conn.execute("""
+                SELECT headline, tier, date(shown_at) as date
+                FROM shown_narratives
+                WHERE shown_at > datetime('now', ?)
+                ORDER BY shown_at DESC
+            """, (f'-{days} days',))
+            return [{"headline": row[0], "tier": row[1], "date": row[2]} for row in cursor.fetchall()]
+    except sqlite3.Error as e:
+        log(f"DB error getting previous headlines: {e}")
+        return []
+
+
+def record_shown_headlines(headlines: list[dict]):
+    """Record headlines that were shown in this digest."""
+    if not headlines:
+        return
+    try:
+        with sqlite3.connect(DB_PATH) as conn:
+            conn.executemany(
+                "INSERT INTO shown_narratives (headline, tier) VALUES (?, ?)",
+                [(h.get("headline", ""), h.get("tier", "")) for h in headlines]
+            )
+        log(f"Recorded {len(headlines)} shown headlines")
+    except sqlite3.Error as e:
+        log(f"DB error recording headlines: {e}")
 
 
 # =============================================================================
@@ -279,6 +323,43 @@ def fetch_feeds(sources: list[dict]) -> int:
 # Digest Generation
 # =============================================================================
 
+def prepare_claude_input(sources: list[dict]) -> Path:
+    """Prepare input.json for Claude with previous headlines only (articles stay in fetched/)."""
+    # Get previous headlines for deduplication
+    previous_headlines = get_previous_headlines(days=7)
+
+    # Slim input - just dedup data, Claude reads articles from fetched/*.json
+    input_data = {
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "previous_headlines": previous_headlines,
+    }
+
+    input_file = DATA_DIR / "input.json"
+    with open(input_file, "w") as f:
+        json.dump(input_data, f, indent=2)
+
+    log(f"Prepared input.json: {len(previous_headlines)} previous headlines")
+    return input_file
+
+
+def read_shown_headlines() -> list[dict]:
+    """Read shown_headlines.json output from Claude."""
+    headlines_file = DATA_DIR / "shown_headlines.json"
+    if not headlines_file.exists():
+        log("Warning: shown_headlines.json not found")
+        return []
+
+    try:
+        with open(headlines_file) as f:
+            headlines = json.load(f)
+        # Clean up after reading
+        headlines_file.unlink()
+        return headlines
+    except (json.JSONDecodeError, IOError) as e:
+        log(f"Error reading shown_headlines.json: {e}")
+        return []
+
+
 def generate_digest():
     """Run Claude to generate digest."""
     log("Generating digest with Claude...")
@@ -331,11 +412,42 @@ def send_email(digest_path: Path) -> int:
 # Main Pipeline
 # =============================================================================
 
+def send_test_email() -> int:
+    """Send a test email to verify SMTP config."""
+    smtp_host = os.environ.get("SMTP_HOST", "smtp.gmail.com")
+    smtp_port = int(os.environ.get("SMTP_PORT", "587"))
+    smtp_user = os.environ["SMTP_USER"]
+    smtp_pass = os.environ["SMTP_PASS"]
+    recipients = [e.strip() for e in os.environ["DIGEST_EMAIL"].split(",")]
+
+    msg = MIMEText("This is a test email from News Digest.\n\nIf you received this, your SMTP config is working.", "plain", "utf-8")
+    msg["Subject"] = "News Digest - Test Email"
+    msg["From"] = smtp_user
+    msg["To"] = ", ".join(recipients)
+
+    try:
+        with smtplib.SMTP(smtp_host, smtp_port) as server:
+            server.starttls()
+            server.login(smtp_user, smtp_pass)
+            server.sendmail(smtp_user, recipients, msg.as_string())
+        log(f"Test email sent to {', '.join(recipients)}")
+        return 0
+    except smtplib.SMTPException as e:
+        log(f"SMTP error: {e}")
+        return 1
+
+
 def main():
     """Run full digest pipeline."""
     parser = argparse.ArgumentParser(description="News Digest Pipeline")
     parser.add_argument("--dry-run", action="store_true", help="Fetch and generate but don't email")
+    parser.add_argument("--test-email", action="store_true", help="Send test email and exit")
     args = parser.parse_args()
+
+    # Test email mode - just verify SMTP works
+    if args.test_email:
+        validate_env(dry_run=False)
+        return send_test_email()
 
     validate_env(dry_run=args.dry_run)
 
@@ -346,7 +458,16 @@ def main():
     sources = load_sources()
     init_db()
     articles_fetched = fetch_feeds(sources)
+
+    # Prepare input for Claude (articles + previous headlines)
+    prepare_claude_input(sources)
+
+    # Generate digest
     generate_digest()
+
+    # Record shown headlines from Claude's output
+    shown_headlines = read_shown_headlines()
+    record_shown_headlines(shown_headlines)
 
     digest = find_latest_digest()
     if not digest:

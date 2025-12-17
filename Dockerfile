@@ -21,4 +21,5 @@ COPY claude-config/ /root/.claude/
 # Create data directory
 RUN mkdir -p /app/data
 
-ENTRYPOINT ["python", "run.py"]
+# Default command (can be overridden)
+CMD ["python", "run.py"]

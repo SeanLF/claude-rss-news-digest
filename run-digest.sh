@@ -16,5 +16,5 @@ if [ -z "$ANTHROPIC_API_KEY" ]; then
     exit 1
 fi
 
-# Run the digest container
-docker compose run --rm news-digest
+# Pass all args to container
+docker compose run --rm news-digest python run.py "$@"
