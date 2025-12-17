@@ -4,7 +4,7 @@ Generate a personalized news digest from CSV input files.
 
 ## Input Files
 
-Read all CSV files from `/app/data/claude_input/`:
+Read all CSV files from `data/claude_input/`:
 - `headlines.csv` - Previous headlines (DO NOT repeat these)
 - `sources.csv` - Source metadata (id, name, bias, perspective)
 - `articles_*.csv` - Articles split across files (source_id, title, url, published, summary)
@@ -33,7 +33,7 @@ Read all CSV files from `/app/data/claude_input/`:
 
 ## Output
 
-Write HTML to `/app/data/output/digest-TIMESTAMP.html` (use `date -u '+%Y-%m-%d-%H%MZ'`):
+Write HTML to `data/output/digest-TIMESTAMP.html` (use `date -u '+%Y-%m-%d-%H%MZ'`):
 
 ```html
 <!DOCTYPE html>
@@ -83,7 +83,7 @@ Write HTML to `/app/data/output/digest-TIMESTAMP.html` (use `date -u '+%Y-%m-%d-
 </html>
 ```
 
-Write headlines to `/app/data/shown_headlines.json`:
+Write headlines to `data/shown_headlines.json`:
 
 ```json
 [

@@ -6,8 +6,12 @@ Pipeline: Fetch RSS → Claude curation → Email delivery
 """
 
 import argparse
+import csv
+import html
 import json
 import os
+import re
+import shutil
 import smtplib
 import sqlite3
 import subprocess
@@ -33,6 +37,7 @@ DB_PATH = DATA_DIR / "digest.db"
 LOG_FILE = DATA_DIR / "digest.log"
 FETCHED_DIR = DATA_DIR / "fetched"
 OUTPUT_DIR = DATA_DIR / "output"
+CLAUDE_INPUT_DIR = DATA_DIR / "claude_input"  # Intermediate files for Claude
 SOURCES_FILE = APP_DIR / "sources.json"
 
 MAX_LOG_LINES = 1000  # Keep last N log lines
@@ -78,9 +83,13 @@ def log(message: str):
 
 
 def check_internet() -> bool:
-    """Check internet connectivity via Cloudflare (HTTPS)."""
+    """Check internet connectivity."""
     try:
-        urllib.request.urlopen("https://1.1.1.1", timeout=5)
+        req = urllib.request.Request(
+            "https://www.google.com/generate_204",
+            headers={"User-Agent": "Mozilla/5.0"}
+        )
+        urllib.request.urlopen(req, timeout=5)
         return True
     except (urllib.error.URLError, TimeoutError, OSError) as e:
         log(f"Internet check failed: {e}")
@@ -89,7 +98,8 @@ def check_internet() -> bool:
 
 def validate_env(dry_run: bool = False):
     """Check required environment variables. Exit if missing."""
-    required = ["ANTHROPIC_API_KEY"]
+    # ANTHROPIC_API_KEY is optional - Claude CLI can use `claude login` for Pro subscription
+    required = []
     if not dry_run:
         required.extend(["SMTP_USER", "SMTP_PASS", "DIGEST_EMAIL"])
 
@@ -313,34 +323,103 @@ def fetch_feeds(sources: list[dict]) -> int:
 # Digest Generation
 # =============================================================================
 
-def prepare_claude_input(sources: list[dict]) -> Path:
-    """Prepare input.json for Claude with everything needed."""
+def estimate_tokens(text: str) -> int:
+    """Estimate token count (~3.5 chars/token for mixed content)."""
+    return len(text) // 3
+
+
+def strip_html(text: str) -> str:
+    """Remove HTML tags and decode entities."""
+    text = re.sub(r'<[^>]+>', '', text)  # Remove tags
+    text = html.unescape(text)  # Decode &amp; etc
+    text = re.sub(r'\s+', ' ', text).strip()  # Normalize whitespace
+    return text
+
+
+MAX_TOKENS_PER_FILE = 20000  # Conservative limit for Claude Code file reading
+
+
+def prepare_claude_input(sources: list[dict]) -> list[Path]:
+    """Prepare CSV input files for Claude - split if too large."""
+    # Clean and recreate input directory
+    if CLAUDE_INPUT_DIR.exists():
+        shutil.rmtree(CLAUDE_INPUT_DIR)
+    CLAUDE_INPUT_DIR.mkdir(parents=True)
+
     # Get previous headlines for deduplication
     previous_headlines = get_previous_headlines(days=7)
 
-    # Load all fetched articles into one structure
-    articles = {}
+    # Write previous headlines CSV
+    headlines_file = CLAUDE_INPUT_DIR / "headlines.csv"
+    with open(headlines_file, "w", newline="") as f:
+        writer = csv.writer(f)
+        writer.writerow(["headline", "tier", "date"])
+        for h in previous_headlines:
+            writer.writerow([h.get("headline", ""), h.get("tier", ""), h.get("date", "")])
+
+    # Write sources CSV
+    sources_file = CLAUDE_INPUT_DIR / "sources.csv"
+    with open(sources_file, "w", newline="") as f:
+        writer = csv.writer(f)
+        writer.writerow(["id", "name", "bias", "perspective"])
+        for s in sources:
+            writer.writerow([s["id"], s["name"], s["bias"], s["perspective"]])
+
+    # Collect all articles
+    all_articles = []
     for source in sources:
         source_file = FETCHED_DIR / f"{source['id']}.json"
         if source_file.exists():
-            with open(source_file) as f:
-                articles[source["id"]] = json.load(f)
+            with open(source_file) as sf:
+                articles = json.load(sf)
+            for a in articles:
+                summary = strip_html(a.get("summary") or "")[:200]
+                title = strip_html(a.get("title") or "")
+                all_articles.append([
+                    source["id"],
+                    title,
+                    a.get("url", ""),
+                    a.get("published", ""),
+                    summary
+                ])
 
-    # Build consolidated input
-    input_data = {
-        "generated_at": datetime.now(timezone.utc).isoformat(),
-        "previous_headlines": previous_headlines,
-        "sources": {s["id"]: {"name": s["name"], "bias": s["bias"], "perspective": s["perspective"]} for s in sources},
-        "articles": articles,
-    }
+    # Split articles into multiple files if needed
+    article_files = []
+    current_file_num = 1
+    current_rows = []
+    current_tokens = 0
+    header = ["source_id", "title", "url", "published", "summary"]
 
-    input_file = DATA_DIR / "input.json"
-    with open(input_file, "w") as f:
-        json.dump(input_data, f)  # No indent - smaller file
+    for row in all_articles:
+        row_text = ",".join(str(x) for x in row)
+        row_tokens = estimate_tokens(row_text)
 
-    total_articles = sum(len(a) for a in articles.values())
-    log(f"Prepared input.json: {len(previous_headlines)} previous headlines, {total_articles} articles")
-    return input_file
+        if current_tokens + row_tokens > MAX_TOKENS_PER_FILE and current_rows:
+            # Write current file and start new one
+            file_path = CLAUDE_INPUT_DIR / f"articles_{current_file_num}.csv"
+            with open(file_path, "w", newline="") as f:
+                writer = csv.writer(f)
+                writer.writerow(header)
+                writer.writerows(current_rows)
+            article_files.append(file_path)
+            current_file_num += 1
+            current_rows = []
+            current_tokens = 0
+
+        current_rows.append(row)
+        current_tokens += row_tokens
+
+    # Write final file
+    if current_rows:
+        file_path = CLAUDE_INPUT_DIR / f"articles_{current_file_num}.csv"
+        with open(file_path, "w", newline="") as f:
+            writer = csv.writer(f)
+            writer.writerow(header)
+            writer.writerows(current_rows)
+        article_files.append(file_path)
+
+    log(f"Prepared CSV input: {len(previous_headlines)} headlines, {len(all_articles)} articles in {len(article_files)} file(s)")
+    return article_files
 
 
 def read_shown_headlines() -> list[dict]:
@@ -362,17 +441,27 @@ def read_shown_headlines() -> list[dict]:
 
 
 def generate_digest():
-    """Run Claude to generate digest."""
+    """Run Claude to generate digest with streaming output."""
     log("Generating digest with Claude...")
-    result = subprocess.run(["claude", "--print", "-p", "/news-digest"])
-    if result.returncode != 0:
-        raise RuntimeError(f"Claude failed with code {result.returncode}")
+    process = subprocess.Popen(
+        ["claude", "--print", "--permission-mode", "acceptEdits", "/news-digest"],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        bufsize=1  # Line buffered
+    )
+    # Stream output in real-time
+    for line in process.stdout:
+        print(line, end="", flush=True)
+    process.wait()
+    if process.returncode != 0:
+        raise RuntimeError(f"Claude failed with code {process.returncode}")
 
 
 def find_latest_digest() -> Path | None:
-    """Find most recent digest file."""
+    """Find most recent digest file (HTML or TXT)."""
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-    digests = sorted(OUTPUT_DIR.glob("digest-*.txt"), key=lambda p: p.stat().st_mtime, reverse=True)
+    digests = sorted(OUTPUT_DIR.glob("digest-*.*"), key=lambda p: p.stat().st_mtime, reverse=True)
     return digests[0] if digests else None
 
 
@@ -386,16 +475,22 @@ def send_email(digest_path: Path) -> int:
     smtp_port = int(os.environ.get("SMTP_PORT", "587"))
     smtp_user = os.environ["SMTP_USER"]
     smtp_pass = os.environ["SMTP_PASS"]
+    smtp_from = os.environ.get("SMTP_FROM", smtp_user)  # Separate From address (for iCloud etc)
     recipients = [e.strip() for e in os.environ["DIGEST_EMAIL"].split(",")]
 
     content = digest_path.read_text()
     date_str = datetime.now(timezone.utc).strftime("%B %d, %Y")
+    is_html = digest_path.suffix == ".html"
 
     msg = MIMEMultipart("alternative")
     msg["Subject"] = f"News Digest - {date_str}"
-    msg["From"] = smtp_user
+    msg["From"] = smtp_from
     msg["To"] = ", ".join(recipients)
-    msg.attach(MIMEText(content, "plain", "utf-8"))
+
+    if is_html:
+        msg.attach(MIMEText(content, "html", "utf-8"))
+    else:
+        msg.attach(MIMEText(content, "plain", "utf-8"))
 
     try:
         with smtplib.SMTP(smtp_host, smtp_port) as server:
@@ -419,11 +514,12 @@ def send_test_email() -> int:
     smtp_port = int(os.environ.get("SMTP_PORT", "587"))
     smtp_user = os.environ["SMTP_USER"]
     smtp_pass = os.environ["SMTP_PASS"]
+    smtp_from = os.environ.get("SMTP_FROM", smtp_user)
     recipients = [e.strip() for e in os.environ["DIGEST_EMAIL"].split(",")]
 
     msg = MIMEText("This is a test email from News Digest.\n\nIf you received this, your SMTP config is working.", "plain", "utf-8")
     msg["Subject"] = "News Digest - Test Email"
-    msg["From"] = smtp_user
+    msg["From"] = smtp_from
     msg["To"] = ", ".join(recipients)
 
     try:
@@ -466,10 +562,6 @@ def main():
     # Generate digest
     generate_digest()
 
-    # Record shown headlines from Claude's output
-    shown_headlines = read_shown_headlines()
-    record_shown_headlines(shown_headlines)
-
     digest = find_latest_digest()
     if not digest:
         log("ERROR: No digest generated")
@@ -477,8 +569,11 @@ def main():
 
     if args.dry_run:
         log(f"DRY RUN: Would send {digest.name}")
-        record_run(articles_fetched, articles_emailed=0)
+        # Don't record to DB on dry run - would break deduplication
     else:
+        # Only record shown headlines and run on actual send
+        shown_headlines = read_shown_headlines()
+        record_shown_headlines(shown_headlines)
         recipients = send_email(digest)
         record_run(articles_fetched, articles_emailed=recipients)
 
