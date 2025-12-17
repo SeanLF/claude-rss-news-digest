@@ -1,34 +1,86 @@
 #!/usr/bin/env python3
-"""Main entry point for news digest pipeline."""
+"""
+News Digest - Automated daily news curation
 
+Pipeline: Fetch RSS → Claude curation → Email delivery
+"""
+
+import json
 import os
-import sys
+import smtplib
+import sqlite3
 import subprocess
+import sys
 import urllib.request
 import urllib.error
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
+from email.utils import parsedate_to_datetime
 from pathlib import Path
 
-# Paths
+import feedparser
+
+# =============================================================================
+# Configuration
+# =============================================================================
+
 APP_DIR = Path(__file__).parent
 DATA_DIR = APP_DIR / "data"
-LOG_FILE = DATA_DIR / "digest.log"
 DB_PATH = DATA_DIR / "digest.db"
+LOG_FILE = DATA_DIR / "digest.log"
+FETCHED_DIR = DATA_DIR / "fetched"
 OUTPUT_DIR = DATA_DIR / "output"
 
+# RSS Sources: id, name, url, bias, perspective
+SOURCES = [
+    ("afp", "AFP", "https://flipboard.com/topic/fr-afp.rss", "center", "wire_service"),
+    ("al_jazeera", "Al Jazeera", "https://www.aljazeera.com/xml/rss/all.xml", "center", "middle_east"),
+    ("ap_news", "AP News", "https://rss.app/feeds/cTP1MA5Cle6LFnnc.xml", "center", "wire_service"),
+    ("ars_technica", "Ars Technica", "https://feeds.arstechnica.com/arstechnica/index", "center", "tech"),
+    ("cbc_news", "CBC News", "https://www.cbc.ca/webfeed/rss/rss-world", "center", "canadian"),
+    ("daily_maverick", "Daily Maverick", "https://www.dailymaverick.co.za/dmrss/", "center-left", "south_african"),
+    ("der_spiegel", "Der Spiegel", "https://www.spiegel.de/international/index.rss", "center-left", "german"),
+    ("financial_times", "Financial Times", "https://www.ft.com/news-feed?format=rss", "center-right", "western_finance"),
+    ("globe_and_mail", "Globe and Mail", "https://www.theglobeandmail.com/arc/outboundfeeds/rss/category/world/", "center", "canadian"),
+    ("hacker_news", "Hacker News", "https://hnrss.org/newest?points=100", "center", "tech"),
+    ("le_monde", "Le Monde", "https://www.lemonde.fr/rss/une.xml", "center", "french"),
+    ("nikkei_asia", "Nikkei Asia", "https://asia.nikkei.com/rss/feed/nar", "center-right", "japanese"),
+    ("nyt_world", "NYT World", "https://rss.nytimes.com/services/xml/rss/nyt/World.xml", "center-left", "american"),
+    ("propublica", "ProPublica", "https://www.propublica.org/feeds/propublica/main", "center-left", "investigative"),
+    ("rappler", "Rappler", "https://www.rappler.com/feed/", "center", "filipino"),
+    ("rest_of_world", "Rest of World", "https://restofworld.org/feed/latest", "center", "global_tech"),
+    ("reuters", "Reuters", "https://news.google.com/rss/search?q=site:reuters.com&hl=en-US&gl=US&ceid=US:en", "center", "wire_service"),
+    ("scmp_asia", "SCMP Asia", "https://www.scmp.com/rss/2/feed", "center", "asian"),
+    ("scmp_china", "SCMP China", "https://www.scmp.com/rss/4/feed", "center", "asian"),
+    ("scmp_world", "SCMP World", "https://www.scmp.com/rss/5/feed", "center", "asian"),
+    ("straits_times", "Straits Times", "https://www.straitstimes.com/news/world/rss.xml", "center", "singaporean"),
+    ("the_economist", "The Economist", "https://rss.app/feeds/9tqWs1xrWkLAfbEU.xml", "center-right", "western"),
+    ("the_guardian", "The Guardian", "https://www.theguardian.com/international/rss", "center-left", "western"),
+    ("the_hindu", "The Hindu", "https://www.thehindu.com/news/international/feeder/default.rss", "center", "indian"),
+    ("the_intercept", "The Intercept", "https://theintercept.com/feed/?rss", "left", "investigative"),
+    ("the_verge", "The Verge", "https://www.theverge.com/rss/index.xml", "center-left", "tech"),
+    ("washington_post", "Washington Post", "https://feeds.washingtonpost.com/rss/world", "center-left", "american"),
+    ("wsj_world", "WSJ World", "https://feeds.content.dowjones.io/public/rss/RSSWorldNews", "center-right", "american"),
+]
+
+# =============================================================================
+# Utilities
+# =============================================================================
 
 def log(message: str):
-    """Log message with UTC timestamp to file and stdout."""
+    """Log with UTC timestamp to stdout and file."""
     timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
     line = f"[{timestamp}] {message}"
-    print(line)
+    print(line, flush=True)
     DATA_DIR.mkdir(exist_ok=True)
     with open(LOG_FILE, "a") as f:
         f.write(line + "\n")
 
 
 def check_internet() -> bool:
-    """Check if we can reach the Anthropic API."""
+    """Check if Anthropic API is reachable."""
     try:
         urllib.request.urlopen("https://api.anthropic.com", timeout=10)
         return True
@@ -36,73 +88,225 @@ def check_internet() -> bool:
         return False
 
 
+# =============================================================================
+# Database
+# =============================================================================
+
+DB_SCHEMA = """
+CREATE TABLE IF NOT EXISTS digest_runs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    timezone TEXT,
+    articles_fetched INTEGER,
+    narratives_presented INTEGER
+);
+
+CREATE TABLE IF NOT EXISTS shown_narratives (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    headline TEXT NOT NULL,
+    tier TEXT,
+    shown_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_shown_narratives_date ON shown_narratives(shown_at);
+"""
+
+
 def init_db():
     """Initialize database if it doesn't exist."""
     if DB_PATH.exists():
         return
     log("Initializing database...")
-    # Import here to avoid circular deps and keep init_db.py standalone
-    from init_db import init_db as do_init
-    do_init()
+    DATA_DIR.mkdir(exist_ok=True)
+    conn = sqlite3.connect(DB_PATH)
+    conn.executescript(DB_SCHEMA)
+    conn.commit()
+    conn.close()
+
+
+def get_last_run_time() -> datetime | None:
+    """Get timestamp of last digest run."""
+    if not DB_PATH.exists():
+        return None
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.execute("SELECT MAX(run_at) FROM digest_runs")
+        result = cursor.fetchone()[0]
+        conn.close()
+        if result:
+            return datetime.fromisoformat(result.replace(" ", "T")).replace(tzinfo=timezone.utc)
+    except Exception:
+        pass
+    return None
+
+
+# =============================================================================
+# RSS Fetching
+# =============================================================================
+
+def parse_date(date_str: str | None) -> datetime | None:
+    """Parse RSS date formats."""
+    if not date_str:
+        return None
+    try:
+        if "T" in date_str:
+            return datetime.fromisoformat(date_str.replace("Z", "+00:00")).astimezone(timezone.utc)
+        return parsedate_to_datetime(date_str).astimezone(timezone.utc)
+    except Exception:
+        return None
+
+
+def fetch_source(source: tuple, timeout: int = 15) -> tuple[str, list[dict]]:
+    """Fetch single RSS source. Returns (source_id, articles)."""
+    source_id, name, url, bias, perspective = source
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+        with urllib.request.urlopen(req, timeout=timeout) as response:
+            data = response.read()
+        feed = feedparser.parse(data)
+
+        if feed.bozo and not feed.entries:
+            return source_id, []
+
+        articles = []
+        for entry in feed.entries:
+            # Get published date
+            published = entry.get("published_parsed") or entry.get("updated_parsed")
+            if published:
+                try:
+                    pub_str = datetime(*published[:6], tzinfo=timezone.utc).isoformat()
+                except (TypeError, ValueError):
+                    pub_str = entry.get("published") or entry.get("updated")
+            else:
+                pub_str = entry.get("published") or entry.get("updated")
+
+            article = {
+                "title": entry.get("title", "").strip(),
+                "url": entry.get("link", ""),
+                "published": pub_str,
+                "summary": (entry.get("summary") or entry.get("description") or "")[:500],
+            }
+            if article["title"] and article["url"]:
+                articles.append(article)
+
+        print(f"  [{source_id}] {len(articles)} articles", flush=True)
+        return source_id, articles
+
+    except Exception as e:
+        print(f"  [{source_id}] Error: {e}", flush=True)
+        return source_id, []
 
 
 def fetch_feeds():
-    """Fetch RSS feeds."""
-    log("Fetching RSS feeds...")
-    result = subprocess.run(
-        [sys.executable, APP_DIR / "fetch_feeds.py"],
-        capture_output=True,
-        text=True
-    )
-    if result.returncode != 0:
-        log(f"Feed fetch failed: {result.stderr}")
-        raise RuntimeError("Feed fetch failed")
-    log(f"Fetched feeds: {result.stdout.strip()}")
+    """Fetch all RSS feeds in parallel."""
+    log(f"Fetching {len(SOURCES)} RSS feeds...")
 
+    last_run = get_last_run_time()
+    if last_run:
+        print(f"  Filtering after: {last_run.isoformat()}", flush=True)
+
+    FETCHED_DIR.mkdir(parents=True, exist_ok=True)
+    for f in FETCHED_DIR.glob("*.json"):
+        f.unlink()
+
+    results = {}
+    with ThreadPoolExecutor(max_workers=10) as executor:
+        futures = {executor.submit(fetch_source, s): s for s in SOURCES}
+        for future in as_completed(futures):
+            source_id, articles = future.result()
+            results[source_id] = articles
+
+    # Filter by date and save
+    total = 0
+    for source_id, name, url, bias, perspective in SOURCES:
+        articles = results.get(source_id, [])
+        if last_run:
+            articles = [a for a in articles if not parse_date(a.get("published")) or parse_date(a.get("published")) > last_run]
+
+        with open(FETCHED_DIR / f"{source_id}.json", "w") as f:
+            json.dump(articles, f, indent=2)
+        total += len(articles)
+
+    # Save metadata
+    metadata = {
+        "fetched_at": datetime.now(timezone.utc).isoformat(),
+        "sources_count": len(SOURCES),
+        "total_articles": total,
+        "sources": {s[0]: {"name": s[1], "bias": s[3], "perspective": s[4]} for s in SOURCES},
+    }
+    with open(FETCHED_DIR / "_metadata.json", "w") as f:
+        json.dump(metadata, f, indent=2)
+
+    log(f"Fetched {total} articles from {len(SOURCES)} sources")
+
+
+# =============================================================================
+# Digest Generation
+# =============================================================================
 
 def generate_digest():
-    """Run Claude to generate the digest."""
+    """Run Claude to generate digest."""
     log("Generating digest with Claude...")
-    result = subprocess.run(
-        ["claude", "--print", "-p", "/news-digest"],
-        capture_output=False  # Let Claude output flow through
-    )
+    result = subprocess.run(["claude", "--print", "-p", "/news-digest"])
     if result.returncode != 0:
         raise RuntimeError(f"Claude failed with code {result.returncode}")
 
 
 def find_latest_digest() -> Path | None:
-    """Find the most recently created digest file."""
+    """Find most recent digest file."""
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     digests = sorted(OUTPUT_DIR.glob("digest-*.txt"), key=lambda p: p.stat().st_mtime, reverse=True)
     return digests[0] if digests else None
 
 
-def send_email(digest_path: Path):
-    """Send the digest via email."""
-    log(f"Sending digest: {digest_path.name}")
-    from send_email import send_digest
-    send_digest(str(digest_path))
-    log("Digest sent successfully")
+# =============================================================================
+# Email
+# =============================================================================
 
+def send_email(digest_path: Path):
+    """Send digest via SMTP."""
+    smtp_host = os.environ.get("SMTP_HOST", "smtp.gmail.com")
+    smtp_port = int(os.environ.get("SMTP_PORT", "587"))
+    smtp_user = os.environ.get("SMTP_USER")
+    smtp_pass = os.environ.get("SMTP_PASS")
+    to_emails = os.environ.get("DIGEST_EMAIL", "")
+    recipients = [e.strip() for e in to_emails.split(",") if e.strip()]
+
+    if not all([smtp_user, smtp_pass]) or not recipients:
+        log("Missing SMTP_USER, SMTP_PASS, or DIGEST_EMAIL")
+        return
+
+    content = digest_path.read_text()
+    date_str = datetime.now(timezone.utc).strftime("%B %d, %Y")
+
+    msg = MIMEMultipart("alternative")
+    msg["Subject"] = f"News Digest - {date_str}"
+    msg["From"] = smtp_user
+    msg["To"] = ", ".join(recipients)
+    msg.attach(MIMEText(content, "plain", "utf-8"))
+
+    with smtplib.SMTP(smtp_host, smtp_port) as server:
+        server.starttls()
+        server.login(smtp_user, smtp_pass)
+        server.sendmail(smtp_user, recipients, msg.as_string())
+
+    log(f"Sent to {', '.join(recipients)}")
+
+
+# =============================================================================
+# Main Pipeline
+# =============================================================================
 
 def main():
-    """Run the full digest pipeline."""
-    # Check internet
+    """Run full digest pipeline."""
     if not check_internet():
-        log("No internet connection, skipping digest")
+        log("No internet connection, skipping")
         return 0
 
-    # Initialize DB if needed
     init_db()
-
-    # Fetch feeds
     fetch_feeds()
-
-    # Generate digest with Claude
     generate_digest()
 
-    # Find and send the digest
     digest = find_latest_digest()
     if not digest:
         log("ERROR: No digest generated")

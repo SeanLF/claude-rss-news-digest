@@ -4,27 +4,33 @@
 
 Automated news digest: RSS feeds → Claude curation → plain text email.
 
-## File Paths
+Single file architecture: everything is in `run.py` (~300 lines).
 
-All runtime data lives in `data/`:
-- `data/digest.db` - SQLite database
-- `data/fetched/` - RSS JSON cache
-- `data/output/` - Generated digests
-- `data/digest.log` - Execution logs
+## File Layout
 
-In Docker, paths are `/app/data/*`. Locally, paths are relative to repo root.
+```
+run.py sections:
+├── Configuration    # Paths, RSS sources list
+├── Utilities        # Logging, internet check
+├── Database         # Schema, init, last run time
+├── RSS Fetching     # Parallel feed fetching
+├── Digest Generation # Claude invocation
+├── Email            # SMTP sending
+└── Main Pipeline    # Orchestration
+```
+
+Runtime data in `data/`: digest.db, fetched/, output/, digest.log
 
 ## When Modifying Code
 
-- `run.py` orchestrates the full pipeline (fetch → Claude → email) - keep it simple
-- `fetch_feeds.py` uses `feedparser` (installed in Docker) - no other dependencies
-- `send_email.py` uses only stdlib (smtplib) - keep it that way
-- `run-digest.sh` just loads .env and runs Docker - minimal shell
+- All logic is in `run.py` - edit there
+- `run-digest.sh` just loads .env and runs Docker - keep minimal
+- Only external dependency is `feedparser` (in Docker)
 - Docker uses `claude-config/commands/news-digest.md`, local uses `~/.claude/commands/news-digest.md`
 
 ## When Running the Digest
 
-1. Always fetch first: `python fetch_feeds.py` (or `uv run` locally)
+1. Always fetch first (done automatically by `run.py`)
 2. Always check deduplication: query `shown_narratives` for last 7 days
 3. Always record what you show: insert into `shown_narratives` after generating
 4. Output: plain text to `data/output/digest-*.txt`
@@ -39,29 +45,23 @@ In Docker, paths are `/app/data/*`. Locally, paths are relative to repo root.
 
 ## Database
 
-SQLite at `data/digest.db`. Two tables matter:
+SQLite at `data/digest.db`. Two tables:
 - `digest_runs` - metadata per run
 - `shown_narratives` - headlines shown (for deduplication)
 
-Always record shown narratives after generating a digest.
-
-## Testing Changes
+## Testing
 
 ```bash
-# Test feed fetching
-uv run python fetch_feeds.py
-
-# Test email (create a test file first)
-echo "test" > /tmp/test.txt && python3 send_email.py /tmp/test.txt
-
 # Test full Docker flow
 ./run-digest.sh
+
+# Test locally (requires feedparser, claude CLI)
+python run.py
 ```
 
 ## Don't
 
-- Don't add external Python dependencies beyond feedparser
-- Don't generate HTML output (plain text only)
-- Don't skip the deduplication check
-- Don't hardcode paths (use data/ relative paths)
-- Don't hardcode email addresses (use DIGEST_EMAIL env var)
+- Don't add dependencies beyond feedparser
+- Don't generate HTML (plain text only)
+- Don't skip deduplication
+- Don't hardcode paths or emails

@@ -85,7 +85,7 @@ The container handles:
 ./run-digest.sh
 
 # Interactive (with Claude Code locally installed)
-cd /path/to/news-digest && uv run python fetch_feeds.py
+cd /path/to/news-digest && uv run python -c "from run import fetch_feeds; fetch_feeds()"
 claude -p /news-digest
 ```
 
@@ -93,13 +93,10 @@ claude -p /news-digest
 
 ```
 news-digest/
-├── Dockerfile              # Container build (Python + Claude CLI)
+├── run.py                  # Everything: fetch, DB, email, pipeline (~300 lines)
+├── run-digest.sh           # Host entry: loads .env, runs Docker
+├── Dockerfile              # Container: Python + Claude CLI + feedparser
 ├── docker-compose.yml      # Container orchestration
-├── run.py                  # Main pipeline (fetch → Claude → email)
-├── run-digest.sh           # Host entry script (loads .env, runs container)
-├── fetch_feeds.py          # RSS fetcher
-├── send_email.py           # SMTP sender
-├── init_db.py              # Database schema initialization
 ├── .env                    # Configuration (git-ignored)
 ├── .env.example            # Config template
 ├── claude-config/          # Claude config for Docker
@@ -109,10 +106,7 @@ news-digest/
     ├── digest.db           # SQLite (runs, shown narratives)
     ├── digest.log          # Execution logs
     ├── fetched/            # RSS JSON cache
-    │   ├── _metadata.json  # Source names, bias, perspective
-    │   └── *.json          # Per-source articles
     └── output/             # Generated digests
-        └── digest-*.txt    # Plain text digests
 ```
 
 ## Sources (28)
