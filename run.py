@@ -5,6 +5,7 @@ News Digest - Automated daily news curation
 Pipeline: Fetch RSS → Claude curation → Email delivery
 """
 
+import argparse
 import json
 import os
 import smtplib
@@ -34,6 +35,8 @@ FETCHED_DIR = DATA_DIR / "fetched"
 OUTPUT_DIR = DATA_DIR / "output"
 SOURCES_FILE = APP_DIR / "sources.json"
 
+MAX_LOG_LINES = 1000  # Keep last N log lines
+
 
 def load_sources() -> list[dict]:
     """Load RSS sources from JSON file."""
@@ -46,27 +49,39 @@ def load_sources() -> list[dict]:
 # =============================================================================
 
 def log(message: str):
-    """Log with UTC timestamp to stdout and file."""
+    """Log with UTC timestamp to stdout and file (with rotation)."""
     timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
     line = f"[{timestamp}] {message}"
     print(line, flush=True)
+
     DATA_DIR.mkdir(exist_ok=True)
-    with open(LOG_FILE, "a") as f:
-        f.write(line + "\n")
+
+    # Read existing lines, append new, keep last N
+    lines = []
+    if LOG_FILE.exists():
+        lines = LOG_FILE.read_text().splitlines()
+    lines.append(line)
+    if len(lines) > MAX_LOG_LINES:
+        lines = lines[-MAX_LOG_LINES:]
+    LOG_FILE.write_text("\n".join(lines) + "\n")
 
 
 def check_internet() -> bool:
-    """Check internet connectivity via Cloudflare."""
+    """Check internet connectivity via Cloudflare (HTTPS)."""
     try:
-        urllib.request.urlopen("http://1.1.1.1", timeout=5)
+        urllib.request.urlopen("https://1.1.1.1", timeout=5)
         return True
-    except (urllib.error.URLError, TimeoutError):
+    except (urllib.error.URLError, TimeoutError, OSError) as e:
+        log(f"Internet check failed: {e}")
         return False
 
 
-def validate_env():
+def validate_env(dry_run: bool = False):
     """Check required environment variables. Exit if missing."""
-    required = ["ANTHROPIC_API_KEY", "SMTP_USER", "SMTP_PASS", "DIGEST_EMAIL"]
+    required = ["ANTHROPIC_API_KEY"]
+    if not dry_run:
+        required.extend(["SMTP_USER", "SMTP_PASS", "DIGEST_EMAIL"])
+
     missing = [var for var in required if not os.environ.get(var)]
     if missing:
         log(f"ERROR: Missing environment variables: {', '.join(missing)}")
@@ -81,9 +96,8 @@ DB_SCHEMA = """
 CREATE TABLE IF NOT EXISTS digest_runs (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     run_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    timezone TEXT,
     articles_fetched INTEGER,
-    narratives_presented INTEGER
+    articles_emailed INTEGER
 );
 
 CREATE TABLE IF NOT EXISTS shown_narratives (
@@ -94,6 +108,7 @@ CREATE TABLE IF NOT EXISTS shown_narratives (
 );
 
 CREATE INDEX IF NOT EXISTS idx_shown_narratives_date ON shown_narratives(shown_at);
+CREATE INDEX IF NOT EXISTS idx_digest_runs_date ON digest_runs(run_at);
 """
 
 
@@ -103,10 +118,8 @@ def init_db():
         return
     log("Initializing database...")
     DATA_DIR.mkdir(exist_ok=True)
-    conn = sqlite3.connect(DB_PATH)
-    conn.executescript(DB_SCHEMA)
-    conn.commit()
-    conn.close()
+    with sqlite3.connect(DB_PATH) as conn:
+        conn.executescript(DB_SCHEMA)
 
 
 def get_last_run_time() -> datetime | None:
@@ -114,15 +127,27 @@ def get_last_run_time() -> datetime | None:
     if not DB_PATH.exists():
         return None
     try:
-        conn = sqlite3.connect(DB_PATH)
-        cursor = conn.execute("SELECT MAX(run_at) FROM digest_runs")
-        result = cursor.fetchone()[0]
-        conn.close()
-        if result:
-            return datetime.fromisoformat(result.replace(" ", "T")).replace(tzinfo=timezone.utc)
-    except Exception:
-        pass
+        with sqlite3.connect(DB_PATH) as conn:
+            cursor = conn.execute("SELECT MAX(run_at) FROM digest_runs")
+            result = cursor.fetchone()[0]
+            if result:
+                return datetime.fromisoformat(result.replace(" ", "T")).replace(tzinfo=timezone.utc)
+    except sqlite3.Error as e:
+        log(f"DB error getting last run time: {e}")
     return None
+
+
+def record_run(articles_fetched: int, articles_emailed: int = 0):
+    """Record a successful digest run."""
+    try:
+        with sqlite3.connect(DB_PATH) as conn:
+            conn.execute(
+                "INSERT INTO digest_runs (articles_fetched, articles_emailed) VALUES (?, ?)",
+                (articles_fetched, articles_emailed)
+            )
+        log(f"Recorded run: {articles_fetched} fetched, {articles_emailed} emailed")
+    except sqlite3.Error as e:
+        log(f"DB error recording run: {e}")
 
 
 # =============================================================================
@@ -137,7 +162,8 @@ def parse_date(date_str: str | None) -> datetime | None:
         if "T" in date_str:
             return datetime.fromisoformat(date_str.replace("Z", "+00:00")).astimezone(timezone.utc)
         return parsedate_to_datetime(date_str).astimezone(timezone.utc)
-    except Exception:
+    except (ValueError, TypeError) as e:
+        # Don't log - too noisy for date parsing
         return None
 
 
@@ -151,6 +177,7 @@ def fetch_source(source: dict, timeout: int = 15) -> tuple[str, list[dict]]:
         feed = feedparser.parse(data)
 
         if feed.bozo and not feed.entries:
+            log(f"[{source_id}] Feed parse error: {feed.bozo_exception}")
             return source_id, []
 
         articles = []
@@ -176,13 +203,19 @@ def fetch_source(source: dict, timeout: int = 15) -> tuple[str, list[dict]]:
         print(f"  [{source_id}] {len(articles)} articles", flush=True)
         return source_id, articles
 
+    except urllib.error.URLError as e:
+        print(f"  [{source_id}] Network error: {e.reason}", flush=True)
+        return source_id, []
+    except TimeoutError:
+        print(f"  [{source_id}] Timeout", flush=True)
+        return source_id, []
     except Exception as e:
-        print(f"  [{source_id}] Error: {e}", flush=True)
+        print(f"  [{source_id}] Error: {type(e).__name__}: {e}", flush=True)
         return source_id, []
 
 
-def fetch_feeds(sources: list[dict]):
-    """Fetch all RSS feeds in parallel."""
+def fetch_feeds(sources: list[dict]) -> int:
+    """Fetch all RSS feeds in parallel. Returns total article count."""
     log(f"Fetching {len(sources)} RSS feeds...")
 
     last_run = get_last_run_time()
@@ -206,7 +239,13 @@ def fetch_feeds(sources: list[dict]):
         source_id = source["id"]
         articles = results.get(source_id, [])
         if last_run:
-            articles = [a for a in articles if not parse_date(a.get("published")) or parse_date(a.get("published")) > last_run]
+            # Parse date once, filter
+            filtered = []
+            for a in articles:
+                pub_date = parse_date(a.get("published"))
+                if pub_date is None or pub_date > last_run:
+                    filtered.append(a)
+            articles = filtered
 
         with open(FETCHED_DIR / f"{source_id}.json", "w") as f:
             json.dump(articles, f, indent=2)
@@ -223,6 +262,7 @@ def fetch_feeds(sources: list[dict]):
         json.dump(metadata, f, indent=2)
 
     log(f"Fetched {total} articles from {len(sources)} sources")
+    return total
 
 
 # =============================================================================
@@ -248,8 +288,8 @@ def find_latest_digest() -> Path | None:
 # Email
 # =============================================================================
 
-def send_email(digest_path: Path):
-    """Send digest via SMTP."""
+def send_email(digest_path: Path) -> int:
+    """Send digest via SMTP. Returns number of recipients."""
     smtp_host = os.environ.get("SMTP_HOST", "smtp.gmail.com")
     smtp_port = int(os.environ.get("SMTP_PORT", "587"))
     smtp_user = os.environ["SMTP_USER"]
@@ -265,12 +305,16 @@ def send_email(digest_path: Path):
     msg["To"] = ", ".join(recipients)
     msg.attach(MIMEText(content, "plain", "utf-8"))
 
-    with smtplib.SMTP(smtp_host, smtp_port) as server:
-        server.starttls()
-        server.login(smtp_user, smtp_pass)
-        server.sendmail(smtp_user, recipients, msg.as_string())
-
-    log(f"Sent to {', '.join(recipients)}")
+    try:
+        with smtplib.SMTP(smtp_host, smtp_port) as server:
+            server.starttls()
+            server.login(smtp_user, smtp_pass)
+            server.sendmail(smtp_user, recipients, msg.as_string())
+        log(f"Sent to {', '.join(recipients)}")
+        return len(recipients)
+    except smtplib.SMTPException as e:
+        log(f"SMTP error: {e}")
+        raise
 
 
 # =============================================================================
@@ -279,7 +323,11 @@ def send_email(digest_path: Path):
 
 def main():
     """Run full digest pipeline."""
-    validate_env()
+    parser = argparse.ArgumentParser(description="News Digest Pipeline")
+    parser.add_argument("--dry-run", action="store_true", help="Fetch and generate but don't email")
+    args = parser.parse_args()
+
+    validate_env(dry_run=args.dry_run)
 
     if not check_internet():
         log("No internet connection, skipping")
@@ -287,7 +335,7 @@ def main():
 
     sources = load_sources()
     init_db()
-    fetch_feeds(sources)
+    articles_fetched = fetch_feeds(sources)
     generate_digest()
 
     digest = find_latest_digest()
@@ -295,13 +343,22 @@ def main():
         log("ERROR: No digest generated")
         return 1
 
-    send_email(digest)
+    if args.dry_run:
+        log(f"DRY RUN: Would send {digest.name}")
+        record_run(articles_fetched, articles_emailed=0)
+    else:
+        recipients = send_email(digest)
+        record_run(articles_fetched, articles_emailed=recipients)
+
     return 0
 
 
 if __name__ == "__main__":
     try:
         sys.exit(main())
+    except KeyboardInterrupt:
+        log("Interrupted")
+        sys.exit(130)
     except Exception as e:
-        log(f"ERROR: {e}")
+        log(f"ERROR: {type(e).__name__}: {e}")
         sys.exit(1)
