@@ -16,10 +16,6 @@ Read all CSV files from `data/claude_input/`:
 2. Only re-include if MAJOR new development - mark with [UPDATE]
 3. Same story from different sources = same story
 
-### Content
-- DO NOT fabricate beyond article summary
-- Use hedging ("reportedly", "according to") when uncertain
-
 ### User Interests
 - HIGH: geopolitics, tech/AI, privacy/surveillance
 - MEDIUM: economic policy, France/Canada specific
@@ -31,54 +27,103 @@ Read all CSV files from `data/claude_input/`:
 - Quick Signals (5-10): One-liners worth tracking
 - Target: 15-25 stories total
 
+## Writing Style
+
+Write like The Economist meets AP wire: clear, authoritative, zero fluff.
+
+### Principles
+- **Brevity**: Short sentences. Short words. Cut every unnecessary word.
+- **Inverted pyramid**: Lead with the most important fact. Details follow.
+- **Precision**: Specific over vague. "12 killed" not "many casualties."
+- **Hedging**: Use "reportedly", "according to" when not verified firsthand.
+
+### Avoid
+- Journalese clichés: "sparked concerns", "sent shockwaves", "slammed", "blasted"
+- Sensational adjectives: "explosive", "shocking", "massive", "unprecedented"
+- Passive hedging: "It is believed that" → "Officials say"
+- Editorializing: Report facts, let reader judge significance
+
+### Headlines
+- Sentence case, not title case
+- Active voice: "Russia claims village" not "Village claimed by Russia"
+- Include key actor and action
+- Tags: [TODAY] for breaking, [UPDATE] for developments on prior stories
+
+### "Why It Matters"
+- Must add genuine insight beyond the headline
+- Connect to broader trends, explain stakes, note what to watch
+- One sentence, maximum two. No filler.
+
+### Summaries
+- 2-3 sentences maximum
+- First sentence: the news (who did what)
+- Second sentence: essential context
+- DO NOT fabricate beyond article summary
+
 ## Output
 
 Write HTML to `data/output/digest-TIMESTAMP.html` (use `date -u '+%Y-%m-%d-%H%MZ'`):
 
 ```html
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
   <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>News Digest</title>
   <style>
-    body { font-family: Georgia, serif; max-width: 700px; margin: 0 auto; padding: 20px; line-height: 1.6; }
-    h1 { border-bottom: 2px solid #333; padding-bottom: 10px; }
-    h2 { color: #444; margin-top: 30px; border-bottom: 1px solid #ccc; }
-    .story { margin-bottom: 25px; }
-    .headline { font-weight: bold; font-size: 1.1em; }
-    .summary { margin: 8px 0; }
-    .why { color: #555; font-style: italic; }
-    .sources { font-size: 0.9em; color: #666; }
-    .sources a { color: #0066cc; }
-    .signal { margin: 8px 0; }
-    .signal a { color: #0066cc; }
-    .footer { margin-top: 40px; padding-top: 20px; border-top: 1px solid #ccc; font-size: 0.85em; color: #777; }
+    body { font-family: Georgia, "Times New Roman", serif; max-width: 680px; margin: 0 auto; padding: 24px 16px; line-height: 1.65; color: #1a1a1a; }
+    header { border-bottom: 3px solid #1a1a1a; padding-bottom: 12px; margin-bottom: 28px; }
+    header h1 { margin: 0; font-size: 1.75em; letter-spacing: -0.5px; }
+    header time { color: #666; font-size: 0.95em; }
+    section { margin-bottom: 32px; }
+    section > h2 { color: #1a1a1a; font-size: 1.1em; text-transform: uppercase; letter-spacing: 1px; margin: 0 0 16px 0; padding-bottom: 8px; border-bottom: 1px solid #ddd; }
+    article { margin-bottom: 24px; }
+    article h3 { margin: 0 0 6px 0; font-size: 1.05em; font-weight: 600; line-height: 1.35; }
+    article p { margin: 6px 0; font-size: 0.95em; }
+    article .why { color: #444; }
+    article .sources { font-size: 0.85em; color: #666; }
+    article .sources a { color: #1a5f7a; }
+    .signals { font-size: 0.92em; }
+    .signal { margin: 10px 0; line-height: 1.5; }
+    .signal a { color: #1a5f7a; }
+    footer { margin-top: 40px; padding-top: 16px; border-top: 1px solid #ddd; font-size: 0.8em; color: #888; }
   </style>
 </head>
 <body>
-  <h1>News Digest</h1>
-  <p>[Day], [Month] [Day], [Year]</p>
+  <header>
+    <h1>News Digest</h1>
+    <time datetime="YYYY-MM-DD">Wednesday, December 17, 2025</time>
+  </header>
 
-  <h2>Must Know</h2>
-  <div class="story">
-    <div class="headline">► HEADLINE [TODAY/BREAKING/UPDATE]</div>
-    <div class="summary">Summary paragraph...</div>
-    <div class="why">WHY IT MATTERS: ...</div>
-    <div class="sources">Sources: <a href="url">Source Name</a> (bias)</div>
-  </div>
+  <section>
+    <h2>Must Know</h2>
+    <article>
+      <h3>Headline in sentence case [TODAY]</h3>
+      <p>Summary: who did what, essential context.</p>
+      <p class="why"><strong>Why it matters:</strong> Genuine insight connecting to broader trends.</p>
+      <p class="sources"><a href="url">Source Name</a> (bias)</p>
+    </article>
+  </section>
 
-  <h2>Should Know</h2>
-  <div class="story">
-    <div class="headline">► HEADLINE</div>
-    <div class="summary">Summary...</div>
-    <div class="why">WHY IT MATTERS: ...</div>
-    <div class="sources">Sources: <a href="url">Source Name</a> (bias)</div>
-  </div>
+  <section>
+    <h2>Should Know</h2>
+    <article>
+      <h3>Headline in sentence case</h3>
+      <p>Summary paragraph.</p>
+      <p class="why"><strong>Why it matters:</strong> Analysis.</p>
+      <p class="sources"><a href="url">Source Name</a> (bias)</p>
+    </article>
+  </section>
 
-  <h2>Quick Signals</h2>
-  <div class="signal">• Signal headline — <a href="url">Source</a></div>
+  <section>
+    <h2>Quick Signals</h2>
+    <div class="signals">
+      <p class="signal">Brief headline with key fact — <a href="url">Source</a></p>
+    </div>
+  </section>
 
-  <div class="footer">Generated: YYYY-MM-DD HH:MM UTC | 28 sources</div>
+  <footer>Generated YYYY-MM-DD HH:MM UTC</footer>
 </body>
 </html>
 ```
