@@ -1,6 +1,6 @@
 # Daily News Digest
 
-Generate a personalized news digest from 28 balanced sources.
+Generate a personalized news digest from balanced sources.
 
 ## Step 1: Context
 

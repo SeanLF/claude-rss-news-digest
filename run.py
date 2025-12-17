@@ -32,38 +32,14 @@ DB_PATH = DATA_DIR / "digest.db"
 LOG_FILE = DATA_DIR / "digest.log"
 FETCHED_DIR = DATA_DIR / "fetched"
 OUTPUT_DIR = DATA_DIR / "output"
+SOURCES_FILE = APP_DIR / "sources.json"
 
-# RSS Sources: id, name, url, bias, perspective
-SOURCES = [
-    ("afp", "AFP", "https://flipboard.com/topic/fr-afp.rss", "center", "wire_service"),
-    ("al_jazeera", "Al Jazeera", "https://www.aljazeera.com/xml/rss/all.xml", "center", "middle_east"),
-    ("ap_news", "AP News", "https://rss.app/feeds/cTP1MA5Cle6LFnnc.xml", "center", "wire_service"),
-    ("ars_technica", "Ars Technica", "https://feeds.arstechnica.com/arstechnica/index", "center", "tech"),
-    ("cbc_news", "CBC News", "https://www.cbc.ca/webfeed/rss/rss-world", "center", "canadian"),
-    ("daily_maverick", "Daily Maverick", "https://www.dailymaverick.co.za/dmrss/", "center-left", "south_african"),
-    ("der_spiegel", "Der Spiegel", "https://www.spiegel.de/international/index.rss", "center-left", "german"),
-    ("financial_times", "Financial Times", "https://www.ft.com/news-feed?format=rss", "center-right", "western_finance"),
-    ("globe_and_mail", "Globe and Mail", "https://www.theglobeandmail.com/arc/outboundfeeds/rss/category/world/", "center", "canadian"),
-    ("hacker_news", "Hacker News", "https://hnrss.org/newest?points=100", "center", "tech"),
-    ("le_monde", "Le Monde", "https://www.lemonde.fr/rss/une.xml", "center", "french"),
-    ("nikkei_asia", "Nikkei Asia", "https://asia.nikkei.com/rss/feed/nar", "center-right", "japanese"),
-    ("nyt_world", "NYT World", "https://rss.nytimes.com/services/xml/rss/nyt/World.xml", "center-left", "american"),
-    ("propublica", "ProPublica", "https://www.propublica.org/feeds/propublica/main", "center-left", "investigative"),
-    ("rappler", "Rappler", "https://www.rappler.com/feed/", "center", "filipino"),
-    ("rest_of_world", "Rest of World", "https://restofworld.org/feed/latest", "center", "global_tech"),
-    ("reuters", "Reuters", "https://news.google.com/rss/search?q=site:reuters.com&hl=en-US&gl=US&ceid=US:en", "center", "wire_service"),
-    ("scmp_asia", "SCMP Asia", "https://www.scmp.com/rss/2/feed", "center", "asian"),
-    ("scmp_china", "SCMP China", "https://www.scmp.com/rss/4/feed", "center", "asian"),
-    ("scmp_world", "SCMP World", "https://www.scmp.com/rss/5/feed", "center", "asian"),
-    ("straits_times", "Straits Times", "https://www.straitstimes.com/news/world/rss.xml", "center", "singaporean"),
-    ("the_economist", "The Economist", "https://rss.app/feeds/9tqWs1xrWkLAfbEU.xml", "center-right", "western"),
-    ("the_guardian", "The Guardian", "https://www.theguardian.com/international/rss", "center-left", "western"),
-    ("the_hindu", "The Hindu", "https://www.thehindu.com/news/international/feeder/default.rss", "center", "indian"),
-    ("the_intercept", "The Intercept", "https://theintercept.com/feed/?rss", "left", "investigative"),
-    ("the_verge", "The Verge", "https://www.theverge.com/rss/index.xml", "center-left", "tech"),
-    ("washington_post", "Washington Post", "https://feeds.washingtonpost.com/rss/world", "center-left", "american"),
-    ("wsj_world", "WSJ World", "https://feeds.content.dowjones.io/public/rss/RSSWorldNews", "center-right", "american"),
-]
+
+def load_sources() -> list[dict]:
+    """Load RSS sources from JSON file."""
+    with open(SOURCES_FILE) as f:
+        return json.load(f)
+
 
 # =============================================================================
 # Utilities
@@ -80,12 +56,21 @@ def log(message: str):
 
 
 def check_internet() -> bool:
-    """Check if Anthropic API is reachable."""
+    """Check internet connectivity via Cloudflare."""
     try:
-        urllib.request.urlopen("https://api.anthropic.com", timeout=10)
+        urllib.request.urlopen("http://1.1.1.1", timeout=5)
         return True
     except (urllib.error.URLError, TimeoutError):
         return False
+
+
+def validate_env():
+    """Check required environment variables. Exit if missing."""
+    required = ["ANTHROPIC_API_KEY", "SMTP_USER", "SMTP_PASS", "DIGEST_EMAIL"]
+    missing = [var for var in required if not os.environ.get(var)]
+    if missing:
+        log(f"ERROR: Missing environment variables: {', '.join(missing)}")
+        sys.exit(1)
 
 
 # =============================================================================
@@ -156,11 +141,11 @@ def parse_date(date_str: str | None) -> datetime | None:
         return None
 
 
-def fetch_source(source: tuple, timeout: int = 15) -> tuple[str, list[dict]]:
+def fetch_source(source: dict, timeout: int = 15) -> tuple[str, list[dict]]:
     """Fetch single RSS source. Returns (source_id, articles)."""
-    source_id, name, url, bias, perspective = source
+    source_id = source["id"]
     try:
-        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+        req = urllib.request.Request(source["url"], headers={"User-Agent": "Mozilla/5.0"})
         with urllib.request.urlopen(req, timeout=timeout) as response:
             data = response.read()
         feed = feedparser.parse(data)
@@ -170,7 +155,6 @@ def fetch_source(source: tuple, timeout: int = 15) -> tuple[str, list[dict]]:
 
         articles = []
         for entry in feed.entries:
-            # Get published date
             published = entry.get("published_parsed") or entry.get("updated_parsed")
             if published:
                 try:
@@ -197,9 +181,9 @@ def fetch_source(source: tuple, timeout: int = 15) -> tuple[str, list[dict]]:
         return source_id, []
 
 
-def fetch_feeds():
+def fetch_feeds(sources: list[dict]):
     """Fetch all RSS feeds in parallel."""
-    log(f"Fetching {len(SOURCES)} RSS feeds...")
+    log(f"Fetching {len(sources)} RSS feeds...")
 
     last_run = get_last_run_time()
     if last_run:
@@ -211,14 +195,15 @@ def fetch_feeds():
 
     results = {}
     with ThreadPoolExecutor(max_workers=10) as executor:
-        futures = {executor.submit(fetch_source, s): s for s in SOURCES}
+        futures = {executor.submit(fetch_source, s): s for s in sources}
         for future in as_completed(futures):
             source_id, articles = future.result()
             results[source_id] = articles
 
     # Filter by date and save
     total = 0
-    for source_id, name, url, bias, perspective in SOURCES:
+    for source in sources:
+        source_id = source["id"]
         articles = results.get(source_id, [])
         if last_run:
             articles = [a for a in articles if not parse_date(a.get("published")) or parse_date(a.get("published")) > last_run]
@@ -230,14 +215,14 @@ def fetch_feeds():
     # Save metadata
     metadata = {
         "fetched_at": datetime.now(timezone.utc).isoformat(),
-        "sources_count": len(SOURCES),
+        "sources_count": len(sources),
         "total_articles": total,
-        "sources": {s[0]: {"name": s[1], "bias": s[3], "perspective": s[4]} for s in SOURCES},
+        "sources": {s["id"]: {"name": s["name"], "bias": s["bias"], "perspective": s["perspective"]} for s in sources},
     }
     with open(FETCHED_DIR / "_metadata.json", "w") as f:
         json.dump(metadata, f, indent=2)
 
-    log(f"Fetched {total} articles from {len(SOURCES)} sources")
+    log(f"Fetched {total} articles from {len(sources)} sources")
 
 
 # =============================================================================
@@ -267,14 +252,9 @@ def send_email(digest_path: Path):
     """Send digest via SMTP."""
     smtp_host = os.environ.get("SMTP_HOST", "smtp.gmail.com")
     smtp_port = int(os.environ.get("SMTP_PORT", "587"))
-    smtp_user = os.environ.get("SMTP_USER")
-    smtp_pass = os.environ.get("SMTP_PASS")
-    to_emails = os.environ.get("DIGEST_EMAIL", "")
-    recipients = [e.strip() for e in to_emails.split(",") if e.strip()]
-
-    if not all([smtp_user, smtp_pass]) or not recipients:
-        log("Missing SMTP_USER, SMTP_PASS, or DIGEST_EMAIL")
-        return
+    smtp_user = os.environ["SMTP_USER"]
+    smtp_pass = os.environ["SMTP_PASS"]
+    recipients = [e.strip() for e in os.environ["DIGEST_EMAIL"].split(",")]
 
     content = digest_path.read_text()
     date_str = datetime.now(timezone.utc).strftime("%B %d, %Y")
@@ -299,12 +279,15 @@ def send_email(digest_path: Path):
 
 def main():
     """Run full digest pipeline."""
+    validate_env()
+
     if not check_internet():
         log("No internet connection, skipping")
         return 0
 
+    sources = load_sources()
     init_db()
-    fetch_feeds()
+    fetch_feeds(sources)
     generate_digest()
 
     digest = find_latest_digest()

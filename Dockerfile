@@ -15,7 +15,7 @@ RUN pip install --no-cache-dir feedparser
 WORKDIR /app
 
 # Copy application
-COPY run.py ./
+COPY run.py sources.json ./
 COPY claude-config/ /root/.claude/
 
 # Create data directory
