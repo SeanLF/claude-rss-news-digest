@@ -113,13 +113,23 @@ CREATE INDEX IF NOT EXISTS idx_digest_runs_date ON digest_runs(run_at);
 
 
 def init_db():
-    """Initialize database if it doesn't exist."""
-    if DB_PATH.exists():
-        return
-    log("Initializing database...")
+    """Initialize or migrate database."""
     DATA_DIR.mkdir(exist_ok=True)
+
     with sqlite3.connect(DB_PATH) as conn:
+        # Create tables if they don't exist
         conn.executescript(DB_SCHEMA)
+
+        # Migrate: add articles_emailed if missing (old schema had different columns)
+        cursor = conn.execute("PRAGMA table_info(digest_runs)")
+        columns = {row[1] for row in cursor.fetchall()}
+
+        if "articles_emailed" not in columns:
+            log("Migrating database: adding articles_emailed column...")
+            conn.execute("ALTER TABLE digest_runs ADD COLUMN articles_emailed INTEGER DEFAULT 0")
+
+        # Migrate: remove old unused columns by ignoring them (SQLite can't drop columns easily)
+        # Old columns (timezone, narratives_presented) will just be ignored
 
 
 def get_last_run_time() -> datetime | None:
