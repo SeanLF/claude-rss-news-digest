@@ -305,16 +305,6 @@ def fetch_feeds(sources: list[dict]) -> int:
             json.dump(articles, f, indent=2)
         total += len(articles)
 
-    # Save metadata
-    metadata = {
-        "fetched_at": datetime.now(timezone.utc).isoformat(),
-        "sources_count": len(sources),
-        "total_articles": total,
-        "sources": {s["id"]: {"name": s["name"], "bias": s["bias"], "perspective": s["perspective"]} for s in sources},
-    }
-    with open(FETCHED_DIR / "_metadata.json", "w") as f:
-        json.dump(metadata, f, indent=2)
-
     log(f"Fetched {total} articles from {len(sources)} sources")
     return total
 
@@ -324,21 +314,32 @@ def fetch_feeds(sources: list[dict]) -> int:
 # =============================================================================
 
 def prepare_claude_input(sources: list[dict]) -> Path:
-    """Prepare input.json for Claude with previous headlines only (articles stay in fetched/)."""
+    """Prepare input.json for Claude with everything needed."""
     # Get previous headlines for deduplication
     previous_headlines = get_previous_headlines(days=7)
 
-    # Slim input - just dedup data, Claude reads articles from fetched/*.json
+    # Load all fetched articles into one structure
+    articles = {}
+    for source in sources:
+        source_file = FETCHED_DIR / f"{source['id']}.json"
+        if source_file.exists():
+            with open(source_file) as f:
+                articles[source["id"]] = json.load(f)
+
+    # Build consolidated input
     input_data = {
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "previous_headlines": previous_headlines,
+        "sources": {s["id"]: {"name": s["name"], "bias": s["bias"], "perspective": s["perspective"]} for s in sources},
+        "articles": articles,
     }
 
     input_file = DATA_DIR / "input.json"
     with open(input_file, "w") as f:
-        json.dump(input_data, f, indent=2)
+        json.dump(input_data, f)  # No indent - smaller file
 
-    log(f"Prepared input.json: {len(previous_headlines)} previous headlines")
+    total_articles = sum(len(a) for a in articles.values())
+    log(f"Prepared input.json: {len(previous_headlines)} previous headlines, {total_articles} articles")
     return input_file
 
 
