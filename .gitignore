@@ -1,0 +1,18 @@
+# Secrets
+.env
+
+# Generated output
+digest-*.html
+digest-*.txt
+
+# Runtime data
+digest.db
+digest.log
+fetched/
+
+# macOS
+.DS_Store
+
+# Python
+__pycache__/
+*.pyc

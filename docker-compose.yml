@@ -1,0 +1,10 @@
+services:
+  news-digest:
+    image: anthropic/claude-code:latest
+    environment:
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+    volumes:
+      - .:/workspace
+      - ./claude-config:/root/.claude
+    working_dir: /workspace
+    command: ["--print", "-p", "/news-digest"]
