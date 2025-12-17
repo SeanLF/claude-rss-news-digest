@@ -22,10 +22,9 @@ Read all CSV files from `data/claude_input/`:
 - FILTER: celebrity, sports, lifestyle, US domestic (unless international)
 
 ### Tiers
-- Must Know (2-4): Stories you'd be embarrassed not to know
-- Should Know (3-6): Important but not urgent
-- Quick Signals (5-10): One-liners worth tracking
-- Target: 15-25 stories total
+- Must Know: Stories you'd be embarrassed not to know
+- Should Know: Important but not urgent
+- Quick Signals: One-liners worth tracking
 
 ## Writing Style
 
@@ -47,7 +46,7 @@ Write like The Economist meets AP wire: clear, authoritative, zero fluff.
 - Sentence case, not title case
 - Active voice: "Russia claims village" not "Village claimed by Russia"
 - Include key actor and action
-- Tags: [TODAY] for breaking, [UPDATE] for developments on prior stories
+- Tag: [UPDATE] only for developments on previously covered stories (check headlines.csv)
 
 ### "Why It Matters"
 - Must add genuine insight beyond the headline
@@ -70,36 +69,23 @@ Write HTML to `data/output/digest-TIMESTAMP.html` (use `date -u '+%Y-%m-%d-%H%MZ
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>News Digest</title>
-  <style>
-    body { font-family: Georgia, "Times New Roman", serif; max-width: 680px; margin: 0 auto; padding: 24px 16px; line-height: 1.65; color: #1a1a1a; }
-    header { border-bottom: 3px solid #1a1a1a; padding-bottom: 12px; margin-bottom: 28px; }
-    header h1 { margin: 0; font-size: 1.75em; letter-spacing: -0.5px; }
-    header time { color: #666; font-size: 0.95em; }
-    section { margin-bottom: 32px; }
-    section > h2 { color: #1a1a1a; font-size: 1.1em; text-transform: uppercase; letter-spacing: 1px; margin: 0 0 16px 0; padding-bottom: 8px; border-bottom: 1px solid #ddd; }
-    article { margin-bottom: 24px; }
-    article h3 { margin: 0 0 6px 0; font-size: 1.05em; font-weight: 600; line-height: 1.35; }
-    article p { margin: 6px 0; font-size: 0.95em; }
-    article .why { color: #444; }
-    article .sources { font-size: 0.85em; color: #666; }
-    article .sources a { color: #1a5f7a; }
-    .signals { font-size: 0.92em; }
-    .signal { margin: 10px 0; line-height: 1.5; }
-    .signal a { color: #1a5f7a; }
-    footer { margin-top: 40px; padding-top: 16px; border-top: 1px solid #ddd; font-size: 0.8em; color: #888; }
-  </style>
+  <title>News Digest – [Mon] [DD], [YYYY]</title>
+  <style>:root{--bg:#fafafa;--text:#1a1a1a;--text-secondary:#555;--text-muted:#777;--border:#ddd;--accent:#c45a3b;--accent-muted:#d4897a;--link:#1a5f7a;--tag-bg:#c45a3b;--tag-text:#fff}@media(prefers-color-scheme:dark){:root{--bg:#141414;--text:#e8e8e8;--text-secondary:#b0b0b0;--text-muted:#888;--border:#2a2a2a;--accent:#e07a5f;--accent-muted:#c45a3b;--link:#7cc5e3;--tag-bg:#e07a5f;--tag-text:#141414}}body{font-family:Georgia,"Times New Roman",serif;max-width:600px;margin:0 auto;padding:24px 16px;line-height:1.75;color:var(--text);background:var(--bg);font-size:18px}@media(min-width:768px){body{max-width:820px;font-size:20px;padding:40px 32px}}header{border-left:4px solid var(--accent);padding-left:16px;margin-bottom:32px}header time{font-size:1.4em;font-weight:700;letter-spacing:-0.5px;display:block}header .stats{color:var(--text-muted);font-size:0.85em;margin-top:4px}.summary{background:var(--border);padding:16px 20px;margin-bottom:32px;font-size:0.92em;line-height:1.6}.summary strong{color:var(--accent)}section{margin-bottom:36px}section>h2{color:var(--accent);font-size:0.75em;font-weight:600;text-transform:uppercase;letter-spacing:2px;margin:0 0 20px 0;padding-bottom:8px;border-bottom:1px solid var(--border)}article{margin-bottom:28px}article h3{margin:0 0 8px 0;font-size:1.1em;font-weight:600;line-height:1.4}article p{margin:8px 0;font-size:0.95em}article .why{color:var(--text-secondary);border-left:2px solid var(--accent-muted);padding-left:12px;margin:12px 0}article .sources{font-size:0.8em;color:var(--text-muted);margin-top:10px}article .sources a{color:var(--link);text-decoration:none}.signals{font-size:0.9em}.signal{margin:12px 0;padding-left:16px;position:relative;line-height:1.5;color:var(--text-secondary)}.signal::before{content:"•";position:absolute;left:0;color:var(--accent)}.signal a{color:var(--link);text-decoration:none}footer{margin-top:48px;padding-top:16px;border-top:1px solid var(--border);font-size:0.75em;color:var(--text-muted)}</style>
 </head>
 <body>
   <header>
-    <h1>News Digest</h1>
-    <time datetime="YYYY-MM-DD">Wednesday, December 17, 2025</time>
+    <time datetime="YYYY-MM-DDTHH:MMZ">[Weekday], [Month] [DD], [YYYY] · HH:MM UTC</time>
+    <div class="stats">[N] articles from [N] sources → [N] stories</div>
   </header>
+
+  <div class="summary">
+    <strong>Today:</strong> [1-line summary of Must Know stories]. <strong>Also:</strong> [1-line summary of Should Know stories].
+  </div>
 
   <section>
     <h2>Must Know</h2>
     <article>
-      <h3>Headline in sentence case [TODAY]</h3>
+      <h3>Headline in sentence case [UPDATE]</h3>
       <p>Summary: who did what, essential context.</p>
       <p class="why"><strong>Why it matters:</strong> Genuine insight connecting to broader trends.</p>
       <p class="sources"><a href="url">Source Name</a> (bias)</p>

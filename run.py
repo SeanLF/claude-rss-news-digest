@@ -476,6 +476,7 @@ def send_email(digest_path: Path) -> int:
     smtp_user = os.environ["SMTP_USER"]
     smtp_pass = os.environ["SMTP_PASS"]
     smtp_from = os.environ.get("SMTP_FROM", smtp_user)  # Separate From address (for iCloud etc)
+    digest_name = os.environ.get("DIGEST_NAME", "News Digest")  # Display name for From/Subject
     recipients = [e.strip() for e in os.environ["DIGEST_EMAIL"].split(",")]
 
     content = digest_path.read_text()
@@ -483,8 +484,8 @@ def send_email(digest_path: Path) -> int:
     is_html = digest_path.suffix == ".html"
 
     msg = MIMEMultipart("alternative")
-    msg["Subject"] = f"News Digest - {date_str}"
-    msg["From"] = smtp_from
+    msg["Subject"] = f"{digest_name} – {date_str}"
+    msg["From"] = f"{digest_name} <{smtp_from}>"
     msg["To"] = ", ".join(recipients)
 
     if is_html:
