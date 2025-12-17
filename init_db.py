@@ -4,7 +4,8 @@
 import sqlite3
 from pathlib import Path
 
-DB_PATH = Path(__file__).parent / "digest.db"
+DATA_DIR = Path(__file__).parent / "data"
+DB_PATH = DATA_DIR / "digest.db"
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS sources (
@@ -72,6 +73,7 @@ SOURCES = [
 
 def init_db():
     """Create database and seed with sources."""
+    DATA_DIR.mkdir(exist_ok=True)
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
 

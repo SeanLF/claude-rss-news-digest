@@ -1,13 +1,8 @@
 # Secrets
 .env
 
-# Generated output
-output/
-
 # Runtime data
-digest.db
-digest.log
-fetched/
+data/
 
 # macOS
 .DS_Store

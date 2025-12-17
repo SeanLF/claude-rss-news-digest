@@ -1,23 +1,19 @@
-# Daily News Digest (Plain Text)
+# Daily News Digest
 
-Generate a personalized news digest from 28 balanced sources. Output plain text for email.
+Generate a personalized news digest from 28 balanced sources.
 
-## Step 1: Fetch & Context
-
-```bash
-cd /workspace && python3 fetch_feeds.py
-```
+## Step 1: Context
 
 Get previously shown narratives (CRITICAL for deduplication):
 ```bash
-sqlite3 /workspace/digest.db "SELECT date(shown_at) as date, tier, headline FROM shown_narratives WHERE shown_at > datetime('now', '-7 days') ORDER BY shown_at DESC;"
+sqlite3 /app/data/digest.db "SELECT date(shown_at) as date, tier, headline FROM shown_narratives WHERE shown_at > datetime('now', '-7 days') ORDER BY shown_at DESC;"
 ```
 
 ## Step 2: Process & Generate
 
 ### Reading Sources
-1. Read `fetched/_metadata.json` for source info
-2. Read ALL JSON files from `fetched/`
+1. Read `/app/data/fetched/_metadata.json` for source info
+2. Read ALL JSON files from `/app/data/fetched/`
 
 **Article JSON structure**: `{title, url, published, summary}`
 **Source metadata**: `_metadata.json` has `sources[source_id] = {name, bias, perspective}`
@@ -50,13 +46,17 @@ Get UTC timestamp:
 date -u '+%Y-%m-%d-%H%MZ'
 ```
 
-Write to `/workspace/output/digest-YYYY-MM-DD-HHMMZ.txt` using this format:
+Ensure output directory exists:
+```bash
+mkdir -p /app/data/output
+```
+
+Write to `/app/data/output/digest-YYYY-MM-DD-HHMMZ.txt`:
 
 ```
 NEWS DIGEST
 ===========
 [Day], [Month] [Day], [Year]
-~10 min read
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 MUST KNOW
@@ -66,12 +66,6 @@ MUST KNOW
   Summary paragraph...
 
   WHY IT MATTERS: Significance and second-order effects...
-
-  HOW IT AFFECTS YOU: Personal implications if applicable...
-
-  REPORTING VARIES:
-  • WSJ: Frames as...
-  • Guardian: Emphasizes...
 
   Sources: Source Name (bias) <url>
 
@@ -91,7 +85,6 @@ QUICK SIGNALS
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 • Signal headline — Source <url>
-• Signal headline — Source <url>
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 Generated: YYYY-MM-DD HH:MM UTC | 28 sources
@@ -100,12 +93,12 @@ Generated: YYYY-MM-DD HH:MM UTC | 28 sources
 ## Step 4: Record
 
 ```bash
-sqlite3 /workspace/digest.db "INSERT INTO digest_runs (timezone, articles_fetched, narratives_presented) VALUES ('UTC', [N], [M]);"
+sqlite3 /app/data/digest.db "INSERT INTO digest_runs (timezone, articles_fetched, narratives_presented) VALUES ('UTC', [N], [M]);"
 ```
 
 Record shown narratives:
 ```bash
-sqlite3 /workspace/digest.db "INSERT INTO shown_narratives (headline, tier, shown_at) VALUES
+sqlite3 /app/data/digest.db "INSERT INTO shown_narratives (headline, tier, shown_at) VALUES
 ('[Headline 1]', 'must_know', datetime('now')),
 ...;"
 ```

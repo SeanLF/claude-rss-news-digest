@@ -1,4 +1,0 @@
-# News Digest - runs daily at 07:00 UTC
-# Add with: crontab -e
-
-0 7 * * * /Users/sean/Developer/news-digest/run-digest.sh 2>&1

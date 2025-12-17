@@ -14,7 +14,7 @@ Automated daily news digest powered by Claude. Fetches from 28 balanced RSS sour
 
 ```
 ┌─────────────┐     ┌─────────────┐     ┌─────────────┐
-│  RSS Feeds  │────▶│ fetch_feeds │────▶│  fetched/   │
+│  RSS Feeds  │────▶│ fetch_feeds │────▶│data/fetched/│
 │  (28 src)   │     │   .py       │     │  *.json     │
 └─────────────┘     └─────────────┘     └──────┬──────┘
                                                │
@@ -24,8 +24,8 @@ Automated daily news digest powered by Claude. Fetches from 28 balanced RSS sour
 └─────────────┘     └─────────────┘     └──────┬──────┘
                                                │
                                         ┌──────▼──────┐
-                                        │  digest.db  │
-                                        │  (SQLite)   │
+                                        │data/digest  │
+                                        │    .db      │
                                         └─────────────┘
 ```
 
@@ -33,8 +33,7 @@ Automated daily news digest powered by Claude. Fetches from 28 balanced RSS sour
 
 ### Prerequisites
 
-- [OrbStack](https://orbstack.dev/) (or Docker Desktop)
-- Python 3.9+ with `uv` package manager
+- Docker (OrbStack, Docker Desktop, or native)
 - Anthropic API key
 
 ### Configuration
@@ -71,45 +70,49 @@ Add to crontab (`crontab -e`):
 
 ```bash
 # Daily at 07:00 UTC (adjust for your timezone)
-0 7 * * * /Users/sean/Developer/news-digest/run-digest.sh 2>&1
+0 7 * * * /path/to/news-digest/run-digest.sh >> /path/to/news-digest/data/cron.log 2>&1
 ```
 
-The script handles:
+The container handles:
 - Internet connectivity check (skips if offline)
-- OrbStack lifecycle (starts if needed, stops after if it wasn't running)
-- Logging to `digest.log`
+- Database initialization on first run
+- Logging to `data/digest.log`
 
 ## Manual Run
 
 ```bash
-# Interactive (with Claude Code locally)
-claude -p /news-digest
-
-# Via Docker
+# Via Docker (recommended)
 ./run-digest.sh
+
+# Interactive (with Claude Code locally installed)
+cd /path/to/news-digest && uv run python fetch_feeds.py
+claude -p /news-digest
 ```
 
 ## File Structure
 
 ```
 news-digest/
+├── Dockerfile              # Container build (Python + Claude CLI)
+├── docker-compose.yml      # Container orchestration
+├── entrypoint.sh           # Container entrypoint (runs full pipeline)
+├── run-digest.sh           # Host entry script (loads .env, runs container)
 ├── fetch_feeds.py          # RSS fetcher
 ├── send_email.py           # SMTP sender
-├── run-digest.sh           # Cron entry script
-├── docker-compose.yml      # Claude Code container
-├── digest.db               # SQLite (runs, shown narratives)
-├── digest.css              # Styles (for HTML output)
+├── init_db.py              # Database schema initialization
 ├── .env                    # Configuration (git-ignored)
 ├── .env.example            # Config template
-├── fetched/                # RSS JSON cache
-│   ├── _metadata.json      # Source names, bias, perspective
-│   └── *.json              # Per-source articles
 ├── claude-config/          # Claude config for Docker
 │   └── commands/
-│       └── news-digest.md  # Slash command (plain text version)
-└── output/                 # Generated digests (gitignored)
-    ├── digest-*.html       # HTML (local runs)
-    └── digest-*.txt        # Plain text (Docker/email)
+│       └── news-digest.md  # Slash command definition
+└── data/                   # All runtime data (git-ignored)
+    ├── digest.db           # SQLite (runs, shown narratives)
+    ├── digest.log          # Execution logs
+    ├── fetched/            # RSS JSON cache
+    │   ├── _metadata.json  # Source names, bias, perspective
+    │   └── *.json          # Per-source articles
+    └── output/             # Generated digests
+        └── digest-*.txt    # Plain text digests
 ```
 
 ## Sources (28)
@@ -138,20 +141,17 @@ news-digest/
 
 ## Key Design Decisions
 
-### Plain Text Email
-HTML digests were large and bloated conversation context. Plain text is:
-- Smaller (better for Claude's context)
-- Readable everywhere
-- Simpler to generate
+### Plain Text Only
+HTML digests bloated Claude's context window. Plain text is smaller, readable everywhere, and simpler to generate.
 
 ### 7-Day Deduplication
 Headlines are stored in SQLite and checked against new articles. Stories only repeat if there's a major development (marked [UPDATE]).
 
-### OrbStack Lifecycle
-Script detects if OrbStack was running before execution. If not, it starts it and stops it after - preserving system resources when not in use.
+### Docker-First
+Everything runs in a single container - Python, feedparser, Claude CLI. No local dependencies beyond Docker. Works on macOS, Linux, or cloud.
 
 ### Internet Check
-Pings Anthropic API before running. If offline, exits cleanly without error - useful when traveling or on spotty connections.
+Container pings Anthropic API before running. If offline, exits cleanly - useful when traveling or on spotty connections.
 
 ### Tiered Output
 - **Must Know (2-4)**: Stories you'd be embarrassed not to know
@@ -161,21 +161,21 @@ Pings Anthropic API before running. If offline, exits cleanly without error - us
 ## Troubleshooting
 
 ### "No digest generated"
-- Check `digest.log` for errors
-- Verify `ANTHROPIC_API_KEY` is set
+- Check `data/digest.log` for errors
+- Verify `ANTHROPIC_API_KEY` is set in `.env`
 - Try running manually: `./run-digest.sh`
-
-### OrbStack won't start
-- Check if OrbStack is installed: `ls /Applications/OrbStack.app`
-- Try starting manually: `open -a OrbStack`
 
 ### Email not sending
 - Verify SMTP credentials in `.env`
 - For Gmail, ensure you're using an App Password (not regular password)
-- Check `digest.log` for SMTP errors
+- Check `data/digest.log` for SMTP errors
 
 ### Stale/repeated stories
-- Check `digest.db` for recent entries:
+- Check database for recent entries:
   ```bash
-  sqlite3 digest.db "SELECT * FROM shown_narratives ORDER BY shown_at DESC LIMIT 20;"
+  sqlite3 data/digest.db "SELECT * FROM shown_narratives ORDER BY shown_at DESC LIMIT 20;"
   ```
+
+### Container build issues
+- Rebuild without cache: `docker compose build --no-cache`
+- Check Docker is running: `docker info`

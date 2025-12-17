@@ -12,10 +12,9 @@ from pathlib import Path
 
 import feedparser
 
-DB_PATH = Path(__file__).parent / "digest.db"
-
-# Output directory
-OUTPUT_DIR = Path(__file__).parent / "fetched"
+DATA_DIR = Path(__file__).parent / "data"
+DB_PATH = DATA_DIR / "digest.db"
+OUTPUT_DIR = DATA_DIR / "fetched"
 
 
 def get_last_run_time() -> datetime | None:
