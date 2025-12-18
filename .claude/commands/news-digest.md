@@ -7,7 +7,7 @@ Generate a personalized news digest from CSV input files.
 **CRITICAL: You MUST read EVERY file listed below. Do NOT skip any article files. Read ALL of them before generating the digest.**
 
 Read all CSV files from `data/claude_input/`:
-- `headlines.csv` - Previous headlines (DO NOT repeat these)
+- `previously_shown.csv` - Headlines shown in last 7 days (DO NOT repeat these)
 - `sources.csv` - Source metadata (id, name, bias, perspective)
 - `articles_*.csv` - Articles split across files (source_id, title, url, published, summary)
 
@@ -16,7 +16,7 @@ Read all CSV files from `data/claude_input/`:
 ## Processing Rules
 
 ### Deduplication (CRITICAL)
-1. DO NOT repeat stories from headlines.csv
+1. DO NOT repeat stories from previously_shown.csv
 2. Only re-include if MAJOR new development - mark with [UPDATE]
 3. Same story from different sources = same story
 
@@ -54,7 +54,7 @@ Write like The Economist meets AP wire: clear, authoritative, zero fluff.
 - Sentence case, not title case
 - Active voice: "Russia claims village" not "Village claimed by Russia"
 - Include key actor and action
-- Tag: [UPDATE] only for developments on previously covered stories (check headlines.csv)
+- Tag: [UPDATE] only for developments on previously covered stories (check previously_shown.csv)
 
 ### "Why It Matters"
 - Must add genuine insight beyond the headline

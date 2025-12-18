@@ -67,8 +67,8 @@ python run.py --dry-run
 Located at `.claude/commands/news-digest.md` (copied to Docker container at build time).
 
 When invoked, Claude must:
-1. Read ALL CSV files from `data/claude_input/` (headlines.csv, sources.csv, articles_*.csv)
-2. Deduplicate against headlines.csv
+1. Read ALL CSV files from `data/claude_input/` (previously_shown.csv, sources.csv, articles_*.csv)
+2. Deduplicate against previously_shown.csv
 3. Generate HTML digest with tiers: Must Know, Should Know, Quick Signals, Below the Fold
 4. Write to `data/output/digest-TIMESTAMP.html`
 5. Write shown headlines to `data/shown_headlines.json`

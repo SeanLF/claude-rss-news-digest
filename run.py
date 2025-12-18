@@ -116,7 +116,7 @@ def validate_env(dry_run: bool = False):
 DB_SCHEMA = """
 CREATE TABLE IF NOT EXISTS digest_runs (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    run_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    run_at DATETIME DEFAULT (datetime('now', 'utc')),
     articles_fetched INTEGER,
     articles_emailed INTEGER
 );
@@ -125,7 +125,7 @@ CREATE TABLE IF NOT EXISTS shown_narratives (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     headline TEXT NOT NULL,
     tier TEXT,
-    shown_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    shown_at DATETIME DEFAULT (datetime('now', 'utc'))
 );
 
 CREATE INDEX IF NOT EXISTS idx_shown_narratives_date ON shown_narratives(shown_at);
@@ -146,8 +146,14 @@ def init_db():
         columns = {row[1] for row in cursor.fetchall()}
 
         if "articles_emailed" not in columns:
-            log("Migrating database: adding articles_emailed column...")
-            conn.execute("ALTER TABLE digest_runs ADD COLUMN articles_emailed INTEGER DEFAULT 0")
+            try:
+                log("Migrating database: adding articles_emailed column...")
+                conn.execute("ALTER TABLE digest_runs ADD COLUMN articles_emailed INTEGER DEFAULT 0")
+                conn.commit()
+            except sqlite3.Error as e:
+                log(f"Migration failed: {e}")
+                conn.rollback()
+                raise
 
         # Migrate: remove old unused columns by ignoring them (SQLite can't drop columns easily)
         # Old columns (timezone, narratives_presented) will just be ignored
@@ -324,8 +330,8 @@ def fetch_feeds(sources: list[dict]) -> int:
 # =============================================================================
 
 def estimate_tokens(text: str) -> int:
-    """Estimate token count (~3.5 chars/token for mixed content)."""
-    return len(text) // 3
+    """Estimate token count (~4 chars/token for CSV with URLs)."""
+    return len(text) // 4
 
 
 def strip_html(text: str) -> str:
@@ -337,6 +343,11 @@ def strip_html(text: str) -> str:
 
 
 MAX_TOKENS_PER_FILE = 10000  # Conservative limit for Claude Code file reading
+MAX_TITLE_LENGTH = 500  # Cap title length for safety
+MAX_SUMMARY_LENGTH = 200  # Cap summary length
+
+# Set CSV field size limit to prevent memory issues with malformed feeds
+csv.field_size_limit(1_000_000)  # 1MB max
 
 
 def prepare_claude_input(sources: list[dict]) -> list[Path]:
@@ -349,9 +360,9 @@ def prepare_claude_input(sources: list[dict]) -> list[Path]:
     # Get previous headlines for deduplication
     previous_headlines = get_previous_headlines(days=7)
 
-    # Write previous headlines CSV
-    headlines_file = CLAUDE_INPUT_DIR / "headlines.csv"
-    with open(headlines_file, "w", newline="") as f:
+    # Write previous headlines CSV (for deduplication - Claude should not repeat these)
+    previously_shown_file = CLAUDE_INPUT_DIR / "previously_shown.csv"
+    with open(previously_shown_file, "w", newline="") as f:
         writer = csv.writer(f)
         writer.writerow(["headline", "tier", "date"])
         for h in previous_headlines:
@@ -373,12 +384,14 @@ def prepare_claude_input(sources: list[dict]) -> list[Path]:
             with open(source_file) as sf:
                 articles = json.load(sf)
             for a in articles:
-                summary = strip_html(a.get("summary") or "")[:200]
-                title = strip_html(a.get("title") or "")
+                # Strip HTML, escape for safety, and cap lengths
+                title = html.escape(strip_html(a.get("title") or ""))[:MAX_TITLE_LENGTH]
+                summary = html.escape(strip_html(a.get("summary") or ""))[:MAX_SUMMARY_LENGTH]
+                url = a.get("url", "")[:2000]  # Cap URL length too
                 all_articles.append([
                     source["id"],
                     title,
-                    a.get("url", ""),
+                    url,
                     a.get("published", ""),
                     summary
                 ])
@@ -450,10 +463,16 @@ def generate_digest():
         text=True,
         bufsize=1  # Line buffered
     )
-    # Stream output in real-time
-    for line in process.stdout:
-        print(line, end="", flush=True)
-    process.wait()
+    try:
+        # Stream output in real-time
+        for line in process.stdout:
+            print(line, end="", flush=True)
+        process.wait()
+    finally:
+        # Ensure process is cleaned up even on interrupt
+        if process.poll() is None:
+            process.terminate()
+            process.wait(timeout=5)
     if process.returncode != 0:
         raise RuntimeError(f"Claude failed with code {process.returncode}")
 
@@ -500,8 +519,12 @@ def send_email(digest_path: Path) -> int:
             server.sendmail(smtp_user, recipients, msg.as_string())
         log(f"Sent to {', '.join(recipients)}")
         return len(recipients)
+    except smtplib.SMTPAuthenticationError:
+        log("SMTP error: Authentication failed - check SMTP_USER and SMTP_PASS")
+        raise
     except smtplib.SMTPException as e:
-        log(f"SMTP error: {e}")
+        # Sanitize error to avoid leaking credentials
+        log(f"SMTP error: {type(e).__name__} - check SMTP settings")
         raise
 
 
@@ -530,8 +553,11 @@ def send_test_email() -> int:
             server.sendmail(smtp_user, recipients, msg.as_string())
         log(f"Test email sent to {', '.join(recipients)}")
         return 0
+    except smtplib.SMTPAuthenticationError:
+        log("SMTP error: Authentication failed - check SMTP_USER and SMTP_PASS")
+        return 1
     except smtplib.SMTPException as e:
-        log(f"SMTP error: {e}")
+        log(f"SMTP error: {type(e).__name__} - check SMTP settings")
         return 1
 
 
@@ -570,10 +596,15 @@ def main():
 
     if args.dry_run:
         log(f"DRY RUN: Would send {digest.name}")
-        # Don't record to DB on dry run - would break deduplication
+        # Clean up shown_headlines.json if it exists (dry run shouldn't leave artifacts)
+        headlines_file = DATA_DIR / "shown_headlines.json"
+        if headlines_file.exists():
+            headlines_file.unlink()
     else:
-        # Only record shown headlines and run on actual send
+        # Record shown headlines and send email
         shown_headlines = read_shown_headlines()
+        if not shown_headlines:
+            log("WARNING: No headlines recorded - Claude may not have generated shown_headlines.json")
         record_shown_headlines(shown_headlines)
         recipients = send_email(digest)
         record_run(articles_fetched, articles_emailed=recipients)

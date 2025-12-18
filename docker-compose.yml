@@ -7,6 +7,8 @@ services:
       - SMTP_PORT
       - SMTP_USER
       - SMTP_PASS
+      - SMTP_FROM
       - DIGEST_EMAIL
+      - DIGEST_NAME
     volumes:
       - ./data:/app/data
