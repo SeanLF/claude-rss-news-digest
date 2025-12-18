@@ -67,13 +67,19 @@ DIGEST_NAME=Your Daily Digest  # Display name
 # Set environment variables
 source .env  # Or export them manually
 
-# Run the digest
+# Full run: fetch, generate, email, record
 python run.py
 
-# Dry run (no email)
+# Dry run (no email, no DB record)
 python run.py --dry-run
 
-# Test email only
+# Generate and record, but skip email
+python run.py --no-email
+
+# Generate and email, but skip DB record
+python run.py --no-record
+
+# Test SMTP config
 python run.py --test-email
 ```
 
@@ -162,6 +168,9 @@ Everything runs in a single container for cron jobs. For interactive use, run lo
 
 ### Internet Check
 Pipeline checks connectivity before running. If offline, exits cleanly.
+
+### RSS Feed Retry
+Flaky feeds are retried up to 3 times with exponential backoff (1s, 2s, 4s). Transient errors (timeouts, network issues) trigger retries; parse errors do not.
 
 ## Troubleshooting
 

@@ -44,8 +44,10 @@ export DIGEST_EMAIL=you@example.com
 # 5. Run the pipeline
 python run.py
 
-# Or dry run (no email sent)
-python run.py --dry-run
+# Or with options:
+python run.py --dry-run    # No email, no DB record
+python run.py --no-email   # Record to DB, skip email
+python run.py --no-record  # Send email, skip DB record
 ```
 
 ### Via Docker (Automated)
@@ -56,7 +58,7 @@ python run.py --dry-run
 
 ## How run.py Works
 
-1. **Fetches RSS** - Pulls all feeds in parallel, filters by last run time
+1. **Fetches RSS** - Pulls all feeds in parallel with retry (3 attempts, exponential backoff), filters by last run time
 2. **Prepares CSV files** - Splits articles into ~10k token chunks for Claude to read
 3. **Invokes Claude** - Runs `/news-digest` slash command
 4. **Sends email** - Delivers HTML digest via SMTP

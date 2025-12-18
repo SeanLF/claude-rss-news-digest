@@ -25,11 +25,16 @@ from email.mime.text import MIMEText
 from email.utils import parsedate_to_datetime
 from pathlib import Path
 
+import time
+
 import feedparser
 
 # =============================================================================
 # Configuration
 # =============================================================================
+
+MAX_RETRIES = 3  # Retry flaky RSS feeds
+RETRY_DELAY = 1  # Base delay in seconds (exponential backoff)
 
 APP_DIR = Path(__file__).parent
 DATA_DIR = APP_DIR / "data"
@@ -238,50 +243,61 @@ def parse_date(date_str: str | None) -> datetime | None:
 
 
 def fetch_source(source: dict, timeout: int = 15) -> tuple[str, list[dict]]:
-    """Fetch single RSS source. Returns (source_id, articles)."""
+    """Fetch single RSS source with retry logic. Returns (source_id, articles)."""
     source_id = source["id"]
-    try:
-        req = urllib.request.Request(source["url"], headers={"User-Agent": "Mozilla/5.0"})
-        with urllib.request.urlopen(req, timeout=timeout) as response:
-            data = response.read()
-        feed = feedparser.parse(data)
+    last_error = None
 
-        if feed.bozo and not feed.entries:
-            log(f"[{source_id}] Feed parse error: {feed.bozo_exception}")
+    for attempt in range(MAX_RETRIES):
+        try:
+            req = urllib.request.Request(source["url"], headers={"User-Agent": "Mozilla/5.0"})
+            with urllib.request.urlopen(req, timeout=timeout) as response:
+                data = response.read()
+            feed = feedparser.parse(data)
+
+            if feed.bozo and not feed.entries:
+                # Parse error - don't retry, feed is malformed
+                print(f"  [{source_id}] Feed parse error: {feed.bozo_exception}", flush=True)
+                return source_id, []
+
+            articles = []
+            for entry in feed.entries:
+                published = entry.get("published_parsed") or entry.get("updated_parsed")
+                if published:
+                    try:
+                        pub_str = datetime(*published[:6], tzinfo=timezone.utc).isoformat()
+                    except (TypeError, ValueError):
+                        pub_str = entry.get("published") or entry.get("updated")
+                else:
+                    pub_str = entry.get("published") or entry.get("updated")
+
+                article = {
+                    "title": entry.get("title", "").strip(),
+                    "url": entry.get("link", ""),
+                    "published": pub_str,
+                    "summary": (entry.get("summary") or entry.get("description") or "")[:500],
+                }
+                if article["title"] and article["url"]:
+                    articles.append(article)
+
+            print(f"  [{source_id}] {len(articles)} articles", flush=True)
+            return source_id, articles
+
+        except (urllib.error.URLError, TimeoutError, OSError) as e:
+            # Transient errors - retry with exponential backoff
+            last_error = e
+            if attempt < MAX_RETRIES - 1:
+                delay = RETRY_DELAY * (2 ** attempt)  # 1s, 2s, 4s
+                time.sleep(delay)
+            continue
+        except Exception as e:
+            # Non-transient error - don't retry
+            print(f"  [{source_id}] Error: {type(e).__name__}: {e}", flush=True)
             return source_id, []
 
-        articles = []
-        for entry in feed.entries:
-            published = entry.get("published_parsed") or entry.get("updated_parsed")
-            if published:
-                try:
-                    pub_str = datetime(*published[:6], tzinfo=timezone.utc).isoformat()
-                except (TypeError, ValueError):
-                    pub_str = entry.get("published") or entry.get("updated")
-            else:
-                pub_str = entry.get("published") or entry.get("updated")
-
-            article = {
-                "title": entry.get("title", "").strip(),
-                "url": entry.get("link", ""),
-                "published": pub_str,
-                "summary": (entry.get("summary") or entry.get("description") or "")[:500],
-            }
-            if article["title"] and article["url"]:
-                articles.append(article)
-
-        print(f"  [{source_id}] {len(articles)} articles", flush=True)
-        return source_id, articles
-
-    except urllib.error.URLError as e:
-        print(f"  [{source_id}] Network error: {e.reason}", flush=True)
-        return source_id, []
-    except TimeoutError:
-        print(f"  [{source_id}] Timeout", flush=True)
-        return source_id, []
-    except Exception as e:
-        print(f"  [{source_id}] Error: {type(e).__name__}: {e}", flush=True)
-        return source_id, []
+    # All retries exhausted
+    error_msg = str(getattr(last_error, 'reason', last_error)) if last_error else "Unknown"
+    print(f"  [{source_id}] Failed after {MAX_RETRIES} retries: {error_msg}", flush=True)
+    return source_id, []
 
 
 def fetch_feeds(sources: list[dict]) -> int:
@@ -563,17 +579,38 @@ def send_test_email() -> int:
 
 def main():
     """Run full digest pipeline."""
-    parser = argparse.ArgumentParser(description="News Digest Pipeline")
-    parser.add_argument("--dry-run", action="store_true", help="Fetch and generate but don't email")
-    parser.add_argument("--test-email", action="store_true", help="Send test email and exit")
+    parser = argparse.ArgumentParser(
+        description="News Digest Pipeline",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  python run.py                    # Full run: fetch, generate, email, record
+  python run.py --dry-run          # Generate but don't email or record
+  python run.py --no-email         # Generate and record, but don't email
+  python run.py --no-record        # Generate and email, but don't record
+  python run.py --test-email       # Just test SMTP config
+        """
+    )
+    parser.add_argument("--dry-run", action="store_true",
+                        help="Fetch and generate only (no email, no DB record)")
+    parser.add_argument("--no-email", action="store_true",
+                        help="Skip sending email (still records to DB)")
+    parser.add_argument("--no-record", action="store_true",
+                        help="Skip recording to DB (still sends email)")
+    parser.add_argument("--test-email", action="store_true",
+                        help="Send test email and exit")
     args = parser.parse_args()
+
+    # --dry-run is shorthand for --no-email --no-record
+    skip_email = args.dry_run or args.no_email
+    skip_record = args.dry_run or args.no_record
 
     # Test email mode - just verify SMTP works
     if args.test_email:
         validate_env(dry_run=False)
         return send_test_email()
 
-    validate_env(dry_run=args.dry_run)
+    validate_env(dry_run=skip_email)  # Don't require SMTP vars if skipping email
 
     if not check_internet():
         log("No internet connection, skipping")
@@ -594,19 +631,28 @@ def main():
         log("ERROR: No digest generated")
         return 1
 
-    if args.dry_run:
-        log(f"DRY RUN: Would send {digest.name}")
-        # Clean up shown_headlines.json if it exists (dry run shouldn't leave artifacts)
-        headlines_file = DATA_DIR / "shown_headlines.json"
-        if headlines_file.exists():
-            headlines_file.unlink()
-    else:
-        # Record shown headlines and send email
+    # Read shown headlines (needed for recording)
+    shown_headlines = []
+    if not skip_record:
         shown_headlines = read_shown_headlines()
         if not shown_headlines:
             log("WARNING: No headlines recorded - Claude may not have generated shown_headlines.json")
         record_shown_headlines(shown_headlines)
+
+    # Send email
+    recipients = 0
+    if not skip_email:
         recipients = send_email(digest)
+    else:
+        log(f"Skipping email: {digest.name}")
+        # Clean up shown_headlines.json if not recording (dry run shouldn't leave artifacts)
+        if skip_record:
+            headlines_file = DATA_DIR / "shown_headlines.json"
+            if headlines_file.exists():
+                headlines_file.unlink()
+
+    # Record run
+    if not skip_record:
         record_run(articles_fetched, articles_emailed=recipients)
 
     return 0
