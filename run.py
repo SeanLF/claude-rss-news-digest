@@ -336,7 +336,7 @@ def strip_html(text: str) -> str:
     return text
 
 
-MAX_TOKENS_PER_FILE = 20000  # Conservative limit for Claude Code file reading
+MAX_TOKENS_PER_FILE = 10000  # Conservative limit for Claude Code file reading
 
 
 def prepare_claude_input(sources: list[dict]) -> list[Path]:

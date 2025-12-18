@@ -2,9 +2,9 @@
 
 ## Project
 
-Automated news digest: RSS feeds → Claude curation → plain text email.
+Automated news digest: RSS feeds → Claude curation → HTML email.
 
-Single file architecture: everything is in `run.py` (~300 lines).
+Single file architecture: everything is in `run.py` (~400 lines).
 
 ## File Layout
 
@@ -14,54 +14,94 @@ run.py sections:
 ├── Utilities        # Logging, internet check
 ├── Database         # Schema, init, last run time
 ├── RSS Fetching     # Parallel feed fetching
-├── Digest Generation # Claude invocation
-├── Email            # SMTP sending
+├── Claude Input     # Prepare CSVs for slash command
+├── Digest Generation # Claude invocation via /news-digest
+├── Email            # SMTP sending (HTML)
 └── Main Pipeline    # Orchestration
 ```
 
-Runtime data in `data/`: digest.db, fetched/, output/, digest.log
+Runtime data in `data/`: digest.db, fetched/, output/, claude_input/, digest.log
 
-## When Modifying Code
+## Running the Digest
 
-- All logic is in `run.py` - edit there
-- `run-digest.sh` just loads .env and runs Docker - keep minimal
-- Only external dependency is `feedparser` (in Docker)
-- Docker uses `claude-config/commands/news-digest.md`, local uses `~/.claude/commands/news-digest.md`
+### Locally (Interactive)
 
-## When Running the Digest
+```bash
+# 1. Ensure Claude Code CLI is installed and authenticated
+claude --version
 
-1. Always fetch first (done automatically by `run.py`)
-2. Always check deduplication: query `shown_narratives` for last 7 days
-3. Always record what you show: insert into `shown_narratives` after generating
-4. Output: plain text to `data/output/digest-*.txt`
+# 2. Install feedparser
+pip install feedparser
+
+# 3. Copy the slash command to your local Claude config
+cp .claude/commands/news-digest.md ~/.claude/commands/
+
+# 4. Set environment variables
+export SMTP_USER=you@gmail.com
+export SMTP_PASS=your-app-password
+export DIGEST_EMAIL=you@example.com
+
+# 5. Run the pipeline
+python run.py
+
+# Or dry run (no email sent)
+python run.py --dry-run
+```
+
+### Via Docker (Automated)
+
+```bash
+./run-digest.sh
+```
+
+## How run.py Works
+
+1. **Fetches RSS** - Pulls all feeds in parallel, filters by last run time
+2. **Prepares CSV files** - Splits articles into ~10k token chunks for Claude to read
+3. **Invokes Claude** - Runs `/news-digest` slash command
+4. **Sends email** - Delivers HTML digest via SMTP
+5. **Records history** - Saves shown headlines to SQLite for deduplication
+
+## The /news-digest Slash Command
+
+Located at `.claude/commands/news-digest.md` (copied to Docker container at build time).
+
+When invoked, Claude must:
+1. Read ALL CSV files from `data/claude_input/` (headlines.csv, sources.csv, articles_*.csv)
+2. Deduplicate against headlines.csv
+3. Generate HTML digest with tiers: Must Know, Should Know, Quick Signals, Below the Fold
+4. Write to `data/output/digest-TIMESTAMP.html`
+5. Write shown headlines to `data/shown_headlines.json`
+
+**CRITICAL**: Claude must read EVERY article file. Never skip files.
 
 ## Content Curation Rules
 
 - Never fabricate details beyond RSS title/summary
 - Never repeat stories from last 7 days unless major development (mark [UPDATE])
-- Filter out: celebrity, sports, lifestyle, US domestic policy (unless international impact)
+- Filter out: celebrity, sports, lifestyle, US domestic policy (unless international), trivial controversies
 - Prioritize: geopolitics, tech/AI, privacy, France/Canada news
-- Notice geographic gaps - don't default to US angle
+- Expand acronyms on first use (FDI → foreign direct investment)
+- Be factual, don't speculate
 
 ## Database
 
-SQLite at `data/digest.db`. Two tables:
-- `digest_runs` - metadata per run
-- `shown_narratives` - headlines shown (for deduplication)
+SQLite at `data/digest.db`. Tables:
+- `digest_runs` - metadata per run (run_at, articles_fetched, etc.)
+- `shown_narratives` - headlines shown (for 7-day deduplication)
 
-## Testing
+## Output Format
 
-```bash
-# Test full Docker flow
-./run-digest.sh
-
-# Test locally (requires feedparser, claude CLI)
-python run.py
-```
+HTML email with:
+- **Regional summary** at top (Americas, Europe, Asia-Pacific, ME&Africa, Tech)
+- **Must Know** (3-4 stories): Major headlines with "Why it matters"
+- **Should Know** (5-8 stories): Important but not urgent
+- **Quick Signals** (10-15): One-liners
+- **Below the Fold**: Regional clusters with emoji headers
 
 ## Don't
 
-- Don't add dependencies beyond feedparser
-- Don't generate HTML (plain text only)
+- Don't skip article files
 - Don't skip deduplication
 - Don't hardcode paths or emails
+- Don't fabricate details not in the RSS summary

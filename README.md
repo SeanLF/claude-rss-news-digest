@@ -1,61 +1,58 @@
 # News Digest
 
-Automated daily news digest powered by Claude. Fetches from 28 balanced RSS sources, deduplicates against recent history, clusters into narratives, and emails a curated summary.
+Automated daily news digest powered by Claude. Fetches from 28 balanced RSS sources, deduplicates against recent history, clusters into narratives, and emails a curated HTML summary.
 
 ## How It Works
 
-1. **Fetch** - Python script pulls RSS feeds from 28 sources into JSON files
-2. **Process** - Claude reads all articles, deduplicates against last 7 days, filters noise, clusters related stories
-3. **Generate** - Outputs plain text digest with tiered stories (Must Know → Should Know → Quick Signals)
-4. **Email** - Sends via SMTP to configured recipients
-5. **Record** - Stores shown headlines in SQLite for future deduplication
+1. **Fetch** - Python script pulls RSS feeds from 28 sources, filters by last run time
+2. **Prepare** - Splits articles into CSV files (~10k tokens each) for Claude to read
+3. **Curate** - Claude reads all articles, deduplicates, filters noise, clusters stories
+4. **Generate** - Outputs HTML digest with tiered stories and regional clusters
+5. **Email** - Sends via SMTP to configured recipients
+6. **Record** - Stores shown headlines in SQLite for 7-day deduplication
 
-## Architecture
-
-```
-┌─────────────┐     ┌─────────────┐     ┌─────────────┐
-│  RSS Feeds  │────▶│ fetch_feeds │────▶│data/fetched/│
-│  (28 src)   │     │   .py       │     │  *.json     │
-└─────────────┘     └─────────────┘     └──────┬──────┘
-                                               │
-┌─────────────┐     ┌─────────────┐     ┌──────▼──────┐
-│   Email     │◀────│ send_email  │◀────│ Claude Code │
-│  (SMTP)     │     │   .py       │     │  (Docker)   │
-└─────────────┘     └─────────────┘     └──────┬──────┘
-                                               │
-                                        ┌──────▼──────┐
-                                        │data/digest  │
-                                        │    .db      │
-                                        └─────────────┘
-```
-
-## Setup
+## Quick Start
 
 ### Prerequisites
 
-- Docker (OrbStack, Docker Desktop, or native)
-- Anthropic API key
+- Python 3.9+
+- [Claude Code CLI](https://github.com/anthropics/claude-code) installed and authenticated
+- SMTP credentials (Gmail with App Password works well)
 
-### Configuration
+### Setup
 
-1. Copy environment template:
-   ```bash
-   cp .env.example .env
-   ```
+```bash
+# Clone the repo
+git clone https://github.com/yourusername/news-digest.git
+cd news-digest
 
-2. Edit `.env`:
-   ```bash
-   ANTHROPIC_API_KEY=sk-ant-...
+# Install Python dependency
+pip install feedparser
 
-   # SMTP (Gmail example - use App Password)
-   SMTP_HOST=smtp.gmail.com
-   SMTP_PORT=587
-   SMTP_USER=you@gmail.com
-   SMTP_PASS=xxxx-xxxx-xxxx-xxxx
+# Copy the slash command to your Claude config
+mkdir -p ~/.claude/commands
+cp .claude/commands/news-digest.md ~/.claude/commands/
 
-   # Recipients (comma-separated)
-   DIGEST_EMAIL=you@example.com,friend@example.com
-   ```
+# Create your .env file
+cp .env.example .env
+# Edit .env with your SMTP credentials and recipient emails
+```
+
+### Configuration (.env)
+
+```bash
+# SMTP settings (Gmail example - use App Password)
+SMTP_HOST=smtp.gmail.com
+SMTP_PORT=587
+SMTP_USER=you@gmail.com
+SMTP_PASS=xxxx-xxxx-xxxx-xxxx  # App Password, not regular password
+
+# Recipients (comma-separated)
+DIGEST_EMAIL=you@example.com,friend@example.com
+
+# Optional
+DIGEST_NAME=Your Daily Digest  # Display name
+```
 
 ### Gmail App Password
 
@@ -64,56 +61,76 @@ Automated daily news digest powered by Claude. Fetches from 28 balanced RSS sour
 3. Generate an app password for "Mail"
 4. Use that 16-character password as `SMTP_PASS`
 
+### Run
+
+```bash
+# Set environment variables
+source .env  # Or export them manually
+
+# Run the digest
+python run.py
+
+# Dry run (no email)
+python run.py --dry-run
+
+# Test email only
+python run.py --test-email
+```
+
+## Docker Setup (Automated/Cron)
+
+For unattended runs, use Docker:
+
+```bash
+# Build and run
+./run-digest.sh
+
+# Or with docker compose
+docker compose up --build
+```
+
 ### Cron Setup
 
 Add to crontab (`crontab -e`):
 
 ```bash
-# Daily at 07:00 UTC (adjust for your timezone)
+# Daily at 07:00 UTC
 0 7 * * * /path/to/news-digest/run-digest.sh >> /path/to/news-digest/data/cron.log 2>&1
-```
-
-The container handles:
-- Internet connectivity check (skips if offline)
-- Database initialization on first run
-- Logging to `data/digest.log`
-
-## Manual Run
-
-```bash
-# Via Docker (recommended)
-./run-digest.sh
-
-# Dry run (no email)
-./run-digest.sh --dry-run
-
-# Test email config
-./run-digest.sh --test-email
-
-# Interactive (with Claude Code locally installed)
-cd /path/to/news-digest && python run.py --dry-run
 ```
 
 ## File Structure
 
 ```
 news-digest/
-├── run.py                  # Pipeline: fetch, DB, email (~350 lines)
+├── run.py                  # Main pipeline (~400 lines)
 ├── sources.json            # RSS feed definitions (28 sources)
-├── run-digest.sh           # Host entry: loads .env, runs Docker
-├── Dockerfile              # Container: Python + Claude CLI + feedparser
+├── run-digest.sh           # Docker entry script
+├── Dockerfile              # Container definition
 ├── docker-compose.yml      # Container orchestration
 ├── .env                    # Configuration (git-ignored)
 ├── .env.example            # Config template
-├── claude-config/          # Claude config for Docker
-│   └── commands/
-│       └── news-digest.md  # Slash command definition
-└── data/                   # All runtime data (git-ignored)
+├── CLAUDE.md               # Instructions for Claude
+├── .claude/commands/       # Claude slash command (used by both local and Docker)
+│   └── news-digest.md
+└── data/                   # Runtime data (git-ignored)
     ├── digest.db           # SQLite (runs, shown narratives)
-    ├── digest.log          # Execution logs (last 1000 lines)
+    ├── digest.log          # Execution logs
+    ├── claude_input/       # CSV files for Claude
     ├── fetched/            # RSS JSON cache
-    └── output/             # Generated digests
+    └── output/             # Generated HTML digests
 ```
+
+## Output Format
+
+The digest is an HTML email with:
+
+- **Regional Summary** - Quick overview by region (Americas, Europe, Asia-Pacific, ME&Africa, Tech)
+- **Must Know (3-4)** - Stories you'd be embarrassed not to know, with "Why it matters"
+- **Should Know (5-8)** - Important but not urgent
+- **Quick Signals (10-15)** - One-liners worth tracking
+- **Below the Fold** - Regional clusters with emoji headers for remaining stories
+
+Supports dark mode automatically.
 
 ## Sources (28)
 
@@ -132,50 +149,43 @@ news-digest/
 | Philippines | Rappler | center |
 | Investigative | ProPublica, The Intercept | center-left/left |
 
-### Known Gaps
-
-- **Latin America** - No sources
-- **Eastern Europe** - No sources from inside region
-- **Climate** - No dedicated environmental sources
-- **Right-leaning** - WSJ/Economist only; no populist-right
-
 ## Key Design Decisions
 
-### Plain Text Only
-HTML digests bloated Claude's context window. Plain text is smaller, readable everywhere, and simpler to generate.
+### HTML Output
+Rich formatting with regional summaries, tiered stories, and dark mode support. The digest is split into readable chunks for Claude (MAX_TOKENS_PER_FILE = 10,000).
 
 ### 7-Day Deduplication
 Headlines are stored in SQLite and checked against new articles. Stories only repeat if there's a major development (marked [UPDATE]).
 
-### Docker-First
-Everything runs in a single container - Python, feedparser, Claude CLI. No local dependencies beyond Docker. Works on macOS, Linux, or cloud.
+### Docker-First for Automation
+Everything runs in a single container for cron jobs. For interactive use, run locally with `python run.py`.
 
 ### Internet Check
-Container pings Cloudflare (1.1.1.1) before running. If offline, exits cleanly - useful when traveling or on spotty connections.
-
-### Tiered Output
-- **Must Know (2-4)**: Stories you'd be embarrassed not to know
-- **Should Know (3-6)**: Important but not urgent
-- **Quick Signals (5-10)**: One-liners worth tracking
+Pipeline checks connectivity before running. If offline, exits cleanly.
 
 ## Troubleshooting
 
 ### "No digest generated"
 - Check `data/digest.log` for errors
-- Verify `ANTHROPIC_API_KEY` is set in `.env`
-- Try running manually: `./run-digest.sh`
+- Ensure Claude Code CLI is authenticated: `claude --version`
+- Try running manually: `python run.py --dry-run`
 
 ### Email not sending
 - Verify SMTP credentials in `.env`
-- For Gmail, ensure you're using an App Password (not regular password)
+- For Gmail, ensure you're using an App Password
 - Check `data/digest.log` for SMTP errors
 
 ### Stale/repeated stories
-- Check database for recent entries:
-  ```bash
-  sqlite3 data/digest.db "SELECT * FROM shown_narratives ORDER BY shown_at DESC LIMIT 20;"
-  ```
+```bash
+sqlite3 data/digest.db "SELECT * FROM shown_narratives ORDER BY shown_at DESC LIMIT 20;"
+```
 
-### Container build issues
-- Rebuild without cache: `docker compose build --no-cache`
-- Check Docker is running: `docker info`
+### Container issues
+```bash
+docker compose build --no-cache
+docker info  # Verify Docker is running
+```
+
+## License
+
+MIT

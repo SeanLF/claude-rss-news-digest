@@ -16,7 +16,7 @@ WORKDIR /app
 
 # Copy application
 COPY run.py sources.json ./
-COPY claude-config/ /root/.claude/
+COPY .claude/ /root/.claude/
 
 # Create data directory
 RUN mkdir -p /app/data
