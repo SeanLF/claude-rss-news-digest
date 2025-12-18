@@ -1,6 +1,6 @@
 # News Digest
 
-Automated daily news digest powered by Claude. Fetches from 28 balanced RSS sources, deduplicates against recent history, clusters into narratives, and emails a curated HTML summary.
+Automated daily news digest powered by Claude. Fetches from 28 balanced RSS sources, deduplicates against recent history, clusters into narratives, and emails a curated HTML summary via Resend.
 
 ## How It Works
 
@@ -8,7 +8,7 @@ Automated daily news digest powered by Claude. Fetches from 28 balanced RSS sour
 2. **Prepare** - Splits articles into CSV files (~10k tokens each) for Claude to read
 3. **Curate** - Claude reads all articles, deduplicates, filters noise, clusters stories
 4. **Generate** - Outputs HTML digest with tiered stories and regional clusters
-5. **Email** - Sends via SMTP to configured recipients
+5. **Email** - Sends via [Resend](https://resend.com) to configured recipients
 6. **Record** - Stores shown headlines in SQLite for 7-day deduplication
 
 ## Quick Start
@@ -17,7 +17,7 @@ Automated daily news digest powered by Claude. Fetches from 28 balanced RSS sour
 
 - Python 3.9+
 - [Claude Code CLI](https://github.com/anthropics/claude-code) installed and authenticated
-- SMTP credentials (Gmail with App Password works well)
+- [Resend](https://resend.com) API key (free tier: 3,000 emails/month)
 
 ### Setup
 
@@ -26,8 +26,8 @@ Automated daily news digest powered by Claude. Fetches from 28 balanced RSS sour
 git clone https://github.com/yourusername/news-digest.git
 cd news-digest
 
-# Install Python dependency
-pip install feedparser
+# Install Python dependencies
+pip install feedparser resend
 
 # Copy the slash command to your Claude config
 mkdir -p ~/.claude/commands
@@ -35,31 +35,22 @@ cp .claude/commands/news-digest.md ~/.claude/commands/
 
 # Create your .env file
 cp .env.example .env
-# Edit .env with your SMTP credentials and recipient emails
+# Edit .env with your Resend API key and recipient emails
 ```
 
 ### Configuration (.env)
 
 ```bash
-# SMTP settings (Gmail example - use App Password)
-SMTP_HOST=smtp.gmail.com
-SMTP_PORT=587
-SMTP_USER=you@gmail.com
-SMTP_PASS=xxxx-xxxx-xxxx-xxxx  # App Password, not regular password
+# Resend settings (https://resend.com/api-keys)
+RESEND_API_KEY=re_xxxxxxxx_xxxxxxxxxxxxxxxxxxxx
+RESEND_FROM=onboarding@resend.dev  # Or your verified domain
 
-# Recipients (comma-separated)
+# Recipients (comma-separated, first is To:, rest are BCC)
 DIGEST_EMAIL=you@example.com,friend@example.com
 
-# Optional
-DIGEST_NAME=Your Daily Digest  # Display name
+# Optional display name
+DIGEST_NAME=News Digest
 ```
-
-### Gmail App Password
-
-1. Enable 2FA on your Google account
-2. Go to https://myaccount.google.com/apppasswords
-3. Generate an app password for "Mail"
-4. Use that 16-character password as `SMTP_PASS`
 
 ### Run
 
@@ -79,7 +70,7 @@ python run.py --no-email
 # Generate and email, but skip DB record
 python run.py --no-record
 
-# Test SMTP config
+# Test Resend config
 python run.py --test-email
 ```
 
@@ -88,11 +79,16 @@ python run.py --test-email
 For unattended runs, use Docker:
 
 ```bash
+# Create .env with your config
+cp .env.example .env
+# Edit .env with your RESEND_API_KEY, RESEND_FROM, DIGEST_EMAIL
+
 # Build and run
 ./run-digest.sh
 
-# Or with docker compose
-docker compose up --build
+# Or with options
+./run-digest.sh --dry-run
+./run-digest.sh --test-email
 ```
 
 ### Cron Setup
@@ -116,7 +112,7 @@ news-digest/
 ├── .env                    # Configuration (git-ignored)
 ├── .env.example            # Config template
 ├── CLAUDE.md               # Instructions for Claude
-├── .claude/commands/       # Claude slash command (used by both local and Docker)
+├── .claude/commands/       # Claude slash command
 │   └── news-digest.md
 └── data/                   # Runtime data (git-ignored)
     ├── digest.db           # SQLite (runs, shown narratives)
@@ -180,9 +176,9 @@ Flaky feeds are retried up to 3 times with exponential backoff (1s, 2s, 4s). Tra
 - Try running manually: `python run.py --dry-run`
 
 ### Email not sending
-- Verify SMTP credentials in `.env`
-- For Gmail, ensure you're using an App Password
-- Check `data/digest.log` for SMTP errors
+- Verify Resend API key in `.env`
+- Check that RESEND_FROM is a verified domain or use `onboarding@resend.dev` for testing
+- Check `data/digest.log` for errors
 
 ### Stale/repeated stories
 ```bash

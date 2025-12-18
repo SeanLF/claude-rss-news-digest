@@ -580,7 +580,7 @@ Examples:
   python run.py --dry-run          # Generate but don't email or record
   python run.py --no-email         # Generate and record, but don't email
   python run.py --no-record        # Generate and email, but don't record
-  python run.py --test-email       # Just test SMTP config
+  python run.py --test-email       # Test Resend config
         """
     )
     parser.add_argument("--dry-run", action="store_true",
