@@ -3,11 +3,8 @@ services:
     build: .
     environment:
       - ANTHROPIC_API_KEY
-      - SMTP_HOST
-      - SMTP_PORT
-      - SMTP_USER
-      - SMTP_PASS
-      - SMTP_FROM
+      - RESEND_API_KEY
+      - RESEND_FROM
       - DIGEST_EMAIL
       - DIGEST_NAME
     volumes:

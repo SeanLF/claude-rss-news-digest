@@ -12,22 +12,19 @@ import json
 import os
 import re
 import shutil
-import smtplib
 import sqlite3
 import subprocess
 import sys
+import time
 import urllib.request
 import urllib.error
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
-from email.mime.multipart import MIMEMultipart
-from email.mime.text import MIMEText
 from email.utils import parsedate_to_datetime
 from pathlib import Path
 
-import time
-
 import feedparser
+import resend
 
 # =============================================================================
 # Configuration
@@ -109,7 +106,7 @@ def validate_env(dry_run: bool = False):
     # ANTHROPIC_API_KEY is optional - Claude CLI can use `claude login` for Pro subscription
     required = []
     if not dry_run:
-        required.extend(["SMTP_USER", "SMTP_PASS", "DIGEST_EMAIL"])
+        required.extend(["RESEND_API_KEY", "RESEND_FROM", "DIGEST_EMAIL"])
 
     missing = [var for var in required if not os.environ.get(var)]
     if missing:
@@ -516,46 +513,30 @@ def find_latest_digest() -> Path | None:
 # =============================================================================
 
 def send_email(digest_path: Path) -> int:
-    """Send digest via SMTP. Returns number of recipients."""
-    smtp_host = os.environ.get("SMTP_HOST", "smtp.gmail.com")
-    try:
-        smtp_port = int(os.environ.get("SMTP_PORT", "587"))
-    except ValueError:
-        log("ERROR: SMTP_PORT must be a valid integer")
-        raise
-    smtp_user = os.environ["SMTP_USER"]
-    smtp_pass = os.environ["SMTP_PASS"]
-    smtp_from = os.environ.get("SMTP_FROM", smtp_user)  # Separate From address (for iCloud etc)
-    digest_name = os.environ.get("DIGEST_NAME", "News Digest")  # Display name for From/Subject
+    """Send digest via Resend API. Returns number of recipients."""
+    resend.api_key = os.environ["RESEND_API_KEY"]
+    from_email = os.environ["RESEND_FROM"]
+    digest_name = os.environ.get("DIGEST_NAME", "News Digest")
     recipients = [e.strip() for e in os.environ["DIGEST_EMAIL"].split(",")]
 
     content = digest_path.read_text()
     date_str = datetime.now(timezone.utc).strftime("%B %d, %Y")
-    is_html = digest_path.suffix == ".html"
 
-    msg = MIMEMultipart("alternative")
-    msg["Subject"] = f"{digest_name} – {date_str}"
-    msg["From"] = f"{digest_name} <{smtp_from}>"
-    msg["To"] = ", ".join(recipients)
-
-    if is_html:
-        msg.attach(MIMEText(content, "html", "utf-8"))
-    else:
-        msg.attach(MIMEText(content, "plain", "utf-8"))
+    # Send to self, BCC all recipients for privacy
+    email_params = {
+        "from": f"{digest_name} <{from_email}>",
+        "to": from_email,
+        "bcc": recipients,
+        "subject": f"{digest_name} – {date_str}",
+        "html": content,
+    }
 
     try:
-        with smtplib.SMTP(smtp_host, smtp_port) as server:
-            server.starttls()
-            server.login(smtp_user, smtp_pass)
-            server.sendmail(smtp_user, recipients, msg.as_string())
+        resend.Emails.send(email_params)
         log(f"Sent to {', '.join(recipients)}")
         return len(recipients)
-    except smtplib.SMTPAuthenticationError:
-        log("SMTP error: Authentication failed - check SMTP_USER and SMTP_PASS")
-        raise
-    except smtplib.SMTPException as e:
-        # Sanitize error to avoid leaking credentials
-        log(f"SMTP error: {type(e).__name__} - check SMTP settings")
+    except resend.exceptions.ResendError as e:
+        log(f"Resend error: {e}")
         raise
 
 
@@ -564,35 +545,27 @@ def send_email(digest_path: Path) -> int:
 # =============================================================================
 
 def send_test_email() -> int:
-    """Send a test email to verify SMTP config."""
-    smtp_host = os.environ.get("SMTP_HOST", "smtp.gmail.com")
-    try:
-        smtp_port = int(os.environ.get("SMTP_PORT", "587"))
-    except ValueError:
-        log("ERROR: SMTP_PORT must be a valid integer")
-        return 1
-    smtp_user = os.environ["SMTP_USER"]
-    smtp_pass = os.environ["SMTP_PASS"]
-    smtp_from = os.environ.get("SMTP_FROM", smtp_user)
+    """Send a test email to verify Resend config."""
+    resend.api_key = os.environ["RESEND_API_KEY"]
+    from_email = os.environ["RESEND_FROM"]
+    digest_name = os.environ.get("DIGEST_NAME", "News Digest")
     recipients = [e.strip() for e in os.environ["DIGEST_EMAIL"].split(",")]
 
-    msg = MIMEText("This is a test email from News Digest.\n\nIf you received this, your SMTP config is working.", "plain", "utf-8")
-    msg["Subject"] = "News Digest - Test Email"
-    msg["From"] = smtp_from
-    msg["To"] = ", ".join(recipients)
+    # Send to self, BCC all recipients for privacy
+    email_params = {
+        "from": f"{digest_name} <{from_email}>",
+        "to": from_email,
+        "bcc": recipients,
+        "subject": f"{digest_name} - Test Email",
+        "html": "<p>This is a test email from News Digest.</p><p>If you received this, your Resend config is working.</p>",
+    }
 
     try:
-        with smtplib.SMTP(smtp_host, smtp_port) as server:
-            server.starttls()
-            server.login(smtp_user, smtp_pass)
-            server.sendmail(smtp_user, recipients, msg.as_string())
+        resend.Emails.send(email_params)
         log(f"Test email sent to {', '.join(recipients)}")
         return 0
-    except smtplib.SMTPAuthenticationError:
-        log("SMTP error: Authentication failed - check SMTP_USER and SMTP_PASS")
-        return 1
-    except smtplib.SMTPException as e:
-        log(f"SMTP error: {type(e).__name__} - check SMTP settings")
+    except resend.exceptions.ResendError as e:
+        log(f"Resend error: {e}")
         return 1
 
 
