@@ -17,3 +17,10 @@ SQLite at `data/digest.db`:
 - `run.py` - main pipeline
 - `.claude/commands/news-digest.md` - slash command for digest generation
 - `sources.json` - RSS feed definitions
+
+## Don't
+
+- Don't skip article files
+- Don't skip deduplication
+- Don't hardcode paths or emails
+- Don't fabricate details not in the RSS summary
