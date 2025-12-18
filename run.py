@@ -61,6 +61,9 @@ def load_sources() -> list[dict]:
             raise ValueError(f"sources.json[{i}] missing keys: {missing}")
         if not source["url"].startswith(("http://", "https://")):
             raise ValueError(f"sources.json[{i}] invalid URL: {source['url']}")
+        # Prevent path traversal - source_id is used in file paths
+        if not re.match(r'^[a-z0-9_]+$', source["id"]):
+            raise ValueError(f"sources.json[{i}] invalid id '{source['id']}': must be lowercase alphanumeric/underscore only")
 
     return sources
 
@@ -358,6 +361,11 @@ def strip_html(text: str) -> str:
     return text
 
 
+def is_safe_url(url: str) -> bool:
+    """Validate URL has a safe scheme (http/https only)."""
+    return url.startswith(("http://", "https://"))
+
+
 MAX_TOKENS_PER_FILE = 10000  # Conservative limit for Claude Code file reading
 MAX_TITLE_LENGTH = 500  # Cap title length for safety
 MAX_SUMMARY_LENGTH = 200  # Cap summary length
@@ -400,10 +408,13 @@ def prepare_claude_input(sources: list[dict]) -> list[Path]:
             with open(source_file) as sf:
                 articles = json.load(sf)
             for a in articles:
+                url = a.get("url", "")[:2000]  # Cap URL length
+                # Skip articles with unsafe URL schemes (e.g., javascript:, data:)
+                if not is_safe_url(url):
+                    continue
                 # Strip HTML, escape for safety, and cap lengths
                 title = html.escape(strip_html(a.get("title") or ""))[:MAX_TITLE_LENGTH]
                 summary = html.escape(strip_html(a.get("summary") or ""))[:MAX_SUMMARY_LENGTH]
-                url = a.get("url", "")[:2000]  # Cap URL length too
                 all_articles.append([
                     source["id"],
                     title,
@@ -507,7 +518,11 @@ def find_latest_digest() -> Path | None:
 def send_email(digest_path: Path) -> int:
     """Send digest via SMTP. Returns number of recipients."""
     smtp_host = os.environ.get("SMTP_HOST", "smtp.gmail.com")
-    smtp_port = int(os.environ.get("SMTP_PORT", "587"))
+    try:
+        smtp_port = int(os.environ.get("SMTP_PORT", "587"))
+    except ValueError:
+        log("ERROR: SMTP_PORT must be a valid integer")
+        raise
     smtp_user = os.environ["SMTP_USER"]
     smtp_pass = os.environ["SMTP_PASS"]
     smtp_from = os.environ.get("SMTP_FROM", smtp_user)  # Separate From address (for iCloud etc)
@@ -551,7 +566,11 @@ def send_email(digest_path: Path) -> int:
 def send_test_email() -> int:
     """Send a test email to verify SMTP config."""
     smtp_host = os.environ.get("SMTP_HOST", "smtp.gmail.com")
-    smtp_port = int(os.environ.get("SMTP_PORT", "587"))
+    try:
+        smtp_port = int(os.environ.get("SMTP_PORT", "587"))
+    except ValueError:
+        log("ERROR: SMTP_PORT must be a valid integer")
+        return 1
     smtp_user = os.environ["SMTP_USER"]
     smtp_pass = os.environ["SMTP_PASS"]
     smtp_from = os.environ.get("SMTP_FROM", smtp_user)

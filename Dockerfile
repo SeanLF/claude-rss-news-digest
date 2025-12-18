@@ -12,14 +12,20 @@ RUN npm install -g @anthropic-ai/claude-code
 # Install Python dependencies
 RUN pip install --no-cache-dir feedparser
 
+# Create non-root user for security
+RUN useradd -m -s /bin/bash appuser
+
 WORKDIR /app
 
 # Copy application
 COPY run.py sources.json ./
-COPY .claude/ /root/.claude/
+COPY .claude/ /home/appuser/.claude/
 
-# Create data directory
-RUN mkdir -p /app/data
+# Create data directory and set ownership
+RUN mkdir -p /app/data && chown -R appuser:appuser /app /home/appuser/.claude
+
+# Switch to non-root user
+USER appuser
 
 # Default command (can be overridden)
 CMD ["python", "run.py"]
