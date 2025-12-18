@@ -1,16 +1,20 @@
-FROM python:3.12-slim
+FROM node:24-slim
 
-# Install Node.js (for Claude Code CLI)
-RUN apt-get update && apt-get install -y \
-    nodejs \
-    npm \
-    && rm -rf /var/lib/apt/lists/*
+# Install CA certificates for SSL
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates && rm -rf /var/lib/apt/lists/*
+
+# Install uv
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/
+
+# Install Python 3.14 + dependencies
+ENV UV_PYTHON_INSTALL_DIR=/opt/python
+RUN uv python install 3.14 \
+    && ln -s /opt/python/*/bin/python3 /usr/local/bin/python3 \
+    && ln -s /usr/local/bin/python3 /usr/local/bin/python \
+    && uv pip install --python /usr/local/bin/python3 --break-system-packages feedparser resend
 
 # Install Claude Code CLI
 RUN npm install -g @anthropic-ai/claude-code
-
-# Install Python dependencies
-RUN pip install --no-cache-dir feedparser resend
 
 # Create non-root user for security
 RUN useradd -m -s /bin/bash appuser
@@ -19,7 +23,7 @@ WORKDIR /app
 
 # Copy application
 COPY run.py sources.json ./
-COPY .claude/ /home/appuser/.claude/
+COPY .claude/commands/ /home/appuser/.claude/commands/
 
 # Create data directory and set ownership
 RUN mkdir -p /app/data && chown -R appuser:appuser /app /home/appuser/.claude
@@ -28,4 +32,4 @@ RUN mkdir -p /app/data && chown -R appuser:appuser /app /home/appuser/.claude
 USER appuser
 
 # Default command (can be overridden)
-CMD ["python", "run.py"]
+CMD ["python3", "run.py"]

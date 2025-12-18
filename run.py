@@ -637,7 +637,7 @@ Examples:
         recipients = send_email(digest)
     else:
         log(f"Skipping email: {digest.name}")
-        # Clean up shown_headlines.json if not recording (dry run shouldn't leave artifacts)
+        # Clean up shown_headlines.json if not recording
         if skip_record:
             headlines_file = DATA_DIR / "shown_headlines.json"
             if headlines_file.exists():
