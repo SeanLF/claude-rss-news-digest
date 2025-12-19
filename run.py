@@ -522,11 +522,9 @@ def send_email(digest_path: Path) -> int:
     content = digest_path.read_text()
     date_str = datetime.now(timezone.utc).strftime("%B %d, %Y")
 
-    # Send to self, BCC all recipients for privacy
     email_params = {
         "from": f"{digest_name} <{from_email}>",
-        "to": from_email,
-        "bcc": recipients,
+        "to": recipients,
         "subject": f"{digest_name} – {date_str}",
         "html": content,
     }
@@ -551,11 +549,9 @@ def send_test_email() -> int:
     digest_name = os.environ.get("DIGEST_NAME", "News Digest")
     recipients = [e.strip() for e in os.environ["DIGEST_EMAIL"].split(",")]
 
-    # Send to self, BCC all recipients for privacy
     email_params = {
         "from": f"{digest_name} <{from_email}>",
-        "to": from_email,
-        "bcc": recipients,
+        "to": recipients,
         "subject": f"{digest_name} - Test Email",
         "html": "<p>This is a test email from News Digest.</p><p>If you received this, your Resend config is working.</p>",
     }
