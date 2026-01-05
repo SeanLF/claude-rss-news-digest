@@ -9,7 +9,4 @@ services:
       - DIGEST_NAME
     volumes:
       - ./data:/app/data
-      - claude-config:/home/appuser/.claude
-
-volumes:
-  claude-config:
+      - ./.claude:/home/appuser/.claude

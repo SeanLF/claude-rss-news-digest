@@ -14,8 +14,9 @@ SQLite at `data/digest.db`:
 
 ## Key Files
 
-- `run.py` - main pipeline
-- `.claude/commands/news-digest.md` - slash command for digest generation
+- `run.py` - main pipeline (two-pass: select → write)
+- `.claude/commands/news-digest-select.md` - Pass 1: story selection
+- `.claude/commands/news-digest-write.md` - Pass 2: HTML generation
 - `sources.json` - RSS feed definitions
 
 ## Don't

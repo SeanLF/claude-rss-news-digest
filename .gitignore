@@ -1,5 +1,7 @@
 # Secrets
 .env
+.claude/*
+!.claude/commands/
 
 # Runtime data
 data/

@@ -214,6 +214,11 @@ def record_shown_headlines(headlines: list[dict]):
     """Record headlines that were shown in this digest."""
     if not headlines:
         return
+    # Validate format before processing
+    if headlines and not isinstance(headlines[0], dict):
+        log(f"ERROR: shown_headlines.json has wrong format - expected list of dicts, got list of {type(headlines[0]).__name__}")
+        log(f"First item: {repr(headlines[0][:100]) if isinstance(headlines[0], str) else repr(headlines[0])}")
+        return
     try:
         with sqlite3.connect(DB_PATH) as conn:
             conn.executemany(
@@ -469,19 +474,24 @@ def read_shown_headlines() -> list[dict]:
     try:
         with open(headlines_file) as f:
             headlines = json.load(f)
-        # Clean up after reading
-        headlines_file.unlink()
         return headlines
     except (json.JSONDecodeError, IOError) as e:
         log(f"Error reading shown_headlines.json: {e}")
         return []
 
 
-def generate_digest():
-    """Run Claude to generate digest with streaming output."""
-    log("Generating digest with Claude...")
+def cleanup_shown_headlines():
+    """Remove shown_headlines.json after successful run."""
+    headlines_file = DATA_DIR / "shown_headlines.json"
+    if headlines_file.exists():
+        headlines_file.unlink()
+
+
+def run_claude_command(command: str, description: str):
+    """Run a Claude command with streaming output."""
+    log(f"{description}...")
     process = subprocess.Popen(
-        ["claude", "--print", "--permission-mode", "acceptEdits", "/news-digest"],
+        ["claude", "--print", "--permission-mode", "acceptEdits", command],
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         text=True,
@@ -499,6 +509,90 @@ def generate_digest():
             process.wait(timeout=5)
     if process.returncode != 0:
         raise RuntimeError(f"Claude failed with code {process.returncode}")
+
+
+def generate_selections():
+    """Pass 1: Run Claude to select and curate stories."""
+    run_claude_command("/news-digest-select", "Pass 1: Selecting stories")
+
+
+def validate_selections() -> dict:
+    """Validate selections.json output from Pass 1."""
+    selections_file = CLAUDE_INPUT_DIR / "selections.json"
+    if not selections_file.exists():
+        raise RuntimeError("selections.json not found - Pass 1 failed to create output")
+
+    try:
+        with open(selections_file) as f:
+            selections = json.load(f)
+    except json.JSONDecodeError as e:
+        raise RuntimeError(f"selections.json is invalid JSON: {e}")
+
+    # Validate structure
+    required_keys = ["must_know", "should_know", "quick_signals", "below_fold", "regional_summary", "stats"]
+    missing = [k for k in required_keys if k not in selections]
+    if missing:
+        raise RuntimeError(f"selections.json missing required keys: {missing}")
+
+    # Validate minimum counts
+    must_know_count = len(selections.get("must_know", []))
+    should_know_count = len(selections.get("should_know", []))
+    quick_signals_count = len(selections.get("quick_signals", []))
+
+    if must_know_count < 3:
+        log(f"WARNING: Only {must_know_count} must_know stories (expected 3+)")
+    if should_know_count < 5:
+        log(f"WARNING: Only {should_know_count} should_know stories (expected 5+)")
+    if quick_signals_count < 10:
+        log(f"WARNING: Only {quick_signals_count} quick_signals (expected 10+)")
+
+    # Log stats
+    stats = selections.get("stats", {})
+    log(f"Pass 1 complete: {stats.get('articles_reviewed', '?')} articles → {stats.get('stories_selected', '?')} stories")
+
+    return selections
+
+
+def generate_digest():
+    """Pass 2: Run Claude to write HTML from selections."""
+    run_claude_command("/news-digest-write", "Pass 2: Writing digest")
+
+
+def validate_digest():
+    """Validate HTML and shown_headlines.json output from Pass 2."""
+    # Check HTML exists
+    digest = find_latest_digest()
+    if not digest:
+        raise RuntimeError("No digest HTML found - Pass 2 failed to create output")
+
+    # Basic HTML structure check
+    html_content = digest.read_text()
+    required_elements = ['<section>', 'class="why"', 'class="signal"', 'class="stats"']
+    missing = [el for el in required_elements if el not in html_content]
+    if missing:
+        log(f"WARNING: HTML missing expected elements: {missing}")
+
+    # Check shown_headlines.json
+    headlines_file = DATA_DIR / "shown_headlines.json"
+    if not headlines_file.exists():
+        raise RuntimeError("shown_headlines.json not found - Pass 2 failed to create tracking file")
+
+    try:
+        with open(headlines_file) as f:
+            headlines = json.load(f)
+    except json.JSONDecodeError as e:
+        raise RuntimeError(f"shown_headlines.json is invalid JSON: {e}")
+
+    if not isinstance(headlines, list):
+        raise RuntimeError(f"shown_headlines.json should be array, got {type(headlines).__name__}")
+
+    if headlines and not isinstance(headlines[0], dict):
+        raise RuntimeError(f"shown_headlines.json items should be objects, got {type(headlines[0]).__name__}")
+
+    if headlines and "headline" not in headlines[0]:
+        raise RuntimeError(f"shown_headlines.json items missing 'headline' key")
+
+    log(f"Pass 2 complete: {digest.name} ({len(headlines)} headlines tracked)")
 
 
 def find_latest_digest() -> Path | None:
@@ -572,10 +666,13 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  python run.py                    # Full run: fetch, generate, email, record
+  python run.py                    # Full run: fetch, select, write, email, record
   python run.py --dry-run          # Generate but don't email or record
   python run.py --no-email         # Generate and record, but don't email
   python run.py --no-record        # Generate and email, but don't record
+  python run.py --select-only      # Run Pass 1 only (create selections.json)
+  python run.py --write-only       # Run Pass 2 only (use existing selections.json)
+  python run.py --send-only        # Send latest digest (retry after failure)
   python run.py --test-email       # Test Resend config
         """
     )
@@ -585,6 +682,12 @@ Examples:
                         help="Skip sending email (still records to DB)")
     parser.add_argument("--no-record", action="store_true",
                         help="Skip recording to DB (still sends email)")
+    parser.add_argument("--select-only", action="store_true",
+                        help="Run Pass 1 only (selection) - creates selections.json")
+    parser.add_argument("--write-only", action="store_true",
+                        help="Run Pass 2 only (writing) - uses existing selections.json")
+    parser.add_argument("--send-only", action="store_true",
+                        help="Send latest digest without fetching/generating (for retrying after failure)")
     parser.add_argument("--test-email", action="store_true",
                         help="Send test email and exit")
     args = parser.parse_args()
@@ -597,6 +700,44 @@ Examples:
     if args.test_email:
         validate_env(dry_run=False)
         return send_test_email()
+
+    # Send-only mode - retry email from existing digest
+    if args.send_only:
+        validate_env(dry_run=False)
+        init_db()
+        digest = find_latest_digest()
+        if not digest:
+            log("ERROR: No digest found to send")
+            return 1
+        log(f"Sending existing digest: {digest.name}")
+        recipients = send_email(digest)
+        shown_headlines = read_shown_headlines()
+        if shown_headlines:
+            record_shown_headlines(shown_headlines)
+        record_run(0, articles_emailed=recipients)
+        cleanup_shown_headlines()
+        return 0
+
+    # Write-only mode - run Pass 2 from existing selections
+    if args.write_only:
+        validate_env(dry_run=skip_email)
+        init_db()
+        validate_selections()  # Ensure selections.json exists and is valid
+        generate_digest()
+        validate_digest()
+        digest = find_latest_digest()
+        # Send email first for atomicity
+        recipients = 0
+        if not skip_email:
+            recipients = send_email(digest)
+        # Only record to DB after email succeeds
+        if not skip_record:
+            shown_headlines = read_shown_headlines()
+            if shown_headlines:
+                record_shown_headlines(shown_headlines)
+            record_run(0, articles_emailed=recipients)
+        cleanup_shown_headlines()
+        return 0
 
     validate_env(dry_run=skip_email)  # Don't require SMTP vars if skipping email
 
@@ -611,37 +752,41 @@ Examples:
     # Prepare input for Claude (articles + previous headlines)
     prepare_claude_input(sources)
 
-    # Generate digest
+    # Pass 1: Select stories
+    generate_selections()
+    validate_selections()
+
+    # Select-only mode - stop after Pass 1
+    if args.select_only:
+        log("Select-only mode: stopping after Pass 1")
+        return 0
+
+    # Pass 2: Write HTML digest
     generate_digest()
+    validate_digest()
 
     digest = find_latest_digest()
     if not digest:
         log("ERROR: No digest generated")
         return 1
 
-    # Read shown headlines (needed for recording)
-    shown_headlines = []
-    if not skip_record:
-        shown_headlines = read_shown_headlines()
-        if not shown_headlines:
-            log("WARNING: No headlines recorded - Claude may not have generated shown_headlines.json")
-        record_shown_headlines(shown_headlines)
-
-    # Send email
+    # Send email first (before any DB commits for atomicity)
     recipients = 0
     if not skip_email:
         recipients = send_email(digest)
     else:
         log(f"Skipping email: {digest.name}")
-        # Clean up shown_headlines.json if not recording
-        if skip_record:
-            headlines_file = DATA_DIR / "shown_headlines.json"
-            if headlines_file.exists():
-                headlines_file.unlink()
 
-    # Record run
+    # Only record to DB after email succeeds (or if skipped)
     if not skip_record:
+        shown_headlines = read_shown_headlines()
+        if not shown_headlines:
+            log("WARNING: No headlines recorded - Claude may not have generated shown_headlines.json")
+        record_shown_headlines(shown_headlines)
         record_run(articles_fetched, articles_emailed=recipients)
+
+    # Clean up shown_headlines.json only after successful completion
+    cleanup_shown_headlines()
 
     return 0
 
