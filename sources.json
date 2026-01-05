@@ -1,5 +1,4 @@
 [
-  {"id": "afp", "name": "AFP", "url": "https://flipboard.com/topic/fr-afp.rss", "bias": "center", "perspective": "wire_service"},
   {"id": "al_jazeera", "name": "Al Jazeera", "url": "https://www.aljazeera.com/xml/rss/all.xml", "bias": "center", "perspective": "middle_east"},
   {"id": "ap_news", "name": "AP News", "url": "https://rss.app/feeds/cTP1MA5Cle6LFnnc.xml", "bias": "center", "perspective": "wire_service"},
   {"id": "ars_technica", "name": "Ars Technica", "url": "https://feeds.arstechnica.com/arstechnica/index", "bias": "center", "perspective": "tech"},
