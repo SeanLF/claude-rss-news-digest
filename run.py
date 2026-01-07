@@ -30,8 +30,9 @@ import resend
 # Configuration
 # =============================================================================
 
-MAX_RETRIES = 3  # Retry flaky RSS feeds
-RETRY_DELAY = 1  # Base delay in seconds (exponential backoff)
+MAX_RETRIES = int(os.environ.get("RSS_MAX_RETRIES", "3"))  # Retry flaky RSS feeds
+RETRY_DELAY = int(os.environ.get("RSS_RETRY_DELAY", "2"))  # Base delay in seconds (exponential backoff)
+HEALTH_ALERT_THRESHOLD = int(os.environ.get("HEALTH_ALERT_THRESHOLD", "3"))  # Consecutive failures before alert
 
 APP_DIR = Path(__file__).parent
 DATA_DIR = APP_DIR / "data"
@@ -133,8 +134,17 @@ CREATE TABLE IF NOT EXISTS shown_narratives (
     shown_at DATETIME DEFAULT (datetime('now', 'utc'))
 );
 
+CREATE TABLE IF NOT EXISTS source_health (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    source_id TEXT NOT NULL,
+    success INTEGER NOT NULL,
+    error_message TEXT,
+    recorded_at DATETIME DEFAULT (datetime('now', 'utc'))
+);
+
 CREATE INDEX IF NOT EXISTS idx_shown_narratives_date ON shown_narratives(shown_at);
 CREATE INDEX IF NOT EXISTS idx_digest_runs_date ON digest_runs(run_at);
+CREATE INDEX IF NOT EXISTS idx_source_health_source ON source_health(source_id, recorded_at);
 """
 
 
@@ -230,6 +240,66 @@ def record_shown_headlines(headlines: list[dict]):
         log(f"DB error recording headlines: {e}")
 
 
+def record_source_health(results: list[tuple[str, bool, str | None]]):
+    """Record source fetch results. Each tuple is (source_id, success, error_message)."""
+    if not results:
+        return
+    try:
+        with sqlite3.connect(DB_PATH) as conn:
+            conn.executemany(
+                "INSERT INTO source_health (source_id, success, error_message) VALUES (?, ?, ?)",
+                results
+            )
+    except sqlite3.Error as e:
+        log(f"DB error recording source health for {len(results)} sources: {e}")
+
+
+def get_consecutive_failures(source_id: str, limit: int = 10) -> int:
+    """Get count of consecutive recent failures for a source."""
+    if not DB_PATH.exists():
+        return 0
+    try:
+        with sqlite3.connect(DB_PATH) as conn:
+            cursor = conn.execute("""
+                SELECT success FROM source_health
+                WHERE source_id = ?
+                ORDER BY recorded_at DESC
+                LIMIT ?
+            """, (source_id, limit))
+            count = 0
+            for (success,) in cursor:
+                if success:
+                    break
+                count += 1
+            return count
+    except sqlite3.Error as e:
+        log(f"DB error getting consecutive failures for {source_id}: {e}")
+        return 0
+
+
+def get_failing_sources(min_consecutive: int = 3) -> list[tuple[str, int]]:
+    """Get sources with N+ consecutive failures. Returns [(source_id, failure_count)]."""
+    if not DB_PATH.exists():
+        return []
+    try:
+        with sqlite3.connect(DB_PATH) as conn:
+            cursor = conn.execute("""
+                SELECT DISTINCT source_id FROM source_health
+                WHERE recorded_at > datetime('now', '-7 days')
+            """)
+            source_ids = [row[0] for row in cursor]
+    except sqlite3.Error as e:
+        log(f"DB error getting failing sources: {e}")
+        return []
+
+    failing = [
+        (sid, count)
+        for sid in source_ids
+        if (count := get_consecutive_failures(sid)) >= min_consecutive
+    ]
+    return sorted(failing, key=lambda x: -x[1])
+
+
 # =============================================================================
 # RSS Fetching
 # =============================================================================
@@ -247,8 +317,8 @@ def parse_date(date_str: str | None) -> datetime | None:
         return None
 
 
-def fetch_source(source: dict, timeout: int = 15) -> tuple[str, list[dict]]:
-    """Fetch single RSS source with retry logic. Returns (source_id, articles)."""
+def fetch_source(source: dict, timeout: int = 15) -> tuple[str, list[dict], str | None]:
+    """Fetch single RSS source with retry logic. Returns (source_id, articles, error_or_none)."""
     source_id = source["id"]
     last_error = None
 
@@ -261,8 +331,9 @@ def fetch_source(source: dict, timeout: int = 15) -> tuple[str, list[dict]]:
 
             if feed.bozo and not feed.entries:
                 # Parse error - don't retry, feed is malformed
-                print(f"  [{source_id}] Feed parse error: {feed.bozo_exception}", flush=True)
-                return source_id, []
+                error_msg = f"Feed parse error: {feed.bozo_exception}"
+                print(f"  [{source_id}] {error_msg}", flush=True)
+                return source_id, [], error_msg
 
             articles = []
             for entry in feed.entries:
@@ -285,7 +356,7 @@ def fetch_source(source: dict, timeout: int = 15) -> tuple[str, list[dict]]:
                     articles.append(article)
 
             print(f"  [{source_id}] {len(articles)} articles", flush=True)
-            return source_id, articles
+            return source_id, articles, None  # Success
 
         except (urllib.error.URLError, TimeoutError, OSError) as e:
             # Transient errors - retry with exponential backoff
@@ -296,17 +367,18 @@ def fetch_source(source: dict, timeout: int = 15) -> tuple[str, list[dict]]:
             continue
         except Exception as e:
             # Non-transient error - don't retry
-            print(f"  [{source_id}] Error: {type(e).__name__}: {e}", flush=True)
-            return source_id, []
+            error_msg = f"{type(e).__name__}: {e}"
+            print(f"  [{source_id}] Error: {error_msg}", flush=True)
+            return source_id, [], error_msg
 
     # All retries exhausted
     error_msg = str(getattr(last_error, 'reason', last_error)) if last_error else "Unknown"
     print(f"  [{source_id}] Failed after {MAX_RETRIES} retries: {error_msg}", flush=True)
-    return source_id, []
+    return source_id, [], f"Failed after {MAX_RETRIES} retries: {error_msg}"
 
 
-def fetch_feeds(sources: list[dict]) -> int:
-    """Fetch all RSS feeds in parallel. Returns total article count."""
+def fetch_feeds(sources: list[dict]) -> tuple[int, int]:
+    """Fetch all RSS feeds in parallel. Returns (total_articles, failed_count)."""
     log(f"Fetching {len(sources)} RSS feeds...")
 
     last_run = get_last_run_time()
@@ -318,11 +390,16 @@ def fetch_feeds(sources: list[dict]) -> int:
         f.unlink()
 
     results = {}
+    health_records = []  # (source_id, success, error_message)
     with ThreadPoolExecutor(max_workers=10) as executor:
         futures = {executor.submit(fetch_source, s): s for s in sources}
         for future in as_completed(futures):
-            source_id, articles = future.result()
+            source_id, articles, error = future.result()
             results[source_id] = articles
+            health_records.append((source_id, error is None, error))
+
+    # Record health to DB
+    record_source_health(health_records)
 
     # Filter by date and save
     total = 0
@@ -330,20 +407,29 @@ def fetch_feeds(sources: list[dict]) -> int:
         source_id = source["id"]
         articles = results.get(source_id, [])
         if last_run:
-            # Parse date once, filter
-            filtered = []
-            for a in articles:
-                pub_date = parse_date(a.get("published"))
-                if pub_date is None or pub_date > last_run:
-                    filtered.append(a)
-            articles = filtered
+            articles = [
+                a for a in articles
+                if (pub := parse_date(a.get("published"))) is None or pub > last_run
+            ]
 
         with open(FETCHED_DIR / f"{source_id}.json", "w") as f:
             json.dump(articles, f, indent=2)
         total += len(articles)
 
-    log(f"Fetched {total} articles from {len(sources)} sources")
-    return total
+    # Health summary
+    failed_this_run = [(sid, err) for sid, success, err in health_records if not success]
+    succeeded = len(sources) - len(failed_this_run)
+    log(f"Fetched {total} articles from {succeeded}/{len(sources)} sources")
+
+    if failed_this_run:
+        log(f"Failed sources this run: {', '.join(sid for sid, _ in failed_this_run)}")
+
+    # Check for persistently failing sources
+    persistently_failing = get_failing_sources(min_consecutive=HEALTH_ALERT_THRESHOLD)
+    if persistently_failing:
+        log(f"WARNING: Sources with {HEALTH_ALERT_THRESHOLD}+ consecutive failures: {', '.join(f'{sid}({n}x)' for sid, n in persistently_failing)}")
+
+    return total, len(failed_this_run)
 
 
 # =============================================================================
@@ -606,6 +692,38 @@ def find_latest_digest() -> Path | None:
 # Email
 # =============================================================================
 
+def send_health_alert(failing_sources: list[tuple[str, int]], failed_this_run: int, total_sources: int):
+    """Send alert email when sources are persistently failing."""
+    if not os.environ.get("RESEND_API_KEY"):
+        log("Skipping health alert: RESEND_API_KEY not set")
+        return
+
+    resend.api_key = os.environ["RESEND_API_KEY"]
+    from_email = os.environ["RESEND_FROM"]
+    # Alert goes to contact email, not digest recipients
+    to_email = os.environ.get("HEALTH_ALERT_EMAIL", "contact@seanfloyd.dev")
+
+    source_list = "\n".join(f"  • {sid}: {count} consecutive failures" for sid, count in failing_sources)
+    content = f"""<h2>News Digest Source Health Alert</h2>
+<p><strong>{failed_this_run}/{total_sources}</strong> sources failed this run.</p>
+<p>The following sources have failed 3+ times in a row:</p>
+<pre>{source_list}</pre>
+<p>Consider checking these feeds or removing them from sources.json.</p>
+<p style="color: #777; font-size: 0.85em;">This is an automated alert from your News Digest system.</p>
+"""
+
+    try:
+        resend.Emails.send({
+            "from": f"News Digest Alerts <{from_email}>",
+            "to": [to_email],
+            "subject": f"[Alert] {len(failing_sources)} RSS sources failing",
+            "html": content,
+        })
+        log(f"Health alert sent to {to_email}")
+    except resend.exceptions.ResendError as e:
+        log(f"Failed to send health alert: {e}")
+
+
 def send_email(digest_path: Path) -> int:
     """Send digest via Resend API. Returns number of recipients."""
     resend.api_key = os.environ["RESEND_API_KEY"]
@@ -673,6 +791,7 @@ Examples:
   python run.py --select-only      # Run Pass 1 only (create selections.json)
   python run.py --write-only       # Run Pass 2 only (use existing selections.json)
   python run.py --send-only        # Send latest digest (retry after failure)
+  python run.py --preview          # Open latest digest in browser
   python run.py --test-email       # Test Resend config
         """
     )
@@ -688,6 +807,8 @@ Examples:
                         help="Run Pass 2 only (writing) - uses existing selections.json")
     parser.add_argument("--send-only", action="store_true",
                         help="Send latest digest without fetching/generating (for retrying after failure)")
+    parser.add_argument("--preview", action="store_true",
+                        help="Open latest digest in browser (no-op in Docker)")
     parser.add_argument("--test-email", action="store_true",
                         help="Send test email and exit")
     args = parser.parse_args()
@@ -700,6 +821,19 @@ Examples:
     if args.test_email:
         validate_env(dry_run=False)
         return send_test_email()
+
+    # Preview mode - open latest digest in browser
+    if args.preview:
+        digest = find_latest_digest()
+        if not digest:
+            log("ERROR: No digest found to preview")
+            return 1
+        if os.environ.get("IN_DOCKER"):
+            log(f"Preview (Docker): {digest.absolute()}")
+        else:
+            log(f"Opening: {digest.name}")
+            subprocess.run(["open", str(digest)])
+        return 0
 
     # Send-only mode - retry email from existing digest
     if args.send_only:
@@ -747,7 +881,12 @@ Examples:
 
     sources = load_sources()
     init_db()
-    articles_fetched = fetch_feeds(sources)
+    articles_fetched, failed_count = fetch_feeds(sources)
+
+    # Send health alert if sources are persistently failing
+    persistently_failing = get_failing_sources(min_consecutive=HEALTH_ALERT_THRESHOLD)
+    if persistently_failing:
+        send_health_alert(persistently_failing, failed_count, len(sources))
 
     # Prepare input for Claude (articles + previous headlines)
     prepare_claude_input(sources)

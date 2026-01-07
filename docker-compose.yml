@@ -7,6 +7,11 @@ services:
       - RESEND_FROM
       - DIGEST_EMAIL
       - DIGEST_NAME
+      - HEALTH_ALERT_EMAIL
+      - HEALTH_ALERT_THRESHOLD
+      - RSS_MAX_RETRIES
+      - RSS_RETRY_DELAY
+      - IN_DOCKER=1
     volumes:
       - ./data:/app/data
       - ./.claude:/home/appuser/.claude

@@ -25,13 +25,17 @@ Write to `data/output/digest-TIMESTAMP.html` (use `date -u '+%Y-%m-%d-%H%MZ'` fo
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>News Digest – [Month] [DD], [YYYY]</title>
-  <style>:root{--bg:#fafafa;--text:#1a1a1a;--text-secondary:#555;--text-muted:#777;--border:#ddd;--accent:#c45a3b;--accent-muted:#d4897a;--link:#1a5f7a;--tag-bg:#c45a3b;--tag-text:#fff}@media(prefers-color-scheme:dark){:root{--bg:#141414;--text:#e8e8e8;--text-secondary:#b0b0b0;--text-muted:#888;--border:#2a2a2a;--accent:#e07a5f;--accent-muted:#c45a3b;--link:#7cc5e3;--tag-bg:#e07a5f;--tag-text:#141414}}body{font-family:Georgia,"Times New Roman",serif;max-width:600px;margin:0 auto;padding:24px 16px;line-height:1.75;color:var(--text);background:var(--bg);font-size:18px}@media(min-width:768px){body{max-width:820px;font-size:20px;padding:40px 32px}}header{border-left:4px solid var(--accent);padding-left:16px;margin-bottom:32px}header time{font-size:1.4em;font-weight:700;letter-spacing:-0.5px;display:block}header .stats{color:var(--text-muted);font-size:0.85em;margin-top:4px}.summary{background:var(--border);padding:16px 20px;margin-bottom:32px;font-size:0.92em;line-height:1.6}.summary strong{color:var(--accent)}section{margin-bottom:36px}section>h2{color:var(--accent);font-size:0.75em;font-weight:600;text-transform:uppercase;letter-spacing:2px;margin:0 0 20px 0;padding-bottom:8px;border-bottom:1px solid var(--border)}article{margin-bottom:28px}article h3{margin:0 0 8px 0;font-size:1.1em;font-weight:600;line-height:1.4}article p{margin:8px 0;font-size:0.95em}article .why{color:var(--text-secondary);border-left:2px solid var(--accent-muted);padding-left:12px;margin:12px 0}article .sources{font-size:0.8em;color:var(--text-muted);margin-top:10px}article .sources a{color:var(--link);text-decoration:none}.signals{font-size:0.9em}.signal{margin:12px 0;padding-left:16px;position:relative;line-height:1.5;color:var(--text-secondary)}.signal::before{content:"•";position:absolute;left:0;color:var(--accent)}.signal a{color:var(--link);text-decoration:none}.cluster{margin-bottom:24px}.cluster h3{font-size:0.95em;font-weight:600;margin:0 0 12px 0;color:var(--text)}footer{margin-top:48px;padding-top:16px;border-top:1px solid var(--border);font-size:0.75em;color:var(--text-muted)}</style>
+  <style>:root{--bg:#fafafa;--text:#1a1a1a;--text-secondary:#555;--text-muted:#777;--border:#ddd;--accent:#c45a3b;--accent-muted:#d4897a;--link:#1a5f7a;--tag-bg:#c45a3b;--tag-text:#fff;--notice-bg:#f5f0eb}@media(prefers-color-scheme:dark){:root{--bg:#141414;--text:#e8e8e8;--text-secondary:#b0b0b0;--text-muted:#888;--border:#2a2a2a;--accent:#e07a5f;--accent-muted:#c45a3b;--link:#7cc5e3;--tag-bg:#e07a5f;--tag-text:#141414;--notice-bg:#1e1a17}}body{font-family:Georgia,"Times New Roman",serif;max-width:600px;margin:0 auto;padding:24px 16px;line-height:1.75;color:var(--text);background:var(--bg);font-size:18px}@media(min-width:768px){body{max-width:820px;font-size:20px;padding:40px 32px}}header{border-left:4px solid var(--accent);padding-left:16px;margin-bottom:32px}header time{font-size:1.4em;font-weight:700;letter-spacing:-0.5px;display:block}header .stats{color:var(--text-muted);font-size:0.85em;margin-top:4px}.ai-notice{background:var(--notice-bg);padding:12px 16px;margin-bottom:24px;font-size:0.82em;line-height:1.5;border-radius:4px;color:var(--text-secondary)}.ai-notice strong{color:var(--text)}.summary{background:var(--border);padding:16px 20px;margin-bottom:32px;font-size:0.92em;line-height:1.6}.summary strong{color:var(--accent)}section{margin-bottom:36px}section>h2{color:var(--accent);font-size:0.75em;font-weight:600;text-transform:uppercase;letter-spacing:2px;margin:0 0 20px 0;padding-bottom:8px;border-bottom:1px solid var(--border)}article{margin-bottom:28px}article h3{margin:0 0 8px 0;font-size:1.1em;font-weight:600;line-height:1.4}article p{margin:8px 0;font-size:0.95em}article .why{color:var(--text-secondary);border-left:2px solid var(--accent-muted);padding-left:12px;margin:12px 0}article .sources{font-size:0.8em;color:var(--text-muted);margin-top:10px}article .sources a{color:var(--link);text-decoration:none}.signals{font-size:0.9em}.signal{margin:12px 0;padding-left:16px;position:relative;line-height:1.5;color:var(--text-secondary)}.signal::before{content:"•";position:absolute;left:0;color:var(--accent)}.signal a{color:var(--link);text-decoration:none}.cluster{margin-bottom:24px}.cluster h3{font-size:0.95em;font-weight:600;margin:0 0 12px 0;color:var(--text)}footer{margin-top:48px;padding-top:16px;border-top:1px solid var(--border);font-size:0.75em;color:var(--text-muted)}footer a{color:var(--link);text-decoration:none}</style>
 </head>
 <body>
   <header>
     <time datetime="YYYY-MM-DDTHH:MMZ">[Weekday], [Month] [DD], [YYYY] · HH:MM UTC</time>
     <div class="stats">[articles_reviewed] articles from [sources_used] sources → [stories_selected] stories</div>
   </header>
+
+  <div class="ai-notice">
+    <strong>About this digest:</strong> Curated and written by Claude (Opus 4.5), an AI assistant. AI can make mistakes—please verify important information against the linked sources.
+  </div>
 
   <div class="summary">
     <p><strong>Americas:</strong> [regional_summary.americas]</p>
@@ -100,7 +104,10 @@ Write to `data/output/digest-TIMESTAMP.html` (use `date -u '+%Y-%m-%d-%H%MZ'` fo
     </div>
   </section>
 
-  <footer>Generated YYYY-MM-DD HH:MM UTC</footer>
+  <footer>
+    <p>Generated YYYY-MM-DD HH:MM UTC</p>
+    <p>Don't want these emails? <a href="mailto:contact@seanfloyd.dev?subject=Unsubscribe%20from%20News%20Digest&body=Hi%2C%0A%0APlease%20remove%20me%20from%20the%20News%20Digest%20mailing%20list.%0A%0AThanks!">Let me know</a> and I'll remove you.</p>
+  </footer>
 </body>
 </html>
 ```
