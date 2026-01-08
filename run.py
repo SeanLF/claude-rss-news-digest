@@ -22,6 +22,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 import feedparser
 import resend
@@ -33,6 +34,7 @@ import resend
 MAX_RETRIES = int(os.environ.get("RSS_MAX_RETRIES", "3"))  # Retry flaky RSS feeds
 RETRY_DELAY = int(os.environ.get("RSS_RETRY_DELAY", "2"))  # Base delay in seconds (exponential backoff)
 HEALTH_ALERT_THRESHOLD = int(os.environ.get("HEALTH_ALERT_THRESHOLD", "3"))  # Consecutive failures before alert
+DIGEST_TIMEZONE = os.environ.get("DIGEST_TIMEZONE", "UTC")  # Timezone for display (e.g., "America/Vancouver")
 
 APP_DIR = Path(__file__).parent
 DATA_DIR = APP_DIR / "data"
@@ -462,12 +464,59 @@ MAX_SUMMARY_LENGTH = 200  # Cap summary length
 csv.field_size_limit(1_000_000)  # 1MB max
 
 
+def write_timestamp_info():
+    """Write timestamp info file for Claude to use in digest generation."""
+    try:
+        tz = ZoneInfo(DIGEST_TIMEZONE)
+    except Exception as e:
+        log(f"WARNING: Invalid DIGEST_TIMEZONE '{DIGEST_TIMEZONE}', using UTC: {e}")
+        tz = timezone.utc
+
+    now = datetime.now(tz)
+
+    # Format for HTML display
+    weekday = now.strftime("%A")  # Monday, Tuesday, etc.
+    month = now.strftime("%B")    # January, February, etc.
+    day = now.strftime("%d").lstrip("0")  # Day without leading zero
+    year = now.strftime("%Y")
+    hour_min = now.strftime("%H:%M")
+    tz_abbrev = now.strftime("%Z") or DIGEST_TIMEZONE  # Timezone abbreviation
+
+    # ISO format for datetime attribute
+    iso_datetime = now.strftime("%Y-%m-%dT%H:%M")
+
+    # Filename timestamp (UTC for consistency)
+    utc_now = datetime.now(timezone.utc)
+    filename_timestamp = utc_now.strftime("%Y-%m-%d-%H%MZ")
+
+    timestamp_info = {
+        "weekday": weekday,
+        "month": month,
+        "day": day,
+        "year": year,
+        "hour_min": hour_min,
+        "timezone": tz_abbrev,
+        "iso_datetime": iso_datetime,
+        "filename_timestamp": filename_timestamp,
+        "display": f"{weekday}, {month} {day}, {year} · {hour_min} {tz_abbrev}"
+    }
+
+    timestamp_file = CLAUDE_INPUT_DIR / "timestamp.json"
+    with open(timestamp_file, "w") as f:
+        json.dump(timestamp_info, f, indent=2)
+
+    log(f"Timestamp: {timestamp_info['display']}")
+
+
 def prepare_claude_input(sources: list[dict]) -> list[Path]:
     """Prepare CSV input files for Claude - split if too large."""
     # Clean and recreate input directory
     if CLAUDE_INPUT_DIR.exists():
         shutil.rmtree(CLAUDE_INPUT_DIR)
     CLAUDE_INPUT_DIR.mkdir(parents=True)
+
+    # Write timestamp info for digest generation
+    write_timestamp_info()
 
     # Get previous headlines for deduplication
     previous_headlines = get_previous_headlines(days=7)
