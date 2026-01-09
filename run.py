@@ -466,6 +466,21 @@ csv.field_size_limit(1_000_000)  # 1MB max
 
 def write_timestamp_info():
     """Write timestamp info file for Claude to use in digest generation."""
+    # Filename timestamp (UTC for consistency)
+    utc_now = datetime.now(timezone.utc)
+    filename_timestamp = utc_now.strftime("%Y-%m-%d-%H%MZ")
+
+    timestamp_info = {
+        "filename_timestamp": filename_timestamp,
+    }
+
+    timestamp_file = CLAUDE_INPUT_DIR / "timestamp.json"
+    with open(timestamp_file, "w") as f:
+        json.dump(timestamp_info, f, indent=2)
+
+
+def inject_timestamp(digest_path: Path):
+    """Replace timestamp placeholder in digest HTML with actual file creation time."""
     try:
         tz = ZoneInfo(DIGEST_TIMEZONE)
     except Exception as e:
@@ -473,39 +488,12 @@ def write_timestamp_info():
         tz = timezone.utc
 
     now = datetime.now(tz)
+    display = now.strftime("%A, %B ") + str(now.day) + now.strftime(", %Y · %H:%M %Z")
 
-    # Format for HTML display
-    weekday = now.strftime("%A")  # Monday, Tuesday, etc.
-    month = now.strftime("%B")    # January, February, etc.
-    day = now.strftime("%d").lstrip("0")  # Day without leading zero
-    year = now.strftime("%Y")
-    hour_min = now.strftime("%H:%M")
-    tz_abbrev = now.strftime("%Z") or DIGEST_TIMEZONE  # Timezone abbreviation
-
-    # ISO format for datetime attribute
-    iso_datetime = now.strftime("%Y-%m-%dT%H:%M")
-
-    # Filename timestamp (UTC for consistency)
-    utc_now = datetime.now(timezone.utc)
-    filename_timestamp = utc_now.strftime("%Y-%m-%d-%H%MZ")
-
-    timestamp_info = {
-        "weekday": weekday,
-        "month": month,
-        "day": day,
-        "year": year,
-        "hour_min": hour_min,
-        "timezone": tz_abbrev,
-        "iso_datetime": iso_datetime,
-        "filename_timestamp": filename_timestamp,
-        "display": f"{weekday}, {month} {day}, {year} · {hour_min} {tz_abbrev}"
-    }
-
-    timestamp_file = CLAUDE_INPUT_DIR / "timestamp.json"
-    with open(timestamp_file, "w") as f:
-        json.dump(timestamp_info, f, indent=2)
-
-    log(f"Timestamp: {timestamp_info['display']}")
+    content = digest_path.read_text()
+    content = content.replace("{{TIMESTAMP}}", display)
+    digest_path.write_text(content)
+    log(f"Timestamp: {display}")
 
 
 def prepare_claude_input(sources: list[dict]) -> list[Path]:
@@ -903,10 +891,11 @@ Examples:
         validate_env(dry_run=skip_email)
         init_db()
         validate_selections()  # Ensure selections.json exists and is valid
-        write_timestamp_info()  # Generate timestamp right before writing
+        write_timestamp_info()
         generate_digest()
         validate_digest()
         digest = find_latest_digest()
+        inject_timestamp(digest)
         # Send email first for atomicity
         recipients = 0
         if not skip_email:
@@ -948,7 +937,7 @@ Examples:
         return 0
 
     # Pass 2: Write HTML digest
-    write_timestamp_info()  # Generate timestamp right before writing
+    write_timestamp_info()
     generate_digest()
     validate_digest()
 
@@ -956,6 +945,7 @@ Examples:
     if not digest:
         log("ERROR: No digest generated")
         return 1
+    inject_timestamp(digest)
 
     # Send email first (before any DB commits for atomicity)
     recipients = 0
