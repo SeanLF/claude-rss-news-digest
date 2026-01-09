@@ -470,6 +470,12 @@ def inject_timestamp(digest_path: Path):
     digest_name = os.environ.get("DIGEST_NAME", "News Digest")
 
     content = digest_path.read_text()
+
+    # Verify placeholders exist before replacing
+    for placeholder in ["{{DIGEST_NAME}}", "{{DATE}}", "{{TIMESTAMP}}"]:
+        if placeholder not in content:
+            raise RuntimeError(f"Missing placeholder {placeholder} in digest")
+
     content = content.replace("{{DIGEST_NAME}}", digest_name)
     content = content.replace("{{DATE}}", date_str)
     content = content.replace("{{TIMESTAMP}}", timestamp)
@@ -875,6 +881,9 @@ Examples:
         generate_digest()
         validate_digest()
         digest = find_latest_digest()
+        if not digest:
+            log("ERROR: No digest generated")
+            return 1
         inject_timestamp(digest)
         # Send email first for atomicity
         recipients = 0
