@@ -463,12 +463,14 @@ csv.field_size_limit(1_000_000)  # 1MB max
 
 
 def inject_timestamp(digest_path: Path):
-    """Replace timestamp placeholders in digest HTML with current UTC time."""
+    """Replace placeholders in digest HTML."""
     now = datetime.now(timezone.utc)
     date_str = now.strftime("%B ") + str(now.day) + now.strftime(", %Y")
     timestamp = now.strftime("%A, ") + date_str + now.strftime(" · %H:%M UTC")
+    digest_name = os.environ.get("DIGEST_NAME", "News Digest")
 
     content = digest_path.read_text()
+    content = content.replace("{{DIGEST_NAME}}", digest_name)
     content = content.replace("{{DATE}}", date_str)
     content = content.replace("{{TIMESTAMP}}", timestamp)
     digest_path.write_text(content)
