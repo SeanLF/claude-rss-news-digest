@@ -515,9 +515,6 @@ def prepare_claude_input(sources: list[dict]) -> list[Path]:
         shutil.rmtree(CLAUDE_INPUT_DIR)
     CLAUDE_INPUT_DIR.mkdir(parents=True)
 
-    # Write timestamp info for digest generation
-    write_timestamp_info()
-
     # Get previous headlines for deduplication
     previous_headlines = get_previous_headlines(days=7)
 
@@ -906,6 +903,7 @@ Examples:
         validate_env(dry_run=skip_email)
         init_db()
         validate_selections()  # Ensure selections.json exists and is valid
+        write_timestamp_info()  # Generate timestamp right before writing
         generate_digest()
         validate_digest()
         digest = find_latest_digest()
@@ -950,6 +948,7 @@ Examples:
         return 0
 
     # Pass 2: Write HTML digest
+    write_timestamp_info()  # Generate timestamp right before writing
     generate_digest()
     validate_digest()
 
