@@ -22,7 +22,6 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
 from pathlib import Path
-from zoneinfo import ZoneInfo
 
 import feedparser
 import resend
@@ -34,7 +33,6 @@ import resend
 MAX_RETRIES = int(os.environ.get("RSS_MAX_RETRIES", "3"))  # Retry flaky RSS feeds
 RETRY_DELAY = int(os.environ.get("RSS_RETRY_DELAY", "2"))  # Base delay in seconds (exponential backoff)
 HEALTH_ALERT_THRESHOLD = int(os.environ.get("HEALTH_ALERT_THRESHOLD", "3"))  # Consecutive failures before alert
-DIGEST_TIMEZONE = os.environ.get("DIGEST_TIMEZONE", "UTC")  # Timezone for display (e.g., "America/Vancouver")
 
 APP_DIR = Path(__file__).parent
 DATA_DIR = APP_DIR / "data"
@@ -464,31 +462,10 @@ MAX_SUMMARY_LENGTH = 200  # Cap summary length
 csv.field_size_limit(1_000_000)  # 1MB max
 
 
-def write_timestamp_info():
-    """Write timestamp info file for Claude to use in digest generation."""
-    # Filename timestamp (UTC for consistency)
-    utc_now = datetime.now(timezone.utc)
-    filename_timestamp = utc_now.strftime("%Y-%m-%d-%H%MZ")
-
-    timestamp_info = {
-        "filename_timestamp": filename_timestamp,
-    }
-
-    timestamp_file = CLAUDE_INPUT_DIR / "timestamp.json"
-    with open(timestamp_file, "w") as f:
-        json.dump(timestamp_info, f, indent=2)
-
-
 def inject_timestamp(digest_path: Path):
-    """Replace timestamp placeholder in digest HTML with actual file creation time."""
-    try:
-        tz = ZoneInfo(DIGEST_TIMEZONE)
-    except Exception as e:
-        log(f"WARNING: Invalid DIGEST_TIMEZONE '{DIGEST_TIMEZONE}', using UTC: {e}")
-        tz = timezone.utc
-
-    now = datetime.now(tz)
-    display = now.strftime("%A, %B ") + str(now.day) + now.strftime(", %Y · %H:%M %Z")
+    """Replace timestamp placeholder in digest HTML with current UTC time."""
+    now = datetime.now(timezone.utc)
+    display = now.strftime("%A, %B ") + str(now.day) + now.strftime(", %Y · %H:%M UTC")
 
     content = digest_path.read_text()
     content = content.replace("{{TIMESTAMP}}", display)
@@ -891,7 +868,6 @@ Examples:
         validate_env(dry_run=skip_email)
         init_db()
         validate_selections()  # Ensure selections.json exists and is valid
-        write_timestamp_info()
         generate_digest()
         validate_digest()
         digest = find_latest_digest()
@@ -937,7 +913,6 @@ Examples:
         return 0
 
     # Pass 2: Write HTML digest
-    write_timestamp_info()
     generate_digest()
     validate_digest()
 

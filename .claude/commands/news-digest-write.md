@@ -4,8 +4,6 @@ Format the curated selections into HTML digest and tracking JSON.
 
 ## Input
 
-Read `data/claude_input/timestamp.json` for `filename_timestamp` (used in output filename).
-
 Read `data/claude_input/selections.json` which contains:
 - `must_know`: Array of stories with headline, summary, why_it_matters, sources
 - `should_know`: Array of stories with headline, summary, why_it_matters, sources
@@ -16,7 +14,7 @@ Read `data/claude_input/selections.json` which contains:
 
 ## Output 1: HTML Digest
 
-Write to `data/output/digest-TIMESTAMP.html` (use `filename_timestamp` from timestamp.json).
+Write to `data/output/digest-TIMESTAMP.html` (use `date -u '+%Y-%m-%d-%H%MZ'` for TIMESTAMP).
 
 **You MUST use this EXACT template structure and CSS. Do not modify the styling.**
 
