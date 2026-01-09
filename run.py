@@ -462,6 +462,27 @@ MAX_SUMMARY_LENGTH = 200  # Cap summary length
 csv.field_size_limit(1_000_000)  # 1MB max
 
 
+def inject_timestamp(digest_path: Path):
+    """Replace placeholders in digest HTML."""
+    now = datetime.now(timezone.utc)
+    date_str = now.strftime("%B ") + str(now.day) + now.strftime(", %Y")
+    timestamp = now.strftime("%A, ") + date_str + now.strftime(" · %H:%M UTC")
+    digest_name = os.environ.get("DIGEST_NAME", "News Digest")
+
+    content = digest_path.read_text()
+
+    # Verify placeholders exist before replacing
+    for placeholder in ["{{DIGEST_NAME}}", "{{DATE}}", "{{TIMESTAMP}}"]:
+        if placeholder not in content:
+            raise RuntimeError(f"Missing placeholder {placeholder} in digest")
+
+    content = content.replace("{{DIGEST_NAME}}", digest_name)
+    content = content.replace("{{DATE}}", date_str)
+    content = content.replace("{{TIMESTAMP}}", timestamp)
+    digest_path.write_text(content)
+    log(f"Timestamp: {timestamp}")
+
+
 def prepare_claude_input(sources: list[dict]) -> list[Path]:
     """Prepare CSV input files for Claude - split if too large."""
     # Clean and recreate input directory
@@ -860,6 +881,10 @@ Examples:
         generate_digest()
         validate_digest()
         digest = find_latest_digest()
+        if not digest:
+            log("ERROR: No digest generated")
+            return 1
+        inject_timestamp(digest)
         # Send email first for atomicity
         recipients = 0
         if not skip_email:
@@ -908,6 +933,7 @@ Examples:
     if not digest:
         log("ERROR: No digest generated")
         return 1
+    inject_timestamp(digest)
 
     # Send email first (before any DB commits for atomicity)
     recipients = 0
