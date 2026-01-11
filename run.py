@@ -42,6 +42,7 @@ FETCHED_DIR = DATA_DIR / "fetched"
 OUTPUT_DIR = DATA_DIR / "output"
 CLAUDE_INPUT_DIR = DATA_DIR / "claude_input"  # Intermediate files for Claude
 SOURCES_FILE = APP_DIR / "sources.json"
+STYLES_FILE = APP_DIR / "digest.css"
 
 MAX_LOG_LINES = 1000  # Keep last N log lines
 
@@ -462,20 +463,37 @@ MAX_SUMMARY_LENGTH = 200  # Cap summary length
 csv.field_size_limit(1_000_000)  # 1MB max
 
 
-def inject_timestamp(digest_path: Path):
-    """Replace placeholders in digest HTML."""
+def minify_css(css: str) -> str:
+    """Minify CSS by removing comments, whitespace, and newlines."""
+    # Remove comments
+    css = re.sub(r'/\*.*?\*/', '', css, flags=re.DOTALL)
+    # Remove whitespace around special characters
+    css = re.sub(r'\s*([{};:,>])\s*', r'\1', css)
+    # Collapse multiple whitespace
+    css = re.sub(r'\s+', ' ', css)
+    return css.strip()
+
+
+def replace_placeholders(digest_path: Path):
+    """Replace all placeholders in digest HTML (styles, name, date, timestamp)."""
     now = datetime.now(timezone.utc)
     date_str = now.strftime("%B ") + str(now.day) + now.strftime(", %Y")
     timestamp = now.strftime("%A, ") + date_str + now.strftime(" · %H:%M UTC")
     digest_name = os.environ.get("DIGEST_NAME", "News Digest")
 
+    # Load and minify CSS
+    if not STYLES_FILE.exists():
+        raise RuntimeError(f"Styles file not found: {STYLES_FILE}")
+    styles = minify_css(STYLES_FILE.read_text())
+
     content = digest_path.read_text()
 
     # Verify placeholders exist before replacing
-    for placeholder in ["{{DIGEST_NAME}}", "{{DATE}}", "{{TIMESTAMP}}"]:
+    for placeholder in ["{{DIGEST_NAME}}", "{{DATE}}", "{{TIMESTAMP}}", "{{STYLES}}"]:
         if placeholder not in content:
             raise RuntimeError(f"Missing placeholder {placeholder} in digest")
 
+    content = content.replace("{{STYLES}}", styles)
     content = content.replace("{{DIGEST_NAME}}", digest_name)
     content = content.replace("{{DATE}}", date_str)
     content = content.replace("{{TIMESTAMP}}", timestamp)
@@ -775,6 +793,80 @@ def send_email(digest_path: Path) -> int:
 # Main Pipeline
 # =============================================================================
 
+def validate_feeds(sources: list[dict]) -> int:
+    """Test all RSS feeds and report health status. Returns exit code."""
+    print(f"\n{'='*60}")
+    print("RSS Feed Validation")
+    print(f"{'='*60}")
+    print(f"Testing {len(sources)} sources...\n")
+
+    results = []
+    total_articles = 0
+    failed_count = 0
+
+    for source in sources:
+        source_id = source["id"]
+        source_name = source["name"]
+        url = source["url"]
+
+        print(f"[{source_id}] {source_name}")
+        print(f"  URL: {url[:80]}{'...' if len(url) > 80 else ''}")
+
+        source_id, articles, error = fetch_source(source, timeout=15)
+
+        if error:
+            print(f"  Status: FAILED - {error}")
+            failed_count += 1
+            results.append((source_id, source_name, 0, error))
+        else:
+            article_count = len(articles)
+            total_articles += article_count
+            print(f"  Status: OK - {article_count} articles")
+
+            # Parse dates and show range
+            if articles:
+                dates = [parse_date(a.get("published")) for a in articles]
+                valid_dates = [d for d in dates if d is not None]
+                if valid_dates:
+                    oldest = min(valid_dates).strftime("%Y-%m-%d %H:%M")
+                    newest = max(valid_dates).strftime("%Y-%m-%d %H:%M")
+                    print(f"  Dates: {oldest} → {newest} ({len(valid_dates)}/{article_count} parseable)")
+                else:
+                    print(f"  Dates: No parseable dates found")
+
+                # Show sample headline
+                sample = articles[0].get("title", "")[:60]
+                print(f"  Sample: \"{sample}{'...' if len(articles[0].get('title', '')) > 60 else ''}\"")
+            results.append((source_id, source_name, article_count, None))
+        print()
+
+    # Summary
+    print(f"{'='*60}")
+    print("Summary")
+    print(f"{'='*60}")
+    print(f"Total sources: {len(sources)}")
+    print(f"Successful: {len(sources) - failed_count}")
+    print(f"Failed: {failed_count}")
+    print(f"Total articles: {total_articles}")
+
+    if failed_count > 0:
+        print(f"\nFailed sources:")
+        for source_id, name, _, error in results:
+            if error:
+                print(f"  - {name} ({source_id}): {error}")
+
+    # Check historical failures from DB
+    init_db()
+    persistently_failing = get_failing_sources(min_consecutive=3)
+    if persistently_failing:
+        print(f"\nSources with 3+ consecutive historical failures:")
+        for sid, count in persistently_failing:
+            print(f"  - {sid}: {count} failures")
+
+    print()
+    return 1 if failed_count > 0 else 0
+
+
 def send_test_email() -> int:
     """Send a test email to verify Resend config."""
     resend.api_key = os.environ["RESEND_API_KEY"]
@@ -814,6 +906,7 @@ Examples:
   python run.py --send-only        # Send latest digest (retry after failure)
   python run.py --preview          # Open latest digest in browser
   python run.py --test-email       # Test Resend config
+  python run.py --validate         # Test all RSS feeds and report status
         """
     )
     parser.add_argument("--dry-run", action="store_true",
@@ -832,6 +925,8 @@ Examples:
                         help="Open latest digest in browser (no-op in Docker)")
     parser.add_argument("--test-email", action="store_true",
                         help="Send test email and exit")
+    parser.add_argument("--validate", action="store_true",
+                        help="Test all RSS feeds and report health status")
     args = parser.parse_args()
 
     # --dry-run is shorthand for --no-email --no-record
@@ -842,6 +937,11 @@ Examples:
     if args.test_email:
         validate_env(dry_run=False)
         return send_test_email()
+
+    # Validate mode - test all RSS feeds
+    if args.validate:
+        sources = load_sources()
+        return validate_feeds(sources)
 
     # Preview mode - open latest digest in browser
     if args.preview:
@@ -884,7 +984,7 @@ Examples:
         if not digest:
             log("ERROR: No digest generated")
             return 1
-        inject_timestamp(digest)
+        replace_placeholders(digest)
         # Send email first for atomicity
         recipients = 0
         if not skip_email:
@@ -933,7 +1033,7 @@ Examples:
     if not digest:
         log("ERROR: No digest generated")
         return 1
-    inject_timestamp(digest)
+    replace_placeholders(digest)
 
     # Send email first (before any DB commits for atomicity)
     recipients = 0
