@@ -4,7 +4,7 @@
 
 Automated news digest: RSS feeds → Claude curation → HTML email via Resend.
 
-Single file architecture: `run.py` (~650 lines). Runtime data in `data/`.
+Single file architecture: `run.py`. Runtime data in `data/`.
 
 ## Database
 
@@ -18,6 +18,7 @@ SQLite at `data/digest.db`:
 - `.claude/commands/news-digest-select.md` - Pass 1: story selection
 - `.claude/commands/news-digest-write.md` - Pass 2: HTML generation
 - `sources.json` - RSS feed definitions
+- `digest.css` - CSS styles (minified and injected at runtime)
 
 ## Don't
 

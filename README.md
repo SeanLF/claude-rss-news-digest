@@ -1,10 +1,10 @@
 # News Digest
 
-Automated daily news digest powered by Claude. Fetches from 28 balanced RSS sources, deduplicates against recent history, clusters into narratives, and emails a curated HTML summary via Resend.
+Automated daily news digest powered by Claude. Fetches from diverse RSS sources, deduplicates against recent history, clusters into narratives, and emails a curated HTML summary via Resend.
 
 ## How It Works
 
-1. **Fetch** - Python script pulls RSS feeds from 28 sources, filters by last run time
+1. **Fetch** - Python script pulls RSS feeds, filters by last run time
 2. **Prepare** - Splits articles into CSV files (~10k tokens each) for Claude to read
 3. **Curate** - Claude reads all articles, deduplicates, filters noise, clusters stories
 4. **Generate** - Outputs HTML digest with tiered stories and regional clusters
@@ -61,6 +61,12 @@ This persists your auth in a Docker volume (`claude-config`).
 # Dry run (no email, no DB record)
 ./run-digest.sh --dry-run
 
+# Preview latest digest in browser
+./run-digest.sh --preview
+
+# Validate all RSS feeds
+./run-digest.sh --validate
+
 # Test Resend config
 ./run-digest.sh --test-email
 ```
@@ -86,21 +92,22 @@ The digest is an HTML email with:
 
 Supports dark mode automatically.
 
-## Sources (28)
+## Sources
 
 | Category | Sources | Bias |
 |----------|---------|------|
-| Wire | Reuters, AP, AFP | center |
+| Wire | Reuters | center |
+| UK | BBC World, Guardian | center/center-left |
+| US | NPR World, NYT, WaPo | center-left |
 | Canadian | Globe and Mail, CBC | center |
-| UK/US | Guardian, NYT, WaPo | center-left |
-| Finance | FT, Economist, WSJ | center-right |
+| Finance | FT, WSJ | center-right |
+| Economist | International, Asia, Europe, Americas, Middle East & Africa | center-right |
 | Tech | HN, Ars Technica, The Verge, Rest of World | center |
-| Asia-Pacific | SCMP (3), Nikkei Asia, Straits Times | center |
+| Asia-Pacific | SCMP (3), Nikkei Asia, Straits Times, Rappler | center |
 | Middle East | Al Jazeera | center |
-| Europe | Le Monde, Der Spiegel | center/center-left |
+| Europe | Le Monde, Der Spiegel, Deutsche Welle | center/center-left |
 | India | The Hindu | center |
 | Africa | Daily Maverick | center-left |
-| Philippines | Rappler | center |
 | Investigative | ProPublica, The Intercept | center-left/left |
 
 ## Troubleshooting
