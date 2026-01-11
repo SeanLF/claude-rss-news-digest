@@ -235,7 +235,7 @@ def record_shown_headlines(headlines: list[dict]):
                 "INSERT INTO shown_narratives (headline, tier) VALUES (?, ?)",
                 [(h.get("headline", ""), h.get("tier", "")) for h in headlines]
             )
-        log(f"Recorded {len(headlines)} shown headlines")
+        log(f"Saved {len(headlines)} headlines to dedup history")
     except sqlite3.Error as e:
         log(f"DB error recording headlines: {e}")
 
@@ -567,7 +567,7 @@ def prepare_claude_input(sources: list[dict]) -> list[Path]:
             writer.writerows(current_rows)
         article_files.append(file_path)
 
-    log(f"Prepared CSV input: {len(previous_headlines)} headlines, {len(all_articles)} articles in {len(article_files)} file(s)")
+    log(f"Prepared CSV input: {len(all_articles)} new articles, {len(previous_headlines)} prior (dedup) in {len(article_files)} file(s)")
     return article_files
 
 
@@ -699,7 +699,7 @@ def validate_digest():
     if headlines and "headline" not in headlines[0]:
         raise RuntimeError(f"shown_headlines.json items missing 'headline' key")
 
-    log(f"Pass 2 complete: {digest.name} ({len(headlines)} headlines tracked)")
+    log(f"Pass 2 complete: {digest.name} ({len(headlines)} stories)")
 
 
 def find_latest_digest() -> Path | None:
