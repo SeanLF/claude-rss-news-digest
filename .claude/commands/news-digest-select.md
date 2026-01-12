@@ -30,7 +30,7 @@ Read all CSV files from `data/claude_input/`:
 - **must_know** (3+ stories): Stories you'd be embarrassed not to know. Major geopolitical shifts, significant deaths, major policy changes.
 - **should_know** (5+ stories): Important but not urgent. Developing situations, notable policy moves, significant tech announcements.
 - **quick_signals** (10+ stories): One-liners worth tracking. Brief but noteworthy.
-- **below_fold**: Additional noteworthy stories that didn't make the tiers above. These are NOT mentioned in regional_summary—they're bonus content for readers who want more.
+- **below_fold**: Additional noteworthy stories that didn't make the tiers above. If a story is mentioned AT ALL in regional_summary (even briefly), do NOT include it in below_fold.
 
 **Be comprehensive, not conservative.** Include more stories rather than fewer.
 
