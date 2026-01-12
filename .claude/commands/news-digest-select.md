@@ -30,7 +30,7 @@ Read all CSV files from `data/claude_input/`:
 - **must_know** (3+ stories): Stories you'd be embarrassed not to know. Major geopolitical shifts, significant deaths, major policy changes.
 - **should_know** (5+ stories): Important but not urgent. Developing situations, notable policy moves, significant tech announcements.
 - **quick_signals** (10+ stories): One-liners worth tracking. Brief but noteworthy.
-- **below_fold**: Regional/tech roundup of remaining worthy stories, clustered by geography and topic.
+- **below_fold**: Additional noteworthy stories that didn't make the tiers above. If a story is mentioned AT ALL in regional_summary (even briefly), do NOT include it in below_fold.
 
 **Be comprehensive, not conservative.** Include more stories rather than fewer.
 
@@ -112,11 +112,11 @@ Write JSON to `data/claude_input/selections.json`:
     "tech": []
   },
   "regional_summary": {
-    "americas": "3+ sentences summarizing Americas news from selected stories.",
-    "europe": "3+ sentences on European news.",
-    "asia_pacific": "3+ sentences on Asia-Pacific news.",
-    "middle_east_africa": "3+ sentences on Middle East and Africa news.",
-    "tech": "3+ sentences on technology, AI, privacy news."
+    "americas": "Narrative with [inline markdown links](https://source-url) to sources. See format below.",
+    "europe": "...",
+    "asia_pacific": "...",
+    "middle_east_africa": "...",
+    "tech": "..."
   },
   "stats": {
     "articles_reviewed": 912,
@@ -126,10 +126,29 @@ Write JSON to `data/claude_input/selections.json`:
 }
 ```
 
+### Regional Summary Format
+
+Regional summaries are **editorialized narratives with inline source links**. They synthesize stories from must_know, should_know, and quick_signals into a coherent regional overview.
+
+**Use markdown link syntax:** `[linked text](url)`
+
+**Example:**
+```
+"americas": "Nicaragua [released dozens of prisoners](https://reuters.com/...) following US pressure. Canada's [Chrystia Freeland resigned](https://nytimes.com/...) from Parliament, while incoming PM [Mark Carney announced a visit to China](https://straitstimes.com/...) to pursue trade diversification. The Trump administration [moved to protect Venezuelan oil revenue](https://reuters.com/...) from court seizures."
+```
+
+**Guidelines:**
+- Link the key action/event, not generic words
+- One link per story mentioned (use the primary source)
+- Weave stories into a coherent narrative, don't just list them
+- 3-5 sentences per region
+- Only reference stories from must_know, should_know, and quick_signals
+
 ### Output Requirements
 - All arrays must contain the minimum number of items (must_know: 3+, should_know: 5+, quick_signals: 10+)
 - Each below_fold cluster should have 3+ stories if available
-- Regional summaries must be 3+ sentences each, covering the selected stories
+- Regional summaries must use inline markdown links to sources
+- below_fold contains ONLY stories not mentioned elsewhere - these are additional noteworthy items
 - Stats must accurately reflect the input (count articles from all CSV files)
 - URLs must be copied exactly from the source articles
 - Bias labels must match sources.csv

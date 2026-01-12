@@ -9,7 +9,7 @@ Read `data/claude_input/selections.json` which contains:
 - `should_know`: Array of stories with headline, summary, why_it_matters, sources
 - `quick_signals`: Array of stories with headline and source
 - `below_fold`: Object with regional clusters (americas, europe, asia_pacific, middle_east_africa, tech)
-- `regional_summary`: Object with 3+ sentence summaries per region
+- `regional_summary`: Object with narrative summaries per region (contains markdown links to convert)
 - `stats`: Object with articles_reviewed, sources_used, stories_selected
 
 ## Output 1: HTML Digest
@@ -135,3 +135,4 @@ Write to `data/shown_headlines.json`:
 4. **Headlines must match exactly** between HTML and shown_headlines.json
 5. **Cluster emojis** must be: 🌎 Americas, 🌍 Europe, 🌏 Asia-Pacific, 🌍 Middle East & Africa, 🤖 Tech
 6. **JSON format for shown_headlines.json** must be an array of objects with headline, tier, and optional cluster keys
+7. **Convert markdown links to HTML** in regional_summary: `[text](url)` becomes `<a href="url">text</a>`
