@@ -90,6 +90,11 @@ header time {
   color: var(--accent);
 }
 
+.summary a {
+  color: var(--link);
+  text-decoration: none;
+}
+
 section {
   margin-bottom: 36px;
 }

@@ -104,7 +104,7 @@ Write to `data/output/digest-TIMESTAMP.html` (use `date -u '+%Y-%m-%d-%H%MZ'` fo
   </section>
 
   <footer>
-    <p>Don't want these emails? <a href="mailto:contact@seanfloyd.dev?subject=Unsubscribe%20from%20News%20Digest&body=Hi%2C%0A%0APlease%20remove%20me%20from%20the%20News%20Digest%20mailing%20list.%0A%0AThanks!">Let me know</a> and I'll remove you.</p>
+    <p>Don't want these emails? <a href="mailto:contact@seanfloyd.dev?subject=Unsubscribe%20from%20News%20Digest&body=Hi%2C%0A%0APlease%20remove%20me%20from%20the%20News%20Digest%20mailing%20list.%0A%0AThanks!">Let me know</a> and I'll remove you from the mailing list.</p>
   </footer>
 </body>
 </html>
