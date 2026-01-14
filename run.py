@@ -773,20 +773,21 @@ def send_email(digest_path: Path) -> int:
     content = digest_path.read_text()
     date_str = datetime.now(timezone.utc).strftime("%B %d, %Y")
 
-    email_params = {
-        "from": f"{digest_name} <{from_email}>",
-        "to": recipients,
-        "subject": f"{digest_name} – {date_str}",
-        "html": content,
-    }
+    # Send individually so recipients don't see each other's addresses
+    for recipient in recipients:
+        try:
+            resend.Emails.send({
+                "from": f"{digest_name} <{from_email}>",
+                "to": [recipient],
+                "subject": f"{digest_name} – {date_str}",
+                "html": content,
+            })
+            log(f"Sent to {recipient}")
+        except resend.exceptions.ResendError as e:
+            log(f"Resend error for {recipient}: {e}")
+            raise
 
-    try:
-        resend.Emails.send(email_params)
-        log(f"Sent to {', '.join(recipients)}")
-        return len(recipients)
-    except resend.exceptions.ResendError as e:
-        log(f"Resend error: {e}")
-        raise
+    return len(recipients)
 
 
 # =============================================================================
@@ -874,20 +875,21 @@ def send_test_email() -> int:
     digest_name = os.environ.get("DIGEST_NAME", "News Digest")
     recipients = [e.strip() for e in os.environ["DIGEST_EMAIL"].split(",")]
 
-    email_params = {
-        "from": f"{digest_name} <{from_email}>",
-        "to": recipients,
-        "subject": f"{digest_name} - Test Email",
-        "html": "<p>This is a test email from News Digest.</p><p>If you received this, your Resend config is working.</p>",
-    }
+    # Send individually so recipients don't see each other's addresses
+    for recipient in recipients:
+        try:
+            resend.Emails.send({
+                "from": f"{digest_name} <{from_email}>",
+                "to": [recipient],
+                "subject": f"{digest_name} - Test Email",
+                "html": "<p>This is a test email from News Digest.</p><p>If you received this, your Resend config is working.</p>",
+            })
+            log(f"Test email sent to {recipient}")
+        except resend.exceptions.ResendError as e:
+            log(f"Resend error for {recipient}: {e}")
+            return 1
 
-    try:
-        resend.Emails.send(email_params)
-        log(f"Test email sent to {', '.join(recipients)}")
-        return 0
-    except resend.exceptions.ResendError as e:
-        log(f"Resend error: {e}")
-        return 1
+    return 0
 
 
 def main():

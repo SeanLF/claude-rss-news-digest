@@ -35,7 +35,7 @@ cp .env.example .env
 RESEND_API_KEY=re_xxxxxxxx_xxxxxxxxxxxxxxxxxxxx
 RESEND_FROM=onboarding@resend.dev  # Or your verified domain
 
-# Recipients (comma-separated, first is To:, rest are BCC)
+# Recipients (comma-separated, each receives their own email)
 DIGEST_EMAIL=you@example.com,friend@example.com
 
 # Optional display name
