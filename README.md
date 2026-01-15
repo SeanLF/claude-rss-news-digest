@@ -38,8 +38,9 @@ RESEND_FROM=onboarding@resend.dev  # Or your verified domain
 # Recipients (comma-separated, each receives their own email)
 DIGEST_EMAIL=you@example.com,friend@example.com
 
-# Optional display name
+# Optional
 DIGEST_NAME=News Digest
+DIGEST_DOMAIN=news-digest.example.com  # For "View in browser" link
 ```
 
 ### Authenticate Claude (one-time)
@@ -71,14 +72,29 @@ This persists your auth in a Docker volume (`claude-config`).
 ./run-digest.sh --test-email
 ```
 
-### Cron Setup
+### Web Viewer (Optional)
 
-Add to crontab (`crontab -e`):
+The `digest-server` serves past digests via HTTP for "View in browser" links:
 
+```bash
+# Start both services
+docker compose up -d
+
+# Or just the web server
+docker compose up -d digest-server
+```
+
+Access at `http://localhost:8080/YYYY-MM-DD` (e.g., `/2026-01-15`).
+
+### Scheduling
+
+**Local (cron):**
 ```bash
 # Daily at 07:00 UTC
 0 7 * * * /path/to/news-digest/run-digest.sh >> /path/to/news-digest/data/cron.log 2>&1
 ```
+
+**Server (systemd):** See deployment section below.
 
 ## Output Format
 
@@ -125,6 +141,20 @@ Supports dark mode automatically.
 ### Container issues
 ```bash
 docker compose build --no-cache
+```
+
+## Server Deployment
+
+For production deployment with systemd timer and Terraform, see the infrastructure setup in a separate deployment repo. The deployment provisions:
+
+- **Systemd timer** - Runs daily at configured time
+- **Docker volume** - Persists SQLite database
+- **Claude OAuth** - Uses Pro subscription credentials
+- **digest-server** - Serves web view via Kamal proxy
+
+Build and push images:
+```bash
+kamal build push  # From deployment repo
 ```
 
 ## License
