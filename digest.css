@@ -86,8 +86,9 @@ header time {
   line-height: 1.6;
 }
 
-.summary strong {
+.summary .region {
   color: var(--accent);
+  font-weight: 700;
 }
 
 .summary a {

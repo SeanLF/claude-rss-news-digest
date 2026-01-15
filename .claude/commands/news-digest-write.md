@@ -37,11 +37,11 @@ Write to `data/output/digest-TIMESTAMP.html` (use `date -u '+%Y-%m-%d-%H%MZ'` fo
   </div>
 
   <div class="summary">
-    <p><strong>Americas:</strong> [regional_summary.americas]</p>
-    <p><strong>Europe:</strong> [regional_summary.europe]</p>
-    <p><strong>Asia-Pacific:</strong> [regional_summary.asia_pacific]</p>
-    <p><strong>Middle East & Africa:</strong> [regional_summary.middle_east_africa]</p>
-    <p><strong>Tech:</strong> [regional_summary.tech]</p>
+    <p><span class="region">🌍 Europe:</span> [regional_summary.europe]</p>
+    <p><span class="region">🌎 Americas:</span> [regional_summary.americas]</p>
+    <p><span class="region">🌏 Asia-Pacific:</span> [regional_summary.asia_pacific]</p>
+    <p><span class="region">🌍 Middle East & Africa:</span> [regional_summary.middle_east_africa]</p>
+    <p><span class="region">🤖 Tech:</span> [regional_summary.tech]</p>
   </div>
 
   <section>

@@ -145,16 +145,43 @@ docker compose build --no-cache
 
 ## Server Deployment
 
-For production deployment with systemd timer and Terraform, see the infrastructure setup in a separate deployment repo. The deployment provisions:
+Production deployment uses Terraform (in seanfloyd.dev repo) to provision:
 
-- **Systemd timer** - Runs daily at configured time
+- **Systemd timer** - Runs daily at 07:00 UTC
 - **Docker volume** - Persists SQLite database
-- **Claude OAuth** - Uses Pro subscription credentials
-- **digest-server** - Serves web view via Kamal proxy
+- **Claude OAuth** - Uses Pro subscription credentials (refreshed automatically)
+- **digest-server** - Serves web view at `news-digest.seanfloyd.dev` via Kamal proxy
 
-Build and push images:
+### Build and Push Images
+
 ```bash
-kamal build push  # From deployment repo
+# From news-digest repo
+docker buildx build --platform linux/amd64 -t seanfloyd-hetzner.tail739266.ts.net:5443/news-digest:latest --push .
+docker buildx build --platform linux/amd64 -t seanfloyd-hetzner.tail739266.ts.net:5443/digest-server:latest --push ./digest-server
+```
+
+### Apply Terraform
+
+```bash
+cd /path/to/seanfloyd.dev/infrastructure/terraform
+export HCLOUD_TOKEN=$(op read "op://Private/seanfloyd.dev/HETZNER_API_TOKEN")
+export PORKBUN_API_KEY=$(op read "op://Private/seanfloyd.dev/PORKBUN_API_KEY")
+export PORKBUN_SECRET_KEY=$(op read "op://Private/seanfloyd.dev/PORKBUN_SECRET_KEY")
+export TF_VAR_news_digest_resend_api_key=$(op read "op://Private/seanfloyd.dev/NEWS_DIGEST_RESEND_API_KEY")
+terraform apply
+```
+
+### Manual Operations
+
+```bash
+# Test run (no email)
+ssh root@seanfloyd-hetzner 'systemctl start news-digest.service'
+journalctl -fu news-digest
+
+# Refresh Claude credentials (if expired)
+docker compose run --rm news-digest claude --print "test"
+scp data/.claude/.credentials.json root@seanfloyd-hetzner:/opt/news-digest/.claude/
+ssh root@seanfloyd-hetzner 'chmod 644 /opt/news-digest/.claude/.credentials.json'
 ```
 
 ## License
