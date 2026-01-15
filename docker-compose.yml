@@ -2,16 +2,28 @@ services:
   news-digest:
     build: .
     environment:
+      # Set ANTHROPIC_API_KEY to use API instead of OAuth credentials
       - ANTHROPIC_API_KEY
       - RESEND_API_KEY
       - RESEND_FROM
       - DIGEST_EMAIL
       - DIGEST_NAME
+      - DIGEST_DOMAIN
+      - IN_DOCKER=1
+      # Optional (have defaults):
       - HEALTH_ALERT_EMAIL
       - HEALTH_ALERT_THRESHOLD
       - RSS_MAX_RETRIES
       - RSS_RETRY_DELAY
-      - IN_DOCKER=1
     volumes:
       - ./data:/app/data
       - ./.claude:/home/appuser/.claude
+
+  digest-server:
+    build: ./digest-server
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./data:/data:ro
+    environment:
+      - DATABASE_PATH=/data/digest.db

@@ -179,6 +179,18 @@ article .sources a {
   color: var(--text);
 }
 
+.view-in-browser {
+  text-align: center;
+  font-size: 0.85em;
+  color: var(--text-muted);
+  margin: 0 0 16px;
+}
+
+.view-in-browser a {
+  color: var(--text-muted);
+  text-decoration: none;
+}
+
 footer {
   margin-top: 48px;
   padding-top: 16px;

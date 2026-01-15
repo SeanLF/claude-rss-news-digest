@@ -143,9 +143,16 @@ CREATE TABLE IF NOT EXISTS source_health (
     recorded_at DATETIME DEFAULT (datetime('now', 'utc'))
 );
 
+CREATE TABLE IF NOT EXISTS digests (
+    date TEXT PRIMARY KEY,
+    html TEXT NOT NULL,
+    created_at DATETIME DEFAULT (datetime('now', 'utc'))
+);
+
 CREATE INDEX IF NOT EXISTS idx_shown_narratives_date ON shown_narratives(shown_at);
 CREATE INDEX IF NOT EXISTS idx_digest_runs_date ON digest_runs(run_at);
 CREATE INDEX IF NOT EXISTS idx_source_health_source ON source_health(source_id, recorded_at);
+CREATE INDEX IF NOT EXISTS idx_digests_date ON digests(date);
 """
 
 
@@ -201,6 +208,29 @@ def record_run(articles_fetched: int, articles_emailed: int = 0):
         log(f"Recorded run: {articles_fetched} fetched, {articles_emailed} emailed")
     except sqlite3.Error as e:
         log(f"DB error recording run: {e}")
+
+
+def save_digest(digest_path: Path):
+    """Save digest HTML to database for web serving."""
+    # Extract date from filename (digest-YYYY-MM-DD*.html -> YYYY-MM-DD)
+    match = re.search(r'(\d{4}-\d{2}-\d{2})', digest_path.stem)
+    if match:
+        date_str = match.group(1)
+    else:
+        date_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        log(f"WARNING: Could not extract date from '{digest_path.stem}', using {date_str}")
+
+    html_content = digest_path.read_text()
+
+    try:
+        with sqlite3.connect(DB_PATH) as conn:
+            conn.execute(
+                "INSERT OR REPLACE INTO digests (date, html) VALUES (?, ?)",
+                (date_str, html_content)
+            )
+        log(f"Saved digest to database: {date_str}")
+    except sqlite3.Error as e:
+        log(f"DB error saving digest: {e}")
 
 
 def get_previous_headlines(days: int = 7) -> list[dict]:
@@ -474,17 +504,66 @@ def minify_css(css: str) -> str:
     return css.strip()
 
 
+def resolve_css_variables(css: str) -> str:
+    """Replace CSS variables with their values (light mode only for email)."""
+    # Extract variables from :root (first occurrence = light mode)
+    root_match = re.search(r':root\s*\{([^}]+)\}', css)
+    if not root_match:
+        return css
+
+    # Parse variables
+    variables = {}
+    for match in re.finditer(r'--([a-z-]+)\s*:\s*([^;]+);', root_match.group(1)):
+        variables[match.group(1)] = match.group(2).strip()
+
+    # Replace var(--name) with values
+    def replace_var(match):
+        var_name = match.group(1)
+        return variables.get(var_name, match.group(0))
+
+    css = re.sub(r'var\(--([a-z-]+)\)', replace_var, css)
+
+    # Remove :root blocks and @media (prefers-color-scheme) - not supported in email
+    css = re.sub(r':root\s*\{[^}]+\}', '', css)
+    css = re.sub(r'@media\s*\([^)]*prefers-color-scheme[^)]*\)\s*\{[^}]*\{[^}]*\}[^}]*\}', '', css)
+
+    return css
+
+
+def inline_styles(html: str) -> str:
+    """Inline CSS styles for email compatibility using premailer."""
+    try:
+        from premailer import transform
+        return transform(
+            html,
+            remove_classes=False,
+            keep_style_tags=True,  # Keep for clients that support <style>
+            strip_important=False,
+            cssutils_logging_level=50,  # Suppress warnings
+        )
+    except ImportError:
+        log("WARNING: premailer not installed, skipping CSS inlining")
+        return html
+    except Exception as e:
+        log(f"WARNING: CSS inlining failed: {e}")
+        return html
+
+
 def replace_placeholders(digest_path: Path):
     """Replace all placeholders in digest HTML (styles, name, date, timestamp)."""
     now = datetime.now(timezone.utc)
     date_str = now.strftime("%B ") + str(now.day) + now.strftime(", %Y")
+    date_url = now.strftime("%Y-%m-%d")
     timestamp = now.strftime("%A, ") + date_str + now.strftime(" · %H:%M UTC")
     digest_name = os.environ.get("DIGEST_NAME", "News Digest")
+    digest_domain = os.environ.get("DIGEST_DOMAIN", "")
 
-    # Load and minify CSS
+    # Load CSS: resolve variables (for email) then minify
     if not STYLES_FILE.exists():
         raise RuntimeError(f"Styles file not found: {STYLES_FILE}")
-    styles = minify_css(STYLES_FILE.read_text())
+    css = STYLES_FILE.read_text()
+    css = resolve_css_variables(css)  # Replace var(--x) with actual values
+    styles = minify_css(css)
 
     content = digest_path.read_text()
 
@@ -497,6 +576,15 @@ def replace_placeholders(digest_path: Path):
     content = content.replace("{{DIGEST_NAME}}", digest_name)
     content = content.replace("{{DATE}}", date_str)
     content = content.replace("{{TIMESTAMP}}", timestamp)
+
+    # Add "View in browser" link if domain is configured
+    if digest_domain:
+        view_link = f'<p class="view-in-browser"><a href="https://{digest_domain}/{date_url}">View in browser</a></p>'
+        content = content.replace("<body>", f"<body>\n  {view_link}")
+
+    # Inline CSS for Gmail compatibility (premailer)
+    content = inline_styles(content)
+
     digest_path.write_text(content)
     log(f"Timestamp: {timestamp}")
 
@@ -967,6 +1055,7 @@ Examples:
             log("ERROR: No digest found to send")
             return 1
         log(f"Sending existing digest: {digest.name}")
+        save_digest(digest)  # Save before email so link works
         recipients = send_email(digest)
         shown_headlines = read_shown_headlines()
         if shown_headlines:
@@ -987,11 +1076,14 @@ Examples:
             log("ERROR: No digest generated")
             return 1
         replace_placeholders(digest)
-        # Send email first for atomicity
+        # Save before email so link works
+        if not skip_record:
+            save_digest(digest)
+        # Send email
         recipients = 0
         if not skip_email:
             recipients = send_email(digest)
-        # Only record to DB after email succeeds
+        # Record run metadata
         if not skip_record:
             shown_headlines = read_shown_headlines()
             if shown_headlines:
@@ -1037,14 +1129,18 @@ Examples:
         return 1
     replace_placeholders(digest)
 
-    # Send email first (before any DB commits for atomicity)
+    # Save digest to DB BEFORE email so "view in browser" link works immediately
+    if not skip_record:
+        save_digest(digest)
+
+    # Send email
     recipients = 0
     if not skip_email:
         recipients = send_email(digest)
     else:
         log(f"Skipping email: {digest.name}")
 
-    # Only record to DB after email succeeds (or if skipped)
+    # Record run metadata after email succeeds
     if not skip_record:
         shown_headlines = read_shown_headlines()
         if not shown_headlines:

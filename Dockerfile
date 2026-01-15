@@ -1,5 +1,15 @@
 FROM node:24-slim
 
+ARG OCI_TITLE="claude-rss-news-digest"
+ARG OCI_DESCRIPTION="Automated news digest: RSS feeds → Claude curation → HTML email"
+ARG OCI_SOURCE="https://github.com/SeanLF/claude-rss-news-digest"
+ARG OCI_LICENSES="MIT"
+
+LABEL org.opencontainers.image.title="${OCI_TITLE}"
+LABEL org.opencontainers.image.description="${OCI_DESCRIPTION}"
+LABEL org.opencontainers.image.source="${OCI_SOURCE}"
+LABEL org.opencontainers.image.licenses="${OCI_LICENSES}"
+
 # Install CA certificates for SSL
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates && rm -rf /var/lib/apt/lists/*
 
@@ -11,7 +21,7 @@ ENV UV_PYTHON_INSTALL_DIR=/opt/python
 RUN uv python install 3.14 \
     && ln -s /opt/python/*/bin/python3 /usr/local/bin/python3 \
     && ln -s /usr/local/bin/python3 /usr/local/bin/python \
-    && uv pip install --python /usr/local/bin/python3 --break-system-packages feedparser resend
+    && uv pip install --python /usr/local/bin/python3 --break-system-packages feedparser resend premailer
 
 # Install Claude Code CLI
 RUN npm install -g @anthropic-ai/claude-code
