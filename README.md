@@ -14,7 +14,7 @@ Automated daily news digest powered by Claude. Fetches from diverse RSS sources,
 ## Prerequisites
 
 - Docker
-- [Resend](https://resend.com) API key (free tier: 3,000 emails/month)
+- [Resend](https://resend.com) API key (free tier: 3,000 emails/month or unlimited broadcasts to up to 1,000 contacts)
 
 ## Setup
 
