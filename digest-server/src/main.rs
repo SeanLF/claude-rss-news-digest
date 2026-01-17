@@ -81,12 +81,17 @@ async fn index(
     };
     let homepage_link = state.homepage_url.as_ref().map(|url| {
         let display = url.trim_start_matches("https://").trim_start_matches("http://");
-        format!(r#"<a href="{url}" class="footer-link">{display}</a>"#)
-    }).unwrap_or_default();
-    let source_link = state.source_url.as_ref().map(|url| {
-        format!(r#"<a href="{url}" class="footer-link">Source</a>"#)
-    }).unwrap_or_default();
-    let footer = format!(r#"<footer>{homepage_link}{source_link}</footer>"#);
+        format!(r#"<a href="{url}" class="meta-link">{display}</a>"#)
+    });
+    let source_link = state.source_url.as_ref().map(|_| {
+        format!(r#"<a href="{}" class="meta-link">Source</a>"#, state.source_url.as_ref().unwrap())
+    });
+    let meta_links = match (homepage_link, source_link) {
+        (Some(h), Some(s)) => format!(r#"<p class="meta-links">by {h} · {s}</p>"#),
+        (Some(h), None) => format!(r#"<p class="meta-links">by {h}</p>"#),
+        (None, Some(s)) => format!(r#"<p class="meta-links">{s}</p>"#),
+        (None, None) => String::new(),
+    };
     let css_link = state.css_url.as_ref().map(|url| {
         format!(r#"<link rel="stylesheet" href="{url}">"#)
     }).unwrap_or_default();
@@ -112,7 +117,20 @@ async fn index(
     }}
     .tagline {{
       color: var(--text-tertiary);
+      margin-bottom: 0.5rem;
+    }}
+    .meta-links {{
+      color: var(--text-tertiary);
+      font-size: 0.875rem;
       margin-bottom: 1.5rem;
+    }}
+    .meta-link {{
+      color: var(--text-tertiary);
+      text-decoration: none;
+      transition: color 0.2s ease;
+    }}
+    .meta-link:hover {{
+      color: var(--ruby-red);
     }}
     .success-msg {{
       color: var(--accent-green);
@@ -196,23 +214,6 @@ async fn index(
       color: var(--ruby-red);
       transform: translateX(4px);
     }}
-    footer {{
-      margin-top: 3rem;
-      padding-top: 1.5rem;
-      border-top: 1px solid var(--border-white-subtle);
-      display: flex;
-      gap: 1.5rem;
-      justify-content: center;
-    }}
-    .footer-link {{
-      color: var(--text-tertiary);
-      text-decoration: none;
-      font-size: 0.875rem;
-      transition: color 0.2s ease;
-    }}
-    .footer-link:hover {{
-      color: var(--ruby-red);
-    }}
     @media (max-width: 480px) {{
       .subscribe-form {{
         flex-direction: column;
@@ -227,13 +228,13 @@ async fn index(
   <div class="container">
     <h1>{name}</h1>
     <p class="tagline">AI-curated news from diverse sources.</p>
+    {meta_links}
     {success_msg}
     {subscribe_form}
     <h2>Recent Digests</h2>
     <ul>
       {links}
     </ul>
-    {footer}
   </div>
 </body>
 </html>"##
