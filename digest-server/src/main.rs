@@ -13,6 +13,8 @@ use std::sync::Arc;
 struct AppState {
     db_path: String,
     digest_name: String,
+    homepage_url: Option<String>,
+    source_url: Option<String>,
     resend_api_key: Option<String>,
     resend_audience_id: Option<String>,
     http_client: Client,
@@ -54,7 +56,10 @@ async fn index(
 
     let links: String = dates
         .iter()
-        .map(|d| format!(r#"<li><a href="/{d}">{d}</a></li>"#))
+        .map(|d| {
+            let formatted = format_date(d);
+            format!(r#"<li><a href="/{d}"><span class="date-text">{formatted}</span><span class="arrow">→</span></a></li>"#)
+        })
         .collect::<Vec<_>>()
         .join("\n      ");
 
@@ -73,6 +78,14 @@ async fn index(
     } else {
         ""
     };
+    let homepage_link = state.homepage_url.as_ref().map(|url| {
+        let display = url.trim_start_matches("https://").trim_start_matches("http://");
+        format!(r#"<a href="{url}" class="footer-link">{display}</a>"#)
+    }).unwrap_or_default();
+    let source_link = state.source_url.as_ref().map(|url| {
+        format!(r#"<a href="{url}" class="footer-link">Source</a>"#)
+    }).unwrap_or_default();
+    let footer = format!(r#"<footer>{homepage_link}{source_link}</footer>"#);
     let html = format!(
         r##"<!DOCTYPE html>
 <html lang="en">
@@ -155,7 +168,9 @@ async fn index(
       margin: 0.5rem 0;
     }}
     li a {{
-      display: block;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
       padding: 0.75rem 1rem;
       background: var(--bg-card);
       border: 1px solid var(--border-white-subtle);
@@ -168,6 +183,31 @@ async fn index(
       border-color: var(--ruby-red);
       color: var(--text-primary);
       transform: translateX(4px);
+    }}
+    .arrow {{
+      color: var(--text-tertiary);
+      transition: transform 0.2s ease, color 0.2s ease;
+    }}
+    li a:hover .arrow {{
+      color: var(--ruby-red);
+      transform: translateX(4px);
+    }}
+    footer {{
+      margin-top: 3rem;
+      padding-top: 1.5rem;
+      border-top: 1px solid var(--border-white-subtle);
+      display: flex;
+      gap: 1.5rem;
+      justify-content: center;
+    }}
+    .footer-link {{
+      color: var(--text-tertiary);
+      text-decoration: none;
+      font-size: 0.875rem;
+      transition: color 0.2s ease;
+    }}
+    .footer-link:hover {{
+      color: var(--ruby-red);
     }}
     @media (max-width: 480px) {{
       .subscribe-form {{
@@ -189,6 +229,7 @@ async fn index(
     <ul>
       {links}
     </ul>
+    {footer}
   </div>
 </body>
 </html>"##
@@ -265,6 +306,32 @@ async fn get_digest(
     Ok(Html(html))
 }
 
+/// Format date from YYYY-MM-DD to "Friday, January 17"
+fn format_date(date_str: &str) -> String {
+    let parts: Vec<&str> = date_str.split('-').collect();
+    if parts.len() != 3 {
+        return date_str.to_string();
+    }
+
+    let year: i32 = parts[0].parse().unwrap_or(2026);
+    let month: u32 = parts[1].parse().unwrap_or(1);
+    let day: u32 = parts[2].parse().unwrap_or(1);
+
+    let months = ["", "January", "February", "March", "April", "May", "June",
+                  "July", "August", "September", "October", "November", "December"];
+    let days = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+
+    // Zeller's congruence for day of week
+    let (y, m) = if month < 3 { (year - 1, month + 12) } else { (year, month) };
+    let q = day as i32;
+    let k = y % 100;
+    let j = y / 100;
+    let h = (q + (13 * (m as i32 + 1)) / 5 + k + k / 4 + j / 4 - 2 * j) % 7;
+    let dow = ((h + 6) % 7) as usize;
+
+    format!("{}, {} {}", days[dow], months[month as usize], day)
+}
+
 /// Validate date is exactly YYYY-MM-DD format with valid numbers
 fn is_valid_date(s: &str) -> bool {
     let parts: Vec<&str> = s.split('-').collect();
@@ -301,11 +368,13 @@ async fn main() {
     }
 
     let digest_name = std::env::var("DIGEST_NAME").unwrap_or_else(|_| "News Digest".into());
+    let homepage_url = std::env::var("HOMEPAGE_URL").ok();
+    let source_url = std::env::var("SOURCE_URL").ok();
     let resend_api_key = std::env::var("RESEND_API_KEY").ok();
     let resend_audience_id = std::env::var("RESEND_AUDIENCE_ID").ok();
     let http_client = Client::new();
 
-    let state = Arc::new(AppState { db_path, digest_name, resend_api_key, resend_audience_id, http_client });
+    let state = Arc::new(AppState { db_path, digest_name, homepage_url, source_url, resend_api_key, resend_audience_id, http_client });
 
     let app = Router::new()
         .route("/", get(index))
