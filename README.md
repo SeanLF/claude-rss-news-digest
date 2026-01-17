@@ -8,7 +8,7 @@ Automated daily news digest powered by Claude. Fetches from diverse RSS sources,
 2. **Prepare** - Splits articles into CSV files (~10k tokens each) for Claude to read
 3. **Curate** - Claude reads all articles, deduplicates, filters noise, clusters stories
 4. **Generate** - Outputs HTML digest with tiered stories and regional clusters
-5. **Email** - Sends via [Resend](https://resend.com) to configured recipients
+5. **Email** - Sends via [Resend Broadcasts](https://resend.com/broadcasts) to audience subscribers
 6. **Record** - Stores shown headlines in SQLite for 7-day deduplication
 
 ## Prerequisites
@@ -25,7 +25,7 @@ cd news-digest
 
 # Create .env with your config
 cp .env.example .env
-# Edit .env with your RESEND_API_KEY, RESEND_FROM, DIGEST_EMAIL
+# Edit .env with your Resend settings
 ```
 
 ### Configuration (.env)
@@ -35,12 +35,15 @@ cp .env.example .env
 RESEND_API_KEY=re_xxxxxxxx_xxxxxxxxxxxxxxxxxxxx
 RESEND_FROM=onboarding@resend.dev  # Or your verified domain
 
-# Recipients (comma-separated, each receives their own email)
-DIGEST_EMAIL=you@example.com,friend@example.com
+# Resend Audience ID for broadcasts (https://resend.com/audiences)
+# Create an audience and add contacts to manage recipients
+RESEND_AUDIENCE_ID=xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
 
 # Optional
 DIGEST_NAME=News Digest
 DIGEST_DOMAIN=news-digest.example.com  # For "View in browser" link
+SOURCE_URL=https://github.com/you/news-digest  # Footer link to source
+HOMEPAGE_URL=https://yoursite.com  # Footer link to homepage
 ```
 
 ### Authenticate Claude (one-time)
