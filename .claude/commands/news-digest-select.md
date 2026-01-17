@@ -67,6 +67,12 @@ Write like The Economist meets AP wire: clear, authoritative, zero fluff.
 - Connect to broader trends, explain stakes
 - One sentence, maximum two. No filler.
 
+### "How Reporting Varies" (for select must_know stories only)
+- Only include when sources genuinely frame the story differently
+- 2-3 perspectives maximum
+- Focus on framing/angle differences, not just different facts covered
+- Skip if all sources report it the same way
+
 ## Output
 
 Write JSON to `data/claude_input/selections.json`:
@@ -78,6 +84,10 @@ Write JSON to `data/claude_input/selections.json`:
       "headline": "Headline in sentence case [UPDATE if applicable]",
       "summary": "2-3 sentence summary of the news and context.",
       "why_it_matters": "1-2 sentence insight on broader significance.",
+      "reporting_varies": [
+        {"source": "Source Name", "angle": "How this outlet frames it", "bias": "center-right"},
+        {"source": "Other Source", "angle": "Different framing or emphasis", "bias": "center-left"}
+      ],
       "sources": [
         {"name": "Source Name", "url": "https://...", "bias": "center-right"}
       ]
@@ -152,3 +162,4 @@ Regional summaries are **editorialized narratives with inline source links**. Th
 - Stats must accurately reflect the input (count articles from all CSV files)
 - URLs must be copied exactly from the source articles
 - Bias labels must match sources.csv
+- `reporting_varies` is optional - only include for must_know stories with genuinely divergent framing

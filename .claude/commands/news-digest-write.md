@@ -5,7 +5,7 @@ Format the curated selections into HTML digest and tracking JSON.
 ## Input
 
 Read `data/claude_input/selections.json` which contains:
-- `must_know`: Array of stories with headline, summary, why_it_matters, sources
+- `must_know`: Array of stories with headline, summary, why_it_matters, sources, and optional reporting_varies
 - `should_know`: Array of stories with headline, summary, why_it_matters, sources
 - `quick_signals`: Array of stories with headline and source
 - `below_fold`: Object with regional clusters (americas, europe, asia_pacific, middle_east_africa, tech)
@@ -51,6 +51,13 @@ Write to `data/output/digest-TIMESTAMP.html` (use `date -u '+%Y-%m-%d-%H%MZ'` fo
       <h3>[headline]</h3>
       <p>[summary]</p>
       <p class="why"><strong>Why it matters:</strong> [why_it_matters]</p>
+      <!-- Only include if reporting_varies exists and has items: -->
+      <div class="reporting-varies">
+        <strong>How reporting varies:</strong>
+        <ul>
+          <li><em>[source]</em> ([bias]): [angle]</li>
+        </ul>
+      </div>
       <p class="sources"><a href="[url]">[name]</a> ([bias]) · <a href="[url2]">[name2]</a> ([bias2])</p>
     </article>
   </section>
@@ -136,3 +143,4 @@ Write to `data/shown_headlines.json`:
 5. **Cluster emojis** must be: 🌎 Americas, 🌍 Europe, 🌏 Asia-Pacific, 🌍 Middle East & Africa, 🤖 Tech
 6. **JSON format for shown_headlines.json** must be an array of objects with headline, tier, and optional cluster keys
 7. **Convert markdown links to HTML** in regional_summary: `[text](url)` becomes `<a href="url">text</a>`
+8. **reporting_varies is optional** - only render the div if the story has a non-empty reporting_varies array
