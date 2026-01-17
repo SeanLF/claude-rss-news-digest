@@ -108,7 +108,7 @@ def validate_env(dry_run: bool = False):
     # ANTHROPIC_API_KEY is optional - Claude CLI can use `claude login` for Pro subscription
     required = []
     if not dry_run:
-        required.extend(["RESEND_API_KEY", "RESEND_FROM", "DIGEST_EMAIL"])
+        required.extend(["RESEND_API_KEY", "RESEND_FROM", "RESEND_AUDIENCE_ID"])
 
     missing = [var for var in required if not os.environ.get(var)]
     if missing:
@@ -557,6 +557,7 @@ def replace_placeholders(digest_path: Path):
     timestamp = now.strftime("%A, ") + date_str + now.strftime(" · %H:%M UTC")
     digest_name = os.environ.get("DIGEST_NAME", "News Digest")
     digest_domain = os.environ.get("DIGEST_DOMAIN", "")
+    source_url = os.environ.get("SOURCE_URL", "")
 
     # Load CSS: resolve variables (for email) then minify
     if not STYLES_FILE.exists():
@@ -567,7 +568,7 @@ def replace_placeholders(digest_path: Path):
 
     content = digest_path.read_text()
 
-    # Verify placeholders exist before replacing
+    # Verify required placeholders exist before replacing
     for placeholder in ["{{DIGEST_NAME}}", "{{DATE}}", "{{TIMESTAMP}}", "{{STYLES}}"]:
         if placeholder not in content:
             raise RuntimeError(f"Missing placeholder {placeholder} in digest")
@@ -576,6 +577,13 @@ def replace_placeholders(digest_path: Path):
     content = content.replace("{{DIGEST_NAME}}", digest_name)
     content = content.replace("{{DATE}}", date_str)
     content = content.replace("{{TIMESTAMP}}", timestamp)
+
+    # Optional: replace SOURCE_URL if configured, otherwise remove the link
+    if source_url:
+        content = content.replace("{{SOURCE_URL}}", source_url)
+    else:
+        # Remove the entire source link if not configured
+        content = re.sub(r'\s*<a href="\{\{SOURCE_URL\}\}">[^<]+</a>\s*\([^)]+\)', '', content)
 
     # Add "View in browser" link if domain is configured
     if digest_domain:
@@ -851,33 +859,52 @@ def send_health_alert(failing_sources: list[tuple[str, int]], failed_this_run: i
         log(f"Failed to send health alert: {e}")
 
 
-def send_email(digest_path: Path) -> int:
-    """Send digest via Resend API. Returns number of recipients."""
+def get_audience_contact_count(audience_id: str) -> int:
+    """Get number of contacts in an audience."""
+    try:
+        contacts = resend.Contacts.list(audience_id=audience_id)
+        if not isinstance(contacts, dict) or "data" not in contacts:
+            log(f"WARNING: Unexpected response from Resend Contacts.list")
+            return 0
+        return len([c for c in contacts["data"] if not c.get("unsubscribed")])
+    except resend.exceptions.ResendError as e:
+        log(f"WARNING: Failed to get audience contact count: {e}")
+        return 0
+
+
+def send_broadcast(digest_path: Path) -> int:
+    """Send digest via Resend Broadcasts API. Returns number of recipients."""
     resend.api_key = os.environ["RESEND_API_KEY"]
     from_email = os.environ["RESEND_FROM"]
     digest_name = os.environ.get("DIGEST_NAME", "News Digest")
-    recipients = [e.strip() for e in os.environ["DIGEST_EMAIL"].split(",")]
+    audience_id = os.environ["RESEND_AUDIENCE_ID"]
 
     content = digest_path.read_text()
     date_str = datetime.now(timezone.utc).strftime("%B %d, %Y")
 
-    # Send individually so recipients don't see each other's addresses
-    for i, recipient in enumerate(recipients):
-        if i > 0:
-            time.sleep(0.6)  # Resend rate limit: 2 req/sec
-        try:
-            resend.Emails.send({
-                "from": f"{digest_name} <{from_email}>",
-                "to": [recipient],
-                "subject": f"{digest_name} – {date_str}",
-                "html": content,
-            })
-            log(f"Sent to {recipient}")
-        except resend.exceptions.ResendError as e:
-            log(f"Resend error for {recipient}: {e}")
-            raise
+    try:
+        # Get contact count before sending
+        contact_count = get_audience_contact_count(audience_id)
 
-    return len(recipients)
+        # Create the broadcast
+        broadcast = resend.Broadcasts.create({
+            "from": f"{digest_name} <{from_email}>",
+            "audience_id": audience_id,
+            "subject": f"{digest_name} – {date_str}",
+            "html": content,
+            "name": f"Digest {date_str}",
+        })
+        broadcast_id = broadcast["id"]
+        log(f"Created broadcast: {broadcast_id}")
+
+        # Send the broadcast immediately
+        resend.Broadcasts.send({"broadcast_id": broadcast_id})
+        log(f"Sent broadcast to {contact_count} contacts in audience {audience_id}")
+
+        return contact_count
+    except resend.exceptions.ResendError as e:
+        log(f"Broadcast error: {e}")
+        raise
 
 
 # =============================================================================
@@ -958,28 +985,28 @@ def validate_feeds(sources: list[dict]) -> int:
     return 1 if failed_count > 0 else 0
 
 
-def send_test_email() -> int:
+def send_test_email(to_email: str) -> int:
     """Send a test email to verify Resend config."""
+    for var in ["RESEND_API_KEY", "RESEND_FROM"]:
+        if not os.environ.get(var):
+            log(f"ERROR: Missing {var}")
+            return 1
     resend.api_key = os.environ["RESEND_API_KEY"]
     from_email = os.environ["RESEND_FROM"]
     digest_name = os.environ.get("DIGEST_NAME", "News Digest")
-    recipients = [e.strip() for e in os.environ["DIGEST_EMAIL"].split(",")]
 
-    # Send individually so recipients don't see each other's addresses
-    for recipient in recipients:
-        try:
-            resend.Emails.send({
-                "from": f"{digest_name} <{from_email}>",
-                "to": [recipient],
-                "subject": f"{digest_name} - Test Email",
-                "html": "<p>This is a test email from News Digest.</p><p>If you received this, your Resend config is working.</p>",
-            })
-            log(f"Test email sent to {recipient}")
-        except resend.exceptions.ResendError as e:
-            log(f"Resend error for {recipient}: {e}")
-            return 1
-
-    return 0
+    try:
+        resend.Emails.send({
+            "from": f"{digest_name} <{from_email}>",
+            "to": [to_email],
+            "subject": f"{digest_name} - Test Email",
+            "html": "<p>This is a test email from News Digest.</p><p>If you received this, your Resend config is working.</p>",
+        })
+        log(f"Test email sent to {to_email}")
+        return 0
+    except resend.exceptions.ResendError as e:
+        log(f"Resend error: {e}")
+        return 1
 
 
 def main():
@@ -997,7 +1024,7 @@ Examples:
   python run.py --write-only       # Run Pass 2 only (use existing selections.json)
   python run.py --send-only        # Send latest digest (retry after failure)
   python run.py --preview          # Open latest digest in browser
-  python run.py --test-email       # Test Resend config
+  python run.py --test-email you@example.com  # Test Resend config
   python run.py --validate         # Test all RSS feeds and report status
         """
     )
@@ -1015,8 +1042,8 @@ Examples:
                         help="Send latest digest without fetching/generating (for retrying after failure)")
     parser.add_argument("--preview", action="store_true",
                         help="Open latest digest in browser (no-op in Docker)")
-    parser.add_argument("--test-email", action="store_true",
-                        help="Send test email and exit")
+    parser.add_argument("--test-email", metavar="EMAIL",
+                        help="Send test email to specified address and exit")
     parser.add_argument("--validate", action="store_true",
                         help="Test all RSS feeds and report health status")
     args = parser.parse_args()
@@ -1025,10 +1052,10 @@ Examples:
     skip_email = args.dry_run or args.no_email
     skip_record = args.dry_run or args.no_record
 
-    # Test email mode - just verify SMTP works
+    # Test email mode - verify Resend config works
     if args.test_email:
-        validate_env(dry_run=False)
-        return send_test_email()
+        validate_env(dry_run=True)  # Don't require RESEND_AUDIENCE_ID for test
+        return send_test_email(args.test_email)
 
     # Validate mode - test all RSS feeds
     if args.validate:
@@ -1048,7 +1075,7 @@ Examples:
             subprocess.run(["open", str(digest)])
         return 0
 
-    # Send-only mode - retry email from existing digest
+    # Send-only mode - retry broadcast from existing digest
     if args.send_only:
         validate_env(dry_run=False)
         init_db()
@@ -1057,8 +1084,8 @@ Examples:
             log("ERROR: No digest found to send")
             return 1
         log(f"Sending existing digest: {digest.name}")
-        save_digest(digest)  # Save before email so link works
-        recipients = send_email(digest)
+        save_digest(digest)  # Save before broadcast so link works
+        recipients = send_broadcast(digest)
         shown_headlines = read_shown_headlines()
         if shown_headlines:
             record_shown_headlines(shown_headlines)
@@ -1078,13 +1105,13 @@ Examples:
             log("ERROR: No digest generated")
             return 1
         replace_placeholders(digest)
-        # Save before email so link works
+        # Save before broadcast so link works
         if not skip_record:
             save_digest(digest)
-        # Send email
+        # Send broadcast
         recipients = 0
         if not skip_email:
-            recipients = send_email(digest)
+            recipients = send_broadcast(digest)
         # Record run metadata
         if not skip_record:
             shown_headlines = read_shown_headlines()
@@ -1131,18 +1158,18 @@ Examples:
         return 1
     replace_placeholders(digest)
 
-    # Save digest to DB BEFORE email so "view in browser" link works immediately
+    # Save digest to DB BEFORE broadcast so "view in browser" link works immediately
     if not skip_record:
         save_digest(digest)
 
-    # Send email
+    # Send broadcast
     recipients = 0
     if not skip_email:
-        recipients = send_email(digest)
+        recipients = send_broadcast(digest)
     else:
-        log(f"Skipping email: {digest.name}")
+        log(f"Skipping broadcast: {digest.name}")
 
-    # Record run metadata after email succeeds
+    # Record run metadata after broadcast succeeds
     if not skip_record:
         shown_headlines = read_shown_headlines()
         if not shown_headlines:

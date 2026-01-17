@@ -33,7 +33,7 @@ Write to `data/output/digest-TIMESTAMP.html` (use `date -u '+%Y-%m-%d-%H%MZ'` fo
   </header>
 
   <div class="ai-notice">
-    <strong>About this digest:</strong> Curated and written by Claude (Opus 4.5), an AI assistant. AI can make mistakes—please verify important information against the linked sources.
+    <strong>About this digest:</strong> Curated and written by Claude (Opus 4.5), an AI assistant. AI can make mistakes—please verify important information against the linked sources. <a href="{{SOURCE_URL}}">Source code</a> (contributions welcome!)
   </div>
 
   <div class="summary">
@@ -104,7 +104,7 @@ Write to `data/output/digest-TIMESTAMP.html` (use `date -u '+%Y-%m-%d-%H%MZ'` fo
   </section>
 
   <footer>
-    <p>Don't want these emails? <a href="mailto:contact@seanfloyd.dev?subject=Unsubscribe%20from%20News%20Digest&body=Hi%2C%0A%0APlease%20remove%20me%20from%20the%20News%20Digest%20mailing%20list.%0A%0AThanks!">Let me know</a> and I'll remove you from the mailing list.</p>
+    <p><a href="{{{RESEND_UNSUBSCRIBE_URL}}}">Unsubscribe</a></p>
   </footer>
 </body>
 </html>

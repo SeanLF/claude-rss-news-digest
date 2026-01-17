@@ -1,15 +1,231 @@
 use axum::{
-    Router,
-    extract::{Path, State},
+    Form, Router,
+    extract::{Path, Query, State},
     http::StatusCode,
-    response::Html,
-    routing::get,
+    response::{Html, Redirect},
+    routing::{get, post},
 };
+use reqwest::Client;
 use rusqlite::{Connection, OpenFlags};
+use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
 struct AppState {
     db_path: String,
+    digest_name: String,
+    resend_api_key: Option<String>,
+    resend_audience_id: Option<String>,
+    http_client: Client,
+}
+
+#[derive(Deserialize)]
+struct SubscribeForm {
+    email: String,
+}
+
+#[derive(Deserialize, Default)]
+struct IndexQuery {
+    subscribed: Option<String>,
+}
+
+#[derive(Serialize)]
+struct ResendContact {
+    email: String,
+}
+
+/// Index page - lists recent digests
+async fn index(
+    State(state): State<Arc<AppState>>,
+    Query(query): Query<IndexQuery>,
+) -> Result<Html<String>, (StatusCode, String)> {
+    let conn = Connection::open_with_flags(&state.db_path, OpenFlags::SQLITE_OPEN_READ_ONLY)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {e}")))?;
+
+    // Get list of available digests (most recent first)
+    let mut stmt = conn
+        .prepare("SELECT date FROM digests ORDER BY date DESC LIMIT 30")
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Query error: {e}")))?;
+
+    let dates: Vec<String> = stmt
+        .query_map([], |row| row.get(0))
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Query error: {e}")))?
+        .filter_map(|r| r.ok())
+        .collect();
+
+    let links: String = dates
+        .iter()
+        .map(|d| format!(r#"<li><a href="/{d}">{d}</a></li>"#))
+        .collect::<Vec<_>>()
+        .join("\n      ");
+
+    let name = &state.digest_name;
+    let success_msg = if query.subscribed.is_some() {
+        r#"<div class="success-msg">Thanks for subscribing! You'll receive the next digest.</div>"#
+    } else {
+        ""
+    };
+    let subscriptions_enabled = state.resend_api_key.is_some() && state.resend_audience_id.is_some();
+    let subscribe_form = if subscriptions_enabled {
+        r#"<form method="post" action="/subscribe" class="subscribe-form">
+        <input type="email" name="email" placeholder="your@email.com" required>
+        <button type="submit">Subscribe</button>
+      </form>"#
+    } else {
+        ""
+    };
+    let html = format!(
+        r##"<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{name}</title>
+  <link rel="stylesheet" href="https://seanfloyd.dev/css/index.css">
+  <style>
+    .container {{
+      max-width: 600px;
+      margin: 0 auto;
+      padding: 3rem 1.5rem;
+    }}
+    h1 {{
+      font-size: 2rem;
+      font-weight: 700;
+      margin-bottom: 0.5rem;
+      letter-spacing: -0.02em;
+    }}
+    .tagline {{
+      color: var(--text-tertiary);
+      margin-bottom: 1.5rem;
+    }}
+    .success-msg {{
+      color: var(--accent-green);
+      background: var(--accent-green-bg);
+      padding: 0.75rem 1rem;
+      border-radius: 0.5rem;
+      margin-bottom: 1.5rem;
+      border-left: 3px solid var(--accent-green);
+    }}
+    .subscribe-form {{
+      display: flex;
+      gap: 0.5rem;
+      margin-bottom: 2rem;
+    }}
+    .subscribe-form input {{
+      flex: 1;
+      padding: 0.75rem 1rem;
+      background: var(--bg-card);
+      border: 1px solid var(--border-white-light);
+      border-radius: 0.5rem;
+      color: var(--text-primary);
+      font-size: 1rem;
+    }}
+    .subscribe-form input::placeholder {{
+      color: var(--text-tertiary);
+    }}
+    .subscribe-form input:focus {{
+      outline: none;
+      border-color: var(--ruby-red);
+    }}
+    .subscribe-form button {{
+      padding: 0.75rem 1.5rem;
+      background: linear-gradient(135deg, var(--ruby-red) 0%, var(--ruby-red-light) 100%);
+      color: white;
+      border: none;
+      border-radius: 0.5rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: transform 0.2s ease, box-shadow 0.2s ease;
+    }}
+    .subscribe-form button:hover {{
+      transform: translateY(-1px);
+      box-shadow: 0 4px 12px rgba(204, 52, 45, 0.3);
+    }}
+    h2 {{
+      font-size: 1rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--text-tertiary);
+      margin-bottom: 1rem;
+    }}
+    ul {{
+      list-style: none;
+    }}
+    li {{
+      margin: 0.5rem 0;
+    }}
+    li a {{
+      display: block;
+      padding: 0.75rem 1rem;
+      background: var(--bg-card);
+      border: 1px solid var(--border-white-subtle);
+      border-radius: 0.5rem;
+      color: var(--text-secondary);
+      text-decoration: none;
+      transition: all 0.2s ease;
+    }}
+    li a:hover {{
+      border-color: var(--ruby-red);
+      color: var(--text-primary);
+      transform: translateX(4px);
+    }}
+    @media (max-width: 480px) {{
+      .subscribe-form {{
+        flex-direction: column;
+      }}
+      .subscribe-form button {{
+        width: 100%;
+      }}
+    }}
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>{name}</h1>
+    <p class="tagline">AI-curated news from diverse sources.</p>
+    {success_msg}
+    {subscribe_form}
+    <h2>Recent Digests</h2>
+    <ul>
+      {links}
+    </ul>
+  </div>
+</body>
+</html>"##
+    );
+
+    Ok(Html(html))
+}
+
+/// Subscribe handler - adds email to Resend audience
+async fn subscribe(
+    State(state): State<Arc<AppState>>,
+    Form(form): Form<SubscribeForm>,
+) -> Result<Redirect, (StatusCode, String)> {
+    let (api_key, audience_id) = state
+        .resend_api_key
+        .as_ref()
+        .zip(state.resend_audience_id.as_ref())
+        .ok_or((StatusCode::SERVICE_UNAVAILABLE, "Subscriptions not configured".into()))?;
+
+    let url = format!("https://api.resend.com/audiences/{}/contacts", audience_id);
+
+    let response = state.http_client
+        .post(&url)
+        .header("Authorization", format!("Bearer {}", api_key))
+        .json(&ResendContact { email: form.email })
+        .send()
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Request failed: {e}")))?;
+
+    if !response.status().is_success() {
+        let status = response.status();
+        let body = response.text().await.unwrap_or_default();
+        return Err((StatusCode::INTERNAL_SERVER_ERROR, format!("Resend error {}: {}", status, body)));
+    }
+
+    // Redirect back to index with success message
+    Ok(Redirect::to("/?subscribed=1"))
 }
 
 /// Health check endpoint - verifies DB is accessible
@@ -84,9 +300,16 @@ async fn main() {
         std::process::exit(1);
     }
 
-    let state = Arc::new(AppState { db_path });
+    let digest_name = std::env::var("DIGEST_NAME").unwrap_or_else(|_| "News Digest".into());
+    let resend_api_key = std::env::var("RESEND_API_KEY").ok();
+    let resend_audience_id = std::env::var("RESEND_AUDIENCE_ID").ok();
+    let http_client = Client::new();
+
+    let state = Arc::new(AppState { db_path, digest_name, resend_api_key, resend_audience_id, http_client });
 
     let app = Router::new()
+        .route("/", get(index))
+        .route("/subscribe", post(subscribe))
         .route("/health", get(health))
         .route("/{date}", get(get_digest))
         .with_state(state);
