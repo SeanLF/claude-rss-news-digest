@@ -84,11 +84,11 @@ async fn index(
         format!(r#"<a href="{url}" class="meta-link">{display}</a>"#)
     });
     let source_link = state.source_url.as_ref().map(|_| {
-        format!(r#"<a href="{}" class="meta-link">Source</a>"#, state.source_url.as_ref().unwrap())
+        format!(r#"<a href="{}" class="meta-link">GitHub</a>"#, state.source_url.as_ref().unwrap())
     });
     let meta_links = match (homepage_link, source_link) {
-        (Some(h), Some(s)) => format!(r#"<p class="meta-links">by {h} · {s}</p>"#),
-        (Some(h), None) => format!(r#"<p class="meta-links">by {h}</p>"#),
+        (Some(h), Some(s)) => format!(r#"<p class="meta-links">{h} · {s}</p>"#),
+        (Some(h), None) => format!(r#"<p class="meta-links">{h}</p>"#),
         (None, Some(s)) => format!(r#"<p class="meta-links">{s}</p>"#),
         (None, None) => String::new(),
     };
@@ -227,7 +227,7 @@ async fn index(
 <body>
   <div class="container">
     <h1>{name}</h1>
-    <p class="tagline">AI-curated news from diverse sources.</p>
+    <p class="tagline">Geopolitics, tech, and privacy. All sides. No fluff.</p>
     {meta_links}
     {success_msg}
     {subscribe_form}
