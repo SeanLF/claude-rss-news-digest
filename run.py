@@ -862,7 +862,9 @@ def send_email(digest_path: Path) -> int:
     date_str = datetime.now(timezone.utc).strftime("%B %d, %Y")
 
     # Send individually so recipients don't see each other's addresses
-    for recipient in recipients:
+    for i, recipient in enumerate(recipients):
+        if i > 0:
+            time.sleep(0.6)  # Resend rate limit: 2 req/sec
         try:
             resend.Emails.send({
                 "from": f"{digest_name} <{from_email}>",
