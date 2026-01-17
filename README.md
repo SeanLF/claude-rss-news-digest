@@ -6,8 +6,8 @@ Automated daily news digest powered by Claude. Fetches from diverse RSS sources,
 
 1. **Fetch** - Python script pulls RSS feeds, filters by last run time
 2. **Prepare** - Splits articles into CSV files (~10k tokens each) for Claude to read
-3. **Curate** - Claude reads all articles, deduplicates, filters noise, clusters stories
-4. **Generate** - Outputs HTML digest with tiered stories and regional clusters
+3. **Curate** - Claude reads all articles, deduplicates, filters noise, selects stories
+4. **Render** - Python renders HTML from Claude's JSON selections
 5. **Email** - Sends via [Resend Broadcasts](https://resend.com/broadcasts) to audience subscribers
 6. **Record** - Stores shown headlines in SQLite for 7-day deduplication
 
@@ -39,11 +39,14 @@ RESEND_FROM=onboarding@resend.dev  # Or your verified domain
 # Create an audience and add contacts to manage recipients
 RESEND_AUDIENCE_ID=xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
 
-# Optional
+# Optional - Digest metadata
 DIGEST_NAME=News Digest
 DIGEST_DOMAIN=news-digest.example.com  # For "View in browser" link
-SOURCE_URL=https://github.com/you/news-digest  # Footer link to source
-HOMEPAGE_URL=https://yoursite.com  # Footer link to homepage
+SOURCE_URL=https://github.com/you/news-digest  # Footer link to source code
+MODEL_NAME=Claude (Opus 4.5)  # AI model name in footer
+ARCHIVE_URL=https://news-digest.example.com  # "Past digests" link
+AUTHOR_NAME=Your Name  # Footer attribution
+AUTHOR_URL=https://yoursite.com  # Author link
 ```
 
 ### Authenticate Claude (one-time)
@@ -104,10 +107,9 @@ Access at `http://localhost:8080/YYYY-MM-DD` (e.g., `/2026-01-15`).
 The digest is an HTML email with:
 
 - **Regional Summary** - Quick overview by region (Americas, Europe, Asia-Pacific, ME&Africa, Tech)
-- **Must Know (3-4)** - Stories you'd be embarrassed not to know, with "Why it matters"
-- **Should Know (5-8)** - Important but not urgent
-- **Quick Signals (10-15)** - One-liners worth tracking
-- **Below the Fold** - Regional clusters for remaining stories
+- **Must Know (3+)** - Stories you'd be embarrassed not to know, with "Why it matters"
+- **Should Know (5+)** - Important but not urgent
+- **Also Notable** - One-liners clustered by region
 
 Supports dark mode automatically.
 

@@ -549,7 +549,181 @@ def inline_styles(html: str) -> str:
         return html
 
 
-def replace_placeholders(digest_path: Path):
+TEMPLATE_FILE = APP_DIR / "digest-template.html"
+
+# Region display configuration: (display_name, emoji)
+REGION_CONFIG = {
+    "europe": ("Europe", "🌍"),
+    "americas": ("Americas", "🌎"),
+    "asia_pacific": ("Asia-Pacific", "🌏"),
+    "middle_east_africa": ("Middle East & Africa", "🌍"),
+    "tech": ("Tech", "🤖"),
+}
+
+# Region display order (Americas first - where subscribers are)
+REGION_ORDER = ["americas", "europe", "asia_pacific", "middle_east_africa", "tech"]
+
+
+def markdown_to_html(text: str) -> str:
+    """Convert markdown links [text](url) to HTML <a> tags."""
+    def replace_link(match):
+        link_text = html.escape(match.group(1))
+        url = match.group(2)
+        if is_safe_url(url):
+            return f'<a href="{html.escape(url)}">{link_text}</a>'
+        return link_text  # Return just text if URL is unsafe
+    return re.sub(r'\[([^\]]+)\]\(([^)]+)\)', replace_link, text)
+
+
+def render_article(article: dict, include_reporting_varies: bool = True) -> str:
+    """Render a single article (must_know or should_know) to HTML."""
+    headline = html.escape(article.get("headline", ""))
+    summary = html.escape(article.get("summary", ""))
+    why = html.escape(article.get("why_it_matters", ""))
+
+    # Sources line
+    sources_html = []
+    for src in article.get("sources", []):
+        name = html.escape(src.get("name", ""))
+        url = src.get("url", "")
+        bias = html.escape(src.get("bias", ""))
+        if name and url and is_safe_url(url):
+            sources_html.append(f'<a href="{html.escape(url)}">{name}</a> ({bias})')
+    sources_line = " · ".join(sources_html)
+
+    # Build article HTML
+    parts = [
+        f"    <article>",
+        f"      <h3>{headline}</h3>",
+        f"      <p>{summary}</p>",
+        f'      <p class="why"><strong>Why it matters:</strong> {why}</p>',
+    ]
+
+    # Optional: reporting_varies (only for must_know)
+    if include_reporting_varies:
+        reporting_varies = article.get("reporting_varies", [])
+        if reporting_varies:
+            parts.append('      <div class="reporting-varies">')
+            parts.append('        <strong>How reporting varies:</strong>')
+            parts.append('        <ul>')
+            for rv in reporting_varies:
+                src = html.escape(rv.get("source", ""))
+                bias = html.escape(rv.get("bias", ""))
+                angle = html.escape(rv.get("angle", ""))
+                parts.append(f'          <li><em>{src}</em> ({bias}): {angle}</li>')
+            parts.append('        </ul>')
+            parts.append('      </div>')
+
+    parts.append(f'      <p class="sources">{sources_line}</p>')
+    parts.append("    </article>")
+
+    return "\n".join(parts)
+
+
+def render_signal(item: dict) -> str:
+    """Render a quick signal or below_fold item to HTML."""
+    headline = html.escape(item.get("headline", ""))
+    src = item.get("source", {})
+    name = html.escape(src.get("name", ""))
+    url = src.get("url", "")
+    if url and is_safe_url(url):
+        return f'      <p class="signal">{headline} — <a href="{html.escape(url)}">{name}</a></p>'
+    return f'      <p class="signal">{headline} — {name}</p>'
+
+
+def render_digest(selections: dict) -> str:
+    """Render selections.json to complete HTML string."""
+    # Load template
+    if not TEMPLATE_FILE.exists():
+        raise RuntimeError(f"Template file not found: {TEMPLATE_FILE}")
+    template = TEMPLATE_FILE.read_text()
+
+    # Render regional summary
+    regional_summary = selections.get("regional_summary", {})
+    summary_parts = []
+    for region_key in REGION_ORDER:
+        text = regional_summary.get(region_key, "")
+        if text:
+            region_name, emoji = REGION_CONFIG[region_key]
+            text_html = markdown_to_html(text)
+            summary_parts.append(f'    <p><span class="region">{emoji} {region_name}:</span> {text_html}</p>')
+    summary_html = "\n".join(summary_parts)
+
+    # Render must_know
+    must_know_html = "\n".join(
+        render_article(article, include_reporting_varies=True)
+        for article in selections.get("must_know", [])
+    )
+
+    # Render should_know
+    should_know_html = "\n".join(
+        render_article(article, include_reporting_varies=False)
+        for article in selections.get("should_know", [])
+    )
+
+    # Render signals (clustered by region)
+    signals = selections.get("signals", {})
+    cluster_parts = []
+    for region_key in REGION_ORDER:
+        items = signals.get(region_key, [])
+        if items:
+            region_name, emoji = REGION_CONFIG[region_key]
+            cluster_parts.append(f'    <div class="cluster">')
+            cluster_parts.append(f'      <h3>{emoji} {region_name}</h3>')
+            for item in items:
+                cluster_parts.append(render_signal(item))
+            cluster_parts.append('    </div>')
+    signals_html = "\n".join(cluster_parts)
+
+    # Fill template
+    result = template
+    result = result.replace("{{REGIONAL_SUMMARY}}", summary_html)
+    result = result.replace("{{MUST_KNOW}}", must_know_html)
+    result = result.replace("{{SHOULD_KNOW}}", should_know_html)
+    result = result.replace("{{SIGNALS}}", signals_html)
+
+    return result
+
+
+def extract_headlines(selections: dict) -> list[dict]:
+    """Extract all headlines from selections for deduplication tracking."""
+    headlines = []
+
+    # Top-tier articles (must_know, should_know)
+    for tier in ["must_know", "should_know"]:
+        for item in selections.get(tier, []):
+            headlines.append({"headline": item.get("headline", ""), "tier": tier})
+
+    # Signals by cluster
+    signals = selections.get("signals", {})
+    for cluster in REGION_ORDER:
+        for item in signals.get(cluster, []):
+            headlines.append({
+                "headline": item.get("headline", ""),
+                "tier": "signal",
+                "cluster": cluster
+            })
+
+    return headlines
+
+
+def extract_preheader(selections: dict, max_length: int = 150) -> str:
+    """Extract preheader text from first regional summary for email preview."""
+    regional_summary = selections.get("regional_summary", {})
+    for region in REGION_ORDER:
+        summary = regional_summary.get(region, "")
+        if summary:
+            # Strip markdown links, get plain text
+            plain = re.sub(r'\[([^\]]+)\]\([^)]+\)', r'\1', summary)
+            # Get first sentence or truncate
+            first_sentence = plain.split('.')[0] + '.'
+            if len(first_sentence) <= max_length:
+                return first_sentence
+            return plain[:max_length].rsplit(' ', 1)[0] + '...'
+    return ""
+
+
+def replace_placeholders(digest_path: Path, preheader: str = ""):
     """Replace all placeholders in digest HTML (styles, name, date, timestamp)."""
     now = datetime.now(timezone.utc)
     date_str = now.strftime("%B ") + str(now.day) + now.strftime(", %Y")
@@ -558,6 +732,8 @@ def replace_placeholders(digest_path: Path):
     digest_name = os.environ.get("DIGEST_NAME", "News Digest")
     digest_domain = os.environ.get("DIGEST_DOMAIN", "")
     source_url = os.environ.get("SOURCE_URL", "")
+    model_name = os.environ.get("MODEL_NAME", "Claude")
+    archive_url = os.environ.get("ARCHIVE_URL", "")
 
     # Load CSS: resolve variables (for email) then minify
     if not STYLES_FILE.exists():
@@ -574,21 +750,47 @@ def replace_placeholders(digest_path: Path):
             raise RuntimeError(f"Missing placeholder {placeholder} in digest")
 
     content = content.replace("{{STYLES}}", styles)
-    content = content.replace("{{DIGEST_NAME}}", digest_name)
+    content = content.replace("{{DIGEST_NAME}}", html.escape(digest_name))
     content = content.replace("{{DATE}}", date_str)
     content = content.replace("{{TIMESTAMP}}", timestamp)
+    content = content.replace("{{MODEL_NAME}}", html.escape(model_name))
+    content = content.replace("{{PREHEADER}}", html.escape(preheader))
 
-    # Optional: replace SOURCE_URL if configured, otherwise remove the link
+    # Optional: replace SOURCE_URL if configured, otherwise remove the links
     if source_url:
         content = content.replace("{{SOURCE_URL}}", source_url)
     else:
-        # Remove the entire source link if not configured
-        content = re.sub(r'\s*<a href="\{\{SOURCE_URL\}\}">[^<]+</a>\s*\([^)]+\)', '', content)
+        # Remove the open source sentence in AI notice if not configured
+        content = re.sub(r'\s*This project is <a href="\{\{SOURCE_URL\}\}">[^<]+</a> and contributions are welcome\.', '', content)
+        # Remove the feedback paragraph that uses SOURCE_URL for issues link
+        content = re.sub(r'\s*<p>Feedback\?[^<]*<a href="\{\{SOURCE_URL\}\}/issues">[^<]+</a></p>', '', content)
 
-    # Add "View in browser" link if domain is configured
+    # Optional: author plug (e.g., "Made by Sean · seanfloyd.dev")
+    author_name = os.environ.get("AUTHOR_NAME", "")
+    author_url = os.environ.get("AUTHOR_URL", "")
+    if author_name and author_url and is_safe_url(author_url):
+        author_plug = f'Made by <a href="{html.escape(author_url)}">{html.escape(author_name)}</a>'
+        content = content.replace("{{AUTHOR_PLUG}}", author_plug)
+    elif author_name:
+        content = content.replace("{{AUTHOR_PLUG}}", f"Made by {html.escape(author_name)}")
+    else:
+        # Remove the author plug paragraph if not configured
+        content = re.sub(r'\s*<p>\{\{AUTHOR_PLUG\}\}</p>', '', content)
+
+    # Replace HOMEPAGE_URL for "View in browser" link
     if digest_domain:
-        view_link = f'<p class="view-in-browser"><a href="https://{digest_domain}/{date_url}">View in browser</a></p>'
-        content = content.replace("<body>", f"<body>\n  {view_link}")
+        homepage_url = f"https://{digest_domain}/{date_url}"
+        content = content.replace("{{HOMEPAGE_URL}}", homepage_url)
+    else:
+        # Remove the view-in-browser paragraph if not configured
+        content = re.sub(r'\s*<p class="view-in-browser">[^<]*<a href="\{\{HOMEPAGE_URL\}\}">[^<]+</a></p>', '', content)
+
+    # Optional: archive URL for "Past digests" link
+    if archive_url and is_safe_url(archive_url):
+        content = content.replace("{{ARCHIVE_URL}}", html.escape(archive_url))
+    else:
+        # Remove the archive link, keep just unsubscribe
+        content = re.sub(r'<a href="\{\{ARCHIVE_URL\}\}">[^<]+</a> · ', '', content)
 
     # Inline CSS for Gmail compatibility (premailer)
     content = inline_styles(content)
@@ -737,6 +939,56 @@ def generate_selections():
     run_claude_command("/news-digest-select", "Pass 1: Selecting stories")
 
 
+def validate_source(src: dict, context: str) -> list[str]:
+    """Validate a source object. Returns list of errors."""
+    errors = []
+    if not src.get("name"):
+        errors.append(f"{context}: source missing 'name'")
+    if not src.get("url"):
+        errors.append(f"{context}: source missing 'url'")
+    elif not is_safe_url(src.get("url", "")):
+        errors.append(f"{context}: source has unsafe URL scheme")
+    return errors
+
+
+def validate_article(article: dict, tier: str, idx: int) -> list[str]:
+    """Validate a must_know or should_know article. Returns list of errors."""
+    errors = []
+    context = f"{tier}[{idx}]"
+
+    if not article.get("headline"):
+        errors.append(f"{context}: missing 'headline'")
+    if not article.get("summary"):
+        errors.append(f"{context}: missing 'summary'")
+    if not article.get("why_it_matters"):
+        errors.append(f"{context}: missing 'why_it_matters'")
+
+    sources = article.get("sources", [])
+    if not sources:
+        errors.append(f"{context}: missing 'sources'")
+    for j, src in enumerate(sources):
+        errors.extend(validate_source(src, f"{context}.sources[{j}]"))
+
+    return errors
+
+
+def validate_signal(item: dict, tier: str, idx: int, cluster: str | None = None) -> list[str]:
+    """Validate a quick_signal or below_fold item. Returns list of errors."""
+    context = f"{tier}.{cluster}[{idx}]" if cluster else f"{tier}[{idx}]"
+    errors = []
+
+    if not item.get("headline"):
+        errors.append(f"{context}: missing 'headline'")
+
+    src = item.get("source")
+    if not src:
+        errors.append(f"{context}: missing 'source'")
+    elif isinstance(src, dict):
+        errors.extend(validate_source(src, context))
+
+    return errors
+
+
 def validate_selections() -> dict:
     """Validate selections.json output from Pass 1."""
     selections_file = CLAUDE_INPUT_DIR / "selections.json"
@@ -749,71 +1001,87 @@ def validate_selections() -> dict:
     except json.JSONDecodeError as e:
         raise RuntimeError(f"selections.json is invalid JSON: {e}")
 
-    # Validate structure
-    required_keys = ["must_know", "should_know", "quick_signals", "below_fold", "regional_summary", "stats"]
+    # Validate required top-level keys
+    required_keys = ["must_know", "should_know", "signals", "regional_summary"]
     missing = [k for k in required_keys if k not in selections]
     if missing:
         raise RuntimeError(f"selections.json missing required keys: {missing}")
 
-    # Validate minimum counts
+    errors = []
+
+    # Validate must_know articles
+    for i, article in enumerate(selections.get("must_know", [])):
+        errors.extend(validate_article(article, "must_know", i))
+
+    # Validate should_know articles
+    for i, article in enumerate(selections.get("should_know", [])):
+        errors.extend(validate_article(article, "should_know", i))
+
+    # Validate signals (clustered by region)
+    signals = selections.get("signals", {})
+    for cluster in REGION_ORDER:
+        for i, item in enumerate(signals.get(cluster, [])):
+            errors.extend(validate_signal(item, "signals", i, cluster))
+
+    # Validate regional_summary has content
+    regional_summary = selections.get("regional_summary", {})
+    for region in REGION_ORDER:
+        if not regional_summary.get(region):
+            errors.append(f"regional_summary.{region}: missing or empty")
+
+    # Report validation errors
+    if errors:
+        for err in errors[:10]:  # Show first 10 errors
+            log(f"VALIDATION ERROR: {err}")
+        if len(errors) > 10:
+            log(f"... and {len(errors) - 10} more errors")
+        raise RuntimeError(f"selections.json has {len(errors)} validation errors")
+
+    # Validate minimum counts (warnings only)
     must_know_count = len(selections.get("must_know", []))
     should_know_count = len(selections.get("should_know", []))
-    quick_signals_count = len(selections.get("quick_signals", []))
+    signals_count = sum(len(signals.get(cluster, [])) for cluster in REGION_ORDER)
 
     if must_know_count < 3:
         log(f"WARNING: Only {must_know_count} must_know stories (expected 3+)")
     if should_know_count < 5:
         log(f"WARNING: Only {should_know_count} should_know stories (expected 5+)")
-    if quick_signals_count < 10:
-        log(f"WARNING: Only {quick_signals_count} quick_signals (expected 10+)")
 
-    # Log stats
-    stats = selections.get("stats", {})
-    log(f"Pass 1 complete: {stats.get('articles_reviewed', '?')} articles → {stats.get('stories_selected', '?')} stories")
+    # Log summary
+    total_stories = must_know_count + should_know_count + signals_count
+    log(f"Pass 1 complete: {total_stories} stories selected")
 
     return selections
 
 
-def generate_digest():
-    """Pass 2: Run Claude to write HTML from selections."""
-    run_claude_command("/news-digest-write", "Pass 2: Writing digest")
+def write_digest_from_selections(selections: dict) -> Path:
+    """Render selections to HTML and write digest file. Returns digest path."""
+    # Log stats
+    must_know = len(selections.get("must_know", []))
+    should_know = len(selections.get("should_know", []))
+    signals = selections.get("signals", {})
+    signals_count = sum(len(signals.get(c, [])) for c in REGION_ORDER)
+    log(f"Rendering: {must_know} must_know, {should_know} should_know, {signals_count} signals")
 
+    # Render HTML
+    html_content = render_digest(selections)
 
-def validate_digest():
-    """Validate HTML and shown_headlines.json output from Pass 2."""
-    # Check HTML exists
-    digest = find_latest_digest()
-    if not digest:
-        raise RuntimeError("No digest HTML found - Pass 2 failed to create output")
+    # Generate filename with timestamp
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d-%H%MZ")
+    digest_path = OUTPUT_DIR / f"digest-{timestamp}.html"
 
-    # Basic HTML structure check
-    html_content = digest.read_text()
-    required_elements = ['<section>', 'class="why"', 'class="signal"', 'class="stats"']
-    missing = [el for el in required_elements if el not in html_content]
-    if missing:
-        log(f"WARNING: HTML missing expected elements: {missing}")
+    # Write HTML file
+    digest_path.write_text(html_content)
 
-    # Check shown_headlines.json
+    # Extract and write headlines for deduplication
+    headlines = extract_headlines(selections)
     headlines_file = DATA_DIR / "shown_headlines.json"
-    if not headlines_file.exists():
-        raise RuntimeError("shown_headlines.json not found - Pass 2 failed to create tracking file")
+    with open(headlines_file, "w") as f:
+        json.dump(headlines, f, indent=2)
 
-    try:
-        with open(headlines_file) as f:
-            headlines = json.load(f)
-    except json.JSONDecodeError as e:
-        raise RuntimeError(f"shown_headlines.json is invalid JSON: {e}")
-
-    if not isinstance(headlines, list):
-        raise RuntimeError(f"shown_headlines.json should be array, got {type(headlines).__name__}")
-
-    if headlines and not isinstance(headlines[0], dict):
-        raise RuntimeError(f"shown_headlines.json items should be objects, got {type(headlines[0]).__name__}")
-
-    if headlines and "headline" not in headlines[0]:
-        raise RuntimeError(f"shown_headlines.json items missing 'headline' key")
-
-    log(f"Pass 2 complete: {digest.name} ({len(headlines)} stories)")
+    log(f"Wrote {digest_path.name} ({len(headlines)} stories)")
+    return digest_path
 
 
 def find_latest_digest() -> Path | None:
@@ -1095,18 +1363,13 @@ Examples:
         cleanup_shown_headlines()
         return 0
 
-    # Write-only mode - run Pass 2 from existing selections
+    # Write-only mode - render HTML from existing selections
     if args.write_only:
         validate_env(dry_run=skip_email)
         init_db()
-        validate_selections()  # Ensure selections.json exists and is valid
-        generate_digest()
-        validate_digest()
-        digest = find_latest_digest()
-        if not digest:
-            log("ERROR: No digest generated")
-            return 1
-        replace_placeholders(digest)
+        selections = validate_selections()  # Ensure selections.json exists and is valid
+        digest = write_digest_from_selections(selections)
+        replace_placeholders(digest, extract_preheader(selections))
         # Save before broadcast so link works
         if not skip_record:
             save_digest(digest)
@@ -1141,24 +1404,18 @@ Examples:
     # Prepare input for Claude (articles + previous headlines)
     prepare_claude_input(sources)
 
-    # Pass 1: Select stories
+    # Pass 1: Select stories (Claude)
     generate_selections()
-    validate_selections()
+    selections = validate_selections()
 
     # Select-only mode - stop after Pass 1
     if args.select_only:
         log("Select-only mode: stopping after Pass 1")
         return 0
 
-    # Pass 2: Write HTML digest
-    generate_digest()
-    validate_digest()
-
-    digest = find_latest_digest()
-    if not digest:
-        log("ERROR: No digest generated")
-        return 1
-    replace_placeholders(digest)
+    # Pass 2: Render HTML digest (Python - no Claude)
+    digest = write_digest_from_selections(selections)
+    replace_placeholders(digest, extract_preheader(selections))
 
     # Save digest to DB BEFORE broadcast so "view in browser" link works immediately
     if not skip_record:

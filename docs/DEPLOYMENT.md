@@ -34,6 +34,26 @@ variable "news_digest_source_url" {
   default     = ""
 }
 
+variable "news_digest_model_name" {
+  description = "AI model name shown in footer (e.g., 'Claude (Opus 4.5)')"
+  default     = "Claude"
+}
+
+variable "news_digest_archive_url" {
+  description = "URL to past digests archive"
+  default     = ""
+}
+
+variable "news_digest_author_name" {
+  description = "Author name for footer attribution"
+  default     = ""
+}
+
+variable "news_digest_author_url" {
+  description = "Author URL for footer attribution"
+  default     = ""
+}
+
 variable "news_digest_css_url" {
   description = "External CSS URL for digest-server styling"
   default     = ""

@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{DIGEST_NAME}} – {{DATE}}</title>
+  <style>{{STYLES}}</style>
+</head>
+<body>
+  <span class="preheader">{{PREHEADER}}</span>
+
+  <header>
+    <time>{{TIMESTAMP}}</time>
+  </header>
+
+  <p class="view-in-browser"><a href="{{HOMEPAGE_URL}}">View in browser</a></p>
+
+  <div class="ai-notice">
+    <strong>About this digest:</strong> Curated and written by {{MODEL_NAME}}, an AI assistant. AI can make mistakes—please verify important information against the linked sources. This project is <a href="{{SOURCE_URL}}">open source</a> and contributions are welcome.
+  </div>
+
+  <div class="summary">
+{{REGIONAL_SUMMARY}}
+  </div>
+
+  <section>
+    <h2>Must Know</h2>
+{{MUST_KNOW}}
+  </section>
+
+  <section>
+    <h2>Should Know</h2>
+{{SHOULD_KNOW}}
+  </section>
+
+  <section>
+    <h2>Also Notable</h2>
+{{SIGNALS}}
+  </section>
+
+  <footer>
+    <p>Feedback? Reply to this email or <a href="{{SOURCE_URL}}/issues">open an issue</a></p>
+    <p><a href="{{ARCHIVE_URL}}">Past digests</a> · <a href="{{{RESEND_UNSUBSCRIBE_URL}}}">Unsubscribe</a></p>
+    <p>{{AUTHOR_PLUG}}</p>
+  </footer>
+</body>
+</html>

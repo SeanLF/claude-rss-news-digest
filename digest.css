@@ -78,6 +78,11 @@ header time {
   color: var(--text);
 }
 
+.ai-notice a {
+  color: var(--link);
+  text-decoration: none;
+}
+
 .summary {
   background: var(--border);
   padding: 16px 20px;
@@ -233,4 +238,15 @@ footer {
 footer a {
   color: var(--link);
   text-decoration: none;
+}
+
+.preheader {
+  display: none;
+  font-size: 1px;
+  color: transparent;
+  line-height: 1px;
+  max-height: 0;
+  max-width: 0;
+  opacity: 0;
+  overflow: hidden;
 }
