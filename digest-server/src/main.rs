@@ -13,6 +13,7 @@ use std::sync::Arc;
 struct AppState {
     db_path: String,
     digest_name: String,
+    css_url: Option<String>,
     homepage_url: Option<String>,
     source_url: Option<String>,
     resend_api_key: Option<String>,
@@ -86,6 +87,9 @@ async fn index(
         format!(r#"<a href="{url}" class="footer-link">Source</a>"#)
     }).unwrap_or_default();
     let footer = format!(r#"<footer>{homepage_link}{source_link}</footer>"#);
+    let css_link = state.css_url.as_ref().map(|url| {
+        format!(r#"<link rel="stylesheet" href="{url}">"#)
+    }).unwrap_or_default();
     let html = format!(
         r##"<!DOCTYPE html>
 <html lang="en">
@@ -93,7 +97,7 @@ async fn index(
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{name}</title>
-  <link rel="stylesheet" href="https://seanfloyd.dev/css/index.css">
+  {css_link}
   <style>
     .container {{
       max-width: 600px;
@@ -368,13 +372,14 @@ async fn main() {
     }
 
     let digest_name = std::env::var("DIGEST_NAME").unwrap_or_else(|_| "News Digest".into());
+    let css_url = std::env::var("CSS_URL").ok();
     let homepage_url = std::env::var("HOMEPAGE_URL").ok();
     let source_url = std::env::var("SOURCE_URL").ok();
     let resend_api_key = std::env::var("RESEND_API_KEY").ok();
     let resend_audience_id = std::env::var("RESEND_AUDIENCE_ID").ok();
     let http_client = Client::new();
 
-    let state = Arc::new(AppState { db_path, digest_name, homepage_url, source_url, resend_api_key, resend_audience_id, http_client });
+    let state = Arc::new(AppState { db_path, digest_name, css_url, homepage_url, source_url, resend_api_key, resend_audience_id, http_client });
 
     let app = Router::new()
         .route("/", get(index))

@@ -1,0 +1,123 @@
+# Server Deployment
+
+This document covers deploying news-digest to a production server. The main [README](../README.md) covers local development and Docker usage.
+
+## Architecture
+
+- **Systemd timer** - Runs daily at configured time (e.g., 07:00 UTC)
+- **Docker containers** - news-digest (cron job) + digest-server (web archive)
+- **SQLite database** - Persisted in Docker volume
+- **Claude OAuth** - Uses Pro subscription credentials (refreshed automatically)
+- **digest-server** - Optional web server for "View in browser" links
+
+## Terraform Variables
+
+If using Terraform for provisioning, add these to your variables:
+
+```hcl
+variable "news_digest_resend_api_key" {
+  description = "Resend API key for sending emails"
+  sensitive   = true
+}
+
+variable "news_digest_resend_audience_id" {
+  description = "Resend Audience ID for broadcast recipients"
+}
+
+variable "news_digest_homepage_url" {
+  description = "Homepage URL for footer link"
+  default     = ""
+}
+
+variable "news_digest_source_url" {
+  description = "Source code URL for footer link"
+  default     = ""
+}
+
+variable "news_digest_css_url" {
+  description = "External CSS URL for digest-server styling"
+  default     = ""
+}
+```
+
+## Docker Images
+
+Build and push images to your registry:
+
+```bash
+# news-digest (main pipeline)
+docker buildx build --platform linux/amd64 -t YOUR_REGISTRY/news-digest:latest --push .
+
+# digest-server (web archive)
+docker buildx build --platform linux/amd64 -t YOUR_REGISTRY/digest-server:latest --push ./digest-server
+```
+
+## Systemd Service
+
+Example systemd unit for running the digest:
+
+```ini
+[Unit]
+Description=News Digest
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/docker compose -f /opt/news-digest/docker-compose.yml run --rm news-digest
+WorkingDirectory=/opt/news-digest
+
+[Install]
+WantedBy=multi-user.target
+```
+
+## Systemd Timer
+
+```ini
+[Unit]
+Description=Run News Digest daily
+
+[Timer]
+OnCalendar=*-*-* 07:00:00 UTC
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+```
+
+## Claude Credentials
+
+The digest uses Claude Pro subscription via OAuth. To refresh credentials:
+
+1. Run locally: `docker compose run --rm news-digest claude --print "test"`
+2. Copy credentials to server: `scp data/.claude/.credentials.json user@server:/opt/news-digest/.claude/`
+3. Set permissions: `ssh user@server 'chmod 644 /opt/news-digest/.claude/.credentials.json'`
+
+## digest-server Container
+
+Environment variables for the web archive server:
+
+| Variable | Description |
+|----------|-------------|
+| `DATABASE_PATH` | Path to SQLite database (default: `/data/digest.db`) |
+| `PORT` | HTTP port (default: `8080`) |
+| `DIGEST_NAME` | Display name for the site |
+| `CSS_URL` | Optional external CSS URL |
+| `HOMEPAGE_URL` | Optional footer link to homepage |
+| `SOURCE_URL` | Optional footer link to source code |
+| `RESEND_API_KEY` | Optional, enables subscription form |
+| `RESEND_AUDIENCE_ID` | Required if RESEND_API_KEY is set |
+
+## Manual Operations
+
+```bash
+# Test run (no email)
+ssh user@server 'systemctl start news-digest.service'
+journalctl -fu news-digest
+
+# Check timer status
+ssh user@server 'systemctl list-timers news-digest.timer'
+
+# View recent digests
+ssh user@server 'sqlite3 /opt/news-digest/data/digest.db "SELECT date FROM digests ORDER BY date DESC LIMIT 5"'
+```

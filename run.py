@@ -829,14 +829,16 @@ def find_latest_digest() -> Path | None:
 
 def send_health_alert(failing_sources: list[tuple[str, int]], failed_this_run: int, total_sources: int):
     """Send alert email when sources are persistently failing."""
+    to_email = os.environ.get("HEALTH_ALERT_EMAIL")
+    if not to_email:
+        log("Skipping health alert: HEALTH_ALERT_EMAIL not set")
+        return
     if not os.environ.get("RESEND_API_KEY"):
         log("Skipping health alert: RESEND_API_KEY not set")
         return
 
     resend.api_key = os.environ["RESEND_API_KEY"]
     from_email = os.environ["RESEND_FROM"]
-    # Alert goes to contact email, not digest recipients
-    to_email = os.environ.get("HEALTH_ALERT_EMAIL", "contact@seanfloyd.dev")
 
     source_list = "\n".join(f"  • {sid}: {count} consecutive failures" for sid, count in failing_sources)
     content = f"""<h2>News Digest Source Health Alert</h2>
