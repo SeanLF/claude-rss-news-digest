@@ -1,0 +1,70 @@
+#!/bin/bash
+# Deploy news-digest infrastructure
+# Usage: bin/deploy [--skip-build]
+#
+# Builds and pushes Docker images, then applies Terraform
+#
+# Required environment variables:
+#   REGISTRY - Docker registry URL (e.g., registry.example.com:5000)
+#   TERRAFORM_DIR - Path to Terraform directory
+
+set -e
+
+SKIP_BUILD=false
+for arg in "$@"; do
+  case $arg in
+    --skip-build) SKIP_BUILD=true ;;
+  esac
+done
+
+if [ -z "$REGISTRY" ]; then
+  echo "Error: REGISTRY environment variable not set"
+  echo "Example: export REGISTRY=registry.example.com:5000"
+  exit 1
+fi
+
+TERRAFORM_DIR="${TERRAFORM_DIR:-}"
+if [ -z "$TERRAFORM_DIR" ]; then
+  echo "Error: TERRAFORM_DIR environment variable not set"
+  exit 1
+fi
+
+# Ensure Tailscale is running
+if ! tailscale status &> /dev/null; then
+  echo "Starting Tailscale..."
+  open -a Tailscale
+  for i in {1..30}; do
+    tailscale status &> /dev/null && break
+    sleep 1
+  done
+fi
+
+# Build and push images
+if [ "$SKIP_BUILD" = "false" ]; then
+  echo "Building digest-server..."
+  docker buildx build --platform linux/amd64 -t "$REGISTRY/digest-server:latest" ./digest-server
+
+  echo "Pushing digest-server..."
+  docker push "$REGISTRY/digest-server:latest"
+
+  echo "Building news-digest..."
+  docker buildx build --platform linux/amd64 -t "$REGISTRY/news-digest:latest" .
+
+  echo "Pushing news-digest..."
+  docker push "$REGISTRY/news-digest:latest"
+fi
+
+# Apply Terraform
+echo "Applying Terraform..."
+cd "$TERRAFORM_DIR"
+
+# TF_VAR_news_digest_resend_api_key must be set externally
+if [ -z "$TF_VAR_news_digest_resend_api_key" ]; then
+  echo "Warning: TF_VAR_news_digest_resend_api_key not set"
+fi
+
+terraform apply -target=null_resource.news_digest_env \
+                -target=null_resource.digest_server \
+                -auto-approve
+
+echo "Deployment complete!"
