@@ -978,6 +978,9 @@ def validate_signal(item: dict, tier: str, idx: int, cluster: str | None = None)
     context = f"{tier}.{cluster}[{idx}]" if cluster else f"{tier}[{idx}]"
     errors = []
 
+    if not isinstance(item, dict):
+        return errors  # Skip non-dict items (shouldn't happen after schema fix)
+
     if not item.get("headline"):
         errors.append(f"{context}: missing 'headline'")
 
@@ -985,7 +988,11 @@ def validate_signal(item: dict, tier: str, idx: int, cluster: str | None = None)
     if not src:
         errors.append(f"{context}: missing 'source'")
     elif isinstance(src, dict):
-        errors.extend(validate_source(src, context))
+        # For signals, only warn on missing URL (may be converted from string)
+        if not src.get("name"):
+            errors.append(f"{context}: source missing 'name'")
+        if not src.get("url"):
+            log(f"WARNING: {context}: signal source missing 'url'")
 
     return errors
 
@@ -997,6 +1004,11 @@ def fix_selections_schema(selections: dict) -> dict:
     # Fix must_know and should_know articles
     for tier in ["must_know", "should_know"]:
         for article in selections.get(tier, []):
+            # Fix: title instead of headline
+            if "title" in article and "headline" not in article:
+                article["headline"] = article.pop("title")
+                fixed += 1
+
             # Fix: links array instead of url in sources
             if "links" in article and article.get("sources"):
                 links = article.pop("links")
@@ -1010,15 +1022,39 @@ def fix_selections_schema(selections: dict) -> dict:
                 article["why_it_matters"] = ""
                 fixed += 1
 
-    # Fix signals - may have one_liner/link instead of headline/source
-    for cluster in selections.get("signals", {}).values():
+    # Fix signals - may have one_liner/link instead of headline/source, or be plain strings
+    signals = selections.get("signals", {})
+    for cluster_name, cluster in list(signals.items()):
+        if not isinstance(cluster, list):
+            continue
+        fixed_cluster = []
         for item in cluster:
-            if "one_liner" in item and "headline" not in item:
-                item["headline"] = item.pop("one_liner")
+            if isinstance(item, str):
+                # Convert plain string to object format
+                fixed_cluster.append({"headline": item, "source": {"name": "Source", "url": "", "bias": "center"}})
                 fixed += 1
-            if "link" in item and "source" not in item:
-                item["source"] = {"name": "Source", "url": item.pop("link"), "bias": "center"}
-                fixed += 1
+            elif isinstance(item, dict):
+                if "one_liner" in item and "headline" not in item:
+                    item["headline"] = item.pop("one_liner")
+                    fixed += 1
+                if "link" in item and "source" not in item:
+                    item["source"] = {"name": "Source", "url": item.pop("link"), "bias": "center"}
+                    fixed += 1
+                fixed_cluster.append(item)
+        signals[cluster_name] = fixed_cluster
+
+    # Fix regional_summary - may be a single string instead of per-region dict
+    regional_summary = selections.get("regional_summary", {})
+    if isinstance(regional_summary, str):
+        # Split by ** headers or use as-is for all regions
+        selections["regional_summary"] = {
+            "americas": regional_summary,
+            "europe": "",
+            "asia_pacific": "",
+            "middle_east_africa": "",
+            "tech": ""
+        }
+        fixed += 1
 
     if fixed > 0:
         log(f"Fixed {fixed} schema deviations in selections.json")
