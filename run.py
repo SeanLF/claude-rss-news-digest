@@ -913,9 +913,9 @@ def cleanup_shown_headlines():
 def run_claude_command(command: str, description: str, mcp_config: str | None = None):
     """Run a Claude command with streaming output."""
     log(f"{description}...")
-    cmd = ["claude", "--print", "--verbose", "--permission-mode", "acceptEdits"]
+    cmd = ["claude", "--print", "--permission-mode", "acceptEdits"]
     if mcp_config:
-        cmd.extend(["--mcp-config", mcp_config])
+        cmd.extend(["--mcp-config", mcp_config, "--allowedTools", "mcp__news-digest__write_selections"])
     cmd.append(command)
     process = subprocess.Popen(
         cmd,
