@@ -6,9 +6,16 @@
 #
 # Required environment variables:
 #   REGISTRY - Docker registry URL (e.g., registry.example.com:5000)
-#   TERRAFORM_DIR - Path to Terraform directory
+#
+# Optional (defaults from .env):
+#   INFRA_DIR - Path to seanfloyd.dev infrastructure repo
 
 set -e
+
+# Load config from .env
+if [ -f .env ]; then
+  source .env
+fi
 
 SKIP_BUILD=false
 for arg in "$@"; do
@@ -23,9 +30,9 @@ if [ -z "$REGISTRY" ]; then
   exit 1
 fi
 
-TERRAFORM_DIR="${TERRAFORM_DIR:-}"
-if [ -z "$TERRAFORM_DIR" ]; then
-  echo "Error: TERRAFORM_DIR environment variable not set"
+INFRA_DIR="${INFRA_DIR:-../seanfloyd.dev}"
+if [ ! -x "$INFRA_DIR/bin/tf" ]; then
+  echo "Error: Infrastructure not found at $INFRA_DIR/bin/tf"
   exit 1
 fi
 
@@ -54,17 +61,10 @@ if [ "$SKIP_BUILD" = "false" ]; then
   docker push "$REGISTRY/news-digest:latest"
 fi
 
-# Apply Terraform
+# Apply Terraform (secrets loaded from 1Password via bin/tf)
 echo "Applying Terraform..."
-cd "$TERRAFORM_DIR"
-
-# TF_VAR_news_digest_resend_api_key must be set externally
-if [ -z "$TF_VAR_news_digest_resend_api_key" ]; then
-  echo "Warning: TF_VAR_news_digest_resend_api_key not set"
-fi
-
-terraform apply -target=null_resource.news_digest_env \
-                -target=null_resource.digest_server \
-                -auto-approve
+"$INFRA_DIR/bin/tf" apply -target=null_resource.news_digest_env \
+                          -target=null_resource.digest_server \
+                          -auto-approve
 
 echo "Deployment complete!"

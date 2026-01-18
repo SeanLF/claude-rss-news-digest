@@ -149,3 +149,8 @@ Regional summaries are **editorialized narratives with inline source links**. Th
 - URLs must be copied exactly from the source articles
 - Bias labels must match sources.csv
 - `reporting_varies` is optional - only include for must_know stories with genuinely divergent framing
+
+### CRITICAL Schema Rules (DO NOT DEVIATE)
+- **sources MUST contain url**: Each source object MUST have `{"name": "...", "url": "https://...", "bias": "..."}`. DO NOT put URLs in a separate `links` array.
+- **why_it_matters is REQUIRED**: Every must_know and should_know story MUST have a `why_it_matters` field.
+- **signals format**: Each signal MUST have `{"headline": "...", "source": {"name": "...", "url": "...", "bias": "..."}}`. DO NOT use `one_liner` or `link` keys.

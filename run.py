@@ -960,8 +960,9 @@ def validate_article(article: dict, tier: str, idx: int) -> list[str]:
         errors.append(f"{context}: missing 'headline'")
     if not article.get("summary"):
         errors.append(f"{context}: missing 'summary'")
+    # why_it_matters is optional - schema fixer sets empty string if missing
     if not article.get("why_it_matters"):
-        errors.append(f"{context}: missing 'why_it_matters'")
+        log(f"WARNING: {context}: missing 'why_it_matters'")
 
     sources = article.get("sources", [])
     if not sources:
@@ -989,6 +990,42 @@ def validate_signal(item: dict, tier: str, idx: int, cluster: str | None = None)
     return errors
 
 
+def fix_selections_schema(selections: dict) -> dict:
+    """Fix common schema deviations from Claude's output."""
+    fixed = 0
+
+    # Fix must_know and should_know articles
+    for tier in ["must_know", "should_know"]:
+        for article in selections.get(tier, []):
+            # Fix: links array instead of url in sources
+            if "links" in article and article.get("sources"):
+                links = article.pop("links")
+                for i, src in enumerate(article["sources"]):
+                    if not src.get("url") and i < len(links):
+                        src["url"] = links[i]
+                        fixed += 1
+
+            # Fix: missing why_it_matters - use empty string (will warn but not fail)
+            if "why_it_matters" not in article:
+                article["why_it_matters"] = ""
+                fixed += 1
+
+    # Fix signals - may have one_liner/link instead of headline/source
+    for cluster in selections.get("signals", {}).values():
+        for item in cluster:
+            if "one_liner" in item and "headline" not in item:
+                item["headline"] = item.pop("one_liner")
+                fixed += 1
+            if "link" in item and "source" not in item:
+                item["source"] = {"name": "Source", "url": item.pop("link"), "bias": "center"}
+                fixed += 1
+
+    if fixed > 0:
+        log(f"Fixed {fixed} schema deviations in selections.json")
+
+    return selections
+
+
 def validate_selections() -> dict:
     """Validate selections.json output from Pass 1."""
     selections_file = CLAUDE_INPUT_DIR / "selections.json"
@@ -1000,6 +1037,9 @@ def validate_selections() -> dict:
             selections = json.load(f)
     except json.JSONDecodeError as e:
         raise RuntimeError(f"selections.json is invalid JSON: {e}")
+
+    # Fix common schema deviations before validation
+    selections = fix_selections_schema(selections)
 
     # Validate required top-level keys
     required_keys = ["must_know", "should_know", "signals", "regional_summary"]
