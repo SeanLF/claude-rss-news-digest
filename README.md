@@ -49,15 +49,22 @@ AUTHOR_NAME=Your Name  # Footer attribution
 AUTHOR_URL=https://yoursite.com  # Author link
 ```
 
-### Authenticate Claude (one-time)
+### Authenticate Claude
 
-Before first run, log in to Claude inside the container:
-
+**Option 1: Interactive login (local development)**
 ```bash
 docker compose run --rm news-digest claude login
 ```
-
 This persists your auth in a Docker volume (`claude-config`).
+
+**Option 2: OAuth token (production/CI)**
+```bash
+# Generate a 1-year token
+claude setup-token
+
+# Add to .env
+CLAUDE_CODE_OAUTH_TOKEN=sk-ant-oat01-...
+```
 
 ### Run
 
