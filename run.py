@@ -463,9 +463,7 @@ def fetch_feeds(sources: list[dict]) -> tuple[int, int]:
     sources_with_articles = [(sid, f, k) for sid, f, k in per_source_counts if f > 0]
     if sources_with_articles:
         sources_with_articles.sort(key=lambda x: (-x[2], -x[1]))  # Sort by kept desc, then fetched desc
-        breakdown = ", ".join(f"{sid}:{k}/{f}" for sid, f, k in sources_with_articles[:15])
-        if len(sources_with_articles) > 15:
-            breakdown += f", ... (+{len(sources_with_articles) - 15} more)"
+        breakdown = ", ".join(f"{sid}:{k}/{f}" for sid, f, k in sources_with_articles)
         log(f"Per-source (kept/fetched): {breakdown}")
 
     if failed_this_run:
