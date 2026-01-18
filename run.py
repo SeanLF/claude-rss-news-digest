@@ -1396,6 +1396,8 @@ Examples:
                         help="Send test email to specified address and exit")
     parser.add_argument("--validate", action="store_true",
                         help="Test all RSS feeds and report health status")
+    parser.add_argument("--health-check", action="store_true",
+                        help="Verify Claude auth is working (for monitoring)")
     args = parser.parse_args()
 
     # --dry-run is shorthand for --no-email --no-record
@@ -1411,6 +1413,24 @@ Examples:
     if args.validate:
         sources = load_sources()
         return validate_feeds(sources)
+
+    # Health check mode - verify Claude auth
+    if args.health_check:
+        log("Running Claude auth health check...")
+        result = subprocess.run(
+            ["claude", "-p", "respond with 'ok'", "--max-turns", "1"],
+            capture_output=True,
+            text=True,
+            timeout=60
+        )
+        if result.returncode == 0 and "ok" in result.stdout.lower():
+            log("Health check passed: Claude auth working")
+            return 0
+        else:
+            log(f"Health check FAILED: returncode={result.returncode}")
+            if result.stderr:
+                log(f"stderr: {result.stderr[:500]}")
+            return 1
 
     # Preview mode - open latest digest in browser
     if args.preview:
