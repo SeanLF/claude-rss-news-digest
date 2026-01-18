@@ -1,8 +1,12 @@
 #!/bin/bash
 # Deploy news-digest infrastructure
-# Usage: bin/deploy [--skip-build]
+# Usage: bin/deploy [--skip-build] [-y|--yes]
 #
 # Builds and pushes Docker images, then applies Terraform
+#
+# Options:
+#   --skip-build  Skip Docker image build/push
+#   -y, --yes     Skip confirmation prompt
 #
 # Required environment variables:
 #   REGISTRY - Docker registry URL (e.g., registry.example.com:5000)
@@ -18,9 +22,11 @@ if [ -f .env ]; then
 fi
 
 SKIP_BUILD=false
+AUTO_APPROVE=false
 for arg in "$@"; do
   case $arg in
     --skip-build) SKIP_BUILD=true ;;
+    -y|--yes) AUTO_APPROVE=true ;;
   esac
 done
 
@@ -59,6 +65,22 @@ if [ "$SKIP_BUILD" = "false" ]; then
 
   echo "Pushing news-digest..."
   docker push "$REGISTRY/news-digest:latest"
+fi
+
+# Confirm before applying Terraform
+echo ""
+echo "About to apply Terraform to:"
+echo "  - null_resource.news_digest_env"
+echo "  - null_resource.digest_server"
+echo ""
+
+if [ "$AUTO_APPROVE" = "false" ]; then
+  read -p "Continue? [y/N] " -n 1 -r
+  echo
+  if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+    echo "Aborted."
+    exit 1
+  fi
 fi
 
 # Apply Terraform (secrets loaded from 1Password via bin/tf)
