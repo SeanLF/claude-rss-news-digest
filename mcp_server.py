@@ -5,6 +5,12 @@ import json
 import sys
 from pathlib import Path
 from typing import Any
+from datetime import datetime, timezone
+
+def log(msg: str):
+    """Log to stderr (visible in parent process logs)."""
+    ts = datetime.now(timezone.utc).strftime("%H:%M:%S")
+    print(f"[MCP {ts}] {msg}", file=sys.stderr, flush=True)
 
 # MCP protocol over stdio
 def send_response(id: Any, result: Any = None, error: Any = None):
@@ -121,6 +127,7 @@ DATA_DIR = Path("data/claude_input")
 
 def handle_tool_call(name: str, arguments: dict) -> dict:
     """Handle tool invocation."""
+    log(f"Tool call: {name}")
     if name == "write_selections":
         output_path = DATA_DIR / "selections.json"
         output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -146,15 +153,18 @@ def handle_tool_call(name: str, arguments: dict) -> dict:
 
 def main():
     """Main MCP server loop."""
+    log("Server started")
     for line in sys.stdin:
         try:
             msg = json.loads(line)
         except json.JSONDecodeError:
+            log(f"Invalid JSON: {line[:100]}")
             continue
 
         method = msg.get("method")
         id = msg.get("id")
         params = msg.get("params", {})
+        log(f"Received: {method}")
 
         if method == "initialize":
             send_response(id, {
