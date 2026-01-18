@@ -435,25 +435,38 @@ def fetch_feeds(sources: list[dict]) -> tuple[int, int]:
     # Record health to DB
     record_source_health(health_records)
 
-    # Filter by date and save
+    # Filter by date and save, tracking per-source counts
     total = 0
+    per_source_counts = []  # (source_id, fetched, kept)
     for source in sources:
         source_id = source["id"]
         articles = results.get(source_id, [])
+        fetched_count = len(articles)
         if last_run:
             articles = [
                 a for a in articles
                 if (pub := parse_date(a.get("published"))) is None or pub > last_run
             ]
+        kept_count = len(articles)
 
         with open(FETCHED_DIR / f"{source_id}.json", "w") as f:
             json.dump(articles, f, indent=2)
-        total += len(articles)
+        total += kept_count
+        per_source_counts.append((source_id, fetched_count, kept_count))
 
     # Health summary
     failed_this_run = [(sid, err) for sid, success, err in health_records if not success]
     succeeded = len(sources) - len(failed_this_run)
     log(f"Fetched {total} articles from {succeeded}/{len(sources)} sources")
+
+    # Per-source breakdown (show sources with articles, sorted by kept desc)
+    sources_with_articles = [(sid, f, k) for sid, f, k in per_source_counts if f > 0]
+    if sources_with_articles:
+        sources_with_articles.sort(key=lambda x: (-x[2], -x[1]))  # Sort by kept desc, then fetched desc
+        breakdown = ", ".join(f"{sid}:{k}/{f}" for sid, f, k in sources_with_articles[:15])
+        if len(sources_with_articles) > 15:
+            breakdown += f", ... (+{len(sources_with_articles) - 15} more)"
+        log(f"Per-source (kept/fetched): {breakdown}")
 
     if failed_this_run:
         log(f"Failed sources this run: {', '.join(sid for sid, _ in failed_this_run)}", "WARN")
