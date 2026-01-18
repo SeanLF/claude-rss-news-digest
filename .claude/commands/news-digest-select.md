@@ -74,7 +74,9 @@ Write like The Economist meets AP wire: clear, authoritative, zero fluff.
 
 ## Output
 
-Write JSON to `data/claude_input/selections.json`:
+**Use the `write_selections` tool to output your curated selections.** The tool enforces the correct schema.
+
+Call the tool with the following structure:
 
 ```json
 {

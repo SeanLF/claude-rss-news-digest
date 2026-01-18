@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "news-digest": {
+      "command": "python3",
+      "args": ["mcp_server.py"]
+    }
+  }
+}

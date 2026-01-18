@@ -910,11 +910,15 @@ def cleanup_shown_headlines():
         headlines_file.unlink()
 
 
-def run_claude_command(command: str, description: str):
+def run_claude_command(command: str, description: str, mcp_config: str | None = None):
     """Run a Claude command with streaming output."""
     log(f"{description}...")
+    cmd = ["claude", "--print", "--permission-mode", "acceptEdits"]
+    if mcp_config:
+        cmd.extend(["--mcp-config", mcp_config])
+    cmd.append(command)
     process = subprocess.Popen(
-        ["claude", "--print", "--permission-mode", "acceptEdits", command],
+        cmd,
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         text=True,
@@ -936,7 +940,7 @@ def run_claude_command(command: str, description: str):
 
 def generate_selections():
     """Pass 1: Run Claude to select and curate stories."""
-    run_claude_command("/news-digest-select", "Pass 1: Selecting stories")
+    run_claude_command("/news-digest-select", "Pass 1: Selecting stories", mcp_config=".mcp.json")
 
 
 def validate_source(src: dict, context: str) -> list[str]:

@@ -32,7 +32,7 @@ RUN useradd -m -s /bin/bash appuser
 WORKDIR /app
 
 # Copy application
-COPY run.py sources.json digest.css digest-template.html ./
+COPY run.py sources.json digest.css digest-template.html mcp_server.py .mcp.json ./
 COPY .claude/commands/ /home/appuser/.claude/commands/
 
 # Create data directory and set ownership
