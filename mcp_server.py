@@ -106,9 +106,10 @@ SELECTIONS_SCHEMA = {
                 "americas": {"type": "string"},
                 "europe": {"type": "string"},
                 "asia_pacific": {"type": "string"},
-                "middle_east_africa": {"type": "string"}
+                "middle_east_africa": {"type": "string"},
+                "tech": {"type": "string"}
             },
-            "required": ["americas", "europe", "asia_pacific", "middle_east_africa"],
+            "required": ["americas", "europe", "asia_pacific", "middle_east_africa", "tech"],
             "description": "Narrative summaries with inline markdown links"
         }
     },
