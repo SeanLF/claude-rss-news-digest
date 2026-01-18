@@ -20,6 +20,11 @@ variable "news_digest_resend_api_key" {
   sensitive   = true
 }
 
+variable "news_digest_claude_oauth_token" {
+  description = "Claude Code OAuth token (from setup-token, valid 1 year)"
+  sensitive   = true
+}
+
 variable "news_digest_resend_audience_id" {
   description = "Resend Audience ID for broadcast recipients"
 }
@@ -105,13 +110,21 @@ Persistent=true
 WantedBy=timers.target
 ```
 
-## Claude Credentials
+## Claude Authentication
 
-The digest uses Claude Pro subscription via OAuth. To refresh credentials:
+The digest uses Claude Pro subscription via OAuth token. Generate a long-lived token (1 year validity):
 
-1. Run locally: `docker compose run --rm news-digest claude --print "test"`
-2. Copy credentials to server: `scp data/.claude/.credentials.json user@server:/opt/news-digest/.claude/`
-3. Set permissions: `ssh user@server 'chmod 644 /opt/news-digest/.claude/.credentials.json'`
+```bash
+claude setup-token
+```
+
+Add the token to your environment file on the server:
+
+```bash
+CLAUDE_CODE_OAUTH_TOKEN=sk-ant-oat01-...
+```
+
+The token is passed via environment variable - no credentials file needed.
 
 ## digest-server Container
 
