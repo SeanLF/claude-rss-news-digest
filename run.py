@@ -1294,6 +1294,65 @@ def send_broadcast(digest_path: Path) -> int:
 # Main Pipeline
 # =============================================================================
 
+def validate_single_feed(source: dict) -> dict:
+    """Validate a single RSS feed. Returns result dict with status and metadata."""
+    source_id = source["id"]
+    _, articles, error = fetch_source(source, timeout=15)
+
+    result = {
+        "id": source_id,
+        "name": source["name"],
+        "url": source["url"],
+        "status": "failed" if error else "ok",
+        "article_count": 0,
+        "error": error,
+    }
+
+    if error:
+        return result
+
+    result["article_count"] = len(articles)
+
+    if articles:
+        dates = [parse_date(a.get("published")) for a in articles]
+        valid_dates = [d for d in dates if d is not None]
+        result["parseable_dates"] = len(valid_dates)
+        if valid_dates:
+            result["oldest_article"] = min(valid_dates).isoformat()
+            result["newest_article"] = max(valid_dates).isoformat()
+        result["sample_headline"] = articles[0].get("title", "")
+
+    return result
+
+
+def print_feed_result(result: dict):
+    """Print human-readable validation result for a single feed."""
+    print(f"[{result['id']}] {result['name']}")
+    url = result["url"]
+    print(f"  URL: {url[:80]}{'...' if len(url) > 80 else ''}")
+
+    if result["error"]:
+        print(f"  Status: FAILED - {result['error']}")
+    else:
+        article_count = result["article_count"]
+        print(f"  Status: OK - {article_count} articles")
+
+        if result.get("oldest_article"):
+            oldest = datetime.fromisoformat(result["oldest_article"])
+            newest = datetime.fromisoformat(result["newest_article"])
+            parseable = result.get("parseable_dates", 0)
+            print(f"  Dates: {oldest.strftime('%Y-%m-%d %H:%M')} → {newest.strftime('%Y-%m-%d %H:%M')} ({parseable}/{article_count} parseable)")
+        elif article_count > 0:
+            print(f"  Dates: No parseable dates found")
+
+        if result.get("sample_headline"):
+            sample = result["sample_headline"][:60]
+            ellipsis = "..." if len(result["sample_headline"]) > 60 else ""
+            print(f'  Sample: "{sample}{ellipsis}"')
+
+    print()
+
+
 def validate_feeds(sources: list[dict], json_output: bool = False) -> int:
     """Test all RSS feeds and report health status. Returns exit code."""
     if not json_output:
@@ -1302,66 +1361,15 @@ def validate_feeds(sources: list[dict], json_output: bool = False) -> int:
         print(f"{'='*60}")
         print(f"Testing {len(sources)} sources...\n")
 
-    results = []
-    total_articles = 0
-    failed_count = 0
+    # Collect results
+    results = [validate_single_feed(source) for source in sources]
+    if not json_output:
+        for result in results:
+            print_feed_result(result)
 
-    for source in sources:
-        source_id = source["id"]
-        source_name = source["name"]
-        url = source["url"]
-
-        if not json_output:
-            print(f"[{source_id}] {source_name}")
-            print(f"  URL: {url[:80]}{'...' if len(url) > 80 else ''}")
-
-        source_id, articles, error = fetch_source(source, timeout=15)
-
-        result = {
-            "id": source_id,
-            "name": source_name,
-            "url": url,
-            "status": "failed" if error else "ok",
-            "article_count": 0,
-            "error": error,
-        }
-
-        if error:
-            if not json_output:
-                print(f"  Status: FAILED - {error}")
-            failed_count += 1
-        else:
-            article_count = len(articles)
-            total_articles += article_count
-            result["article_count"] = article_count
-
-            if not json_output:
-                print(f"  Status: OK - {article_count} articles")
-
-            # Parse dates and show range
-            if articles:
-                dates = [parse_date(a.get("published")) for a in articles]
-                valid_dates = [d for d in dates if d is not None]
-                if valid_dates:
-                    oldest = min(valid_dates)
-                    newest = max(valid_dates)
-                    result["oldest_article"] = oldest.isoformat()
-                    result["newest_article"] = newest.isoformat()
-                    if not json_output:
-                        print(f"  Dates: {oldest.strftime('%Y-%m-%d %H:%M')} → {newest.strftime('%Y-%m-%d %H:%M')} ({len(valid_dates)}/{article_count} parseable)")
-                elif not json_output:
-                    print(f"  Dates: No parseable dates found")
-
-                # Show sample headline
-                sample_title = articles[0].get("title", "")
-                result["sample_headline"] = sample_title
-                if not json_output:
-                    sample = sample_title[:60]
-                    print(f"  Sample: \"{sample}{'...' if len(sample_title) > 60 else ''}\"")
-
-        results.append(result)
-        if not json_output:
-            print()
+    # Compute summary stats
+    failed_count = sum(1 for r in results if r["error"])
+    total_articles = sum(r["article_count"] for r in results)
 
     # Check historical failures from DB
     init_db()
@@ -1381,7 +1389,6 @@ def validate_feeds(sources: list[dict], json_output: bool = False) -> int:
         }
         print(json.dumps(output, indent=2))
     else:
-        # Summary
         print(f"{'='*60}")
         print("Summary")
         print(f"{'='*60}")
