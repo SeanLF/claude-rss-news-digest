@@ -71,10 +71,13 @@ def load_sources() -> list[dict]:
 # Utilities
 # =============================================================================
 
-def log(message: str):
-    """Log with UTC timestamp to stdout and file (with rotation)."""
+def log(message: str, level: str = "INFO"):
+    """Log with UTC timestamp and level to stdout and file (with rotation).
+
+    Levels: INFO (default), WARN, ERROR
+    """
     timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
-    line = f"[{timestamp}] {message}"
+    line = f"[{timestamp}] [{level}] {message}"
     print(line, flush=True)
 
     DATA_DIR.mkdir(exist_ok=True)
@@ -99,7 +102,7 @@ def check_internet() -> bool:
         urllib.request.urlopen(req, timeout=5)
         return True
     except (urllib.error.URLError, TimeoutError, OSError) as e:
-        log(f"Internet check failed: {e}")
+        log(f"Internet check failed: {e}", "WARN")
         return False
 
 
@@ -112,7 +115,7 @@ def validate_env(dry_run: bool = False):
 
     missing = [var for var in required if not os.environ.get(var)]
     if missing:
-        log(f"ERROR: Missing environment variables: {', '.join(missing)}")
+        log(f"Missing environment variables: {', '.join(missing)}", "ERROR")
         sys.exit(1)
 
 
@@ -174,7 +177,7 @@ def init_db():
                 conn.execute("ALTER TABLE digest_runs ADD COLUMN articles_emailed INTEGER DEFAULT 0")
                 conn.commit()
             except sqlite3.Error as e:
-                log(f"Migration failed: {e}")
+                log(f"Migration failed: {e}", "ERROR")
                 conn.rollback()
                 raise
 
@@ -193,7 +196,7 @@ def get_last_run_time() -> datetime | None:
             if result:
                 return datetime.fromisoformat(result.replace(" ", "T")).replace(tzinfo=timezone.utc)
     except sqlite3.Error as e:
-        log(f"DB error getting last run time: {e}")
+        log(f"DB error getting last run time: {e}", "ERROR")
     return None
 
 
@@ -207,7 +210,7 @@ def record_run(articles_fetched: int, articles_emailed: int = 0):
             )
         log(f"Recorded run: {articles_fetched} fetched, {articles_emailed} emailed")
     except sqlite3.Error as e:
-        log(f"DB error recording run: {e}")
+        log(f"DB error recording run: {e}", "ERROR")
 
 
 def save_digest(digest_path: Path):
@@ -218,7 +221,7 @@ def save_digest(digest_path: Path):
         date_str = match.group(1)
     else:
         date_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-        log(f"WARNING: Could not extract date from '{digest_path.stem}', using {date_str}")
+        log(f"Could not extract date from '{digest_path.stem}', using {date_str}", "WARN")
 
     html_content = digest_path.read_text()
 
@@ -230,7 +233,7 @@ def save_digest(digest_path: Path):
             )
         log(f"Saved digest to database: {date_str}")
     except sqlite3.Error as e:
-        log(f"DB error saving digest: {e}")
+        log(f"DB error saving digest: {e}", "ERROR")
 
 
 def get_previous_headlines(days: int = 7) -> list[dict]:
@@ -247,7 +250,7 @@ def get_previous_headlines(days: int = 7) -> list[dict]:
             """, (f'-{days} days',))
             return [{"headline": row[0], "tier": row[1], "date": row[2]} for row in cursor.fetchall()]
     except sqlite3.Error as e:
-        log(f"DB error getting previous headlines: {e}")
+        log(f"DB error getting previous headlines: {e}", "ERROR")
         return []
 
 
@@ -257,8 +260,8 @@ def record_shown_headlines(headlines: list[dict]):
         return
     # Validate format before processing
     if headlines and not isinstance(headlines[0], dict):
-        log(f"ERROR: shown_headlines.json has wrong format - expected list of dicts, got list of {type(headlines[0]).__name__}")
-        log(f"First item: {repr(headlines[0][:100]) if isinstance(headlines[0], str) else repr(headlines[0])}")
+        log(f"shown_headlines.json has wrong format - expected list of dicts, got list of {type(headlines[0]).__name__}", "ERROR")
+        log(f"First item: {repr(headlines[0][:100]) if isinstance(headlines[0], str) else repr(headlines[0])}", "ERROR")
         return
     try:
         with sqlite3.connect(DB_PATH) as conn:
@@ -268,7 +271,7 @@ def record_shown_headlines(headlines: list[dict]):
             )
         log(f"Saved {len(headlines)} headlines to dedup history")
     except sqlite3.Error as e:
-        log(f"DB error recording headlines: {e}")
+        log(f"DB error recording headlines: {e}", "ERROR")
 
 
 def record_source_health(results: list[tuple[str, bool, str | None]]):
@@ -282,7 +285,7 @@ def record_source_health(results: list[tuple[str, bool, str | None]]):
                 results
             )
     except sqlite3.Error as e:
-        log(f"DB error recording source health for {len(results)} sources: {e}")
+        log(f"DB error recording source health for {len(results)} sources: {e}", "ERROR")
 
 
 def get_consecutive_failures(source_id: str, limit: int = 10) -> int:
@@ -304,7 +307,7 @@ def get_consecutive_failures(source_id: str, limit: int = 10) -> int:
                 count += 1
             return count
     except sqlite3.Error as e:
-        log(f"DB error getting consecutive failures for {source_id}: {e}")
+        log(f"DB error getting consecutive failures for {source_id}: {e}", "ERROR")
         return 0
 
 
@@ -320,7 +323,7 @@ def get_failing_sources(min_consecutive: int = 3) -> list[tuple[str, int]]:
             """)
             source_ids = [row[0] for row in cursor]
     except sqlite3.Error as e:
-        log(f"DB error getting failing sources: {e}")
+        log(f"DB error getting failing sources: {e}", "ERROR")
         return []
 
     failing = [
@@ -453,12 +456,12 @@ def fetch_feeds(sources: list[dict]) -> tuple[int, int]:
     log(f"Fetched {total} articles from {succeeded}/{len(sources)} sources")
 
     if failed_this_run:
-        log(f"Failed sources this run: {', '.join(sid for sid, _ in failed_this_run)}")
+        log(f"Failed sources this run: {', '.join(sid for sid, _ in failed_this_run)}", "WARN")
 
     # Check for persistently failing sources
     persistently_failing = get_failing_sources(min_consecutive=HEALTH_ALERT_THRESHOLD)
     if persistently_failing:
-        log(f"WARNING: Sources with {HEALTH_ALERT_THRESHOLD}+ consecutive failures: {', '.join(f'{sid}({n}x)' for sid, n in persistently_failing)}")
+        log(f"Sources with {HEALTH_ALERT_THRESHOLD}+ consecutive failures: {', '.join(f'{sid}({n}x)' for sid, n in persistently_failing)}", "WARN")
 
     return total, len(failed_this_run)
 
@@ -542,10 +545,10 @@ def inline_styles(html: str) -> str:
             cssutils_logging_level=50,  # Suppress warnings
         )
     except ImportError:
-        log("WARNING: premailer not installed, skipping CSS inlining")
+        log("premailer not installed, skipping CSS inlining", "WARN")
         return html
     except Exception as e:
-        log(f"WARNING: CSS inlining failed: {e}")
+        log(f"CSS inlining failed: {e}", "WARN")
         return html
 
 
@@ -891,7 +894,7 @@ def read_shown_headlines() -> list[dict]:
     """Read shown_headlines.json output from Claude."""
     headlines_file = DATA_DIR / "shown_headlines.json"
     if not headlines_file.exists():
-        log("Warning: shown_headlines.json not found")
+        log("shown_headlines.json not found", "WARN")
         return []
 
     try:
@@ -899,7 +902,7 @@ def read_shown_headlines() -> list[dict]:
             headlines = json.load(f)
         return headlines
     except (json.JSONDecodeError, IOError) as e:
-        log(f"Error reading shown_headlines.json: {e}")
+        log(f"Error reading shown_headlines.json: {e}", "ERROR")
         return []
 
 
@@ -966,7 +969,7 @@ def validate_article(article: dict, tier: str, idx: int) -> list[str]:
         errors.append(f"{context}: missing 'summary'")
     # why_it_matters is optional - schema fixer sets empty string if missing
     if not article.get("why_it_matters"):
-        log(f"WARNING: {context}: missing 'why_it_matters'")
+        log(f"{context}: missing 'why_it_matters'", "WARN")
 
     sources = article.get("sources", [])
     if not sources:
@@ -996,7 +999,7 @@ def validate_signal(item: dict, tier: str, idx: int, cluster: str | None = None)
         if not src.get("name"):
             errors.append(f"{context}: source missing 'name'")
         if not src.get("url"):
-            log(f"WARNING: {context}: signal source missing 'url'")
+            log(f"{context}: signal source missing 'url'", "WARN")
 
     return errors
 
@@ -1112,9 +1115,9 @@ def validate_selections() -> dict:
     # Report validation errors
     if errors:
         for err in errors[:10]:  # Show first 10 errors
-            log(f"VALIDATION ERROR: {err}")
+            log(f"Validation: {err}", "ERROR")
         if len(errors) > 10:
-            log(f"... and {len(errors) - 10} more errors")
+            log(f"... and {len(errors) - 10} more errors", "ERROR")
         raise RuntimeError(f"selections.json has {len(errors)} validation errors")
 
     # Validate minimum counts (warnings only)
@@ -1123,9 +1126,9 @@ def validate_selections() -> dict:
     signals_count = sum(len(signals.get(cluster, [])) for cluster in REGION_ORDER)
 
     if must_know_count < 3:
-        log(f"WARNING: Only {must_know_count} must_know stories (expected 3+)")
+        log(f"Only {must_know_count} must_know stories (expected 3+)", "WARN")
     if should_know_count < 5:
-        log(f"WARNING: Only {should_know_count} should_know stories (expected 5+)")
+        log(f"Only {should_know_count} should_know stories (expected 5+)", "WARN")
 
     # Log summary
     total_stories = must_know_count + should_know_count + signals_count
@@ -1179,10 +1182,10 @@ def send_health_alert(failing_sources: list[tuple[str, int]], failed_this_run: i
     """Send alert email when sources are persistently failing."""
     to_email = os.environ.get("HEALTH_ALERT_EMAIL")
     if not to_email:
-        log("Skipping health alert: HEALTH_ALERT_EMAIL not set")
+        log("Skipping health alert: HEALTH_ALERT_EMAIL not set", "WARN")
         return
     if not os.environ.get("RESEND_API_KEY"):
-        log("Skipping health alert: RESEND_API_KEY not set")
+        log("Skipping health alert: RESEND_API_KEY not set", "WARN")
         return
 
     resend.api_key = os.environ["RESEND_API_KEY"]
@@ -1206,7 +1209,7 @@ def send_health_alert(failing_sources: list[tuple[str, int]], failed_this_run: i
         })
         log(f"Health alert sent to {to_email}")
     except resend.exceptions.ResendError as e:
-        log(f"Failed to send health alert: {e}")
+        log(f"Failed to send health alert: {e}", "ERROR")
 
 
 def get_audience_contact_count(audience_id: str) -> int:
@@ -1214,11 +1217,11 @@ def get_audience_contact_count(audience_id: str) -> int:
     try:
         contacts = resend.Contacts.list(audience_id=audience_id)
         if not isinstance(contacts, dict) or "data" not in contacts:
-            log(f"WARNING: Unexpected response from Resend Contacts.list")
+            log("Unexpected response from Resend Contacts.list", "WARN")
             return 0
         return len([c for c in contacts["data"] if not c.get("unsubscribed")])
     except resend.exceptions.ResendError as e:
-        log(f"WARNING: Failed to get audience contact count: {e}")
+        log(f"Failed to get audience contact count: {e}", "WARN")
         return 0
 
 
@@ -1253,7 +1256,7 @@ def send_broadcast(digest_path: Path) -> int:
 
         return contact_count
     except resend.exceptions.ResendError as e:
-        log(f"Broadcast error: {e}")
+        log(f"Broadcast error: {e}", "ERROR")
         raise
 
 
@@ -1339,7 +1342,7 @@ def send_test_email(to_email: str) -> int:
     """Send a test email to verify Resend config."""
     for var in ["RESEND_API_KEY", "RESEND_FROM"]:
         if not os.environ.get(var):
-            log(f"ERROR: Missing {var}")
+            log(f"Missing {var}", "ERROR")
             return 1
     resend.api_key = os.environ["RESEND_API_KEY"]
     from_email = os.environ["RESEND_FROM"]
@@ -1355,7 +1358,7 @@ def send_test_email(to_email: str) -> int:
         log(f"Test email sent to {to_email}")
         return 0
     except resend.exceptions.ResendError as e:
-        log(f"Resend error: {e}")
+        log(f"Resend error: {e}", "ERROR")
         return 1
 
 
@@ -1427,16 +1430,16 @@ Examples:
             log("Health check passed: Claude auth working")
             return 0
         else:
-            log(f"Health check FAILED: returncode={result.returncode}")
+            log(f"Health check FAILED: returncode={result.returncode}", "ERROR")
             if result.stderr:
-                log(f"stderr: {result.stderr[:500]}")
+                log(f"stderr: {result.stderr[:500]}", "ERROR")
             return 1
 
     # Preview mode - open latest digest in browser
     if args.preview:
         digest = find_latest_digest()
         if not digest:
-            log("ERROR: No digest found to preview")
+            log("No digest found to preview", "ERROR")
             return 1
         if os.environ.get("IN_DOCKER"):
             log(f"Preview (Docker): {digest.absolute()}")
@@ -1451,7 +1454,7 @@ Examples:
         init_db()
         digest = find_latest_digest()
         if not digest:
-            log("ERROR: No digest found to send")
+            log("No digest found to send", "ERROR")
             return 1
         log(f"Sending existing digest: {digest.name}")
         save_digest(digest)  # Save before broadcast so link works
@@ -1532,7 +1535,7 @@ Examples:
     if not skip_record:
         shown_headlines = read_shown_headlines()
         if not shown_headlines:
-            log("WARNING: No headlines recorded - Claude may not have generated shown_headlines.json")
+            log("No headlines recorded - Claude may not have generated shown_headlines.json", "WARN")
         record_shown_headlines(shown_headlines)
         record_run(articles_fetched, articles_emailed=recipients)
 
@@ -1546,8 +1549,8 @@ if __name__ == "__main__":
     try:
         sys.exit(main())
     except KeyboardInterrupt:
-        log("Interrupted")
+        log("Interrupted", "WARN")
         sys.exit(130)
     except Exception as e:
-        log(f"ERROR: {type(e).__name__}: {e}")
+        log(f"{type(e).__name__}: {e}", "ERROR")
         sys.exit(1)
