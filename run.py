@@ -508,7 +508,11 @@ def minify_css(css: str) -> str:
 
 
 def resolve_css_variables(css: str) -> str:
-    """Replace CSS variables with their values (light mode only for email)."""
+    """Replace CSS variables with their values (light mode only for email).
+
+    Email clients don't support CSS variables or prefers-color-scheme, so we
+    resolve to light mode values and strip the dark mode media query.
+    """
     # Extract variables from :root (first occurrence = light mode)
     root_match = re.search(r':root\s*\{([^}]+)\}', css)
     if not root_match:
@@ -531,6 +535,27 @@ def resolve_css_variables(css: str) -> str:
     css = re.sub(r'@media\s*\([^)]*prefers-color-scheme[^)]*\)\s*\{[^}]*\{[^}]*\}[^}]*\}', '', css)
 
     return css
+
+
+def prepare_for_email(html_content: str) -> str:
+    """Prepare HTML for email delivery.
+
+    Resolves CSS variables to light mode values and inlines styles.
+    Email clients don't support CSS variables or prefers-color-scheme.
+    """
+    # Extract and transform the <style> content
+    def resolve_style_block(match):
+        css = match.group(1)
+        resolved_css = resolve_css_variables(css)
+        minified_css = minify_css(resolved_css)
+        return f"<style>{minified_css}</style>"
+
+    html_content = re.sub(r'<style>([^<]+)</style>', resolve_style_block, html_content)
+
+    # Inline styles for Gmail compatibility
+    html_content = inline_styles(html_content)
+
+    return html_content
 
 
 def inline_styles(html: str) -> str:
@@ -727,7 +752,11 @@ def extract_preheader(selections: dict, max_length: int = 150) -> str:
 
 
 def replace_placeholders(digest_path: Path, preheader: str = ""):
-    """Replace all placeholders in digest HTML (styles, name, date, timestamp)."""
+    """Replace all placeholders in digest HTML (styles, name, date, timestamp).
+
+    CSS variables are preserved to support dark mode when viewing in browser.
+    Email preparation (resolving variables, inlining) happens in send_broadcast().
+    """
     now = datetime.now(timezone.utc)
     date_str = now.strftime("%B ") + str(now.day) + now.strftime(", %Y")
     date_url = now.strftime("%Y-%m-%d")
@@ -738,12 +767,11 @@ def replace_placeholders(digest_path: Path, preheader: str = ""):
     model_name = os.environ.get("MODEL_NAME", "Claude")
     archive_url = os.environ.get("ARCHIVE_URL", "")
 
-    # Load CSS: resolve variables (for email) then minify
+    # Load CSS: minify but keep variables for dark mode support in browser
     if not STYLES_FILE.exists():
         raise RuntimeError(f"Styles file not found: {STYLES_FILE}")
     css = STYLES_FILE.read_text()
-    css = resolve_css_variables(css)  # Replace var(--x) with actual values
-    styles = minify_css(css)
+    styles = minify_css(css)  # Keep CSS variables intact
 
     content = digest_path.read_text()
 
@@ -795,8 +823,8 @@ def replace_placeholders(digest_path: Path, preheader: str = ""):
         # Remove the archive link, keep just unsubscribe
         content = re.sub(r'<a href="\{\{ARCHIVE_URL\}\}">[^<]+</a> · ', '', content)
 
-    # Inline CSS for Gmail compatibility (premailer)
-    content = inline_styles(content)
+    # Note: CSS variable resolution and style inlining happen in send_broadcast()
+    # to preserve dark mode support for web viewing
 
     digest_path.write_text(content)
     log(f"Timestamp: {timestamp}")
@@ -1233,6 +1261,8 @@ def send_broadcast(digest_path: Path) -> int:
     audience_id = os.environ["RESEND_AUDIENCE_ID"]
 
     content = digest_path.read_text()
+    # Prepare for email: resolve CSS variables and inline styles
+    content = prepare_for_email(content)
     date_str = datetime.now(timezone.utc).strftime("%B %d, %Y")
 
     try:
