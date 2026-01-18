@@ -1264,12 +1264,13 @@ def send_broadcast(digest_path: Path) -> int:
 # Main Pipeline
 # =============================================================================
 
-def validate_feeds(sources: list[dict]) -> int:
+def validate_feeds(sources: list[dict], json_output: bool = False) -> int:
     """Test all RSS feeds and report health status. Returns exit code."""
-    print(f"\n{'='*60}")
-    print("RSS Feed Validation")
-    print(f"{'='*60}")
-    print(f"Testing {len(sources)} sources...\n")
+    if not json_output:
+        print(f"\n{'='*60}")
+        print("RSS Feed Validation")
+        print(f"{'='*60}")
+        print(f"Testing {len(sources)} sources...\n")
 
     results = []
     total_articles = 0
@@ -1280,61 +1281,98 @@ def validate_feeds(sources: list[dict]) -> int:
         source_name = source["name"]
         url = source["url"]
 
-        print(f"[{source_id}] {source_name}")
-        print(f"  URL: {url[:80]}{'...' if len(url) > 80 else ''}")
+        if not json_output:
+            print(f"[{source_id}] {source_name}")
+            print(f"  URL: {url[:80]}{'...' if len(url) > 80 else ''}")
 
         source_id, articles, error = fetch_source(source, timeout=15)
 
+        result = {
+            "id": source_id,
+            "name": source_name,
+            "url": url,
+            "status": "failed" if error else "ok",
+            "article_count": 0,
+            "error": error,
+        }
+
         if error:
-            print(f"  Status: FAILED - {error}")
+            if not json_output:
+                print(f"  Status: FAILED - {error}")
             failed_count += 1
-            results.append((source_id, source_name, 0, error))
         else:
             article_count = len(articles)
             total_articles += article_count
-            print(f"  Status: OK - {article_count} articles")
+            result["article_count"] = article_count
+
+            if not json_output:
+                print(f"  Status: OK - {article_count} articles")
 
             # Parse dates and show range
             if articles:
                 dates = [parse_date(a.get("published")) for a in articles]
                 valid_dates = [d for d in dates if d is not None]
                 if valid_dates:
-                    oldest = min(valid_dates).strftime("%Y-%m-%d %H:%M")
-                    newest = max(valid_dates).strftime("%Y-%m-%d %H:%M")
-                    print(f"  Dates: {oldest} → {newest} ({len(valid_dates)}/{article_count} parseable)")
-                else:
+                    oldest = min(valid_dates)
+                    newest = max(valid_dates)
+                    result["oldest_article"] = oldest.isoformat()
+                    result["newest_article"] = newest.isoformat()
+                    if not json_output:
+                        print(f"  Dates: {oldest.strftime('%Y-%m-%d %H:%M')} → {newest.strftime('%Y-%m-%d %H:%M')} ({len(valid_dates)}/{article_count} parseable)")
+                elif not json_output:
                     print(f"  Dates: No parseable dates found")
 
                 # Show sample headline
-                sample = articles[0].get("title", "")[:60]
-                print(f"  Sample: \"{sample}{'...' if len(articles[0].get('title', '')) > 60 else ''}\"")
-            results.append((source_id, source_name, article_count, None))
-        print()
+                sample_title = articles[0].get("title", "")
+                result["sample_headline"] = sample_title
+                if not json_output:
+                    sample = sample_title[:60]
+                    print(f"  Sample: \"{sample}{'...' if len(sample_title) > 60 else ''}\"")
 
-    # Summary
-    print(f"{'='*60}")
-    print("Summary")
-    print(f"{'='*60}")
-    print(f"Total sources: {len(sources)}")
-    print(f"Successful: {len(sources) - failed_count}")
-    print(f"Failed: {failed_count}")
-    print(f"Total articles: {total_articles}")
-
-    if failed_count > 0:
-        print(f"\nFailed sources:")
-        for source_id, name, _, error in results:
-            if error:
-                print(f"  - {name} ({source_id}): {error}")
+        results.append(result)
+        if not json_output:
+            print()
 
     # Check historical failures from DB
     init_db()
     persistently_failing = get_failing_sources(min_consecutive=3)
-    if persistently_failing:
-        print(f"\nSources with 3+ consecutive historical failures:")
-        for sid, count in persistently_failing:
-            print(f"  - {sid}: {count} failures")
 
-    print()
+    if json_output:
+        output = {
+            "total_sources": len(sources),
+            "successful": len(sources) - failed_count,
+            "failed": failed_count,
+            "total_articles": total_articles,
+            "sources": results,
+            "persistently_failing": [
+                {"id": sid, "consecutive_failures": count}
+                for sid, count in persistently_failing
+            ],
+        }
+        print(json.dumps(output, indent=2))
+    else:
+        # Summary
+        print(f"{'='*60}")
+        print("Summary")
+        print(f"{'='*60}")
+        print(f"Total sources: {len(sources)}")
+        print(f"Successful: {len(sources) - failed_count}")
+        print(f"Failed: {failed_count}")
+        print(f"Total articles: {total_articles}")
+
+        if failed_count > 0:
+            print(f"\nFailed sources:")
+            for r in results:
+                if r["error"]:
+                    print(f"  - {r['name']} ({r['id']}): {r['error']}")
+
+        if persistently_failing:
+            print(f"\nSources with 3+ consecutive historical failures:")
+            for sid, count in persistently_failing:
+                print(f"  - {sid}: {count} failures")
+
+        print()
+
     return 1 if failed_count > 0 else 0
 
 
@@ -1379,6 +1417,7 @@ Examples:
   python run.py --preview          # Open latest digest in browser
   python run.py --test-email you@example.com  # Test Resend config
   python run.py --validate         # Test all RSS feeds and report status
+  python run.py --validate --json  # Test RSS feeds with JSON output
         """
     )
     parser.add_argument("--dry-run", action="store_true",
@@ -1399,6 +1438,8 @@ Examples:
                         help="Send test email to specified address and exit")
     parser.add_argument("--validate", action="store_true",
                         help="Test all RSS feeds and report health status")
+    parser.add_argument("--json", action="store_true",
+                        help="Output in JSON format (use with --validate)")
     parser.add_argument("--health-check", action="store_true",
                         help="Verify Claude auth is working (for monitoring)")
     args = parser.parse_args()
@@ -1415,7 +1456,7 @@ Examples:
     # Validate mode - test all RSS feeds
     if args.validate:
         sources = load_sources()
-        return validate_feeds(sources)
+        return validate_feeds(sources, json_output=args.json)
 
     # Health check mode - verify Claude auth
     if args.health_check:
