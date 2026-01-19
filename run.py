@@ -1279,6 +1279,7 @@ def send_broadcast(digest_path: Path) -> int:
     try:
         # Get contact count before sending
         contact_count = get_audience_contact_count(audience_id)
+        time.sleep(0.5)  # Resend rate limit: 2 req/sec
 
         # Create the broadcast
         broadcast = resend.Broadcasts.create({
@@ -1290,8 +1291,9 @@ def send_broadcast(digest_path: Path) -> int:
         })
         broadcast_id = broadcast["id"]
         log(f"Created broadcast: {broadcast_id}")
+        time.sleep(0.5)  # Resend rate limit: 2 req/sec
 
-        # Send the broadcast immediately
+        # Send the broadcast
         resend.Broadcasts.send({"broadcast_id": broadcast_id})
         log(f"Sent broadcast to {contact_count} contacts in audience {audience_id}")
 
