@@ -81,85 +81,26 @@ Write like The Economist meets AP wire: clear, authoritative, zero fluff.
 
 ## Output
 
-**Use the `write_selections` tool to output your curated selections.** The tool enforces the correct schema.
-
-Call the tool with the following structure:
-
-```json
-{
-  "must_know": [
-    {
-      "headline": "Headline in sentence case [UPDATE if applicable]",
-      "summary": "2-3 sentence summary of the news and context.",
-      "why_it_matters": "1-2 sentence insight on broader significance.",
-      "reporting_varies": [
-        {"source": "Source Name", "angle": "How this outlet frames it", "bias": "center-right"},
-        {"source": "Other Source", "angle": "Different framing or emphasis", "bias": "center-left"}
-      ],
-      "sources": [
-        {"name": "Source Name", "url": "https://...", "bias": "center-right"}
-      ]
-    }
-  ],
-  "should_know": [
-    {
-      "headline": "Headline in sentence case",
-      "summary": "2-3 sentence summary.",
-      "why_it_matters": "1-2 sentence insight.",
-      "sources": [
-        {"name": "Source Name", "url": "https://...", "bias": "center"}
-      ]
-    }
-  ],
-  "signals": {
-    "americas": [
-      {"headline": "Brief headline with key fact", "source": {"name": "Source Name", "url": "https://...", "bias": "center"}}
-    ],
-    "europe": [
-      {"headline": "Story headline", "source": {"name": "Source Name", "url": "https://...", "bias": "center"}}
-    ],
-    "asia_pacific": [],
-    "middle_east_africa": [],
-    "tech": []
-  },
-  "regional_summary": {
-    "americas": "Narrative with [inline markdown links](https://source-url) to sources. See format below.",
-    "europe": "...",
-    "asia_pacific": "...",
-    "middle_east_africa": "...",
-    "tech": "..."
-  }
-}
-```
+**Use the `write_selections` tool** to output your curated selections. The tool schema defines the required structure.
 
 ### Regional Summary Format
 
 Regional summaries are **editorialized narratives with inline source links**. They synthesize stories from must_know and should_know into a coherent regional overview.
 
-**Use markdown link syntax:** `[linked text](url)`
-
 **Example:**
 ```
-"americas": "Nicaragua [released dozens of prisoners](https://reuters.com/...) following US pressure. Canada's [Chrystia Freeland resigned](https://nytimes.com/...) from Parliament, while incoming PM [Mark Carney announced a visit to China](https://straitstimes.com/...) to pursue trade diversification. The Trump administration [moved to protect Venezuelan oil revenue](https://reuters.com/...) from court seizures."
+"americas": "Nicaragua [released dozens of prisoners](https://reuters.com/...) following US pressure. Canada's [Chrystia Freeland resigned](https://nytimes.com/...) from Parliament, while incoming PM [Mark Carney announced a visit to China](https://straitstimes.com/...) to pursue trade diversification."
 ```
 
 **Guidelines:**
+- Use markdown link syntax: `[linked text](url)`
 - Link the key action/event, not generic words
-- One link per story mentioned (use the primary source)
 - Weave stories into a coherent narrative, don't just list them
 - 3-5 sentences per region
-- Only reference stories from must_know and should_know (signals are separate one-liners)
+- Only reference stories from must_know and should_know
 
-### Output Requirements
-- Minimum items: must_know (3+), should_know (5+)
-- Each signals cluster should have stories if available for that region
-- Regional summaries must use inline markdown links to sources
-- signals contains ONLY stories not mentioned in regional_summary - these are additional noteworthy one-liners
-- URLs must be copied exactly from the source articles
+### Additional Requirements
+- **signals** contains ONLY stories not mentioned in regional_summary
+- URLs must be copied exactly from source articles
 - Bias labels must match sources.csv
-- `reporting_varies` is optional - only include for must_know stories with genuinely divergent framing
-
-### CRITICAL Schema Rules (DO NOT DEVIATE)
-- **sources MUST contain url**: Each source object MUST have `{"name": "...", "url": "https://...", "bias": "..."}`. DO NOT put URLs in a separate `links` array.
-- **why_it_matters is REQUIRED**: Every must_know and should_know story MUST have a `why_it_matters` field.
-- **signals format**: Each signal MUST have `{"headline": "...", "source": {"name": "...", "url": "...", "bias": "..."}}`. DO NOT use `one_liner` or `link` keys.
+- `reporting_varies` is optional - only for must_know stories with genuinely divergent framing
