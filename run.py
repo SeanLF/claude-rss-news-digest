@@ -1217,6 +1217,22 @@ def find_latest_digest() -> Path | None:
 # Email
 # =============================================================================
 
+def resend_with_retry(fn, *args, max_retries: int = 3, **kwargs):
+    """Call Resend API with exponential backoff on rate limit errors."""
+    for attempt in range(max_retries):
+        try:
+            return fn(*args, **kwargs)
+        except resend.exceptions.ResendError as e:
+            is_rate_limited = "Too many requests" in str(e)
+            has_retries_left = attempt < max_retries - 1
+            if is_rate_limited and has_retries_left:
+                delay = 2 ** attempt
+                log(f"Rate limited, retrying in {delay}s...", "WARN")
+                time.sleep(delay)
+            else:
+                raise
+
+
 def send_health_alert(failing_sources: list[tuple[str, int]], failed_this_run: int, total_sources: int):
     """Send alert email when sources are persistently failing."""
     to_email = os.environ.get("HEALTH_ALERT_EMAIL")
@@ -1240,7 +1256,7 @@ def send_health_alert(failing_sources: list[tuple[str, int]], failed_this_run: i
 """
 
     try:
-        resend.Emails.send({
+        resend_with_retry(resend.Emails.send, {
             "from": f"News Digest Alerts <{from_email}>",
             "to": [to_email],
             "subject": f"[Alert] {len(failing_sources)} RSS sources failing",
@@ -1254,7 +1270,7 @@ def send_health_alert(failing_sources: list[tuple[str, int]], failed_this_run: i
 def get_audience_contact_count(audience_id: str) -> int:
     """Get number of contacts in an audience."""
     try:
-        contacts = resend.Contacts.list(audience_id=audience_id)
+        contacts = resend_with_retry(resend.Contacts.list, audience_id=audience_id)
         if not isinstance(contacts, dict) or "data" not in contacts:
             log("Unexpected response from Resend Contacts.list", "WARN")
             return 0
@@ -1279,10 +1295,9 @@ def send_broadcast(digest_path: Path) -> int:
     try:
         # Get contact count before sending
         contact_count = get_audience_contact_count(audience_id)
-        time.sleep(0.5)  # Resend rate limit: 2 req/sec
 
         # Create the broadcast
-        broadcast = resend.Broadcasts.create({
+        broadcast = resend_with_retry(resend.Broadcasts.create, {
             "from": f"{digest_name} <{from_email}>",
             "audience_id": audience_id,
             "subject": f"{digest_name} – {date_str}",
@@ -1291,10 +1306,9 @@ def send_broadcast(digest_path: Path) -> int:
         })
         broadcast_id = broadcast["id"]
         log(f"Created broadcast: {broadcast_id}")
-        time.sleep(0.5)  # Resend rate limit: 2 req/sec
 
         # Send the broadcast
-        resend.Broadcasts.send({"broadcast_id": broadcast_id})
+        resend_with_retry(resend.Broadcasts.send, {"broadcast_id": broadcast_id})
         log(f"Sent broadcast to {contact_count} contacts in audience {audience_id}")
 
         return contact_count
@@ -1437,7 +1451,7 @@ def send_test_email(to_email: str) -> int:
     digest_name = os.environ.get("DIGEST_NAME", "News Digest")
 
     try:
-        resend.Emails.send({
+        resend_with_retry(resend.Emails.send, {
             "from": f"{digest_name} <{from_email}>",
             "to": [to_email],
             "subject": f"{digest_name} - Test Email",
