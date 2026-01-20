@@ -16,9 +16,16 @@ Read all CSV files from `data/claude_input/`:
 ## Processing Rules
 
 ### Deduplication (CRITICAL)
-1. DO NOT select stories from previously_shown.csv
-2. Only re-include if MAJOR new development - mark with [UPDATE] in headline
-3. Same story from different sources = same story (combine sources)
+1. **Semantic matching, not exact matching** - A story is a duplicate if it covers the same event/development, even with different wording. Examples of duplicates:
+   - "PM calls snap election" = "PM calls snap election, betting on popularity"
+   - "Train crash kills 21" ≈ "Train crash kills 40" (same incident, updated toll)
+   - "Country considers policy" → "Country announces policy" (same story evolving)
+2. Check previously_shown.csv and DO NOT select stories covering the same underlying event
+3. Only re-include if there's a MAJOR new development - and mark with [UPDATE] in headline:
+   - Significant death toll changes (e.g., 21→40) warrant [UPDATE]
+   - New actors involved, policy reversals, or dramatic escalations warrant [UPDATE]
+   - Minor wording changes or additional quotes do NOT warrant re-inclusion
+4. Same story from different sources = same story (combine sources into one entry)
 
 ### User Interests
 - HIGH: geopolitics, tech/AI, privacy/surveillance
