@@ -389,7 +389,6 @@ def fetch_source(source: dict, timeout: int = 15) -> tuple[str, list[dict], str 
                 if article["title"] and article["url"]:
                     articles.append(article)
 
-            print(f"  [{source_id}] {len(articles)} articles", flush=True)
             return source_id, articles, None  # Success
 
         except (urllib.error.URLError, TimeoutError, OSError) as e:
@@ -416,8 +415,6 @@ def fetch_feeds(sources: list[dict]) -> tuple[int, int]:
     log(f"Fetching {len(sources)} RSS feeds...")
 
     last_run = get_last_run_time()
-    if last_run:
-        print(f"  Filtering after: {last_run.isoformat()}", flush=True)
 
     FETCHED_DIR.mkdir(parents=True, exist_ok=True)
     for f in FETCHED_DIR.glob("*.json"):
@@ -436,7 +433,8 @@ def fetch_feeds(sources: list[dict]) -> tuple[int, int]:
     record_source_health(health_records)
 
     # Filter by date and save, tracking per-source counts
-    total = 0
+    total_kept = 0
+    total_fetched = 0
     per_source_counts = []  # (source_id, fetched, kept)
     for source in sources:
         source_id = source["id"]
@@ -451,20 +449,23 @@ def fetch_feeds(sources: list[dict]) -> tuple[int, int]:
 
         with open(FETCHED_DIR / f"{source_id}.json", "w") as f:
             json.dump(articles, f, indent=2)
-        total += kept_count
+        total_kept += kept_count
+        total_fetched += fetched_count
         per_source_counts.append((source_id, fetched_count, kept_count))
-
-    # Health summary
-    failed_this_run = [(sid, err) for sid, success, err in health_records if not success]
-    succeeded = len(sources) - len(failed_this_run)
-    log(f"Fetched {total} articles from {succeeded}/{len(sources)} sources")
 
     # Per-source breakdown (show sources with articles, sorted by kept desc)
     sources_with_articles = [(sid, f, k) for sid, f, k in per_source_counts if f > 0]
     if sources_with_articles:
+        if last_run:
+            print(f"  Filtering after: {last_run.isoformat()} (kept/fetched)", flush=True)
         sources_with_articles.sort(key=lambda x: (-x[2], -x[1]))  # Sort by kept desc, then fetched desc
-        breakdown = ", ".join(f"{sid}:{k}/{f}" for sid, f, k in sources_with_articles)
-        log(f"Per-source (kept/fetched): {breakdown}")
+        for sid, fetched, kept in sources_with_articles:
+            print(f"  [{sid}] {kept}/{fetched}", flush=True)
+
+    # Summary
+    failed_this_run = [(sid, err) for sid, success, err in health_records if not success]
+    succeeded = len(sources) - len(failed_this_run)
+    log(f"Fetched {total_kept}/{total_fetched} articles from {succeeded}/{len(sources)} sources")
 
     if failed_this_run:
         log(f"Failed sources this run: {', '.join(sid for sid, _ in failed_this_run)}", "WARN")
@@ -474,7 +475,7 @@ def fetch_feeds(sources: list[dict]) -> tuple[int, int]:
     if persistently_failing:
         log(f"Sources with {HEALTH_ALERT_THRESHOLD}+ consecutive failures: {', '.join(f'{sid}({n}x)' for sid, n in persistently_failing)}", "WARN")
 
-    return total, len(failed_this_run)
+    return total_kept, len(failed_this_run)
 
 
 # =============================================================================
