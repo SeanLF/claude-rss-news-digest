@@ -1,5 +1,6 @@
 # Secrets
 .env
+CLAUDE.local.md
 .claude/*
 !.claude/commands/
 

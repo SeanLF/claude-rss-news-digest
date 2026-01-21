@@ -1,92 +1,426 @@
 #!/bin/bash
 # Deploy news-digest infrastructure
-# Usage: bin/deploy [--skip-build] [-y|--yes]
+# Usage: bin/deploy [--skip-build] [-y|--yes] [--dry-run]
 #
 # Builds and pushes Docker images, then applies Terraform
 #
 # Options:
 #   --skip-build  Skip Docker image build/push
 #   -y, --yes     Skip confirmation prompt
+#   --dry-run     Show what would be done without making changes
 #
-# Required environment variables:
-#   REGISTRY - Docker registry URL (e.g., registry.example.com:5000)
-#
-# Optional (defaults from .env):
-#   INFRA_DIR - Path to seanfloyd.dev infrastructure repo
+# Required environment variables (set in .env):
+#   REGISTRY  - Docker registry URL (e.g., registry.example.com:5000)
+#   INFRA_DIR - Path to infrastructure repo containing bin/tf
 
 set -e
 
-# Load config from .env
-if [ -f .env ]; then
-  source .env
-fi
+# ============================================
+# Constants
+# ============================================
+
+TAILSCALE_TIMEOUT=30
+TAILSCALE_MARKER="/tmp/.tailscale-started-by-news-digest-deploy"
+DOCKER_CHECK_TIMEOUT=5
+
+# ============================================
+# Parse arguments
+# ============================================
 
 SKIP_BUILD=false
 AUTO_APPROVE=false
+DRY_RUN=false
+
 for arg in "$@"; do
   case $arg in
     --skip-build) SKIP_BUILD=true ;;
     -y|--yes) AUTO_APPROVE=true ;;
+    --dry-run) DRY_RUN=true ;;
   esac
 done
 
-if [ -z "$REGISTRY" ]; then
-  echo "Error: REGISTRY environment variable not set"
-  echo "Example: export REGISTRY=registry.example.com:5000"
-  exit 1
-fi
+# ============================================
+# Logging helpers
+# ============================================
 
-INFRA_DIR="${INFRA_DIR:-../seanfloyd.dev}"
-if [ ! -x "$INFRA_DIR/bin/tf" ]; then
-  echo "Error: Infrastructure not found at $INFRA_DIR/bin/tf"
-  exit 1
-fi
+BLUE='\033[0;34m'
+GREEN='\033[0;32m'
+YELLOW='\033[0;33m'
+RED='\033[0;31m'
+BOLD='\033[1m'
+RESET='\033[0m'
 
-# Ensure Tailscale is running
-if ! tailscale status &> /dev/null; then
-  echo "Starting Tailscale..."
-  open -a Tailscale
-  for i in {1..30}; do
-    tailscale status &> /dev/null && break
+log_stage() {
+  echo ""
+  echo -e "${BOLD}${BLUE}═══════════════════════════════════════════════${RESET}"
+  echo -e "${BOLD}${BLUE}  $1${RESET}"
+  echo -e "${BOLD}${BLUE}═══════════════════════════════════════════════${RESET}"
+}
+
+log_step() {
+  echo -e "${GREEN}→${RESET} $1"
+}
+
+log_info() {
+  echo -e "${YELLOW}  $1${RESET}"
+}
+
+log_error() {
+  echo -e "${RED}✗ $1${RESET}" >&2
+}
+
+log_success() {
+  echo -e "${GREEN}✓ $1${RESET}"
+}
+
+dry_run_skip() {
+  if [ "$DRY_RUN" = "true" ]; then
+    log_info "[dry-run] Would run: $1"
+    return 0
+  fi
+  return 1
+}
+
+run_or_skip() {
+  local description="$1"
+  shift
+  if dry_run_skip "$description"; then
+    return 0
+  fi
+  "$@"
+}
+
+wait_for_condition() {
+  local description="$1" timeout="$2"
+  shift 2
+
+  local waited=0
+  while ! "$@" &>/dev/null && [ $waited -lt $timeout ]; do
     sleep 1
+    ((waited++))
   done
-fi
 
-# Build and push images
-if [ "$SKIP_BUILD" = "false" ]; then
-  echo "Building digest-server..."
-  docker buildx build --platform linux/amd64 -t "$REGISTRY/digest-server:latest" ./digest-server
+  if "$@" &>/dev/null; then
+    log_success "$description (${waited}s)"
+    return 0
+  fi
+  return 1
+}
 
-  echo "Pushing digest-server..."
-  docker push "$REGISTRY/digest-server:latest"
+# ============================================
+# Config
+# ============================================
 
-  echo "Building news-digest..."
-  docker buildx build --platform linux/amd64 -t "$REGISTRY/news-digest:latest" .
+derive_config() {
+  log_step "Loading configuration..."
 
-  echo "Pushing news-digest..."
-  docker push "$REGISTRY/news-digest:latest"
-fi
+  # Load from .env
+  if [ -f .env ]; then
+    source .env
+  fi
 
-# Confirm before applying Terraform
-echo ""
-echo "About to apply Terraform to:"
-echo "  - null_resource.news_digest_env"
-echo "  - null_resource.digest_server"
-echo ""
-
-if [ "$AUTO_APPROVE" = "false" ]; then
-  read -p "Continue? [y/N] " -n 1 -r
-  echo
-  if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-    echo "Aborted."
+  if [ -z "$REGISTRY" ]; then
+    log_error "REGISTRY environment variable not set"
     exit 1
   fi
-fi
 
-# Apply Terraform (secrets loaded from 1Password via bin/tf)
-echo "Applying Terraform..."
-"$INFRA_DIR/bin/tf" apply -target=null_resource.news_digest_env \
-                          -target=null_resource.digest_server \
-                          -auto-approve
+  if [ -z "$INFRA_DIR" ]; then
+    log_error "INFRA_DIR environment variable not set"
+    exit 1
+  fi
 
-echo "Deployment complete!"
+  if [ ! -x "$INFRA_DIR/bin/tf" ]; then
+    log_error "Infrastructure not found at $INFRA_DIR/bin/tf"
+    exit 1
+  fi
+
+  # Derive from git
+  ORIGIN_URL=$(git remote get-url origin 2>/dev/null)
+  GITHUB_REPO=$(echo "$ORIGIN_URL" | sed -E 's#(git@|https://)github\.com[:/]##' | sed 's/\.git$//')
+  SHA=$(git rev-parse HEAD)
+  BRANCH=$(git rev-parse --abbrev-ref HEAD)
+
+  log_info "Repository: $GITHUB_REPO"
+  log_info "Branch: $BRANCH"
+  log_info "Commit: ${SHA:0:7}"
+  log_info "Registry: $REGISTRY"
+}
+
+# ============================================
+# Pre-flight checks
+# ============================================
+
+check_docker() {
+  log_step "Checking Docker..."
+
+  if docker info &>/dev/null; then
+    log_success "Docker is running"
+    return 0
+  fi
+
+  if [ ! -d "/Applications/OrbStack.app" ]; then
+    log_error "Docker is not running and OrbStack not found"
+    return 1
+  fi
+
+  log_info "Docker not running, starting OrbStack..."
+  open -a OrbStack
+
+  if wait_for_condition "OrbStack started" $DOCKER_CHECK_TIMEOUT docker info; then
+    return 0
+  fi
+
+  log_error "Docker failed to start within ${DOCKER_CHECK_TIMEOUT}s"
+  return 1
+}
+
+check_tailscale() {
+  log_step "Checking Tailscale..."
+
+  rm -f "$TAILSCALE_MARKER"
+
+  if ! command -v tailscale &>/dev/null; then
+    log_error "Tailscale not installed"
+    return 1
+  fi
+
+  if tailscale status &>/dev/null; then
+    log_success "Tailscale already connected"
+    return 0
+  fi
+
+  if dry_run_skip "open -a Tailscale"; then
+    return 0
+  fi
+
+  log_info "Starting Tailscale..."
+  touch "$TAILSCALE_MARKER"
+  open -a Tailscale
+
+  if wait_for_condition "Tailscale connected" $TAILSCALE_TIMEOUT tailscale status; then
+    return 0
+  fi
+
+  log_error "Tailscale failed to connect within ${TAILSCALE_TIMEOUT}s"
+  rm -f "$TAILSCALE_MARKER"
+  return 1
+}
+
+# ============================================
+# GitHub Deployments API
+# ============================================
+
+DEPLOYMENT_ID=""
+
+create_deployment() {
+  log_step "Creating GitHub deployment..."
+
+  if ! command -v gh &>/dev/null; then
+    log_info "GitHub CLI not installed, skipping deployment tracking"
+    return 0
+  fi
+
+  if dry_run_skip "gh api repos/${GITHUB_REPO}/deployments"; then
+    return 0
+  fi
+
+  DEPLOYMENT_ID=$(echo '{"ref":"'"$SHA"'","environment":"production","auto_merge":false,"required_contexts":[]}' \
+    | gh api "repos/${GITHUB_REPO}/deployments" --input - --jq '.id' 2>/dev/null || echo "")
+
+  if [ -n "$DEPLOYMENT_ID" ]; then
+    gh api "repos/${GITHUB_REPO}/deployments/${DEPLOYMENT_ID}/statuses" \
+      -f state="in_progress" \
+      -f log_url="https://github.com/${GITHUB_REPO}/actions" \
+      -f description="Deploying..." \
+      --silent 2>/dev/null || true
+    log_success "Deployment #$DEPLOYMENT_ID created"
+  fi
+}
+
+update_deployment_status() {
+  local state="$1"
+  local description="$2"
+
+  [ -z "$DEPLOYMENT_ID" ] && return 0
+  command -v gh &>/dev/null || return 0
+
+  if dry_run_skip "gh api deployment status: $state"; then
+    return 0
+  fi
+
+  gh api "repos/${GITHUB_REPO}/deployments/${DEPLOYMENT_ID}/statuses" \
+    -f state="$state" \
+    -f log_url="https://github.com/${GITHUB_REPO}/actions" \
+    -f description="$description" \
+    --silent 2>/dev/null || true
+}
+
+# ============================================
+# Git operations
+# ============================================
+
+push_to_github() {
+  log_step "Checking git status..."
+
+  # Check if remote branch exists
+  if ! git rev-parse --verify origin/"$BRANCH" &>/dev/null; then
+    log_info "Remote branch origin/$BRANCH does not exist"
+    if dry_run_skip "git push -u origin $BRANCH"; then
+      return 0
+    fi
+    git push -u origin "$BRANCH"
+    log_success "Pushed new branch to GitHub"
+    return 0
+  fi
+
+  local ahead=$(git rev-list --count origin/"$BRANCH".."$BRANCH" 2>/dev/null || echo "0")
+
+  if [ "$ahead" = "0" ]; then
+    log_info "Already up to date with origin/$BRANCH"
+    return 0
+  fi
+
+  log_info "$ahead commit(s) to push"
+
+  if dry_run_skip "git push origin $BRANCH"; then
+    return 0
+  fi
+
+  git push origin "$BRANCH"
+  log_success "Pushed to GitHub"
+}
+
+tag_deployment() {
+  local tag="deploy/$(date -u +%Y-%m-%d-%H%M%SZ)"
+
+  log_step "Tagging deployment as $tag..."
+
+  if dry_run_skip "git tag $tag && git push origin $tag"; then
+    return 0
+  fi
+
+  git tag "$tag" "$SHA"
+  git push origin "$tag" --quiet
+  log_success "Tagged: $tag"
+}
+
+# ============================================
+# Build and deploy
+# ============================================
+
+build_and_push_image() {
+  local name="$1" context="$2"
+  local tag="$REGISTRY/$name:latest"
+
+  log_step "Building $name..."
+  run_or_skip "docker buildx build $name" \
+    docker buildx build --platform linux/amd64 -t "$tag" "$context"
+
+  log_step "Pushing $name..."
+  run_or_skip "docker push $name" \
+    docker push "$tag"
+}
+
+build_and_push() {
+  if [ "$SKIP_BUILD" = "true" ]; then
+    log_info "Skipping build (--skip-build)"
+    return 0
+  fi
+
+  build_and_push_image "digest-server" "./digest-server"
+  build_and_push_image "news-digest" "."
+
+  log_success "Images built and pushed"
+}
+
+apply_terraform() {
+  log_step "Applying Terraform..."
+
+  if dry_run_skip "$INFRA_DIR/bin/tf apply"; then
+    return 0
+  fi
+
+  "$INFRA_DIR/bin/tf" apply -target=null_resource.news_digest_env \
+                            -target=null_resource.digest_server \
+                            -auto-approve
+
+  log_success "Terraform applied"
+}
+
+# ============================================
+# Cleanup
+# ============================================
+
+DEPLOYMENT_SUCCEEDED=false
+
+cleanup() {
+  local exit_code=$?
+
+  if [ $exit_code -ne 0 ] && [ -n "$DEPLOYMENT_ID" ] && [ "$DEPLOYMENT_SUCCEEDED" = "false" ]; then
+    update_deployment_status "failure" "Deployment failed"
+  fi
+
+  if [ -f "$TAILSCALE_MARKER" ]; then
+    log_info "Closing Tailscale (started by this deploy)..."
+    osascript -e 'quit app "Tailscale"' 2>/dev/null || true
+    rm -f "$TAILSCALE_MARKER"
+  fi
+}
+trap cleanup EXIT
+
+# ============================================
+# Main
+# ============================================
+
+main() {
+  log_stage "DEPLOYMENT STARTING"
+
+  if [ "$DRY_RUN" = "true" ]; then
+    echo -e "${YELLOW}DRY RUN MODE - no changes will be made${RESET}"
+    echo ""
+  fi
+
+  derive_config
+
+  # Pre-flight checks
+  log_stage "PRE-FLIGHT CHECKS"
+  check_docker || exit 1
+  check_tailscale || exit 1
+
+  # Git operations
+  log_stage "GIT OPERATIONS"
+  push_to_github
+  create_deployment
+
+  # Build and deploy
+  log_stage "BUILD & DEPLOY"
+
+  if [ "$AUTO_APPROVE" = "false" ] && [ "$DRY_RUN" = "false" ]; then
+    echo ""
+    echo "About to:"
+    [ "$SKIP_BUILD" = "false" ] && echo "  - Build and push Docker images"
+    echo "  - Apply Terraform (news_digest_env, digest_server)"
+    echo ""
+    read -p "Continue? [y/N] " -n 1 -r
+    echo
+    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+      echo "Aborted."
+      exit 1
+    fi
+  fi
+
+  build_and_push
+  apply_terraform
+  tag_deployment
+
+  # Success
+  DEPLOYMENT_SUCCEEDED=true
+  update_deployment_status "success" "Deployed ${SHA:0:7}"
+
+  log_stage "DEPLOYMENT COMPLETE"
+  echo ""
+  echo -e "${GREEN}${BOLD}✓ Successfully deployed news-digest${RESET}"
+  echo ""
+}
+
+main
