@@ -30,7 +30,7 @@ Read all CSV files from `data/claude_input/`:
 ### User Interests
 - HIGH: geopolitics, tech/AI, privacy/surveillance
 - MEDIUM: economic policy, France/Canada specific
-- FILTER: celebrity, sports, lifestyle, US domestic (unless international impact)
+- FILTER: celebrity, sports, lifestyle, US domestic (unless it directly affects other countries' policies, economies, or citizens — "could affect markets" or "world is watching" is NOT sufficient; ask: would a reader in Berlin or Tokyo need to know this?)
 - FILTER: trivial controversies, culture war bickering, political theatre with no substance
 
 ### Tier Definitions
