@@ -11,7 +11,7 @@ COPY src ./src
 RUN cargo build --release
 
 # Runtime stage - Alpine for musl compatibility
-FROM alpine:3.21
+FROM alpine:3.23
 
 ARG OCI_TITLE="digest-server"
 ARG OCI_DESCRIPTION="Minimal HTTP server for serving news digest HTML from SQLite"
