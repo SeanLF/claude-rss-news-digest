@@ -1,4 +1,4 @@
-FROM node:24-slim
+FROM alpine:3.23
 
 ARG OCI_TITLE="claude-rss-news-digest"
 ARG OCI_DESCRIPTION="Automated news digest: RSS feeds → Claude curation → HTML email"
@@ -10,8 +10,8 @@ LABEL org.opencontainers.image.description="${OCI_DESCRIPTION}"
 LABEL org.opencontainers.image.source="${OCI_SOURCE}"
 LABEL org.opencontainers.image.licenses="${OCI_LICENSES}"
 
-# Install CA certificates for SSL
-RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates && rm -rf /var/lib/apt/lists/*
+# Install dependencies for Claude Code on Alpine + CA certs
+RUN apk add --no-cache ca-certificates libgcc libstdc++ ripgrep bash curl jq
 
 # Install uv
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/
@@ -23,20 +23,23 @@ RUN uv python install 3.14 \
     && ln -s /usr/local/bin/python3 /usr/local/bin/python \
     && uv pip install --python /usr/local/bin/python3 --break-system-packages feedparser resend premailer
 
-# Install Claude Code CLI
-RUN npm install -g @anthropic-ai/claude-code
-
 # Create non-root user for security
-RUN useradd -m -s /bin/bash appuser
+RUN addgroup -S appuser && adduser -S -G appuser -s /bin/bash appuser
+
+# Install Claude Code CLI (native method) as appuser
+ENV USE_BUILTIN_RIPGREP=0
+USER appuser
+RUN curl -fsSL https://claude.ai/install.sh | bash
+USER root
 
 WORKDIR /app
 
-# Copy application
+# Copy application and create data directory
 COPY run.py sources.json digest.css digest-template.html mcp_server.py .mcp.json ./
 COPY .claude/commands/ /home/appuser/.claude/commands/
-
-# Create data directory and set ownership
-RUN mkdir -p /app/data && chown -R appuser:appuser /app /home/appuser/.claude
+RUN mkdir -p /app/data \
+    && ln -s /home/appuser/.local/bin/claude /usr/local/bin/claude \
+    && chown -R appuser:appuser /app /home/appuser/.claude
 
 # Switch to non-root user
 USER appuser
