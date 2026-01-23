@@ -478,3 +478,104 @@ fn verify_database(path: &str) -> Result<(), String> {
 
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    mod is_valid_date {
+        use super::*;
+
+        #[test]
+        fn valid_date() {
+            assert!(is_valid_date("2026-01-24"));
+            assert!(is_valid_date("2025-12-31"));
+            assert!(is_valid_date("2000-01-01"));
+        }
+
+        #[test]
+        fn invalid_month() {
+            assert!(!is_valid_date("2026-00-15"));
+            assert!(!is_valid_date("2026-13-15"));
+        }
+
+        #[test]
+        fn invalid_day() {
+            assert!(!is_valid_date("2026-01-00"));
+            assert!(!is_valid_date("2026-01-32"));
+        }
+
+        #[test]
+        fn wrong_format() {
+            assert!(!is_valid_date("01-24-2026")); // US format
+            assert!(!is_valid_date("2026/01/24")); // slashes
+            assert!(!is_valid_date("20260124")); // no separators
+        }
+
+        #[test]
+        fn lenient_on_leading_zeros() {
+            // Parser accepts single digits (lenient but safe)
+            assert!(is_valid_date("2026-1-24"));
+            assert!(is_valid_date("2026-01-4"));
+        }
+
+        #[test]
+        fn malformed_input() {
+            assert!(!is_valid_date(""));
+            assert!(!is_valid_date("not-a-date"));
+            assert!(!is_valid_date("2026-01"));
+            assert!(!is_valid_date("2026-01-24-extra"));
+        }
+
+        #[test]
+        fn path_traversal_rejected() {
+            assert!(!is_valid_date("../etc/passwd"));
+            assert!(!is_valid_date("2026-01-24; DROP TABLE"));
+        }
+    }
+
+    mod format_date {
+        use super::*;
+
+        #[test]
+        fn formats_correctly() {
+            assert_eq!(format_date("2026-01-24"), "Saturday, January 24");
+            assert_eq!(format_date("2025-12-25"), "Thursday, December 25");
+            assert_eq!(format_date("2026-07-04"), "Saturday, July 4");
+        }
+
+        #[test]
+        fn handles_different_days_of_week() {
+            // 2026-01-19 is Monday, 2026-01-25 is Sunday
+            assert_eq!(format_date("2026-01-19"), "Monday, January 19");
+            assert_eq!(format_date("2026-01-20"), "Tuesday, January 20");
+            assert_eq!(format_date("2026-01-21"), "Wednesday, January 21");
+            assert_eq!(format_date("2026-01-22"), "Thursday, January 22");
+            assert_eq!(format_date("2026-01-23"), "Friday, January 23");
+            assert_eq!(format_date("2026-01-24"), "Saturday, January 24");
+            assert_eq!(format_date("2026-01-25"), "Sunday, January 25");
+        }
+
+        #[test]
+        fn handles_all_months() {
+            assert!(format_date("2026-01-15").contains("January"));
+            assert!(format_date("2026-02-15").contains("February"));
+            assert!(format_date("2026-03-15").contains("March"));
+            assert!(format_date("2026-04-15").contains("April"));
+            assert!(format_date("2026-05-15").contains("May"));
+            assert!(format_date("2026-06-15").contains("June"));
+            assert!(format_date("2026-07-15").contains("July"));
+            assert!(format_date("2026-08-15").contains("August"));
+            assert!(format_date("2026-09-15").contains("September"));
+            assert!(format_date("2026-10-15").contains("October"));
+            assert!(format_date("2026-11-15").contains("November"));
+            assert!(format_date("2026-12-15").contains("December"));
+        }
+
+        #[test]
+        fn invalid_input_returns_original() {
+            assert_eq!(format_date("not-valid"), "not-valid");
+            assert_eq!(format_date(""), "");
+        }
+    }
+}
