@@ -1,0 +1,155 @@
+#!/usr/bin/env python3
+"""
+Local CI - run all checks in Docker for reproducibility.
+
+Usage:
+    bin/ci           Run all checks (in Docker)
+    bin/ci --fix     Auto-fix style issues
+    bin/ci --local   Run locally (skip Docker)
+"""
+
+import os
+import subprocess
+import sys
+from pathlib import Path
+
+# ANSI color codes
+PURPLE = "\033[35m"
+GREEN = "\033[32m"
+RED = "\033[31m"
+YELLOW = "\033[33m"
+BOLD = "\033[1m"
+RESET = "\033[0m"
+
+ROOT = Path(__file__).resolve().parent.parent
+IN_DOCKER = os.environ.get("IN_DOCKER") == "1"
+
+
+def run_in_docker() -> int:
+    """Re-exec via docker compose run ci."""
+    print(f"{BOLD}{PURPLE}Running CI in Docker...{RESET}\n")
+
+    # Forward args (--fix, etc.)
+    args = sys.argv[1:]
+
+    result = subprocess.run(
+        ["docker", "compose", "run", "--rm", "--build", "ci", *args],
+        cwd=ROOT,
+    )
+    return result.returncode
+
+
+def run_step(name: str, cmd: list[str], cwd: Path | None = None) -> bool:
+    """Run a CI step and return success status."""
+    print(f"\n{BOLD}{PURPLE}=== {name} ==={RESET}")
+
+    result = subprocess.run(cmd, cwd=cwd or ROOT)
+    passed = result.returncode == 0
+
+    print(f"{GREEN}Passed{RESET}" if passed else f"{RED}Failed{RESET}")
+    return passed
+
+
+def install_dev_deps() -> bool:
+    """Install dev dependencies with uv."""
+    print(f"{BOLD}{PURPLE}=== Installing dev dependencies ==={RESET}")
+    result = subprocess.run(
+        ["uv", "pip", "install", "--system", "--break-system-packages", "ruff", "mypy", "bandit", "pytest"],
+        capture_output=True,
+    )
+    passed = result.returncode == 0
+
+    if passed:
+        print(f"{GREEN}Done{RESET}")
+    else:
+        print(f"{RED}Failed to install dev deps{RESET}")
+        print(result.stderr.decode())
+    return passed
+
+
+def py_cmd(tool: str, *args: str) -> list[str]:
+    """Build command to run a Python tool (via python -m in Docker)."""
+    if IN_DOCKER:
+        return ["python3", "-m", tool, *args]
+    return [tool, *args]
+
+
+def check_tool(tool: str) -> bool:
+    """Check if a tool is available."""
+    try:
+        subprocess.run(py_cmd(tool, "--version"), capture_output=True, check=True)
+        return True
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        return False
+
+
+def run_checks(fix_mode: bool) -> int:
+    """Run all CI checks."""
+    # Install dev deps if in Docker (they're not in the base image)
+    if IN_DOCKER:
+        if not install_dev_deps():
+            return 1
+
+    # Verify tools available
+    tools = ["ruff", "mypy", "bandit", "pytest"]
+    missing = [t for t in tools if not check_tool(t)]
+    if missing:
+        print(f"{YELLOW}Missing tools: {', '.join(missing)}{RESET}")
+        print("Install with: uv pip install ruff mypy bandit pytest")
+        return 1
+
+    # Define steps
+    steps: list[tuple[str, list[str], Path | None]] = []
+
+    # Python checks
+    if fix_mode:
+        steps.append(("Style: Python (fix)", py_cmd("ruff", "check", "--fix", "."), None))
+        steps.append(("Format: Python", py_cmd("ruff", "format", "."), None))
+    else:
+        steps.append(("Style: Python", py_cmd("ruff", "check", "."), None))
+        steps.append(("Format: Python (check)", py_cmd("ruff", "format", "--check", "."), None))
+
+    steps.append(("Types: Python", py_cmd("mypy", "run.py", "mcp_server.py"), None))
+    steps.append(("Security: Python", py_cmd("bandit", "-c", "pyproject.toml", "-r", "run.py", "mcp_server.py", "-q"), None))
+
+    # Tests (if tests/ exists)
+    if (ROOT / "tests").exists():
+        steps.append(("Tests: Python", py_cmd("pytest", "-v"), None))
+
+    # Rust checks (local only - no cargo in Docker image)
+    digest_server = ROOT / "digest-server"
+    if not IN_DOCKER and digest_server.exists():
+        try:
+            subprocess.run(["cargo", "--version"], capture_output=True, check=True)
+            steps.append(("Style: Rust", ["cargo", "clippy", "--", "-D", "warnings"], digest_server))
+            steps.append(("Tests: Rust", ["cargo", "test"], digest_server))
+        except (subprocess.CalledProcessError, FileNotFoundError):
+            print(f"{YELLOW}Skipping Rust checks (cargo not found){RESET}")
+
+    # Run all steps
+    results = [run_step(name, cmd, cwd) for name, cmd, cwd in steps]
+
+    # Summary
+    print()
+    passed, total = sum(results), len(results)
+    success = all(results)
+
+    color = GREEN if success else RED
+    status = "passed" if success else "failed"
+    print(f"{color}CI {status} ({passed}/{total}){RESET}")
+    return 0 if success else 1
+
+
+def main() -> int:
+    fix_mode = "--fix" in sys.argv
+    local_mode = "--local" in sys.argv
+
+    # Re-exec in Docker unless --local or already in Docker
+    if not IN_DOCKER and not local_mode:
+        return run_in_docker()
+
+    return run_checks(fix_mode)
+
+
+if __name__ == "__main__":
+    sys.exit(main())

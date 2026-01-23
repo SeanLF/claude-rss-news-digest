@@ -1,0 +1,59 @@
+[project]
+name = "news-digest"
+version = "0.1.0"
+description = "Automated news digest: RSS feeds → Claude curation → HTML email"
+requires-python = ">=3.14"
+dependencies = [
+    "feedparser",
+    "resend",
+    "premailer",
+]
+
+[project.optional-dependencies]
+dev = [
+    "ruff",
+    "mypy",
+    "bandit",
+    "pytest",
+]
+
+[tool.ruff]
+line-length = 120
+target-version = "py314"
+
+[tool.ruff.lint]
+select = [
+    "E",      # pycodestyle errors
+    "W",      # pycodestyle warnings
+    "F",      # pyflakes
+    "I",      # isort
+    "B",      # flake8-bugbear
+    "C4",     # flake8-comprehensions
+    "UP",     # pyupgrade
+    "SIM",    # flake8-simplify
+    "PTH",    # flake8-use-pathlib
+    "RUF",    # ruff-specific rules
+]
+ignore = [
+    "E501",   # line too long (let formatter handle it)
+    "SIM108", # ternary operator (sometimes if/else is clearer)
+    "PTH123", # open() vs Path.open() - open() is fine
+    "RUF001", # ambiguous unicode (en dash in email subject is intentional)
+]
+
+[tool.mypy]
+python_version = "3.14"
+warn_return_any = false
+warn_unused_ignores = true
+disallow_untyped_defs = false  # TODO: enable once all functions are typed
+ignore_missing_imports = true
+check_untyped_defs = true
+
+[tool.bandit]
+exclude_dirs = ["tests"]
+skips = ["B404", "B603", "B607"]  # subprocess usage is expected for this tool
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = "test_*.py"
+python_functions = "test_*"

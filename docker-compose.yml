@@ -20,6 +20,16 @@ services:
       - ./.claude:/home/appuser/.claude
       - ./digest.css:/app/digest.css:ro
 
+  ci:
+    build: .
+    user: root
+    working_dir: /app
+    environment:
+      - IN_DOCKER=1
+    volumes:
+      - .:/app
+    entrypoint: ["python3", "bin/ci"]
+
   digest-server:
     build: ./digest-server
     ports:

@@ -3,14 +3,16 @@
 
 import json
 import sys
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
-from datetime import datetime, timezone
+
 
 def log(msg: str):
     """Log to stderr (visible in parent process logs)."""
-    ts = datetime.now(timezone.utc).strftime("%H:%M:%S")
+    ts = datetime.now(UTC).strftime("%H:%M:%S")
     print(f"[MCP {ts}] {msg}", file=sys.stderr, flush=True)
+
 
 # MCP protocol over stdio
 def send_response(id: Any, result: Any = None, error: Any = None):
@@ -22,6 +24,7 @@ def send_response(id: Any, result: Any = None, error: Any = None):
         response["result"] = result
     print(json.dumps(response), flush=True)
 
+
 def send_notification(method: str, params: Any = None):
     """Send JSON-RPC notification."""
     msg = {"jsonrpc": "2.0", "method": method}
@@ -29,15 +32,16 @@ def send_notification(method: str, params: Any = None):
         msg["params"] = params
     print(json.dumps(msg), flush=True)
 
+
 # Schema definitions
 SOURCE_SCHEMA = {
     "type": "object",
     "properties": {
         "name": {"type": "string", "description": "Source name (e.g., 'Wall Street Journal')"},
         "url": {"type": "string", "description": "Article URL"},
-        "bias": {"type": "string", "enum": ["left", "center-left", "center", "center-right", "right"]}
+        "bias": {"type": "string", "enum": ["left", "center-left", "center", "center-right", "right"]},
     },
-    "required": ["name", "url", "bias"]
+    "required": ["name", "url", "bias"],
 }
 
 ARTICLE_SCHEMA = {
@@ -51,26 +55,22 @@ ARTICLE_SCHEMA = {
             "type": "array",
             "items": {
                 "type": "object",
-                "properties": {
-                    "source": {"type": "string"},
-                    "angle": {"type": "string"},
-                    "bias": {"type": "string"}
-                },
-                "required": ["source", "angle", "bias"]
+                "properties": {"source": {"type": "string"}, "angle": {"type": "string"}, "bias": {"type": "string"}},
+                "required": ["source", "angle", "bias"],
             },
-            "description": "Optional - only for stories with divergent framing"
-        }
+            "description": "Optional - only for stories with divergent framing",
+        },
     },
-    "required": ["headline", "summary", "why_it_matters", "sources"]
+    "required": ["headline", "summary", "why_it_matters", "sources"],
 }
 
 SIGNAL_SCHEMA = {
     "type": "object",
     "properties": {
         "headline": {"type": "string", "description": "Brief headline with key fact"},
-        "source": SOURCE_SCHEMA
+        "source": SOURCE_SCHEMA,
     },
-    "required": ["headline", "source"]
+    "required": ["headline", "source"],
 }
 
 SELECTIONS_SCHEMA = {
@@ -80,13 +80,13 @@ SELECTIONS_SCHEMA = {
             "type": "array",
             "items": ARTICLE_SCHEMA,
             "minItems": 3,
-            "description": "3+ major stories you'd be embarrassed not to know"
+            "description": "3+ major stories you'd be embarrassed not to know",
         },
         "should_know": {
             "type": "array",
             "items": ARTICLE_SCHEMA,
             "minItems": 5,
-            "description": "5+ important but not urgent stories"
+            "description": "5+ important but not urgent stories",
         },
         "signals": {
             "type": "object",
@@ -95,10 +95,10 @@ SELECTIONS_SCHEMA = {
                 "europe": {"type": "array", "items": SIGNAL_SCHEMA},
                 "asia_pacific": {"type": "array", "items": SIGNAL_SCHEMA},
                 "middle_east_africa": {"type": "array", "items": SIGNAL_SCHEMA},
-                "tech": {"type": "array", "items": SIGNAL_SCHEMA}
+                "tech": {"type": "array", "items": SIGNAL_SCHEMA},
             },
             "required": ["americas", "europe", "asia_pacific", "middle_east_africa", "tech"],
-            "description": "One-liner signals clustered by region"
+            "description": "One-liner signals clustered by region",
         },
         "regional_summary": {
             "type": "object",
@@ -107,24 +107,25 @@ SELECTIONS_SCHEMA = {
                 "europe": {"type": "string"},
                 "asia_pacific": {"type": "string"},
                 "middle_east_africa": {"type": "string"},
-                "tech": {"type": "string"}
+                "tech": {"type": "string"},
             },
             "required": ["americas", "europe", "asia_pacific", "middle_east_africa", "tech"],
-            "description": "Narrative summaries with inline markdown links"
-        }
+            "description": "Narrative summaries with inline markdown links",
+        },
     },
-    "required": ["must_know", "should_know", "signals", "regional_summary"]
+    "required": ["must_know", "should_know", "signals", "regional_summary"],
 }
 
 TOOLS = [
     {
         "name": "write_selections",
         "description": "Write the curated news selections to selections.json. Call this tool with the complete selections object.",
-        "inputSchema": SELECTIONS_SCHEMA
+        "inputSchema": SELECTIONS_SCHEMA,
     }
 ]
 
 DATA_DIR = Path("data/claude_input")
+
 
 def handle_tool_call(name: str, arguments: dict) -> dict:
     """Handle tool invocation."""
@@ -145,12 +146,13 @@ def handle_tool_call(name: str, arguments: dict) -> dict:
             "content": [
                 {
                     "type": "text",
-                    "text": f"Wrote selections.json: {must_know} must_know, {should_know} should_know, {signal_count} signals"
+                    "text": f"Wrote selections.json: {must_know} must_know, {should_know} should_know, {signal_count} signals",
                 }
             ]
         }
     else:
         return {"error": f"Unknown tool: {name}"}
+
 
 def main():
     """Main MCP server loop."""
@@ -168,11 +170,14 @@ def main():
         log(f"Received: {method}")
 
         if method == "initialize":
-            send_response(id, {
-                "protocolVersion": "2024-11-05",
-                "capabilities": {"tools": {}},
-                "serverInfo": {"name": "news-digest", "version": "1.0.0"}
-            })
+            send_response(
+                id,
+                {
+                    "protocolVersion": "2024-11-05",
+                    "capabilities": {"tools": {}},
+                    "serverInfo": {"name": "news-digest", "version": "1.0.0"},
+                },
+            )
 
         elif method == "notifications/initialized":
             pass  # Client acknowledged init
@@ -192,6 +197,7 @@ def main():
         elif id is not None:
             # Unknown method with id - respond with error
             send_response(id, error={"code": -32601, "message": f"Method not found: {method}"})
+
 
 if __name__ == "__main__":
     main()

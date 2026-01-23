@@ -16,10 +16,10 @@ import sqlite3
 import subprocess
 import sys
 import time
-import urllib.request
 import urllib.error
+import urllib.request
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from email.utils import parsedate_to_datetime
 from pathlib import Path
 
@@ -61,8 +61,10 @@ def load_sources() -> list[dict]:
         if not source["url"].startswith(("http://", "https://")):
             raise ValueError(f"sources.json[{i}] invalid URL: {source['url']}")
         # Prevent path traversal - source_id is used in file paths
-        if not re.match(r'^[a-z0-9_]+$', source["id"]):
-            raise ValueError(f"sources.json[{i}] invalid id '{source['id']}': must be lowercase alphanumeric/underscore only")
+        if not re.match(r"^[a-z0-9_]+$", source["id"]):
+            raise ValueError(
+                f"sources.json[{i}] invalid id '{source['id']}': must be lowercase alphanumeric/underscore only"
+            )
 
     return sources
 
@@ -71,12 +73,13 @@ def load_sources() -> list[dict]:
 # Utilities
 # =============================================================================
 
+
 def log(message: str, level: str = "INFO"):
     """Log with UTC timestamp and level to stdout and file (with rotation).
 
     Levels: INFO (default), WARN, ERROR
     """
-    timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+    timestamp = datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S UTC")
     line = f"[{timestamp}] [{level}] {message}"
     print(line, flush=True)
 
@@ -95,11 +98,8 @@ def log(message: str, level: str = "INFO"):
 def check_internet() -> bool:
     """Check internet connectivity."""
     try:
-        req = urllib.request.Request(
-            "https://www.google.com/generate_204",
-            headers={"User-Agent": "Mozilla/5.0"}
-        )
-        urllib.request.urlopen(req, timeout=5)
+        req = urllib.request.Request("https://www.google.com/generate_204", headers={"User-Agent": "Mozilla/5.0"})
+        urllib.request.urlopen(req, timeout=5)  # nosec B310
         return True
     except (urllib.error.URLError, TimeoutError, OSError) as e:
         log(f"Internet check failed: {e}", "WARN")
@@ -194,7 +194,7 @@ def get_last_run_time() -> datetime | None:
             cursor = conn.execute("SELECT MAX(run_at) FROM digest_runs")
             result = cursor.fetchone()[0]
             if result:
-                return datetime.fromisoformat(result.replace(" ", "T")).replace(tzinfo=timezone.utc)
+                return datetime.fromisoformat(result.replace(" ", "T")).replace(tzinfo=UTC)
     except sqlite3.Error as e:
         log(f"DB error getting last run time: {e}", "ERROR")
     return None
@@ -206,7 +206,7 @@ def record_run(articles_fetched: int, articles_emailed: int = 0):
         with sqlite3.connect(DB_PATH) as conn:
             conn.execute(
                 "INSERT INTO digest_runs (articles_fetched, articles_emailed) VALUES (?, ?)",
-                (articles_fetched, articles_emailed)
+                (articles_fetched, articles_emailed),
             )
         log(f"Recorded run: {articles_fetched} fetched, {articles_emailed} emailed")
     except sqlite3.Error as e:
@@ -216,21 +216,18 @@ def record_run(articles_fetched: int, articles_emailed: int = 0):
 def save_digest(digest_path: Path):
     """Save digest HTML to database for web serving."""
     # Extract date from filename (digest-YYYY-MM-DD*.html -> YYYY-MM-DD)
-    match = re.search(r'(\d{4}-\d{2}-\d{2})', digest_path.stem)
+    match = re.search(r"(\d{4}-\d{2}-\d{2})", digest_path.stem)
     if match:
         date_str = match.group(1)
     else:
-        date_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        date_str = datetime.now(UTC).strftime("%Y-%m-%d")
         log(f"Could not extract date from '{digest_path.stem}', using {date_str}", "WARN")
 
     html_content = digest_path.read_text()
 
     try:
         with sqlite3.connect(DB_PATH) as conn:
-            conn.execute(
-                "INSERT OR REPLACE INTO digests (date, html) VALUES (?, ?)",
-                (date_str, html_content)
-            )
+            conn.execute("INSERT OR REPLACE INTO digests (date, html) VALUES (?, ?)", (date_str, html_content))
         log(f"Saved digest to database: {date_str}")
     except sqlite3.Error as e:
         log(f"DB error saving digest: {e}", "ERROR")
@@ -242,12 +239,15 @@ def get_previous_headlines(days: int = 7) -> list[dict]:
         return []
     try:
         with sqlite3.connect(DB_PATH) as conn:
-            cursor = conn.execute("""
+            cursor = conn.execute(
+                """
                 SELECT headline, tier, date(shown_at) as date
                 FROM shown_narratives
                 WHERE shown_at > datetime('now', ?)
                 ORDER BY shown_at DESC
-            """, (f'-{days} days',))
+            """,
+                (f"-{days} days",),
+            )
             return [{"headline": row[0], "tier": row[1], "date": row[2]} for row in cursor.fetchall()]
     except sqlite3.Error as e:
         log(f"DB error getting previous headlines: {e}", "ERROR")
@@ -260,14 +260,17 @@ def record_shown_headlines(headlines: list[dict]):
         return
     # Validate format before processing
     if headlines and not isinstance(headlines[0], dict):
-        log(f"shown_headlines.json has wrong format - expected list of dicts, got list of {type(headlines[0]).__name__}", "ERROR")
+        log(
+            f"shown_headlines.json has wrong format - expected list of dicts, got list of {type(headlines[0]).__name__}",
+            "ERROR",
+        )
         log(f"First item: {repr(headlines[0][:100]) if isinstance(headlines[0], str) else repr(headlines[0])}", "ERROR")
         return
     try:
         with sqlite3.connect(DB_PATH) as conn:
             conn.executemany(
                 "INSERT INTO shown_narratives (headline, tier) VALUES (?, ?)",
-                [(h.get("headline", ""), h.get("tier", "")) for h in headlines]
+                [(h.get("headline", ""), h.get("tier", "")) for h in headlines],
             )
         log(f"Saved {len(headlines)} headlines to dedup history")
     except sqlite3.Error as e:
@@ -280,10 +283,7 @@ def record_source_health(results: list[tuple[str, bool, str | None]]):
         return
     try:
         with sqlite3.connect(DB_PATH) as conn:
-            conn.executemany(
-                "INSERT INTO source_health (source_id, success, error_message) VALUES (?, ?, ?)",
-                results
-            )
+            conn.executemany("INSERT INTO source_health (source_id, success, error_message) VALUES (?, ?, ?)", results)
     except sqlite3.Error as e:
         log(f"DB error recording source health for {len(results)} sources: {e}", "ERROR")
 
@@ -294,12 +294,15 @@ def get_consecutive_failures(source_id: str, limit: int = 10) -> int:
         return 0
     try:
         with sqlite3.connect(DB_PATH) as conn:
-            cursor = conn.execute("""
+            cursor = conn.execute(
+                """
                 SELECT success FROM source_health
                 WHERE source_id = ?
                 ORDER BY recorded_at DESC
                 LIMIT ?
-            """, (source_id, limit))
+            """,
+                (source_id, limit),
+            )
             count = 0
             for (success,) in cursor:
                 if success:
@@ -326,11 +329,7 @@ def get_failing_sources(min_consecutive: int = 3) -> list[tuple[str, int]]:
         log(f"DB error getting failing sources: {e}", "ERROR")
         return []
 
-    failing = [
-        (sid, count)
-        for sid in source_ids
-        if (count := get_consecutive_failures(sid)) >= min_consecutive
-    ]
+    failing = [(sid, count) for sid in source_ids if (count := get_consecutive_failures(sid)) >= min_consecutive]
     return sorted(failing, key=lambda x: -x[1])
 
 
@@ -338,15 +337,18 @@ def get_failing_sources(min_consecutive: int = 3) -> list[tuple[str, int]]:
 # RSS Fetching
 # =============================================================================
 
+
 def parse_date(date_str: str | None) -> datetime | None:
-    """Parse RSS date formats."""
+    """Parse RSS date formats (ISO 8601 or RFC 2822)."""
     if not date_str:
         return None
     try:
-        if "T" in date_str:
-            return datetime.fromisoformat(date_str.replace("Z", "+00:00")).astimezone(timezone.utc)
-        return parsedate_to_datetime(date_str).astimezone(timezone.utc)
-    except (ValueError, TypeError) as e:
+        # ISO 8601: 2025-01-15T10:30:00Z (has digit-T-digit pattern)
+        if re.search(r"\dT\d", date_str):
+            return datetime.fromisoformat(date_str.replace("Z", "+00:00")).astimezone(UTC)
+        # RFC 2822: Tue, 15 Jan 2025 10:30:00 GMT
+        return parsedate_to_datetime(date_str).astimezone(UTC)
+    except (ValueError, TypeError):
         # Don't log - too noisy for date parsing
         return None
 
@@ -359,7 +361,7 @@ def fetch_source(source: dict, timeout: int = 15) -> tuple[str, list[dict], str 
     for attempt in range(MAX_RETRIES):
         try:
             req = urllib.request.Request(source["url"], headers={"User-Agent": "Mozilla/5.0"})
-            with urllib.request.urlopen(req, timeout=timeout) as response:
+            with urllib.request.urlopen(req, timeout=timeout) as response:  # nosec B310
                 data = response.read()
             feed = feedparser.parse(data)
 
@@ -374,7 +376,7 @@ def fetch_source(source: dict, timeout: int = 15) -> tuple[str, list[dict], str 
                 published = entry.get("published_parsed") or entry.get("updated_parsed")
                 if published:
                     try:
-                        pub_str = datetime(*published[:6], tzinfo=timezone.utc).isoformat()
+                        pub_str = datetime(*published[:6], tzinfo=UTC).isoformat()  # type: ignore[misc]
                     except (TypeError, ValueError):
                         pub_str = entry.get("published") or entry.get("updated")
                 else:
@@ -395,7 +397,7 @@ def fetch_source(source: dict, timeout: int = 15) -> tuple[str, list[dict], str 
             # Transient errors - retry with exponential backoff
             last_error = e
             if attempt < MAX_RETRIES - 1:
-                delay = RETRY_DELAY * (2 ** attempt)  # 1s, 2s, 4s
+                delay = RETRY_DELAY * (2**attempt)  # 1s, 2s, 4s
                 time.sleep(delay)
             continue
         except Exception as e:
@@ -405,7 +407,7 @@ def fetch_source(source: dict, timeout: int = 15) -> tuple[str, list[dict], str 
             return source_id, [], error_msg
 
     # All retries exhausted
-    error_msg = str(getattr(last_error, 'reason', last_error)) if last_error else "Unknown"
+    error_msg = str(getattr(last_error, "reason", last_error)) if last_error else "Unknown"
     print(f"  [{source_id}] Failed after {MAX_RETRIES} retries: {error_msg}", flush=True)
     return source_id, [], f"Failed after {MAX_RETRIES} retries: {error_msg}"
 
@@ -441,14 +443,11 @@ def fetch_feeds(sources: list[dict]) -> tuple[int, int]:
         articles = results.get(source_id, [])
         fetched_count = len(articles)
         if last_run:
-            articles = [
-                a for a in articles
-                if (pub := parse_date(a.get("published"))) is None or pub > last_run
-            ]
+            articles = [a for a in articles if (pub := parse_date(a.get("published"))) is None or pub > last_run]
         kept_count = len(articles)
 
-        with open(FETCHED_DIR / f"{source_id}.json", "w") as f:
-            json.dump(articles, f, indent=2)
+        with open(FETCHED_DIR / f"{source_id}.json", "w") as out_file:
+            json.dump(articles, out_file, indent=2)
         total_kept += kept_count
         total_fetched += fetched_count
         per_source_counts.append((source_id, fetched_count, kept_count))
@@ -473,7 +472,10 @@ def fetch_feeds(sources: list[dict]) -> tuple[int, int]:
     # Check for persistently failing sources
     persistently_failing = get_failing_sources(min_consecutive=HEALTH_ALERT_THRESHOLD)
     if persistently_failing:
-        log(f"Sources with {HEALTH_ALERT_THRESHOLD}+ consecutive failures: {', '.join(f'{sid}({n}x)' for sid, n in persistently_failing)}", "WARN")
+        log(
+            f"Sources with {HEALTH_ALERT_THRESHOLD}+ consecutive failures: {', '.join(f'{sid}({n}x)' for sid, n in persistently_failing)}",
+            "WARN",
+        )
 
     return total_kept, len(failed_this_run)
 
@@ -482,6 +484,7 @@ def fetch_feeds(sources: list[dict]) -> tuple[int, int]:
 # Digest Generation
 # =============================================================================
 
+
 def estimate_tokens(text: str) -> int:
     """Estimate token count (~4 chars/token for CSV with URLs)."""
     return len(text) // 4
@@ -489,9 +492,9 @@ def estimate_tokens(text: str) -> int:
 
 def strip_html(text: str) -> str:
     """Remove HTML tags and decode entities."""
-    text = re.sub(r'<[^>]+>', '', text)  # Remove tags
+    text = re.sub(r"<[^>]+>", "", text)  # Remove tags
     text = html.unescape(text)  # Decode &amp; etc
-    text = re.sub(r'\s+', ' ', text).strip()  # Normalize whitespace
+    text = re.sub(r"\s+", " ", text).strip()  # Normalize whitespace
     return text
 
 
@@ -511,11 +514,11 @@ csv.field_size_limit(1_000_000)  # 1MB max
 def minify_css(css: str) -> str:
     """Minify CSS by removing comments, whitespace, and newlines."""
     # Remove comments
-    css = re.sub(r'/\*.*?\*/', '', css, flags=re.DOTALL)
+    css = re.sub(r"/\*.*?\*/", "", css, flags=re.DOTALL)
     # Remove whitespace around special characters
-    css = re.sub(r'\s*([{};:,>])\s*', r'\1', css)
+    css = re.sub(r"\s*([{};:,>])\s*", r"\1", css)
     # Collapse multiple whitespace
-    css = re.sub(r'\s+', ' ', css)
+    css = re.sub(r"\s+", " ", css)
     return css.strip()
 
 
@@ -526,13 +529,13 @@ def resolve_css_variables(css: str) -> str:
     resolve to light mode values and strip the dark mode media query.
     """
     # Extract variables from :root (first occurrence = light mode)
-    root_match = re.search(r':root\s*\{([^}]+)\}', css)
+    root_match = re.search(r":root\s*\{([^}]+)\}", css)
     if not root_match:
         return css
 
     # Parse variables
     variables = {}
-    for match in re.finditer(r'--([a-z-]+)\s*:\s*([^;]+);', root_match.group(1)):
+    for match in re.finditer(r"--([a-z-]+)\s*:\s*([^;]+);", root_match.group(1)):
         variables[match.group(1)] = match.group(2).strip()
 
     # Replace var(--name) with values
@@ -540,11 +543,11 @@ def resolve_css_variables(css: str) -> str:
         var_name = match.group(1)
         return variables.get(var_name, match.group(0))
 
-    css = re.sub(r'var\(--([a-z-]+)\)', replace_var, css)
+    css = re.sub(r"var\(--([a-z-]+)\)", replace_var, css)
 
     # Remove :root blocks and @media (prefers-color-scheme) - not supported in email
-    css = re.sub(r':root\s*\{[^}]+\}', '', css)
-    css = re.sub(r'@media\s*\([^)]*prefers-color-scheme[^)]*\)\s*\{[^}]*\{[^}]*\}[^}]*\}', '', css)
+    css = re.sub(r":root\s*\{[^}]+\}", "", css)
+    css = re.sub(r"@media\s*\([^)]*prefers-color-scheme[^)]*\)\s*\{[^}]*\{[^}]*\}[^}]*\}", "", css)
 
     return css
 
@@ -555,6 +558,7 @@ def prepare_for_email(html_content: str) -> str:
     Resolves CSS variables to light mode values and inlines styles.
     Email clients don't support CSS variables or prefers-color-scheme.
     """
+
     # Extract and transform the <style> content
     def resolve_style_block(match):
         css = match.group(1)
@@ -562,7 +566,7 @@ def prepare_for_email(html_content: str) -> str:
         minified_css = minify_css(resolved_css)
         return f"<style>{minified_css}</style>"
 
-    html_content = re.sub(r'<style>([^<]+)</style>', resolve_style_block, html_content)
+    html_content = re.sub(r"<style>([^<]+)</style>", resolve_style_block, html_content)
 
     # Inline styles for Gmail compatibility
     html_content = inline_styles(html_content)
@@ -574,6 +578,7 @@ def inline_styles(html: str) -> str:
     """Inline CSS styles for email compatibility using premailer."""
     try:
         from premailer import transform
+
         return transform(
             html,
             remove_classes=False,
@@ -606,13 +611,15 @@ REGION_ORDER = ["americas", "europe", "asia_pacific", "middle_east_africa", "tec
 
 def markdown_to_html(text: str) -> str:
     """Convert markdown links [text](url) to HTML <a> tags."""
+
     def replace_link(match):
         link_text = html.escape(match.group(1))
         url = match.group(2)
         if is_safe_url(url):
             return f'<a href="{html.escape(url)}">{link_text}</a>'
         return link_text  # Return just text if URL is unsafe
-    return re.sub(r'\[([^\]]+)\]\(([^)]+)\)', replace_link, text)
+
+    return re.sub(r"\[([^\]]+)\]\(([^)]+)\)", replace_link, text)
 
 
 def render_article(article: dict, include_reporting_varies: bool = True) -> str:
@@ -633,7 +640,7 @@ def render_article(article: dict, include_reporting_varies: bool = True) -> str:
 
     # Build article HTML
     parts = [
-        f"    <article>",
+        "    <article>",
         f"      <h3>{headline}</h3>",
         f"      <p>{summary}</p>",
         f'      <p class="why"><strong>Why it matters:</strong> {why}</p>',
@@ -644,15 +651,15 @@ def render_article(article: dict, include_reporting_varies: bool = True) -> str:
         reporting_varies = article.get("reporting_varies", [])
         if reporting_varies:
             parts.append('      <div class="reporting-varies">')
-            parts.append('        <strong>How reporting varies:</strong>')
-            parts.append('        <ul>')
+            parts.append("        <strong>How reporting varies:</strong>")
+            parts.append("        <ul>")
             for rv in reporting_varies:
                 src = html.escape(rv.get("source", ""))
                 bias = html.escape(rv.get("bias", ""))
                 angle = html.escape(rv.get("angle", ""))
-                parts.append(f'          <li><em>{src}</em> ({bias}): {angle}</li>')
-            parts.append('        </ul>')
-            parts.append('      </div>')
+                parts.append(f"          <li><em>{src}</em> ({bias}): {angle}</li>")
+            parts.append("        </ul>")
+            parts.append("      </div>")
 
     parts.append(f'      <p class="sources">{sources_line}</p>')
     parts.append("    </article>")
@@ -691,14 +698,12 @@ def render_digest(selections: dict) -> str:
 
     # Render must_know
     must_know_html = "\n".join(
-        render_article(article, include_reporting_varies=True)
-        for article in selections.get("must_know", [])
+        render_article(article, include_reporting_varies=True) for article in selections.get("must_know", [])
     )
 
     # Render should_know
     should_know_html = "\n".join(
-        render_article(article, include_reporting_varies=False)
-        for article in selections.get("should_know", [])
+        render_article(article, include_reporting_varies=False) for article in selections.get("should_know", [])
     )
 
     # Render signals (clustered by region)
@@ -708,11 +713,11 @@ def render_digest(selections: dict) -> str:
         items = signals.get(region_key, [])
         if items:
             region_name, emoji = REGION_CONFIG[region_key]
-            cluster_parts.append(f'    <div class="cluster">')
-            cluster_parts.append(f'      <h3>{emoji} {region_name}</h3>')
+            cluster_parts.append('    <div class="cluster">')
+            cluster_parts.append(f"      <h3>{emoji} {region_name}</h3>")
             for item in items:
                 cluster_parts.append(render_signal(item))
-            cluster_parts.append('    </div>')
+            cluster_parts.append("    </div>")
     signals_html = "\n".join(cluster_parts)
 
     # Fill template
@@ -738,11 +743,7 @@ def extract_headlines(selections: dict) -> list[dict]:
     signals = selections.get("signals", {})
     for cluster in REGION_ORDER:
         for item in signals.get(cluster, []):
-            headlines.append({
-                "headline": item.get("headline", ""),
-                "tier": "signal",
-                "cluster": cluster
-            })
+            headlines.append({"headline": item.get("headline", ""), "tier": "signal", "cluster": cluster})
 
     return headlines
 
@@ -754,12 +755,12 @@ def extract_preheader(selections: dict, max_length: int = 150) -> str:
         summary = regional_summary.get(region, "")
         if summary:
             # Strip markdown links, get plain text
-            plain = re.sub(r'\[([^\]]+)\]\([^)]+\)', r'\1', summary)
+            plain = re.sub(r"\[([^\]]+)\]\([^)]+\)", r"\1", summary)
             # Get first sentence or truncate
-            first_sentence = plain.split('.')[0] + '.'
+            first_sentence = plain.split(".")[0] + "."
             if len(first_sentence) <= max_length:
                 return first_sentence
-            return plain[:max_length].rsplit(' ', 1)[0] + '...'
+            return plain[:max_length].rsplit(" ", 1)[0] + "..."
     return ""
 
 
@@ -769,7 +770,7 @@ def replace_placeholders(digest_path: Path, preheader: str = ""):
     CSS variables are preserved to support dark mode when viewing in browser.
     Email preparation (resolving variables, inlining) happens in send_broadcast().
     """
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     date_str = now.strftime("%B ") + str(now.day) + now.strftime(", %Y")
     date_url = now.strftime("%Y-%m-%d")
     timestamp = now.strftime("%A, ") + date_str + now.strftime(" · %H:%M UTC")
@@ -804,9 +805,11 @@ def replace_placeholders(digest_path: Path, preheader: str = ""):
         content = content.replace("{{SOURCE_URL}}", source_url)
     else:
         # Remove the open source sentence in AI notice if not configured
-        content = re.sub(r'\s*This project is <a href="\{\{SOURCE_URL\}\}">[^<]+</a> and contributions are welcome\.', '', content)
+        content = re.sub(
+            r'\s*This project is <a href="\{\{SOURCE_URL\}\}">[^<]+</a> and contributions are welcome\.', "", content
+        )
         # Remove the feedback paragraph that uses SOURCE_URL for issues link
-        content = re.sub(r'\s*<p>Feedback\?[^<]*<a href="\{\{SOURCE_URL\}\}/issues">[^<]+</a></p>', '', content)
+        content = re.sub(r'\s*<p>Feedback\?[^<]*<a href="\{\{SOURCE_URL\}\}/issues">[^<]+</a></p>', "", content)
 
     # Optional: author plug (e.g., "Made by Sean · seanfloyd.dev")
     author_name = os.environ.get("AUTHOR_NAME", "")
@@ -818,7 +821,7 @@ def replace_placeholders(digest_path: Path, preheader: str = ""):
         content = content.replace("{{AUTHOR_PLUG}}", f"Made by {html.escape(author_name)}")
     else:
         # Remove the author plug paragraph if not configured
-        content = re.sub(r'\s*<p>\{\{AUTHOR_PLUG\}\}</p>', '', content)
+        content = re.sub(r"\s*<p>\{\{AUTHOR_PLUG\}\}</p>", "", content)
 
     # Replace HOMEPAGE_URL for "View in browser" link
     if digest_domain:
@@ -826,14 +829,16 @@ def replace_placeholders(digest_path: Path, preheader: str = ""):
         content = content.replace("{{HOMEPAGE_URL}}", homepage_url)
     else:
         # Remove the view-in-browser paragraph if not configured
-        content = re.sub(r'\s*<p class="view-in-browser">[^<]*<a href="\{\{HOMEPAGE_URL\}\}">[^<]+</a></p>', '', content)
+        content = re.sub(
+            r'\s*<p class="view-in-browser">[^<]*<a href="\{\{HOMEPAGE_URL\}\}">[^<]+</a></p>', "", content
+        )
 
     # Optional: archive URL for "Past digests" link
     if archive_url and is_safe_url(archive_url):
         content = content.replace("{{ARCHIVE_URL}}", html.escape(archive_url))
     else:
         # Remove the archive link, keep just unsubscribe
-        content = re.sub(r'<a href="\{\{ARCHIVE_URL\}\}">[^<]+</a> · ', '', content)
+        content = re.sub(r'<a href="\{\{ARCHIVE_URL\}\}">[^<]+</a> · ', "", content)
 
     # Note: CSS variable resolution and style inlining happen in send_broadcast()
     # to preserve dark mode support for web viewing
@@ -883,18 +888,12 @@ def prepare_claude_input(sources: list[dict]) -> list[Path]:
                 # Strip HTML, escape for safety, and cap lengths
                 title = html.escape(strip_html(a.get("title") or ""))[:MAX_TITLE_LENGTH]
                 summary = html.escape(strip_html(a.get("summary") or ""))[:MAX_SUMMARY_LENGTH]
-                all_articles.append([
-                    source["id"],
-                    title,
-                    url,
-                    a.get("published", ""),
-                    summary
-                ])
+                all_articles.append([source["id"], title, url, a.get("published", ""), summary])
 
     # Split articles into multiple files if needed
     article_files = []
     current_file_num = 1
-    current_rows = []
+    current_rows: list[list[str]] = []
     current_tokens = 0
     header = ["source_id", "title", "url", "published", "summary"]
 
@@ -926,7 +925,9 @@ def prepare_claude_input(sources: list[dict]) -> list[Path]:
             writer.writerows(current_rows)
         article_files.append(file_path)
 
-    log(f"Prepared CSV input: {len(all_articles)} new articles, {len(previous_headlines)} prior (dedup) in {len(article_files)} file(s)")
+    log(
+        f"Prepared CSV input: {len(all_articles)} new articles, {len(previous_headlines)} prior (dedup) in {len(article_files)} file(s)"
+    )
     return article_files
 
 
@@ -941,7 +942,7 @@ def read_shown_headlines() -> list[dict]:
         with open(headlines_file) as f:
             headlines = json.load(f)
         return headlines
-    except (json.JSONDecodeError, IOError) as e:
+    except (OSError, json.JSONDecodeError) as e:
         log(f"Error reading shown_headlines.json: {e}", "ERROR")
         return []
 
@@ -965,10 +966,11 @@ def run_claude_command(command: str, description: str, mcp_config: str | None = 
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         text=True,
-        bufsize=1  # Line buffered
+        bufsize=1,  # Line buffered
     )
     try:
         # Stream output in real-time
+        assert process.stdout is not None, "stdout=PIPE guarantees this"  # nosec B101
         for line in process.stdout:
             print(line, end="", flush=True)
         process.wait()
@@ -1099,7 +1101,7 @@ def fix_selections_schema(selections: dict) -> dict:
             "europe": "",
             "asia_pacific": "",
             "middle_east_africa": "",
-            "tech": ""
+            "tech": "",
         }
         fixed += 1
 
@@ -1119,7 +1121,7 @@ def validate_selections() -> dict:
         with open(selections_file) as f:
             selections = json.load(f)
     except json.JSONDecodeError as e:
-        raise RuntimeError(f"selections.json is invalid JSON: {e}")
+        raise RuntimeError(f"selections.json is invalid JSON: {e}") from e
 
     # Fix common schema deviations before validation
     selections = fix_selections_schema(selections)
@@ -1191,7 +1193,7 @@ def write_digest_from_selections(selections: dict) -> Path:
 
     # Generate filename with timestamp
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-    timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d-%H%MZ")
+    timestamp = datetime.now(UTC).strftime("%Y-%m-%d-%H%MZ")
     digest_path = OUTPUT_DIR / f"digest-{timestamp}.html"
 
     # Write HTML file
@@ -1218,6 +1220,7 @@ def find_latest_digest() -> Path | None:
 # Email
 # =============================================================================
 
+
 def resend_with_retry(fn, *args, max_retries: int = 3, **kwargs):
     """Call Resend API with exponential backoff on rate limit errors."""
     for attempt in range(max_retries):
@@ -1227,7 +1230,7 @@ def resend_with_retry(fn, *args, max_retries: int = 3, **kwargs):
             is_rate_limited = "Too many requests" in str(e)
             has_retries_left = attempt < max_retries - 1
             if is_rate_limited and has_retries_left:
-                delay = 2 ** attempt
+                delay = 2**attempt
                 log(f"Rate limited, retrying in {delay}s...", "WARN")
                 time.sleep(delay)
             else:
@@ -1257,12 +1260,15 @@ def send_health_alert(failing_sources: list[tuple[str, int]], failed_this_run: i
 """
 
     try:
-        resend_with_retry(resend.Emails.send, {
-            "from": f"News Digest Alerts <{from_email}>",
-            "to": [to_email],
-            "subject": f"[Alert] {len(failing_sources)} RSS sources failing",
-            "html": content,
-        })
+        resend_with_retry(
+            resend.Emails.send,
+            {
+                "from": f"News Digest Alerts <{from_email}>",
+                "to": [to_email],
+                "subject": f"[Alert] {len(failing_sources)} RSS sources failing",
+                "html": content,
+            },
+        )
         log(f"Health alert sent to {to_email}")
     except resend.exceptions.ResendError as e:
         log(f"Failed to send health alert: {e}", "ERROR")
@@ -1291,20 +1297,23 @@ def send_broadcast(digest_path: Path) -> int:
     content = digest_path.read_text()
     # Prepare for email: resolve CSS variables and inline styles
     content = prepare_for_email(content)
-    date_str = datetime.now(timezone.utc).strftime("%B %d, %Y")
+    date_str = datetime.now(UTC).strftime("%B %d, %Y")
 
     try:
         # Get contact count before sending
         contact_count = get_audience_contact_count(audience_id)
 
         # Create the broadcast
-        broadcast = resend_with_retry(resend.Broadcasts.create, {
-            "from": f"{digest_name} <{from_email}>",
-            "audience_id": audience_id,
-            "subject": f"{digest_name} – {date_str}",
-            "html": content,
-            "name": f"Digest {date_str}",
-        })
+        broadcast = resend_with_retry(
+            resend.Broadcasts.create,
+            {
+                "from": f"{digest_name} <{from_email}>",
+                "audience_id": audience_id,
+                "subject": f"{digest_name} – {date_str}",
+                "html": content,
+                "name": f"Digest {date_str}",
+            },
+        )
         broadcast_id = broadcast["id"]
         log(f"Created broadcast: {broadcast_id}")
 
@@ -1321,6 +1330,7 @@ def send_broadcast(digest_path: Path) -> int:
 # =============================================================================
 # Main Pipeline
 # =============================================================================
+
 
 def validate_single_feed(source: dict) -> dict:
     """Validate a single RSS feed. Returns result dict with status and metadata."""
@@ -1369,9 +1379,11 @@ def print_feed_result(result: dict):
             oldest = datetime.fromisoformat(result["oldest_article"])
             newest = datetime.fromisoformat(result["newest_article"])
             parseable = result.get("parseable_dates", 0)
-            print(f"  Dates: {oldest.strftime('%Y-%m-%d %H:%M')} → {newest.strftime('%Y-%m-%d %H:%M')} ({parseable}/{article_count} parseable)")
+            print(
+                f"  Dates: {oldest.strftime('%Y-%m-%d %H:%M')} → {newest.strftime('%Y-%m-%d %H:%M')} ({parseable}/{article_count} parseable)"
+            )
         elif article_count > 0:
-            print(f"  Dates: No parseable dates found")
+            print("  Dates: No parseable dates found")
 
         if result.get("sample_headline"):
             sample = result["sample_headline"][:60]
@@ -1384,9 +1396,9 @@ def print_feed_result(result: dict):
 def validate_feeds(sources: list[dict], json_output: bool = False) -> int:
     """Test all RSS feeds and report health status. Returns exit code."""
     if not json_output:
-        print(f"\n{'='*60}")
+        print(f"\n{'=' * 60}")
         print("RSS Feed Validation")
-        print(f"{'='*60}")
+        print(f"{'=' * 60}")
         print(f"Testing {len(sources)} sources...\n")
 
     # Collect results
@@ -1410,29 +1422,26 @@ def validate_feeds(sources: list[dict], json_output: bool = False) -> int:
             "failed": failed_count,
             "total_articles": total_articles,
             "sources": results,
-            "persistently_failing": [
-                {"id": sid, "consecutive_failures": count}
-                for sid, count in persistently_failing
-            ],
+            "persistently_failing": [{"id": sid, "consecutive_failures": count} for sid, count in persistently_failing],
         }
         print(json.dumps(output, indent=2))
     else:
-        print(f"{'='*60}")
+        print(f"{'=' * 60}")
         print("Summary")
-        print(f"{'='*60}")
+        print(f"{'=' * 60}")
         print(f"Total sources: {len(sources)}")
         print(f"Successful: {len(sources) - failed_count}")
         print(f"Failed: {failed_count}")
         print(f"Total articles: {total_articles}")
 
         if failed_count > 0:
-            print(f"\nFailed sources:")
+            print("\nFailed sources:")
             for r in results:
                 if r["error"]:
                     print(f"  - {r['name']} ({r['id']}): {r['error']}")
 
         if persistently_failing:
-            print(f"\nSources with 3+ consecutive historical failures:")
+            print("\nSources with 3+ consecutive historical failures:")
             for sid, count in persistently_failing:
                 print(f"  - {sid}: {count} failures")
 
@@ -1452,12 +1461,15 @@ def send_test_email(to_email: str) -> int:
     digest_name = os.environ.get("DIGEST_NAME", "News Digest")
 
     try:
-        resend_with_retry(resend.Emails.send, {
-            "from": f"{digest_name} <{from_email}>",
-            "to": [to_email],
-            "subject": f"{digest_name} - Test Email",
-            "html": "<p>This is a test email from News Digest.</p><p>If you received this, your Resend config is working.</p>",
-        })
+        resend_with_retry(
+            resend.Emails.send,
+            {
+                "from": f"{digest_name} <{from_email}>",
+                "to": [to_email],
+                "subject": f"{digest_name} - Test Email",
+                "html": "<p>This is a test email from News Digest.</p><p>If you received this, your Resend config is working.</p>",
+            },
+        )
         log(f"Test email sent to {to_email}")
         return 0
     except resend.exceptions.ResendError as e:
@@ -1483,30 +1495,27 @@ Examples:
   python run.py --test-email you@example.com  # Test Resend config
   python run.py --validate         # Test all RSS feeds and report status
   python run.py --validate --json  # Test RSS feeds with JSON output
-        """
+        """,
     )
-    parser.add_argument("--dry-run", action="store_true",
-                        help="Fetch and generate only (no email, no DB record)")
-    parser.add_argument("--no-email", action="store_true",
-                        help="Skip sending email (still records to DB)")
-    parser.add_argument("--no-record", action="store_true",
-                        help="Skip recording to DB (still sends email)")
-    parser.add_argument("--select-only", action="store_true",
-                        help="Run Pass 1 only (selection) - creates selections.json")
-    parser.add_argument("--write-only", action="store_true",
-                        help="Run Pass 2 only (writing) - uses existing selections.json")
-    parser.add_argument("--send-only", action="store_true",
-                        help="Send latest digest without fetching/generating (for retrying after failure)")
-    parser.add_argument("--preview", action="store_true",
-                        help="Open latest digest in browser (no-op in Docker)")
-    parser.add_argument("--test-email", metavar="EMAIL",
-                        help="Send test email to specified address and exit")
-    parser.add_argument("--validate", action="store_true",
-                        help="Test all RSS feeds and report health status")
-    parser.add_argument("--json", action="store_true",
-                        help="Output in JSON format (use with --validate)")
-    parser.add_argument("--health-check", action="store_true",
-                        help="Verify Claude auth is working (for monitoring)")
+    parser.add_argument("--dry-run", action="store_true", help="Fetch and generate only (no email, no DB record)")
+    parser.add_argument("--no-email", action="store_true", help="Skip sending email (still records to DB)")
+    parser.add_argument("--no-record", action="store_true", help="Skip recording to DB (still sends email)")
+    parser.add_argument(
+        "--select-only", action="store_true", help="Run Pass 1 only (selection) - creates selections.json"
+    )
+    parser.add_argument(
+        "--write-only", action="store_true", help="Run Pass 2 only (writing) - uses existing selections.json"
+    )
+    parser.add_argument(
+        "--send-only",
+        action="store_true",
+        help="Send latest digest without fetching/generating (for retrying after failure)",
+    )
+    parser.add_argument("--preview", action="store_true", help="Open latest digest in browser (no-op in Docker)")
+    parser.add_argument("--test-email", metavar="EMAIL", help="Send test email to specified address and exit")
+    parser.add_argument("--validate", action="store_true", help="Test all RSS feeds and report health status")
+    parser.add_argument("--json", action="store_true", help="Output in JSON format (use with --validate)")
+    parser.add_argument("--health-check", action="store_true", help="Verify Claude auth is working (for monitoring)")
     args = parser.parse_args()
 
     # --dry-run is shorthand for --no-email --no-record
@@ -1527,10 +1536,7 @@ Examples:
     if args.health_check:
         log("Running Claude auth health check...")
         result = subprocess.run(
-            ["claude", "-p", "respond with 'ok'", "--max-turns", "1"],
-            capture_output=True,
-            text=True,
-            timeout=60
+            ["claude", "-p", "respond with 'ok'", "--max-turns", "1"], capture_output=True, text=True, timeout=60
         )
         if result.returncode == 0 and "ok" in result.stdout.lower():
             log("Health check passed: Claude auth working")
