@@ -26,16 +26,34 @@ IN_DOCKER = os.environ.get("IN_DOCKER") == "1"
 
 
 def run_in_docker() -> int:
-    """Re-exec via docker compose run ci."""
+    """Run CI via docker compose (Python + Rust)."""
     print(f"{BOLD}{PURPLE}Running CI in Docker...{RESET}\n")
 
     # Forward args (--fix, etc.)
     args = sys.argv[1:]
+    fix_mode = "--fix" in args
 
+    # Python checks
     result = subprocess.run(
         ["docker", "compose", "run", "--rm", "--build", "ci", *args],
         cwd=ROOT,
     )
+    if result.returncode != 0:
+        return result.returncode
+
+    # Rust checks (if digest-server exists)
+    digest_server = ROOT / "digest-server"
+    if digest_server.exists():
+        print(f"\n{BOLD}{PURPLE}Running Rust CI in Docker...{RESET}\n")
+        if fix_mode:
+            cmd = "cargo fmt && cargo clippy -- -D warnings && cargo audit && cargo test"
+        else:
+            cmd = "cargo fmt --check && cargo clippy -- -D warnings && cargo audit && cargo test"
+        result = subprocess.run(
+            ["docker", "compose", "run", "--rm", "ci-rust", cmd],
+            cwd=ROOT,
+        )
+
     return result.returncode
 
 

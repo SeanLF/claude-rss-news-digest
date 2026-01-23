@@ -1,0 +1,8 @@
+# CI image for Rust checks
+FROM rust:1.92-alpine
+
+RUN apk add --no-cache musl-dev gcc
+RUN rustup component add rustfmt clippy
+RUN cargo install cargo-audit
+
+WORKDIR /app

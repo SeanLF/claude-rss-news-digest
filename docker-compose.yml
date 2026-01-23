@@ -30,6 +30,17 @@ services:
       - .:/app
     entrypoint: ["python3", "bin/ci"]
 
+  ci-rust:
+    build:
+      context: ./digest-server
+      dockerfile: Dockerfile.ci
+    working_dir: /app
+    volumes:
+      - ./digest-server:/app
+      - cargo-cache:/usr/local/cargo/registry
+    entrypoint: ["sh", "-c"]
+    command: ["cargo fmt --check && cargo clippy -- -D warnings && cargo audit && cargo test"]
+
   digest-server:
     build: ./digest-server
     ports:
@@ -38,3 +49,6 @@ services:
       - ./data:/data:ro
     environment:
       - DATABASE_PATH=/data/digest.db
+
+volumes:
+  cargo-cache:

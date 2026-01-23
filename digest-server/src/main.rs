@@ -47,11 +47,21 @@ async fn index(
     // Get list of available digests (most recent first)
     let mut stmt = conn
         .prepare("SELECT date FROM digests ORDER BY date DESC LIMIT 30")
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Query error: {e}")))?;
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Query error: {e}"),
+            )
+        })?;
 
     let dates: Vec<String> = stmt
         .query_map([], |row| row.get(0))
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Query error: {e}")))?
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Query error: {e}"),
+            )
+        })?
         .filter_map(|r| r.ok())
         .collect();
 
@@ -70,7 +80,8 @@ async fn index(
     } else {
         ""
     };
-    let subscriptions_enabled = state.resend_api_key.is_some() && state.resend_audience_id.is_some();
+    let subscriptions_enabled =
+        state.resend_api_key.is_some() && state.resend_audience_id.is_some();
     let subscribe_form = if subscriptions_enabled {
         r#"<form method="post" action="/subscribe" class="subscribe-form">
         <input type="email" name="email" placeholder="your@email.com" required>
@@ -80,11 +91,16 @@ async fn index(
         ""
     };
     let homepage_link = state.homepage_url.as_ref().map(|url| {
-        let display = url.trim_start_matches("https://").trim_start_matches("http://");
+        let display = url
+            .trim_start_matches("https://")
+            .trim_start_matches("http://");
         format!(r#"<a href="{url}" class="meta-link">{display}</a>"#)
     });
     let source_link = state.source_url.as_ref().map(|_| {
-        format!(r#"<a href="{}" class="meta-link">GitHub</a>"#, state.source_url.as_ref().unwrap())
+        format!(
+            r#"<a href="{}" class="meta-link">GitHub</a>"#,
+            state.source_url.as_ref().unwrap()
+        )
     });
     let meta_links = match (homepage_link, source_link) {
         (Some(h), Some(s)) => format!(r#"<p class="meta-links">{h} · {s}</p>"#),
@@ -92,9 +108,11 @@ async fn index(
         (None, Some(s)) => format!(r#"<p class="meta-links">{s}</p>"#),
         (None, None) => String::new(),
     };
-    let css_link = state.css_url.as_ref().map(|url| {
-        format!(r#"<link rel="stylesheet" href="{url}">"#)
-    }).unwrap_or_default();
+    let css_link = state
+        .css_url
+        .as_ref()
+        .map(|url| format!(r#"<link rel="stylesheet" href="{url}">"#))
+        .unwrap_or_default();
     let html = format!(
         r##"<!DOCTYPE html>
 <html lang="en">
@@ -252,22 +270,34 @@ async fn subscribe(
         .resend_api_key
         .as_ref()
         .zip(state.resend_audience_id.as_ref())
-        .ok_or((StatusCode::SERVICE_UNAVAILABLE, "Subscriptions not configured".into()))?;
+        .ok_or((
+            StatusCode::SERVICE_UNAVAILABLE,
+            "Subscriptions not configured".into(),
+        ))?;
 
     let url = format!("https://api.resend.com/audiences/{}/contacts", audience_id);
 
-    let response = state.http_client
+    let response = state
+        .http_client
         .post(&url)
         .header("Authorization", format!("Bearer {}", api_key))
         .json(&ResendContact { email: form.email })
         .send()
         .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Request failed: {e}")))?;
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Request failed: {e}"),
+            )
+        })?;
 
     if !response.status().is_success() {
         let status = response.status();
         let body = response.text().await.unwrap_or_default();
-        return Err((StatusCode::INTERNAL_SERVER_ERROR, format!("Resend error {}: {}", status, body)));
+        return Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Resend error {}: {}", status, body),
+        ));
     }
 
     // Redirect back to index with success message
@@ -279,8 +309,12 @@ async fn health(State(state): State<Arc<AppState>>) -> Result<&'static str, (Sta
     let conn = Connection::open_with_flags(&state.db_path, OpenFlags::SQLITE_OPEN_READ_ONLY)
         .map_err(|e| (StatusCode::SERVICE_UNAVAILABLE, format!("DB error: {e}")))?;
 
-    conn.query_row("SELECT 1", [], |_| Ok(()))
-        .map_err(|e| (StatusCode::SERVICE_UNAVAILABLE, format!("DB query failed: {e}")))?;
+    conn.query_row("SELECT 1", [], |_| Ok(())).map_err(|e| {
+        (
+            StatusCode::SERVICE_UNAVAILABLE,
+            format!("DB query failed: {e}"),
+        )
+    })?;
 
     Ok("ok")
 }
@@ -301,11 +335,9 @@ async fn get_digest(
 
     // Query for digest HTML
     let html: String = conn
-        .query_row(
-            "SELECT html FROM digests WHERE date = ?1",
-            [&date],
-            |row| row.get(0),
-        )
+        .query_row("SELECT html FROM digests WHERE date = ?1", [&date], |row| {
+            row.get(0)
+        })
         .map_err(|_| (StatusCode::NOT_FOUND, format!("No digest for {date}")))?;
 
     Ok(Html(html))
@@ -322,12 +354,37 @@ fn format_date(date_str: &str) -> String {
     let month: u32 = parts[1].parse().unwrap_or(1);
     let day: u32 = parts[2].parse().unwrap_or(1);
 
-    let months = ["", "January", "February", "March", "April", "May", "June",
-                  "July", "August", "September", "October", "November", "December"];
-    let days = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+    let months = [
+        "",
+        "January",
+        "February",
+        "March",
+        "April",
+        "May",
+        "June",
+        "July",
+        "August",
+        "September",
+        "October",
+        "November",
+        "December",
+    ];
+    let days = [
+        "Sunday",
+        "Monday",
+        "Tuesday",
+        "Wednesday",
+        "Thursday",
+        "Friday",
+        "Saturday",
+    ];
 
     // Zeller's congruence for day of week
-    let (y, m) = if month < 3 { (year - 1, month + 12) } else { (year, month) };
+    let (y, m) = if month < 3 {
+        (year - 1, month + 12)
+    } else {
+        (year, month)
+    };
     let q = day as i32;
     let k = y % 100;
     let j = y / 100;
@@ -345,8 +402,8 @@ fn is_valid_date(s: &str) -> bool {
     }
     // Year: 4 digits, Month: 01-12, Day: 01-31
     let year_ok = parts[0].len() == 4 && parts[0].chars().all(|c| c.is_ascii_digit());
-    let month_ok = parts[1].parse::<u8>().map_or(false, |m| (1..=12).contains(&m));
-    let day_ok = parts[2].parse::<u8>().map_or(false, |d| (1..=31).contains(&d));
+    let month_ok = parts[1].parse::<u8>().is_ok_and(|m| (1..=12).contains(&m));
+    let day_ok = parts[2].parse::<u8>().is_ok_and(|d| (1..=31).contains(&d));
     year_ok && month_ok && day_ok
 }
 
@@ -355,7 +412,10 @@ async fn main() {
     let db_path = std::env::var("DATABASE_PATH").unwrap_or_else(|_| "/data/digest.db".into());
 
     // Validate database path is within expected directories
-    if !db_path.starts_with("/data/") && !db_path.starts_with("/app/data/") && !db_path.starts_with("./data/") {
+    if !db_path.starts_with("/data/")
+        && !db_path.starts_with("/app/data/")
+        && !db_path.starts_with("./data/")
+    {
         eprintln!("DATABASE_PATH must be within /data/, /app/data/, or ./data/");
         std::process::exit(1);
     }
@@ -380,7 +440,16 @@ async fn main() {
     let resend_audience_id = std::env::var("RESEND_AUDIENCE_ID").ok();
     let http_client = Client::new();
 
-    let state = Arc::new(AppState { db_path, digest_name, css_url, homepage_url, source_url, resend_api_key, resend_audience_id, http_client });
+    let state = Arc::new(AppState {
+        db_path,
+        digest_name,
+        css_url,
+        homepage_url,
+        source_url,
+        resend_api_key,
+        resend_audience_id,
+        http_client,
+    });
 
     let app = Router::new()
         .route("/", get(index))
