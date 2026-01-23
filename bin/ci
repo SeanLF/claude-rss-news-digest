@@ -121,7 +121,20 @@ def run_checks(fix_mode: bool) -> int:
     if not IN_DOCKER and digest_server.exists():
         try:
             subprocess.run(["cargo", "--version"], capture_output=True, check=True)
+            # Format
+            if fix_mode:
+                steps.append(("Format: Rust", ["cargo", "fmt"], digest_server))
+            else:
+                steps.append(("Format: Rust (check)", ["cargo", "fmt", "--check"], digest_server))
+            # Lint
             steps.append(("Style: Rust", ["cargo", "clippy", "--", "-D", "warnings"], digest_server))
+            # Security (cargo-audit, optional)
+            audit_check = subprocess.run(["cargo", "audit", "--version"], capture_output=True)
+            if audit_check.returncode == 0:
+                steps.append(("Security: Rust", ["cargo", "audit"], digest_server))
+            else:
+                print(f"{YELLOW}Skipping cargo audit (not installed: cargo install cargo-audit){RESET}")
+            # Tests
             steps.append(("Tests: Rust", ["cargo", "test"], digest_server))
         except (subprocess.CalledProcessError, FileNotFoundError):
             print(f"{YELLOW}Skipping Rust checks (cargo not found){RESET}")
