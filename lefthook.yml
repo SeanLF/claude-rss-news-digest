@@ -1,0 +1,8 @@
+# Git hooks via lefthook
+# Install: brew install lefthook && lefthook install
+
+pre-commit:
+  commands:
+    ci:
+      run: bin/ci
+      stage_fixed: true

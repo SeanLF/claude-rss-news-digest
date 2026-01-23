@@ -155,6 +155,30 @@ Supports dark mode automatically.
 docker compose build --no-cache
 ```
 
+## Development
+
+```bash
+# Install git hooks
+brew install lefthook
+lefthook install
+
+# Run all checks in Docker (lint, types, security, tests)
+bin/ci
+
+# Auto-fix style issues
+bin/ci --fix
+```
+
+The `bin/ci` script runs checks in Docker for reproducibility:
+- **ruff** - linting and formatting
+- **mypy** - type checking
+- **bandit** - security scanning
+- **pytest** - tests
+
+Use `bin/ci --local` to skip Docker (requires local dev dependencies).
+
+Git hooks run `bin/ci` on pre-commit.
+
 ## Server Deployment
 
 For production deployment (systemd timers, Docker images, Terraform), see [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
