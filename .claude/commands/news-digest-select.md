@@ -1,106 +1,126 @@
 # News Digest - Pass 1: Selection
 
-Select and curate stories from CSV input files. Output structured JSON for formatting.
+## BLOCKLIST - Read First
 
-## Input Files
+`previously_shown.csv` contains headlines from the last 7 days. **These are banned.**
 
-**CRITICAL: You MUST read EVERY file listed below. Do NOT skip any article files.**
+- If a story matches the blocklist (exact OR semantic match), **skip it entirely**
+- Do NOT include blocked stories with notes like "Previously shown"
+- Do NOT include blocked stories as signals
+- **Only exception**: Major new development → prefix headline with [UPDATE]
 
-Read all CSV files from `data/claude_input/`:
-- `previously_shown.csv` - Headlines shown in last 7 days (DO NOT repeat these)
-- `sources.csv` - Source metadata (id, name, bias, perspective)
-- `articles_*.csv` - Articles split across files (source_id, title, url, published, summary)
+Semantic matches = same underlying event:
+- "Train crash kills 21" ≈ "Train crash kills 40" (same incident)
+- "PM calls election" = "PM calls snap election, betting on popularity"
+- Same story from different sources = same story (combine sources, don't repeat)
 
-**Reading articles_1.csv through articles_N.csv is MANDATORY. Never claim you have "read enough" or skip files. Read every single one before making selections.**
+---
 
-## Processing Rules
+## Task
 
-### Deduplication (CRITICAL)
-1. **Semantic matching, not exact matching** - A story is a duplicate if it covers the same event/development, even with different wording. Examples of duplicates:
-   - "PM calls snap election" = "PM calls snap election, betting on popularity"
-   - "Train crash kills 21" ≈ "Train crash kills 40" (same incident, updated toll)
-   - "Country considers policy" → "Country announces policy" (same story evolving)
-2. Check previously_shown.csv and DO NOT select stories covering the same underlying event
-3. Only re-include if there's a MAJOR new development - and mark with [UPDATE] in headline:
-   - Significant death toll changes (e.g., 21→40) warrant [UPDATE]
-   - New actors involved, policy reversals, or dramatic escalations warrant [UPDATE]
-   - Minor wording changes or additional quotes do NOT warrant re-inclusion
-4. Same story from different sources = same story (combine sources into one entry)
+Read CSV files from `data/claude_input/`, select noteworthy stories, output via `write_selections` tool.
 
-### User Interests
-- HIGH: geopolitics, tech/AI, privacy/surveillance
-- MEDIUM: economic policy, France/Canada specific
-- FILTER: celebrity, sports, lifestyle, US domestic (unless it directly affects other countries' policies, economies, or citizens — "could affect markets" or "world is watching" is NOT sufficient; ask: would a reader in Berlin or Tokyo need to know this?)
-- FILTER: trivial controversies, culture war bickering, political theatre with no substance
+**Input files:**
+- `previously_shown.csv` — blocklist (date, headline)
+- `sources.csv` — source metadata (id, name, bias, perspective)
+- `articles_*.csv` — articles split across files (source_id, title, url, published, summary)
 
-### Tier Definitions
-- **must_know** (3+ stories): Stories you'd be embarrassed not to know. Major geopolitical shifts, significant deaths, major policy changes.
-- **should_know** (5+ stories): Important but not urgent. Developing situations, notable policy moves, significant tech announcements.
-- **signals**: One-liners worth tracking, clustered by region (americas, europe, asia_pacific, middle_east_africa, tech). Include all noteworthy stories that didn't make the tiers above. If a story is mentioned in regional_summary, do NOT include it in signals.
+**You MUST read every article file.** Do not skip any or claim "read enough."
 
-**Be comprehensive, not conservative.** Include more stories rather than fewer.
+---
+
+## Selection Criteria
+
+### Interests
+| Priority | Topics |
+|----------|--------|
+| HIGH | geopolitics, tech/AI, privacy/surveillance |
+| MEDIUM | economic policy, France/Canada specific |
+| FILTER | celebrity, sports, lifestyle, US domestic* |
+
+*US domestic exception: include only if it directly affects other countries' policies, economies, or citizens. "Markets watching" or "world reacts" is NOT sufficient.
+
+### Tiers
+
+**must_know** (3+ stories)
+Stories you'd be embarrassed not to know. Major geopolitical shifts, significant deaths, major policy changes.
+
+**should_know** (5+ stories)
+Important but not urgent. Developing situations, notable policy moves, significant tech announcements.
+
+**signals** (grouped by region)
+One-liners worth tracking. Everything noteworthy that didn't make the tiers above.
+Regions: americas, europe, asia_pacific, middle_east_africa, tech
+
+**Be comprehensive.** Include more rather than fewer.
+
+---
 
 ## Writing Style
 
-Write like The Economist meets AP wire: clear, authoritative, zero fluff.
+The Economist meets AP wire: clear, authoritative, zero fluff.
 
-### Principles
-- **Brevity**: Short sentences. Short words. Cut every unnecessary word.
-- **Inverted pyramid**: Lead with the most important fact.
-- **Precision**: Specific over vague. "12 killed" not "many casualties."
-- **Hedging**: Use "reportedly", "according to" when not verified firsthand.
+**Do:**
+- Short sentences, short words
+- Lead with most important fact
+- Be specific: "12 killed" not "many casualties"
+- Hedge unverified claims: "reportedly", "according to"
 
-### Avoid
-- Journalese clichés: "sparked concerns", "sent shockwaves", "slammed", "blasted"
-- Sensational adjectives: "explosive", "shocking", "massive", "unprecedented"
-- Editorializing: Report facts, let reader judge significance
-- Unexplained acronyms: Expand on first use
+**Don't:**
+- Journalese: "sparked concerns", "sent shockwaves", "slammed"
+- Sensationalism: "explosive", "shocking", "unprecedented"
+- Editorializing: report facts, let reader judge
+- Unexplained acronyms
 
-### Headlines
-- Sentence case, not title case
-- Active voice: "Russia claims village" not "Village claimed by Russia"
-- Include key actor and action
-- Add [UPDATE] only for developments on previously covered stories
+**Headlines:** Sentence case. Active voice. Key actor + action.
 
-### Summaries (for must_know and should_know)
-- 2-3 sentences maximum
-- First sentence: the news (who did what)
-- Second sentence: essential context
-- DO NOT fabricate beyond what's in the article summary
+**Summaries (must_know + should_know only):**
+- 2-3 sentences max
+- First = the news (who did what). Second = context.
+- Don't fabricate beyond what's in the article summary
 
-### "Why It Matters" (for must_know and should_know)
-- Must add genuine insight beyond the headline
-- Connect to broader trends, explain stakes
-- One sentence, maximum two. No filler.
+**Why it matters (must_know + should_know only):**
+- One sentence of genuine insight
+- Connect to broader stakes, not just restate the headline
 
-### "How Reporting Varies" (for select must_know stories only)
-- Only include when sources genuinely frame the story differently
-- 2-3 perspectives maximum
-- Focus on framing/angle differences, not just different facts covered
+**Reporting varies (must_know only, optional):**
+- Only when sources genuinely frame the story differently
+- 2-3 perspectives max, focus on framing differences
 - Skip if all sources report it the same way
 
-## Output
+---
 
-**Use the `write_selections` tool** to output your curated selections. The tool schema defines the required structure.
+## Output Format
 
-### Regional Summary Format
+Use `write_selections` tool. Schema defines structure.
 
-Regional summaries are **editorialized narratives with inline source links**. They synthesize stories from must_know and should_know into a coherent regional overview.
+### Regional Summaries
+Narrative paragraphs with inline markdown links. Synthesize must_know and should_know stories.
 
-**Example:**
 ```
-"americas": "Nicaragua [released dozens of prisoners](https://reuters.com/...) following US pressure. Canada's [Chrystia Freeland resigned](https://nytimes.com/...) from Parliament, while incoming PM [Mark Carney announced a visit to China](https://straitstimes.com/...) to pursue trade diversification."
+"americas": "Nicaragua [released prisoners](https://...) under US pressure. Canada's [Freeland resigned](https://...) from Parliament."
 ```
 
-**Guidelines:**
-- Use markdown link syntax: `[linked text](url)`
-- Link the key action/event, not generic words
-- Weave stories into a coherent narrative, don't just list them
+- Link the action, not generic words
+- Weave into narrative, don't list
 - 3-5 sentences per region
-- Only reference stories from must_know and should_know
+- Only reference must_know and should_know stories
 
-### Additional Requirements
-- **signals** contains ONLY stories not mentioned in regional_summary
-- URLs must be copied exactly from source articles
+### Signals
+- One-liner + source link per story
+- Do NOT duplicate stories from regional_summary
+- Group by region
+
+### Sources
+- Copy URLs exactly from articles
 - Bias labels must match sources.csv
-- `reporting_varies` is optional - only for must_know stories with genuinely divergent framing
+
+---
+
+## Final Check
+
+**Before calling write_selections, verify:**
+
+1. Every headline checked against `previously_shown.csv`
+2. No blocklist matches in must_know, should_know, OR signals
+3. No story appears in both regional_summary and signals

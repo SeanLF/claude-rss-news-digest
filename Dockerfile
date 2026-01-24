@@ -23,8 +23,8 @@ RUN uv python install 3.14 \
     && ln -s /usr/local/bin/python3 /usr/local/bin/python \
     && uv pip install --python /usr/local/bin/python3 --break-system-packages feedparser resend premailer
 
-# Create non-root user for security
-RUN addgroup -S appuser && adduser -S -G appuser -s /bin/bash appuser
+# Create non-root user with fixed UID/GID for volume compatibility
+RUN addgroup -g 1001 appuser && adduser -u 1001 -G appuser -s /bin/bash -D appuser
 
 # Install Claude Code CLI (native method) as appuser
 ENV USE_BUILTIN_RIPGREP=0

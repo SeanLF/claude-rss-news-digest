@@ -861,9 +861,9 @@ def prepare_claude_input(sources: list[dict]) -> list[Path]:
     previously_shown_file = CLAUDE_INPUT_DIR / "previously_shown.csv"
     with open(previously_shown_file, "w", newline="") as f:
         writer = csv.writer(f)
-        writer.writerow(["headline", "tier", "date"])
+        writer.writerow(["date", "headline"])
         for h in previous_headlines:
-            writer.writerow([h.get("headline", ""), h.get("tier", ""), h.get("date", "")])
+            writer.writerow([h.get("date", ""), h.get("headline", "")])
 
     # Write sources CSV
     sources_file = CLAUDE_INPUT_DIR / "sources.csv"
@@ -1089,6 +1089,11 @@ def fix_selections_schema(selections: dict) -> dict:
                 if "link" in item and "source" not in item:
                     item["source"] = {"name": "Source", "url": item.pop("link"), "bias": "center"}
                     fixed += 1
+                # Filter out items marked as "Previously shown" (dedup failures)
+                source_name = item.get("source", {}).get("name", "").lower()
+                if "previously shown" in source_name:
+                    fixed += 1
+                    continue
                 fixed_cluster.append(item)
         signals[cluster_name] = fixed_cluster
 
