@@ -155,6 +155,20 @@ Supports dark mode automatically.
 docker compose build --no-cache
 ```
 
+### Claude says MCP tool isn't available
+The MCP server needs access to dependencies in the venv. Check `.mcp.json` uses `.venv/bin/python`:
+```json
+{
+  "mcpServers": {
+    "news-digest": {
+      "command": ".venv/bin/python",
+      "args": ["mcp_server.py"]
+    }
+  }
+}
+```
+Using `python3` instead will fail because venv deps aren't available to global Python.
+
 ## Development
 
 ```bash
