@@ -6,6 +6,12 @@ Automated news digest: RSS feeds → Claude curation → HTML email via Resend.
 
 Single file architecture: `run.py`. Runtime data in `data/`.
 
+## Commands
+
+- **CI**: `bin/ci` - Always runs in Docker for reproducibility. Use `bin/ci --fix` to auto-fix style issues.
+- **Tests only**: `docker compose run --rm --build ci pytest -v`
+- **Run digest**: `docker compose run --rm news-digest`
+
 ## Database
 
 SQLite at `data/digest.db`:

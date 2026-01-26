@@ -70,9 +70,10 @@ def run_step(name: str, cmd: list[str], cwd: Path | None = None) -> bool:
 
 def install_dev_deps() -> bool:
     """Install dev dependencies with uv."""
-    print(f"{BOLD}{PURPLE}=== Installing dev dependencies ==={RESET}")
+    print(f"{BOLD}{PURPLE}=== Installing dependencies ==={RESET}")
+    # Install app deps from pyproject.toml + dev deps
     result = subprocess.run(
-        ["uv", "pip", "install", "--system", "--break-system-packages", "ruff", "mypy", "bandit", "pytest"],
+        ["uv", "pip", "install", "--system", "--break-system-packages", "-r", "pyproject.toml", "ruff", "mypy", "bandit", "pytest"],
         capture_output=True,
     )
     passed = result.returncode == 0
@@ -80,7 +81,7 @@ def install_dev_deps() -> bool:
     if passed:
         print(f"{GREEN}Done{RESET}")
     else:
-        print(f"{RED}Failed to install dev deps{RESET}")
+        print(f"{RED}Failed to install deps{RESET}")
         print(result.stderr.decode())
     return passed
 

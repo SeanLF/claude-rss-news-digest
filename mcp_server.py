@@ -7,6 +7,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from jsonschema import Draft7Validator
+
 
 def log(msg: str):
     """Log to stderr (visible in parent process logs)."""
@@ -79,13 +81,11 @@ SELECTIONS_SCHEMA = {
         "must_know": {
             "type": "array",
             "items": ARTICLE_SCHEMA,
-            "minItems": 3,
             "description": "3+ major stories you'd be embarrassed not to know",
         },
         "should_know": {
             "type": "array",
             "items": ARTICLE_SCHEMA,
-            "minItems": 5,
             "description": "5+ important but not urgent stories",
         },
         "signals": {
@@ -127,10 +127,35 @@ TOOLS = [
 DATA_DIR = Path("data/claude_input")
 
 
+def validate_selections(arguments: dict) -> list[str]:
+    """Validate arguments against SELECTIONS_SCHEMA. Returns list of error messages."""
+    validator = Draft7Validator(SELECTIONS_SCHEMA)
+    errors = []
+    for error in sorted(validator.iter_errors(arguments), key=lambda e: e.path):
+        path = ".".join(str(p) for p in error.path) or "(root)"
+        # Provide clear, actionable error messages
+        if error.validator == "type":
+            errors.append(f"{path}: expected {error.validator_value}, got {type(error.instance).__name__}")
+        else:
+            errors.append(f"{path}: {error.message}")
+    return errors
+
+
 def handle_tool_call(name: str, arguments: dict) -> dict:
     """Handle tool invocation."""
     log(f"Tool call: {name}")
     if name == "write_selections":
+        # Validate against schema before accepting
+        validation_errors = validate_selections(arguments)
+        if validation_errors:
+            error_msg = "Schema validation failed. Fix these errors and retry:\n" + "\n".join(
+                f"  - {e}" for e in validation_errors[:10]
+            )
+            if len(validation_errors) > 10:
+                error_msg += f"\n  ... and {len(validation_errors) - 10} more errors"
+            log(f"Validation failed: {len(validation_errors)} errors")
+            return {"error": error_msg}
+
         output_path = DATA_DIR / "selections.json"
         output_path.parent.mkdir(parents=True, exist_ok=True)
         with open(output_path, "w") as f:

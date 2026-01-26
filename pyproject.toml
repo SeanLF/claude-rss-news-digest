@@ -7,6 +7,7 @@ dependencies = [
     "feedparser",
     "resend",
     "premailer",
+    "jsonschema",
 ]
 
 [project.optional-dependencies]

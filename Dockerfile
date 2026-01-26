@@ -16,12 +16,10 @@ RUN apk add --no-cache ca-certificates libgcc libstdc++ ripgrep bash curl jq
 # Install uv
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/
 
-# Install Python 3.14 + dependencies
+# Install Python 3.14 and symlink to /usr/local/bin
 ENV UV_PYTHON_INSTALL_DIR=/opt/python
 RUN uv python install 3.14 \
-    && ln -s /opt/python/*/bin/python3 /usr/local/bin/python3 \
-    && ln -s /usr/local/bin/python3 /usr/local/bin/python \
-    && uv pip install --python /usr/local/bin/python3 --break-system-packages feedparser resend premailer
+    && ln -s /opt/python/*/bin/python3 /usr/local/bin/python3
 
 # Create non-root user with fixed UID/GID for volume compatibility
 RUN addgroup -g 1001 appuser && adduser -u 1001 -G appuser -s /bin/bash -D appuser
@@ -34,6 +32,10 @@ USER root
 
 WORKDIR /app
 
+# Install dependencies from pyproject.toml (before copying app code for better caching)
+COPY pyproject.toml ./
+RUN uv venv .venv && uv pip install --python .venv -r pyproject.toml
+
 # Copy application and create data directory
 COPY run.py sources.json digest.css digest-template.html mcp_server.py .mcp.json ./
 COPY .claude/commands/ /home/appuser/.claude/commands/
@@ -45,4 +47,4 @@ RUN mkdir -p /app/data \
 USER appuser
 
 # Default command (can be overridden)
-CMD ["python3", "run.py"]
+CMD [".venv/bin/python", "run.py"]
