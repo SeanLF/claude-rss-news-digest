@@ -26,6 +26,12 @@ SQLite at `data/digest.db`:
 - `sources.json` - RSS feed definitions
 - `digest.css` - CSS styles (minified and injected at runtime)
 
+## MCP Server
+
+- Config: `.mcp.json` - uses `.venv/bin/python` to access venv deps
+- Schema validation via `jsonschema` rejects malformed tool calls (Claude retries)
+- If Claude says tool isn't available, check the Python path in `.mcp.json`
+
 ## Don't
 
 - Don't skip article files
