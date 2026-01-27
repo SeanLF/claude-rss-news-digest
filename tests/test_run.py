@@ -8,6 +8,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from run import (
     estimate_tokens,
+    extract_source_usage,
     fix_selections_schema,
     is_safe_url,
     minify_css,
@@ -249,3 +250,87 @@ class TestFixSelectionsSchema:
         """Missing tiers should not crash."""
         result = fix_selections_schema({"must_know": []})
         assert result == {"must_know": []}
+
+
+class TestExtractSourceUsage:
+    """Tests for source usage extraction from selections."""
+
+    def test_extracts_must_know_sources(self):
+        # Use actual source names from sources.json
+        selections = {
+            "must_know": [
+                {
+                    "headline": "News",
+                    "sources": [
+                        {"name": "BBC World", "url": "https://bbc.com", "bias": "center"},
+                        {"name": "Reuters", "url": "https://reuters.com", "bias": "center"},
+                    ],
+                }
+            ],
+            "should_know": [],
+            "signals": {},
+        }
+        result = extract_source_usage(selections)
+        assert ("bbc_world", "must_know") in result
+        assert ("reuters", "must_know") in result
+
+    def test_extracts_should_know_sources(self):
+        selections = {
+            "must_know": [],
+            "should_know": [
+                {
+                    "headline": "News",
+                    "sources": [{"name": "The Guardian", "url": "https://guardian.com", "bias": "center-left"}],
+                }
+            ],
+            "signals": {},
+        }
+        result = extract_source_usage(selections)
+        assert ("the_guardian", "should_know") in result
+
+    def test_extracts_signal_sources(self):
+        selections = {
+            "must_know": [],
+            "should_know": [],
+            "signals": {
+                "americas": [
+                    {
+                        "headline": "US news",
+                        "source": {"name": "NPR World", "url": "https://npr.org", "bias": "center-left"},
+                    }
+                ],
+                "tech": [
+                    {
+                        "headline": "Tech news",
+                        "source": {"name": "Ars Technica", "url": "https://ars.com", "bias": "center"},
+                    }
+                ],
+            },
+        }
+        result = extract_source_usage(selections)
+        assert ("npr_world", "signal") in result
+        assert ("ars_technica", "signal") in result
+
+    def test_handles_empty_selections(self):
+        result = extract_source_usage({})
+        assert result == []
+
+    def test_handles_unknown_source_names(self):
+        """Unknown source names should be skipped, not crash."""
+        selections = {
+            "must_know": [{"headline": "News", "sources": [{"name": "Unknown Source", "bias": "center"}]}],
+            "should_know": [],
+            "signals": {},
+        }
+        result = extract_source_usage(selections)
+        assert result == []
+
+    def test_handles_missing_source_name(self):
+        """Missing name field should be skipped."""
+        selections = {
+            "must_know": [{"headline": "News", "sources": [{"url": "https://example.com", "bias": "center"}]}],
+            "should_know": [],
+            "signals": {},
+        }
+        result = extract_source_usage(selections)
+        assert result == []

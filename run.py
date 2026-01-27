@@ -152,10 +152,19 @@ CREATE TABLE IF NOT EXISTS digests (
     created_at DATETIME DEFAULT (datetime('now', 'utc'))
 );
 
+CREATE TABLE IF NOT EXISTS digest_source_usage (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_id INTEGER NOT NULL REFERENCES digest_runs(id),
+    source_id TEXT NOT NULL,
+    tier TEXT NOT NULL CHECK (tier IN ('must_know', 'should_know', 'signal'))
+);
+
 CREATE INDEX IF NOT EXISTS idx_shown_narratives_date ON shown_narratives(shown_at);
 CREATE INDEX IF NOT EXISTS idx_digest_runs_date ON digest_runs(run_at);
 CREATE INDEX IF NOT EXISTS idx_source_health_source ON source_health(source_id, recorded_at);
 CREATE INDEX IF NOT EXISTS idx_digests_date ON digests(date);
+CREATE INDEX IF NOT EXISTS idx_source_usage_run ON digest_source_usage(run_id);
+CREATE INDEX IF NOT EXISTS idx_source_usage_source ON digest_source_usage(source_id);
 """
 
 
@@ -200,17 +209,20 @@ def get_last_run_time() -> datetime | None:
     return None
 
 
-def record_run(articles_fetched: int, articles_emailed: int = 0):
-    """Record a successful digest run."""
+def record_run(articles_fetched: int, articles_emailed: int = 0) -> int | None:
+    """Record a successful digest run. Returns run ID or None on error."""
     try:
         with sqlite3.connect(DB_PATH) as conn:
-            conn.execute(
+            cursor = conn.execute(
                 "INSERT INTO digest_runs (articles_fetched, articles_emailed) VALUES (?, ?)",
                 (articles_fetched, articles_emailed),
             )
+            run_id = cursor.lastrowid
         log(f"Recorded run: {articles_fetched} fetched, {articles_emailed} emailed")
+        return run_id
     except sqlite3.Error as e:
         log(f"DB error recording run: {e}", "ERROR")
+        return None
 
 
 def save_digest(digest_path: Path):
@@ -286,6 +298,65 @@ def record_source_health(results: list[tuple[str, bool, str | None]]):
             conn.executemany("INSERT INTO source_health (source_id, success, error_message) VALUES (?, ?, ?)", results)
     except sqlite3.Error as e:
         log(f"DB error recording source health for {len(results)} sources: {e}", "ERROR")
+
+
+def extract_source_usage(selections: dict) -> list[tuple[str, str]]:
+    """Extract source usage from selections. Returns list of (source_id, tier) tuples."""
+    usage = []
+
+    # must_know and should_know articles
+    for tier in ["must_know", "should_know"]:
+        for article in selections.get(tier, []):
+            for src in article.get("sources", []):
+                source_name = src.get("name", "")
+                source_id = _source_name_to_id(source_name)
+                if source_id:
+                    usage.append((source_id, tier))
+
+    # signals (clustered by region)
+    signals = selections.get("signals", {})
+    for cluster in signals.values():
+        for item in cluster:
+            src = item.get("source", {})
+            source_name = src.get("name", "") if isinstance(src, dict) else ""
+            source_id = _source_name_to_id(source_name)
+            if source_id:
+                usage.append((source_id, "signal"))
+
+    return usage
+
+
+_SOURCE_NAME_CACHE: dict[str, str] | None = None
+
+
+def _source_name_to_id(name: str) -> str | None:
+    """Map display name to source_id. Returns None if not found."""
+    global _SOURCE_NAME_CACHE
+    if not name:
+        return None
+    # Lazy-load and cache the mapping
+    if _SOURCE_NAME_CACHE is None:
+        try:
+            sources = load_sources()
+            _SOURCE_NAME_CACHE = {s["name"].lower(): s["id"] for s in sources}
+        except Exception:
+            _SOURCE_NAME_CACHE = {}
+    return _SOURCE_NAME_CACHE.get(name.lower())
+
+
+def record_source_usage(run_id: int, usage: list[tuple[str, str]]):
+    """Record source usage for a digest run."""
+    if not usage or not run_id:
+        return
+    try:
+        with sqlite3.connect(DB_PATH) as conn:
+            conn.executemany(
+                "INSERT INTO digest_source_usage (run_id, source_id, tier) VALUES (?, ?, ?)",
+                [(run_id, source_id, tier) for source_id, tier in usage],
+            )
+        log(f"Recorded {len(usage)} source usages for run {run_id}")
+    except sqlite3.Error as e:
+        log(f"DB error recording source usage: {e}", "ERROR")
 
 
 def get_consecutive_failures(source_id: str, limit: int = 10) -> int:
@@ -1580,6 +1651,7 @@ Examples:
         if shown_headlines:
             record_shown_headlines(shown_headlines)
         record_run(0, articles_emailed=recipients)
+        # Source usage not tracked for send-only (no selections available)
         cleanup_shown_headlines()
         return 0
 
@@ -1602,7 +1674,9 @@ Examples:
             shown_headlines = read_shown_headlines()
             if shown_headlines:
                 record_shown_headlines(shown_headlines)
-            record_run(0, articles_emailed=recipients)
+            run_id = record_run(0, articles_emailed=recipients)
+            if run_id:
+                record_source_usage(run_id, extract_source_usage(selections))
         cleanup_shown_headlines()
         return 0
 
@@ -1654,7 +1728,9 @@ Examples:
         if not shown_headlines:
             log("No headlines recorded - Claude may not have generated shown_headlines.json", "WARN")
         record_shown_headlines(shown_headlines)
-        record_run(articles_fetched, articles_emailed=recipients)
+        run_id = record_run(articles_fetched, articles_emailed=recipients)
+        if run_id:
+            record_source_usage(run_id, extract_source_usage(selections))
 
     # Clean up shown_headlines.json only after successful completion
     cleanup_shown_headlines()
