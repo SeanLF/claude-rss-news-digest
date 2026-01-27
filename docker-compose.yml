@@ -2,8 +2,9 @@ services:
   news-digest:
     build: .
     environment:
-      # Set ANTHROPIC_API_KEY to use API instead of OAuth credentials
+      # Set ANTHROPIC_API_KEY or CLAUDE_CODE_OAUTH_TOKEN for auth
       - ANTHROPIC_API_KEY
+      - CLAUDE_CODE_OAUTH_TOKEN
       - RESEND_API_KEY
       - RESEND_FROM
       - DIGEST_EMAIL
