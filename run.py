@@ -30,10 +30,18 @@ import resend
 # Configuration
 # =============================================================================
 
+# RSS fetching
 MAX_RETRIES = int(os.environ.get("RSS_MAX_RETRIES", "3"))  # Retry flaky RSS feeds
 RETRY_DELAY = int(os.environ.get("RSS_RETRY_DELAY", "2"))  # Base delay in seconds (exponential backoff)
 HEALTH_ALERT_THRESHOLD = int(os.environ.get("HEALTH_ALERT_THRESHOLD", "3"))  # Consecutive failures before alert
 
+# Article processing
+MAX_TOKENS_PER_FILE = 10000  # Conservative limit for Claude Code file reading
+MAX_TITLE_LENGTH = 500  # Cap title length for safety
+MAX_SUMMARY_LENGTH = 200  # Cap summary length
+DEDUP_WINDOW_DAYS = 7  # Days of headline history for deduplication
+
+# Paths
 APP_DIR = Path(__file__).parent
 DATA_DIR = APP_DIR / "data"
 DB_PATH = DATA_DIR / "digest.db"
@@ -44,6 +52,7 @@ CLAUDE_INPUT_DIR = DATA_DIR / "claude_input"  # Intermediate files for Claude
 SOURCES_FILE = APP_DIR / "sources.json"
 STYLES_FILE = APP_DIR / "digest.css"
 
+# Logging
 MAX_LOG_LINES = 1000  # Keep last N log lines
 
 
@@ -574,10 +583,6 @@ def is_safe_url(url: str) -> bool:
     return url.startswith(("http://", "https://"))
 
 
-MAX_TOKENS_PER_FILE = 10000  # Conservative limit for Claude Code file reading
-MAX_TITLE_LENGTH = 500  # Cap title length for safety
-MAX_SUMMARY_LENGTH = 200  # Cap summary length
-
 # Set CSV field size limit to prevent memory issues with malformed feeds
 csv.field_size_limit(1_000_000)  # 1MB max
 
@@ -926,7 +931,7 @@ def prepare_claude_input(sources: list[dict]) -> list[Path]:
     CLAUDE_INPUT_DIR.mkdir(parents=True)
 
     # Get previous headlines for deduplication
-    previous_headlines = get_previous_headlines(days=7)
+    previous_headlines = get_previous_headlines(days=DEDUP_WINDOW_DAYS)
 
     # Write previous headlines CSV (for deduplication - Claude should not repeat these)
     previously_shown_file = CLAUDE_INPUT_DIR / "previously_shown.csv"
