@@ -32,6 +32,10 @@ SQLite at `data/digest.db`:
 - Schema validation via `jsonschema` rejects malformed tool calls (Claude retries)
 - If Claude says tool isn't available, check the Python path in `.mcp.json`
 
+## Persistent TODO
+
+Check `.claude/tasks/todo.md` for tasks that persist across sessions (not tracked by git).
+
 ## Don't
 
 - Don't skip article files
