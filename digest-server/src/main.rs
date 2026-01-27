@@ -319,6 +319,147 @@ async fn health(State(state): State<Arc<AppState>>) -> Result<&'static str, (Sta
     Ok("ok")
 }
 
+#[derive(Deserialize, Default)]
+struct StatsQuery {
+    days: Option<u32>,
+}
+
+/// Stats endpoint - returns source health and usage statistics as JSON
+async fn stats(
+    State(state): State<Arc<AppState>>,
+    Query(query): Query<StatsQuery>,
+) -> Result<axum::Json<serde_json::Value>, (StatusCode, String)> {
+    let days = query.days.unwrap_or(30);
+    let conn = Connection::open_with_flags(&state.db_path, OpenFlags::SQLITE_OPEN_READ_ONLY)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {e}")))?;
+
+    // Source health: success rate per source over last N days
+    let source_health: Vec<serde_json::Value> = {
+        let mut stmt = conn
+            .prepare(
+                "SELECT source_id,
+                        COUNT(*) as total,
+                        SUM(CASE WHEN success = 1 THEN 1 ELSE 0 END) as successes
+                 FROM source_health
+                 WHERE recorded_at >= datetime('now', '-' || ?1 || ' days')
+                 GROUP BY source_id
+                 ORDER BY source_id",
+            )
+            .map_err(|e| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    format!("Query error: {e}"),
+                )
+            })?;
+
+        stmt.query_map([days], |row| {
+            let source_id: String = row.get(0)?;
+            let total: i64 = row.get(1)?;
+            let successes: i64 = row.get(2)?;
+            let rate = if total > 0 {
+                (successes as f64 / total as f64 * 100.0).round()
+            } else {
+                0.0
+            };
+            Ok(serde_json::json!({
+                "source_id": source_id,
+                "total_fetches": total,
+                "successes": successes,
+                "success_rate_pct": rate
+            }))
+        })
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Query error: {e}"),
+            )
+        })?
+        .filter_map(|r| r.ok())
+        .collect()
+    };
+
+    // Source usage: how often each source appears in digests, by tier
+    let source_usage: Vec<serde_json::Value> = {
+        let mut stmt = conn
+            .prepare(
+                "SELECT dsu.source_id, dsu.tier, COUNT(*) as count
+                 FROM digest_source_usage dsu
+                 JOIN digest_runs dr ON dsu.run_id = dr.id
+                 WHERE dr.run_at >= datetime('now', '-' || ?1 || ' days')
+                 GROUP BY dsu.source_id, dsu.tier
+                 ORDER BY count DESC",
+            )
+            .map_err(|e| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    format!("Query error: {e}"),
+                )
+            })?;
+
+        stmt.query_map([days], |row| {
+            let source_id: String = row.get(0)?;
+            let tier: String = row.get(1)?;
+            let count: i64 = row.get(2)?;
+            Ok(serde_json::json!({
+                "source_id": source_id,
+                "tier": tier,
+                "count": count
+            }))
+        })
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Query error: {e}"),
+            )
+        })?
+        .filter_map(|r| r.ok())
+        .collect()
+    };
+
+    // Recent runs: last 10 digest runs
+    let recent_runs: Vec<serde_json::Value> = {
+        let mut stmt = conn
+            .prepare(
+                "SELECT run_at, articles_fetched, articles_emailed
+                 FROM digest_runs
+                 ORDER BY run_at DESC
+                 LIMIT 10",
+            )
+            .map_err(|e| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    format!("Query error: {e}"),
+                )
+            })?;
+
+        stmt.query_map([], |row| {
+            let run_at: String = row.get(0)?;
+            let fetched: i64 = row.get(1)?;
+            let emailed: i64 = row.get(2)?;
+            Ok(serde_json::json!({
+                "run_at": run_at,
+                "articles_fetched": fetched,
+                "articles_emailed": emailed
+            }))
+        })
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Query error: {e}"),
+            )
+        })?
+        .filter_map(|r| r.ok())
+        .collect()
+    };
+
+    Ok(axum::Json(serde_json::json!({
+        "period_days": days,
+        "source_health": source_health,
+        "source_usage": source_usage,
+        "recent_runs": recent_runs
+    })))
+}
+
 /// Serve digest HTML by date (YYYY-MM-DD)
 async fn get_digest(
     Path(date): Path<String>,
@@ -455,6 +596,7 @@ async fn main() {
         .route("/", get(index))
         .route("/subscribe", post(subscribe))
         .route("/health", get(health))
+        .route("/stats", get(stats))
         .route("/{date}", get(get_digest))
         .with_state(state);
 
