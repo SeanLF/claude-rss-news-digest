@@ -856,12 +856,23 @@ async fn get_digest(
 
     let nav_html = r#"<nav class="digest-nav">
     <a href="/">← All digests</a>
-    <a href="/">Subscribe</a>
 </nav>"#;
 
     // Insert CSS before </head> and nav after <body>
     let html = html.replacen("</head>", &format!("{}</head>", nav_css), 1);
     let html = html.replacen("<body>", &format!("<body>{}", nav_html), 1);
+
+    // Strip email-only elements from web view
+    // Remove "View in browser" link
+    let html = regex::Regex::new(r#"<p class="view-in-browser">.*?</p>"#)
+        .unwrap()
+        .replace(&html, "")
+        .to_string();
+    // Remove "Past digests · Unsubscribe" footer line
+    let html = regex::Regex::new(r#"<p><a href="[^"]*">Past digests</a>.*?Unsubscribe</a></p>"#)
+        .unwrap()
+        .replace(&html, "")
+        .to_string();
 
     Ok(Html(html))
 }
