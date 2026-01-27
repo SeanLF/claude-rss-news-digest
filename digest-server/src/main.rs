@@ -873,6 +873,9 @@ async fn get_digest(
         .unwrap()
         .replace(&html, "")
         .to_string();
+    // Simplify feedback line for web (remove "Reply to this email or")
+    let html = html.replace("Feedback? Reply to this email or <a", "Feedback? <a");
+    let html = html.replace(">open an issue</a>", ">Open an issue</a>");
 
     Ok(Html(html))
 }
