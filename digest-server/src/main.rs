@@ -831,6 +831,36 @@ async fn get_digest(
         })
         .map_err(|_| (StatusCode::NOT_FOUND, format!("No digest for {date}")))?;
 
+    // Inject navigation header CSS and HTML when viewing in browser
+    let nav_css = r#"<style>
+.digest-nav {
+    max-width: 820px;
+    margin: 0 auto;
+    padding: 12px 16px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    font-size: 14px;
+}
+.digest-nav a {
+    color: var(--text-muted, #777);
+    text-decoration: none;
+}
+.digest-nav a:hover {
+    color: var(--accent, #c45a3b);
+}
+</style>"#;
+
+    let nav_html = r#"<nav class="digest-nav">
+    <a href="/">← All digests</a>
+    <a href="/">Subscribe</a>
+</nav>"#;
+
+    // Insert CSS before </head> and nav after <body>
+    let html = html.replacen("</head>", &format!("{}</head>", nav_css), 1);
+    let html = html.replacen("<body>", &format!("<body>{}", nav_html), 1);
+
     Ok(Html(html))
 }
 
