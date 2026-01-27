@@ -78,6 +78,18 @@ def load_sources() -> list[dict]:
     return sources
 
 
+_source_name_to_id_cache: dict[str, str] | None = None
+
+
+def get_source_id_by_name(name: str) -> str | None:
+    """Map display name (e.g., 'BBC World') to source_id (e.g., 'bbc_world')."""
+    global _source_name_to_id_cache
+    if _source_name_to_id_cache is None:
+        sources = load_sources()
+        _source_name_to_id_cache = {s["name"].lower(): s["id"] for s in sources}
+    return _source_name_to_id_cache.get(name.lower())
+
+
 # =============================================================================
 # Utilities
 # =============================================================================
@@ -144,6 +156,7 @@ CREATE TABLE IF NOT EXISTS shown_narratives (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     headline TEXT NOT NULL,
     tier TEXT,
+    source_id TEXT,
     shown_at DATETIME DEFAULT (datetime('now', 'utc'))
 );
 
@@ -161,19 +174,11 @@ CREATE TABLE IF NOT EXISTS digests (
     created_at DATETIME DEFAULT (datetime('now', 'utc'))
 );
 
-CREATE TABLE IF NOT EXISTS digest_source_usage (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    run_id INTEGER NOT NULL REFERENCES digest_runs(id),
-    source_id TEXT NOT NULL,
-    tier TEXT NOT NULL CHECK (tier IN ('must_know', 'should_know', 'signal'))
-);
-
 CREATE INDEX IF NOT EXISTS idx_shown_narratives_date ON shown_narratives(shown_at);
+CREATE INDEX IF NOT EXISTS idx_shown_narratives_source ON shown_narratives(source_id);
 CREATE INDEX IF NOT EXISTS idx_digest_runs_date ON digest_runs(run_at);
 CREATE INDEX IF NOT EXISTS idx_source_health_source ON source_health(source_id, recorded_at);
 CREATE INDEX IF NOT EXISTS idx_digests_date ON digests(date);
-CREATE INDEX IF NOT EXISTS idx_source_usage_run ON digest_source_usage(run_id);
-CREATE INDEX IF NOT EXISTS idx_source_usage_source ON digest_source_usage(source_id);
 """
 
 
@@ -193,6 +198,20 @@ def init_db():
             try:
                 log("Migrating database: adding articles_emailed column...")
                 conn.execute("ALTER TABLE digest_runs ADD COLUMN articles_emailed INTEGER DEFAULT 0")
+                conn.commit()
+            except sqlite3.Error as e:
+                log(f"Migration failed: {e}", "ERROR")
+                conn.rollback()
+                raise
+
+        # Migrate: add source_id to shown_narratives if missing
+        cursor = conn.execute("PRAGMA table_info(shown_narratives)")
+        columns = {row[1] for row in cursor.fetchall()}
+
+        if "source_id" not in columns:
+            try:
+                log("Migrating database: adding source_id column to shown_narratives...")
+                conn.execute("ALTER TABLE shown_narratives ADD COLUMN source_id TEXT")
                 conn.commit()
             except sqlite3.Error as e:
                 log(f"Migration failed: {e}", "ERROR")
@@ -290,8 +309,8 @@ def record_shown_headlines(headlines: list[dict]):
     try:
         with sqlite3.connect(DB_PATH) as conn:
             conn.executemany(
-                "INSERT INTO shown_narratives (headline, tier) VALUES (?, ?)",
-                [(h.get("headline", ""), h.get("tier", "")) for h in headlines],
+                "INSERT INTO shown_narratives (headline, tier, source_id) VALUES (?, ?, ?)",
+                [(h.get("headline", ""), h.get("tier", ""), h.get("source_id")) for h in headlines],
             )
         log(f"Saved {len(headlines)} headlines to dedup history")
     except sqlite3.Error as e:
@@ -307,65 +326,6 @@ def record_source_health(results: list[tuple[str, bool, str | None]]):
             conn.executemany("INSERT INTO source_health (source_id, success, error_message) VALUES (?, ?, ?)", results)
     except sqlite3.Error as e:
         log(f"DB error recording source health for {len(results)} sources: {e}", "ERROR")
-
-
-def extract_source_usage(selections: dict) -> list[tuple[str, str]]:
-    """Extract source usage from selections. Returns list of (source_id, tier) tuples."""
-    usage = []
-
-    # must_know and should_know articles
-    for tier in ["must_know", "should_know"]:
-        for article in selections.get(tier, []):
-            for src in article.get("sources", []):
-                source_name = src.get("name", "")
-                source_id = _source_name_to_id(source_name)
-                if source_id:
-                    usage.append((source_id, tier))
-
-    # signals (clustered by region)
-    signals = selections.get("signals", {})
-    for cluster in signals.values():
-        for item in cluster:
-            src = item.get("source", {})
-            source_name = src.get("name", "") if isinstance(src, dict) else ""
-            source_id = _source_name_to_id(source_name)
-            if source_id:
-                usage.append((source_id, "signal"))
-
-    return usage
-
-
-_SOURCE_NAME_CACHE: dict[str, str] | None = None
-
-
-def _source_name_to_id(name: str) -> str | None:
-    """Map display name to source_id. Returns None if not found."""
-    global _SOURCE_NAME_CACHE
-    if not name:
-        return None
-    # Lazy-load and cache the mapping
-    if _SOURCE_NAME_CACHE is None:
-        try:
-            sources = load_sources()
-            _SOURCE_NAME_CACHE = {s["name"].lower(): s["id"] for s in sources}
-        except Exception:
-            _SOURCE_NAME_CACHE = {}
-    return _SOURCE_NAME_CACHE.get(name.lower())
-
-
-def record_source_usage(run_id: int, usage: list[tuple[str, str]]):
-    """Record source usage for a digest run."""
-    if not usage or not run_id:
-        return
-    try:
-        with sqlite3.connect(DB_PATH) as conn:
-            conn.executemany(
-                "INSERT INTO digest_source_usage (run_id, source_id, tier) VALUES (?, ?, ?)",
-                [(run_id, source_id, tier) for source_id, tier in usage],
-            )
-        log(f"Recorded {len(usage)} source usages for run {run_id}")
-    except sqlite3.Error as e:
-        log(f"DB error recording source usage: {e}", "ERROR")
 
 
 def get_consecutive_failures(source_id: str, limit: int = 10) -> int:
@@ -810,16 +770,42 @@ def extract_headlines(selections: dict) -> list[dict]:
     """Extract all headlines from selections for deduplication tracking."""
     headlines = []
 
+    def get_first_source_id(item: dict) -> str | None:
+        """Get source_id from first source in item's sources list."""
+        sources = item.get("sources", [])
+        if sources:
+            name = sources[0].get("name", "")
+            return get_source_id_by_name(name)
+        # For signals, source is a single object, not a list
+        source = item.get("source", {})
+        if source:
+            name = source.get("name", "")
+            return get_source_id_by_name(name)
+        return None
+
     # Top-tier articles (must_know, should_know)
     for tier in ["must_know", "should_know"]:
         for item in selections.get(tier, []):
-            headlines.append({"headline": item.get("headline", ""), "tier": tier})
+            headlines.append(
+                {
+                    "headline": item.get("headline", ""),
+                    "tier": tier,
+                    "source_id": get_first_source_id(item),
+                }
+            )
 
     # Signals by cluster
     signals = selections.get("signals", {})
     for cluster in REGION_ORDER:
         for item in signals.get(cluster, []):
-            headlines.append({"headline": item.get("headline", ""), "tier": "signal", "cluster": cluster})
+            headlines.append(
+                {
+                    "headline": item.get("headline", ""),
+                    "tier": "signal",
+                    "cluster": cluster,
+                    "source_id": get_first_source_id(item),
+                }
+            )
 
     return headlines
 
@@ -1679,9 +1665,7 @@ Examples:
             shown_headlines = read_shown_headlines()
             if shown_headlines:
                 record_shown_headlines(shown_headlines)
-            run_id = record_run(0, articles_emailed=recipients)
-            if run_id:
-                record_source_usage(run_id, extract_source_usage(selections))
+            record_run(0, articles_emailed=recipients)
         cleanup_shown_headlines()
         return 0
 
@@ -1733,9 +1717,7 @@ Examples:
         if not shown_headlines:
             log("No headlines recorded - Claude may not have generated shown_headlines.json", "WARN")
         record_shown_headlines(shown_headlines)
-        run_id = record_run(articles_fetched, articles_emailed=recipients)
-        if run_id:
-            record_source_usage(run_id, extract_source_usage(selections))
+        record_run(articles_fetched, articles_emailed=recipients)
 
     # Clean up shown_headlines.json only after successful completion
     cleanup_shown_headlines()

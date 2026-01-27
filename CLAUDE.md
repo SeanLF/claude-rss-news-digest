@@ -17,9 +17,9 @@ Single file architecture: `run.py`. Runtime data in `data/`.
 SQLite at `data/digest.db`:
 
 - `digest_runs` - run metadata (run_at, articles_fetched, etc.)
-- `shown_narratives` - headlines shown (7-day deduplication window)
-- `digest_source_usage` - tracks which sources contributed to each run (by tier)
+- `shown_narratives` - headlines shown with tier and source_id (7-day deduplication window)
 - `source_health` - feed fetch results for monitoring
+- `digests` - HTML digest blobs keyed by date
 
 ## Key Files
 

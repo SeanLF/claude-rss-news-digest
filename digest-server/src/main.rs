@@ -102,11 +102,12 @@ async fn index(
             state.source_url.as_ref().unwrap()
         )
     });
+    let stats_link = r#"<a href="/stats" class="meta-link">Stats</a>"#;
     let meta_links = match (homepage_link, source_link) {
-        (Some(h), Some(s)) => format!(r#"<p class="meta-links">{h} · {s}</p>"#),
-        (Some(h), None) => format!(r#"<p class="meta-links">{h}</p>"#),
-        (None, Some(s)) => format!(r#"<p class="meta-links">{s}</p>"#),
-        (None, None) => String::new(),
+        (Some(h), Some(s)) => format!(r#"<p class="meta-links">{h} · {s} · {stats_link}</p>"#),
+        (Some(h), None) => format!(r#"<p class="meta-links">{h} · {stats_link}</p>"#),
+        (None, Some(s)) => format!(r#"<p class="meta-links">{s} · {stats_link}</p>"#),
+        (None, None) => format!(r#"<p class="meta-links">{stats_link}</p>"#),
     };
     let css_link = state
         .css_url
@@ -407,11 +408,11 @@ fn fetch_stats_data(db_path: &str, days: u32) -> Result<StatsData, (StatusCode, 
     let source_usage: Vec<SourceUsage> = {
         let mut stmt = conn
             .prepare(
-                "SELECT dsu.source_id, dsu.tier, COUNT(*) as count
-                 FROM digest_source_usage dsu
-                 JOIN digest_runs dr ON dsu.run_id = dr.id
-                 WHERE dr.run_at >= datetime('now', '-' || ?1 || ' days')
-                 GROUP BY dsu.source_id, dsu.tier
+                "SELECT source_id, tier, COUNT(*) as count
+                 FROM shown_narratives
+                 WHERE source_id IS NOT NULL
+                   AND shown_at >= datetime('now', '-' || ?1 || ' days')
+                 GROUP BY source_id, tier
                  ORDER BY count DESC",
             )
             .map_err(|e| {
@@ -574,6 +575,7 @@ async fn stats_html(
     };
 
     // Build source usage table rows (aggregate by source)
+    // Tiers: must_know, should_know, signal/quick_signal/below_fold (all count as "other")
     let mut usage_by_source: std::collections::HashMap<String, (i64, i64, i64)> =
         std::collections::HashMap::new();
     for u in &data.source_usage {
@@ -581,8 +583,8 @@ async fn stats_html(
         match u.tier.as_str() {
             "must_know" => entry.0 += u.count,
             "should_know" => entry.1 += u.count,
-            "signal" => entry.2 += u.count,
-            _ => {}
+            // All signal-like tiers (signal, quick_signal, below_fold) grouped together
+            _ => entry.2 += u.count,
         }
     }
     let mut usage_sorted: Vec<_> = usage_by_source.into_iter().collect();
@@ -597,8 +599,8 @@ async fn stats_html(
     } else {
         usage_sorted
             .iter()
-            .map(|(source_id, (must, should, signal))| {
-                let total = must + should + signal;
+            .map(|(source_id, (must, should, other))| {
+                let total = must + should + other;
                 format!(
                     r#"<tr>
                         <td>{}</td>
@@ -607,7 +609,7 @@ async fn stats_html(
                         <td>{}</td>
                         <td><strong>{}</strong></td>
                     </tr>"#,
-                    source_id, must, should, signal, total
+                    source_id, must, should, other, total
                 )
             })
             .collect()
@@ -774,7 +776,7 @@ async fn stats_html(
             <th>Source</th>
             <th>Must Know</th>
             <th>Should Know</th>
-            <th>Signals</th>
+            <th>Other</th>
             <th>Total</th>
           </tr>
         </thead>
