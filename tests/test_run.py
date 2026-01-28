@@ -264,6 +264,10 @@ class TestTokenize:
     def test_handles_empty(self):
         assert tokenize("") == []
 
+    def test_removes_stopwords(self):
+        assert tokenize("The quick brown fox") == ["quick", "brown", "fox"]
+        assert tokenize("I went to the store") == ["went", "store"]
+
 
 class TestTfidfMatcher:
     def test_exact_match_high_similarity(self):
