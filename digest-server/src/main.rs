@@ -9,6 +9,7 @@ use reqwest::Client;
 use rusqlite::{Connection, OpenFlags};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
+use tower_http::trace::TraceLayer;
 
 struct AppState {
     db_path: String,
@@ -946,6 +947,14 @@ fn is_valid_date(s: &str) -> bool {
 
 #[tokio::main]
 async fn main() {
+    // Initialize tracing subscriber (respects RUST_LOG env var, defaults to info)
+    tracing_subscriber::fmt()
+        .with_env_filter(
+            tracing_subscriber::EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info")),
+        )
+        .init();
+
     let db_path = std::env::var("DATABASE_PATH").unwrap_or_else(|_| "/data/digest.db".into());
 
     // Validate database path is within expected directories
@@ -953,7 +962,7 @@ async fn main() {
         && !db_path.starts_with("/app/data/")
         && !db_path.starts_with("./data/")
     {
-        eprintln!("DATABASE_PATH must be within /data/, /app/data/, or ./data/");
+        tracing::error!("DATABASE_PATH must be within /data/, /app/data/, or ./data/");
         std::process::exit(1);
     }
 
@@ -965,7 +974,7 @@ async fn main() {
 
     // Verify database exists and has digests table
     if let Err(e) = verify_database(&db_path) {
-        eprintln!("Database error: {e}");
+        tracing::error!("Database error: {}", e);
         std::process::exit(1);
     }
 
@@ -995,9 +1004,10 @@ async fn main() {
         .route("/stats", get(stats_html))
         .route("/stats.json", get(stats_json))
         .route("/{date}", get(get_digest))
+        .layer(TraceLayer::new_for_http())
         .with_state(state);
 
-    println!("digest-server listening on {addr}");
+    tracing::info!("digest-server listening on {}", addr);
 
     let listener = tokio::net::TcpListener::bind(&addr).await.unwrap();
     axum::serve(listener, app).await.unwrap();
