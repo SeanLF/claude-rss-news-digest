@@ -874,9 +874,11 @@ async fn get_digest(
         .unwrap()
         .replace(&html, "")
         .to_string();
-    // Simplify feedback line for web (remove "Reply to this email or")
-    let html = html.replace("Feedback? Reply to this email or <a", "Feedback? <a");
-    let html = html.replace(">open an issue</a>", ">Open an issue</a>");
+    // Remove feedback buttons (mailto links don't work well on web)
+    let html = regex::Regex::new(r#"(?s)<div class="feedback">.*?</div>\s*</div>"#)
+        .unwrap()
+        .replace(&html, "")
+        .to_string();
 
     Ok(Html(html))
 }

@@ -10,6 +10,7 @@ from run import (
     TfidfMatcher,
     estimate_tokens,
     fix_selections_schema,
+    generate_feedback_html,
     is_safe_url,
     minify_css,
     parse_date,
@@ -307,3 +308,26 @@ class TestTfidfMatcher:
         headline, score = matcher.find_most_similar("France approves social media ban for under-15s")
         assert headline == "France passes social media ban for minors"
         assert score > 0.5
+
+
+class TestGenerateFeedbackHtml:
+    def test_contains_all_buttons(self):
+        result = generate_feedback_html("test@example.com")
+        assert "Love it" in result
+        assert "Good" in result
+        assert "So so" in result
+
+    def test_mailto_links(self):
+        result = generate_feedback_html("test@example.com")
+        assert 'href="mailto:test@example.com?subject=Feedback: Love it"' in result
+        assert 'href="mailto:test@example.com?subject=Feedback: Good"' in result
+        assert 'href="mailto:test@example.com?subject=Feedback: So so"' in result
+
+    def test_escapes_html_in_email(self):
+        result = generate_feedback_html("test+tag@example.com")
+        assert "test+tag@example.com" in result
+
+    def test_escapes_special_chars(self):
+        result = generate_feedback_html("<script>@evil.com")
+        assert "<script>" not in result
+        assert "&lt;script&gt;" in result

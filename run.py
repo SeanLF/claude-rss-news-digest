@@ -654,6 +654,19 @@ def is_safe_url(url: str) -> bool:
     return url.startswith(("http://", "https://"))
 
 
+def generate_feedback_html(email: str) -> str:
+    """Generate feedback buttons HTML with mailto links."""
+    encoded = html.escape(email)
+    return f"""<div class="feedback">
+      <p>How was today's digest?</p>
+      <div class="feedback-buttons">
+        <a class="feedback-btn" href="mailto:{encoded}?subject=Feedback: Love it">🚀 Love it</a>
+        <a class="feedback-btn" href="mailto:{encoded}?subject=Feedback: Good">😊 Good</a>
+        <a class="feedback-btn" href="mailto:{encoded}?subject=Feedback: So so">😐 So so</a>
+      </div>
+    </div>"""
+
+
 # Set CSV field size limit to prevent memory issues with malformed feeds
 csv.field_size_limit(1_000_000)  # 1MB max
 
@@ -981,8 +994,15 @@ def replace_placeholders(digest_path: Path, preheader: str = ""):
         content = re.sub(
             r'\s*This project is <a href="\{\{SOURCE_URL\}\}">[^<]+</a> and contributions are welcome\.', "", content
         )
-        # Remove the feedback paragraph that uses SOURCE_URL for issues link
-        content = re.sub(r'\s*<p>Feedback\?[^<]*<a href="\{\{SOURCE_URL\}\}/issues">[^<]+</a></p>', "", content)
+
+    # Feedback buttons (mailto links with pre-filled subject)
+    # Uses RESEND_FROM since that's where replies go anyway
+    feedback_email = os.environ.get("RESEND_FROM", "")
+    if feedback_email:
+        content = content.replace("{{FEEDBACK_BUTTONS}}", generate_feedback_html(feedback_email))
+    else:
+        # Remove the feedback buttons placeholder if not configured
+        content = re.sub(r"\s*\{\{FEEDBACK_BUTTONS\}\}", "", content)
 
     # Optional: author plug (e.g., "Made by Sean · seanfloyd.dev")
     author_name = os.environ.get("AUTHOR_NAME", "")
