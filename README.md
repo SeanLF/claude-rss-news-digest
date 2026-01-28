@@ -5,11 +5,11 @@ Automated daily news digest powered by Claude. Fetches from diverse RSS sources,
 ## How It Works
 
 1. **Fetch** - Python script pulls RSS feeds, filters by last run time
-2. **Prepare** - Splits articles into CSV files (~10k tokens each) for Claude to read
-3. **Curate** - Claude reads all articles, deduplicates, filters noise, selects stories
+2. **Prepare** - TF-IDF pre-filters duplicates, splits articles into CSV files for Claude
+3. **Curate** - Claude reads articles, filters noise, selects stories into tiers
 4. **Render** - Python renders HTML from Claude's JSON selections
 5. **Email** - Sends via [Resend Broadcasts](https://resend.com/broadcasts) to audience subscribers
-6. **Record** - Stores shown headlines in SQLite for 7-day deduplication
+6. **Record** - Stores shown headlines in SQLite for 7-day deduplication window
 
 ## Prerequisites
 
