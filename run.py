@@ -873,7 +873,8 @@ def render_digest(selections: dict) -> str:
         items = signals.get(region_key, [])
         if items:
             region_name, emoji = REGION_CONFIG[region_key]
-            cluster_parts.append('    <div class="cluster">')
+            region_id = region_key.replace("_", "-")
+            cluster_parts.append(f'    <div id="{region_id}" class="cluster">')
             cluster_parts.append(f"      <h3>{emoji} {region_name}</h3>")
             for item in items:
                 cluster_parts.append(render_signal(item))
