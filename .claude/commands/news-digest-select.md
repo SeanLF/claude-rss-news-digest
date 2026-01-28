@@ -1,31 +1,16 @@
 # News Digest - Pass 1: Selection
 
-## BLOCKLIST - Read First
-
-`previously_shown.csv` contains headlines from the last 7 days. **These are banned.**
-
-- If a story matches the blocklist (exact OR semantic match), **skip it entirely**
-- Do NOT include blocked stories with notes like "Previously shown"
-- Do NOT include blocked stories as signals
-- **Only exception**: Major new development → prefix headline with [UPDATE]
-
-Semantic matches = same underlying event:
-- "Train crash kills 21" ≈ "Train crash kills 40" (same incident)
-- "PM calls election" = "PM calls snap election, betting on popularity"
-- Same story from different sources = same story (combine sources, don't repeat)
-
----
-
 ## Task
 
 Read CSV files from `data/claude_input/`, select noteworthy stories, output via `write_selections` tool.
 
 **Input files:**
-- `previously_shown.csv` — blocklist (date, headline)
 - `sources.csv` — source metadata (id, name, bias, perspective)
 - `articles_*.csv` — articles split across files (source_id, title, url, published, summary)
 
 **You MUST read every article file.** Do not skip any or claim "read enough."
+
+Note: Duplicate stories have been pre-filtered. If the same event appears from multiple sources, combine them (don't repeat).
 
 ---
 
@@ -121,6 +106,5 @@ Narrative paragraphs with inline markdown links. Synthesize must_know and should
 
 **Before calling write_selections, verify:**
 
-1. Every headline checked against `previously_shown.csv`
-2. No blocklist matches in must_know, should_know, OR signals
-3. No story appears in both regional_summary and signals
+1. No story appears in both regional_summary and signals
+2. Same event from multiple sources is combined, not repeated

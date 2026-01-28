@@ -7,6 +7,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from run import (
+    TfidfMatcher,
     estimate_tokens,
     fix_selections_schema,
     is_safe_url,
@@ -14,6 +15,7 @@ from run import (
     parse_date,
     resolve_css_variables,
     strip_html,
+    tokenize,
 )
 
 
@@ -249,3 +251,59 @@ class TestFixSelectionsSchema:
         """Missing tiers should not crash."""
         result = fix_selections_schema({"must_know": []})
         assert result == {"must_know": []}
+
+
+class TestTokenize:
+    def test_lowercases(self):
+        assert tokenize("Hello World") == ["hello", "world"]
+
+    def test_removes_punctuation(self):
+        assert tokenize("Hello, World!") == ["hello", "world"]
+
+    def test_handles_empty(self):
+        assert tokenize("") == []
+
+
+class TestTfidfMatcher:
+    def test_exact_match_high_similarity(self):
+        matcher = TfidfMatcher(["Train crash kills 21 in India"])
+        _, score = matcher.find_most_similar("Train crash kills 21 in India")
+        assert score > 0.95
+
+    def test_near_match_high_similarity(self):
+        matcher = TfidfMatcher(["Australia shuts dozens of beaches after shark attacks"])
+        _, score = matcher.find_most_similar("Australia closes dozens of beaches after shark attacks")
+        assert score > 0.8
+
+    def test_same_event_different_numbers(self):
+        matcher = TfidfMatcher(["Train crash kills 21 in India"])
+        _, score = matcher.find_most_similar("Train crash kills 40 in India")
+        assert score > 0.7
+
+    def test_different_topic_low_similarity(self):
+        matcher = TfidfMatcher(["Train crash kills 21 in India"])
+        _, score = matcher.find_most_similar("Apple announces new iPhone at event")
+        assert score < 0.2
+
+    def test_empty_corpus(self):
+        matcher = TfidfMatcher([])
+        headline, score = matcher.find_most_similar("Any headline")
+        assert headline is None
+        assert score == 0.0
+
+    def test_empty_query(self):
+        matcher = TfidfMatcher(["Some headline"])
+        _, score = matcher.find_most_similar("")
+        assert score == 0.0
+
+    def test_finds_best_match(self):
+        matcher = TfidfMatcher(
+            [
+                "France passes social media ban for minors",
+                "Germany announces new energy policy",
+                "Japan earthquake kills dozens",
+            ]
+        )
+        headline, score = matcher.find_most_similar("France approves social media ban for under-15s")
+        assert headline == "France passes social media ban for minors"
+        assert score > 0.5

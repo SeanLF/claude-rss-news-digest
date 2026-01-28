@@ -9,6 +9,7 @@ import argparse
 import csv
 import html
 import json
+import math
 import os
 import re
 import shutil
@@ -18,6 +19,7 @@ import sys
 import time
 import urllib.error
 import urllib.request
+from collections import Counter
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import UTC, datetime
 from email.utils import parsedate_to_datetime
@@ -40,6 +42,9 @@ MAX_TOKENS_PER_FILE = 10000  # Conservative limit for Claude Code file reading
 MAX_TITLE_LENGTH = 500  # Cap title length for safety
 MAX_SUMMARY_LENGTH = 200  # Cap summary length
 DEDUP_WINDOW_DAYS = 7  # Days of headline history for deduplication
+
+# Deduplication (TF-IDF pre-filter)
+DEDUP_SIMILARITY_THRESHOLD = float(os.environ.get("DEDUP_SIMILARITY_THRESHOLD", "0.35"))
 
 # Paths
 APP_DIR = Path(__file__).parent
@@ -174,11 +179,23 @@ CREATE TABLE IF NOT EXISTS digests (
     created_at DATETIME DEFAULT (datetime('now', 'utc'))
 );
 
+CREATE TABLE IF NOT EXISTS dedup_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    logged_at DATETIME DEFAULT (datetime('now', 'utc')),
+    article_title TEXT NOT NULL,
+    article_source_id TEXT,
+    matched_headline TEXT NOT NULL,
+    similarity REAL NOT NULL,
+    threshold REAL NOT NULL,
+    action TEXT NOT NULL
+);
+
 CREATE INDEX IF NOT EXISTS idx_shown_narratives_date ON shown_narratives(shown_at);
 CREATE INDEX IF NOT EXISTS idx_shown_narratives_source ON shown_narratives(source_id);
 CREATE INDEX IF NOT EXISTS idx_digest_runs_date ON digest_runs(run_at);
 CREATE INDEX IF NOT EXISTS idx_source_health_source ON source_health(source_id, recorded_at);
 CREATE INDEX IF NOT EXISTS idx_digests_date ON digests(date);
+CREATE INDEX IF NOT EXISTS idx_dedup_log_date ON dedup_log(logged_at);
 """
 
 
@@ -371,6 +388,100 @@ def get_failing_sources(min_consecutive: int = 3) -> list[tuple[str, int]]:
 
     failing = [(sid, count) for sid in source_ids if (count := get_consecutive_failures(sid)) >= min_consecutive]
     return sorted(failing, key=lambda x: -x[1])
+
+
+def log_dedup_action(
+    article_title: str,
+    article_source_id: str | None,
+    matched_headline: str,
+    similarity: float,
+    threshold: float,
+    action: str,
+):
+    """Log a dedup decision to the database."""
+    try:
+        with sqlite3.connect(DB_PATH) as conn:
+            conn.execute(
+                """INSERT INTO dedup_log
+                   (article_title, article_source_id, matched_headline, similarity, threshold, action)
+                   VALUES (?, ?, ?, ?, ?, ?)""",
+                (article_title, article_source_id, matched_headline, similarity, threshold, action),
+            )
+    except sqlite3.Error as e:
+        log(f"DB error logging dedup action: {e}", "ERROR")
+
+
+# =============================================================================
+# TF-IDF Deduplication
+# =============================================================================
+
+
+def tokenize(text: str) -> list[str]:
+    """Lowercase, strip punctuation, split into words."""
+    text = text.lower()
+    text = re.sub(r"[^\w\s]", " ", text)
+    return text.split()
+
+
+class TfidfMatcher:
+    """TF-IDF similarity matcher for headline deduplication."""
+
+    def __init__(self, headlines: list[str]):
+        self.headlines = headlines
+        self._documents = [tokenize(h) for h in headlines]
+        self.idf = self._compute_idf()
+        # Pre-compute vectors for corpus (queried many times)
+        self._doc_vectors = [self._tfidf_vector(doc) for doc in self._documents]
+
+    def _compute_idf(self) -> dict[str, float]:
+        """Compute inverse document frequency for each word."""
+        n_docs = len(self._documents)
+        if n_docs == 0:
+            return {}
+
+        doc_freq: Counter[str] = Counter()
+        for doc in self._documents:
+            doc_freq.update(set(doc))
+
+        return {word: math.log(n_docs / (1 + df)) for word, df in doc_freq.items()}
+
+    def _tfidf_vector(self, doc: list[str]) -> dict[str, float]:
+        """Compute TF-IDF vector for a document."""
+        if not doc:
+            return {}
+        tf = Counter(doc)
+        max_tf = max(tf.values())
+        return {word: (count / max_tf) * self.idf[word] for word, count in tf.items() if word in self.idf}
+
+    def _cosine_similarity(self, vec1: dict[str, float], vec2: dict[str, float]) -> float:
+        """Compute cosine similarity between two sparse vectors."""
+        if not vec1 or not vec2:
+            return 0.0
+        # Only iterate over shared keys for dot product (others contribute 0)
+        shared_keys = vec1.keys() & vec2.keys()
+        if not shared_keys:
+            return 0.0
+        dot = sum(vec1[w] * vec2[w] for w in shared_keys)
+        mag1 = math.sqrt(sum(v * v for v in vec1.values()))
+        mag2 = math.sqrt(sum(v * v for v in vec2.values()))
+        return dot / (mag1 * mag2)
+
+    def find_most_similar(self, text: str) -> tuple[str | None, float]:
+        """Find most similar headline and its similarity score."""
+        if not self.headlines:
+            return None, 0.0
+
+        query_vec = self._tfidf_vector(tokenize(text))
+        best_headline = None
+        best_score = 0.0
+
+        for i, doc_vec in enumerate(self._doc_vectors):
+            score = self._cosine_similarity(query_vec, doc_vec)
+            if score > best_score:
+                best_score = score
+                best_headline = self.headlines[i]
+
+        return best_headline, best_score
 
 
 # =============================================================================
@@ -918,14 +1029,10 @@ def prepare_claude_input(sources: list[dict]) -> list[Path]:
 
     # Get previous headlines for deduplication
     previous_headlines = get_previous_headlines(days=DEDUP_WINDOW_DAYS)
+    blocklist_headlines = [h.get("headline", "") for h in previous_headlines if h.get("headline")]
 
-    # Write previous headlines CSV (for deduplication - Claude should not repeat these)
-    previously_shown_file = CLAUDE_INPUT_DIR / "previously_shown.csv"
-    with open(previously_shown_file, "w", newline="") as f:
-        writer = csv.writer(f)
-        writer.writerow(["date", "headline"])
-        for h in previous_headlines:
-            writer.writerow([h.get("date", ""), h.get("headline", "")])
+    # Build TF-IDF matcher for dedup pre-filtering
+    dedup_matcher = TfidfMatcher(blocklist_headlines) if blocklist_headlines else None
 
     # Write sources CSV
     sources_file = CLAUDE_INPUT_DIR / "sources.csv"
@@ -935,8 +1042,10 @@ def prepare_claude_input(sources: list[dict]) -> list[Path]:
         for s in sources:
             writer.writerow([s["id"], s["name"], s["bias"], s["perspective"]])
 
-    # Collect all articles
+    # Collect all articles, filtering duplicates via TF-IDF
     all_articles = []
+    filtered_count = 0
+    filtered_similarities: list[float] = []
     for source in sources:
         source_file = FETCHED_DIR / f"{source['id']}.json"
         if source_file.exists():
@@ -950,6 +1059,24 @@ def prepare_claude_input(sources: list[dict]) -> list[Path]:
                 # Strip HTML, escape for safety, and cap lengths
                 title = html.escape(strip_html(a.get("title") or ""))[:MAX_TITLE_LENGTH]
                 summary = html.escape(strip_html(a.get("summary") or ""))[:MAX_SUMMARY_LENGTH]
+
+                # TF-IDF dedup pre-filter
+                if dedup_matcher and title:
+                    matched_headline, similarity = dedup_matcher.find_most_similar(title)
+                    if similarity >= DEDUP_SIMILARITY_THRESHOLD:
+                        # Log and skip this article
+                        log_dedup_action(
+                            article_title=title,
+                            article_source_id=source["id"],
+                            matched_headline=matched_headline or "",
+                            similarity=similarity,
+                            threshold=DEDUP_SIMILARITY_THRESHOLD,
+                            action="filtered",
+                        )
+                        filtered_count += 1
+                        filtered_similarities.append(similarity)
+                        continue
+
                 all_articles.append([source["id"], title, url, a.get("published", ""), summary])
 
     # Split articles into multiple files if needed
@@ -987,9 +1114,13 @@ def prepare_claude_input(sources: list[dict]) -> list[Path]:
             writer.writerows(current_rows)
         article_files.append(file_path)
 
-    log(
-        f"Prepared CSV input: {len(all_articles)} new articles, {len(previous_headlines)} prior (dedup) in {len(article_files)} file(s)"
-    )
+    if filtered_count > 0:
+        sim_min, sim_max = min(filtered_similarities), max(filtered_similarities)
+        log(
+            f"Prepared {len(all_articles)} articles in {len(article_files)} file(s), {filtered_count} filtered as duplicates (sim {sim_min:.2f}-{sim_max:.2f})"
+        )
+    else:
+        log(f"Prepared {len(all_articles)} articles in {len(article_files)} file(s)")
     return article_files
 
 
