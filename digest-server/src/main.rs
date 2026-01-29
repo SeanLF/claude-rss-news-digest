@@ -863,22 +863,8 @@ async fn get_digest(
     let html = html.replacen("</head>", &format!("{}</head>", nav_css), 1);
     let html = html.replacen("<body>", &format!("<body>{}", nav_html), 1);
 
-    // Strip email-only elements from web view
-    // Remove "View in browser" link
-    let html = regex::Regex::new(r#"<p class="view-in-browser">.*?</p>"#)
-        .unwrap()
-        .replace(&html, "")
-        .to_string();
-    // Remove "Past digests · Unsubscribe" footer line
-    let html = regex::Regex::new(r#"<p><a href="[^"]*">Past digests</a>.*?Unsubscribe</a></p>"#)
-        .unwrap()
-        .replace(&html, "")
-        .to_string();
-    // Remove feedback buttons (mailto links don't work well on web)
-    let html = regex::Regex::new(r#"(?s)<div class="feedback">.*?</div>\s*</div>"#)
-        .unwrap()
-        .replace(&html, "")
-        .to_string();
+    // Note: Email-only elements are stripped at save time in run.py's prepare_for_web()
+    // This keeps serving fast and ensures old digests aren't broken by template changes
 
     Ok(Html(html))
 }

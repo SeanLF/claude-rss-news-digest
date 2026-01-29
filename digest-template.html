@@ -10,31 +10,39 @@
   <span class="preheader">{{PREHEADER}}</span>
 
   <header>
-    <time>{{TIMESTAMP}}</time>
+    <div class="header-left">
+      <span class="wordmark">DAILY DIGEST</span>
+      <time>{{DATE}}</time>
+    </div>
+    <nav class="header-links">
+      <a href="{{SUBSCRIBE_URL}}" class="subscribe-link">Subscribe</a>
+      <span class="separator">·</span>
+      <a href="{{HOMEPAGE_URL}}" class="view-online">View online</a>
+    </nav>
   </header>
 
-  <p class="view-in-browser"><a href="{{HOMEPAGE_URL}}">View in browser</a></p>
-
   <div class="ai-notice">
-    <strong>About this digest:</strong> Curated and written by {{MODEL_NAME}}, an AI assistant. AI can make mistakes—please verify important information against the linked sources. This project is <a href="{{SOURCE_URL}}">open source</a> and contributions are welcome.
+    Curated and written by {{MODEL_NAME}}, an AI assistant. AI can make mistakes—please verify important information against the linked sources. <a href="{{SOURCE_URL}}">Open source</a>, contributions welcome.
   </div>
+
+  <p class="meta">{{READING_TIME}} · {{STORY_COUNT}}</p>
 
   <div id="summary" class="summary">
 {{REGIONAL_SUMMARY}}
   </div>
 
   <section id="must-know">
-    <h2>Must Know</h2>
+    <h2>🥇 Must Know</h2>
 {{MUST_KNOW}}
   </section>
 
   <section id="should-know">
-    <h2>Should Know</h2>
+    <h2>🥈 Should Know</h2>
 {{SHOULD_KNOW}}
   </section>
 
   <section id="also-notable">
-    <h2>Also Notable</h2>
+    <h2>🥉 Also Notable</h2>
 {{SIGNALS}}
   </section>
 
@@ -42,6 +50,7 @@
     {{FEEDBACK_BUTTONS}}
     <p><a href="{{ARCHIVE_URL}}">Past digests</a> · <a href="{{{RESEND_UNSUBSCRIBE_URL}}}">Unsubscribe</a></p>
     <p>{{AUTHOR_PLUG}}</p>
+    <p class="generated-at">{{GENERATED_AT}}</p>
   </footer>
 </body>
 </html>

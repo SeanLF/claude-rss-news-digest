@@ -39,6 +39,7 @@ HEALTH_ALERT_THRESHOLD = int(os.environ.get("HEALTH_ALERT_THRESHOLD", "3"))  # C
 
 # Article processing
 MAX_TOKENS_PER_FILE = 10000  # Conservative limit for Claude Code file reading
+MAX_ARTICLES_FOR_DRY_RUN = 20  # Limit articles during dry runs to speed up testing
 MAX_TITLE_LENGTH = 500  # Cap title length for safety
 MAX_SUMMARY_LENGTH = 200  # Cap summary length
 DEDUP_WINDOW_DAYS = 7  # Days of headline history for deduplication
@@ -270,6 +271,21 @@ def record_run(articles_fetched: int, articles_emailed: int = 0) -> int | None:
         return None
 
 
+def prepare_for_web(html: str) -> str:
+    """Strip email-only elements from digest HTML for web serving."""
+    # Remove header links nav (Subscribe/View online - redundant on web)
+    html = re.sub(r'(?s)\s*<nav class="header-links">.*?</nav>', "", html)
+    # Legacy: Remove old "View in browser" link if present
+    html = re.sub(r'<p class="view-in-browser">.*?</p>', "", html)
+    # Remove "Past digests · Unsubscribe" footer line
+    html = re.sub(r'<p><a href="[^"]*">Past digests</a>.*?Unsubscribe</a></p>', "", html)
+    # Remove standalone Unsubscribe link (when no archive link)
+    html = re.sub(r'<p><a href="[^"]*">Unsubscribe</a></p>', "", html)
+    # Remove feedback buttons (mailto links don't work well on web)
+    html = re.sub(r'(?s)<div class="feedback">.*?</div>\s*</div>', "", html)
+    return html
+
+
 def save_digest(digest_path: Path):
     """Save digest HTML to database for web serving."""
     # Extract date from filename (digest-YYYY-MM-DD*.html -> YYYY-MM-DD)
@@ -281,10 +297,11 @@ def save_digest(digest_path: Path):
         log(f"Could not extract date from '{digest_path.stem}', using {date_str}", "WARN")
 
     html_content = digest_path.read_text()
+    web_html = prepare_for_web(html_content)
 
     try:
         with sqlite3.connect(DB_PATH) as conn:
-            conn.execute("INSERT OR REPLACE INTO digests (date, html) VALUES (?, ?)", (date_str, html_content))
+            conn.execute("INSERT OR REPLACE INTO digests (date, html) VALUES (?, ?)", (date_str, web_html))
         log(f"Saved digest to database: {date_str}")
     except sqlite3.Error as e:
         log(f"DB error saving digest: {e}", "ERROR")
@@ -787,6 +804,14 @@ def strip_html(text: str) -> str:
     return text
 
 
+def calculate_reading_time(html_content: str, words_per_minute: int = 200) -> str:
+    """Calculate reading time from HTML content. Returns string like '5 min read'."""
+    plain_text = strip_html(html_content)
+    word_count = len(plain_text.split())
+    minutes = max(1, round(word_count / words_per_minute))
+    return f"{minutes} min read"
+
+
 def is_safe_url(url: str) -> bool:
     """Validate URL has a safe scheme (http/https only)."""
     return url.startswith(("http://", "https://"))
@@ -1089,16 +1114,24 @@ def extract_preheader(selections: dict, max_length: int = 150) -> str:
     return ""
 
 
-def replace_placeholders(digest_path: Path, preheader: str = ""):
-    """Replace all placeholders in digest HTML (styles, name, date, timestamp).
+def format_story_counts(selections: dict) -> str:
+    """Format story counts per section for meta line."""
+    must = len(selections.get("must_know", []))
+    should = len(selections.get("should_know", []))
+    signals = sum(len(region) for region in selections.get("signals", {}).values())
+    return f"{must} 🥇 · {should} 🥈 · {signals} 🥉"
+
+
+def replace_placeholders(digest_path: Path, selections: dict, preheader: str = ""):
+    """Replace all placeholders in digest HTML (styles, name, date, etc).
 
     CSS variables are preserved to support dark mode when viewing in browser.
     Email preparation (resolving variables, inlining) happens in send_broadcast().
     """
     now = datetime.now(UTC)
-    date_str = now.strftime("%B ") + str(now.day) + now.strftime(", %Y")
+    date_str = now.strftime("%A, %B ") + str(now.day) + now.strftime(", %Y")
     date_url = now.strftime("%Y-%m-%d")
-    timestamp = now.strftime("%A, ") + date_str + now.strftime(" · %H:%M UTC")
+    generated_at = now.strftime("Generated at %H:%M UTC")
     digest_name = os.environ.get("DIGEST_NAME", "News Digest")
     digest_domain = os.environ.get("DIGEST_DOMAIN", "")
     source_url = os.environ.get("SOURCE_URL", "")
@@ -1114,14 +1147,19 @@ def replace_placeholders(digest_path: Path, preheader: str = ""):
     content = digest_path.read_text()
 
     # Verify required placeholders exist before replacing
-    for placeholder in ["{{DIGEST_NAME}}", "{{DATE}}", "{{TIMESTAMP}}", "{{STYLES}}"]:
+    for placeholder in ["{{DIGEST_NAME}}", "{{DATE}}", "{{STYLES}}"]:
         if placeholder not in content:
             raise RuntimeError(f"Missing placeholder {placeholder} in digest")
+
+    # Story counts per section for meta line
+    story_count_str = format_story_counts(selections)
 
     content = content.replace("{{STYLES}}", styles)
     content = content.replace("{{DIGEST_NAME}}", html.escape(digest_name))
     content = content.replace("{{DATE}}", date_str)
-    content = content.replace("{{TIMESTAMP}}", timestamp)
+    content = content.replace("{{READING_TIME}}", calculate_reading_time(content))
+    content = content.replace("{{STORY_COUNT}}", story_count_str)
+    content = content.replace("{{GENERATED_AT}}", generated_at)
     content = content.replace("{{MODEL_NAME}}", html.escape(model_name))
     content = content.replace("{{PREHEADER}}", html.escape(preheader))
 
@@ -1155,15 +1193,15 @@ def replace_placeholders(digest_path: Path, preheader: str = ""):
         # Remove the author plug paragraph if not configured
         content = re.sub(r"\s*<p>\{\{AUTHOR_PLUG\}\}</p>", "", content)
 
-    # Replace HOMEPAGE_URL for "View in browser" link
+    # Replace HOMEPAGE_URL and SUBSCRIBE_URL for header links
     if digest_domain:
         homepage_url = f"https://{digest_domain}/{date_url}"
+        subscribe_url = f"https://{digest_domain}/#subscribe"
         content = content.replace("{{HOMEPAGE_URL}}", homepage_url)
+        content = content.replace("{{SUBSCRIBE_URL}}", subscribe_url)
     else:
-        # Remove the view-in-browser paragraph if not configured
-        content = re.sub(
-            r'\s*<p class="view-in-browser">[^<]*<a href="\{\{HOMEPAGE_URL\}\}">[^<]+</a></p>', "", content
-        )
+        # Remove the header links nav if not configured
+        content = re.sub(r'\s*<nav class="header-links">.*?</nav>', "", content, flags=re.DOTALL)
 
     # Optional: archive URL for "Past digests" link
     if archive_url and is_safe_url(archive_url):
@@ -1176,10 +1214,10 @@ def replace_placeholders(digest_path: Path, preheader: str = ""):
     # to preserve dark mode support for web viewing
 
     digest_path.write_text(content)
-    log(f"Timestamp: {timestamp}")
+    log(f"Date: {date_str}")
 
 
-def prepare_claude_input(sources: list[dict]) -> list[Path]:
+def prepare_claude_input(sources: list[dict], dry_run: bool = False) -> list[Path]:
     """Prepare CSV input files for Claude - split if too large."""
     # Clean and recreate input directory
     if CLAUDE_INPUT_DIR.exists():
@@ -1238,6 +1276,12 @@ def prepare_claude_input(sources: list[dict]) -> list[Path]:
 
                 all_articles.append([source["id"], title, url, a.get("published", ""), summary])
 
+    # Truncate if too many articles during dry runs (to speed up testing)
+    truncated_count = 0
+    if dry_run and len(all_articles) > MAX_ARTICLES_FOR_DRY_RUN:
+        truncated_count = len(all_articles) - MAX_ARTICLES_FOR_DRY_RUN
+        all_articles = all_articles[:MAX_ARTICLES_FOR_DRY_RUN]
+
     # Split articles into multiple files if needed
     article_files = []
     current_file_num = 1
@@ -1273,13 +1317,14 @@ def prepare_claude_input(sources: list[dict]) -> list[Path]:
             writer.writerows(current_rows)
         article_files.append(file_path)
 
+    # Log summary of what's being sent to Claude
+    parts = [f"Sending {len(all_articles)} articles to Claude"]
     if filtered_count > 0:
         sim_min, sim_max = min(filtered_similarities), max(filtered_similarities)
-        log(
-            f"Prepared {len(all_articles)} articles in {len(article_files)} file(s), {filtered_count} filtered as duplicates (sim {sim_min:.2f}-{sim_max:.2f})"
-        )
-    else:
-        log(f"Prepared {len(all_articles)} articles in {len(article_files)} file(s)")
+        parts.append(f"{filtered_count} filtered as duplicates (sim {sim_min:.2f}-{sim_max:.2f})")
+    if truncated_count > 0:
+        parts.append(f"{truncated_count} truncated for dry-run (limit {MAX_ARTICLES_FOR_DRY_RUN})")
+    log(f"{parts[0]} ({', '.join(parts[1:])})" if len(parts) > 1 else parts[0])
     return article_files
 
 
@@ -1942,7 +1987,7 @@ Examples:
         init_db()
         selections = validate_selections()  # Ensure selections.json exists and is valid
         digest = write_digest_from_selections(selections)
-        replace_placeholders(digest, extract_preheader(selections))
+        replace_placeholders(digest, selections, extract_preheader(selections))
         # Save before broadcast so link works
         if not skip_record:
             save_digest(digest)
@@ -1975,7 +2020,7 @@ Examples:
         send_health_alert(persistently_failing, failed_count, len(sources))
 
     # Prepare input for Claude (articles + previous headlines)
-    prepare_claude_input(sources)
+    prepare_claude_input(sources, dry_run=skip_email)
 
     # Pass 1: Select stories (Claude)
     generate_selections()
@@ -1988,7 +2033,7 @@ Examples:
 
     # Pass 2: Render HTML digest (Python - no Claude)
     digest = write_digest_from_selections(selections)
-    replace_placeholders(digest, extract_preheader(selections))
+    replace_placeholders(digest, selections, extract_preheader(selections))
 
     # Save digest to DB BEFORE broadcast so "view in browser" link works immediately
     if not skip_record:
