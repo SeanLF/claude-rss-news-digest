@@ -1,0 +1,47 @@
+#!/bin/bash
+# Clone SQLite database from cloud to local
+# Usage: bin/db-clone [--output PATH]
+#
+# Copies the production digest.db to data/digest-cloud.db (or specified path)
+
+set -e
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
+DEFAULT_OUTPUT="$PROJECT_DIR/data/digest-cloud.db"
+
+# shellcheck source=lib/log.sh
+source "$SCRIPT_DIR/lib/log.sh"
+
+OUTPUT_PATH="$DEFAULT_OUTPUT"
+
+while [[ $# -gt 0 ]]; do
+  case $1 in
+    --output)
+      [[ -z ${2:-} ]] && log_error "--output requires a path argument" && exit 1
+      OUTPUT_PATH="$2"
+      shift 2
+      ;;
+    -h|--help)
+      echo "Usage: bin/db-clone [--output PATH]"
+      echo "Clone production SQLite database to local machine."
+      echo "Default output: data/digest-cloud.db"
+      exit 0
+      ;;
+    *)
+      log_error "Unknown option: $1"
+      exit 1
+      ;;
+  esac
+done
+
+log_step "Cloning database..."
+"$SCRIPT_DIR/ssh" "docker run --rm -v news-digest-data:/data alpine cat /data/digest.db" > "$OUTPUT_PATH"
+
+if [ ! -s "$OUTPUT_PATH" ]; then
+  log_error "Database clone failed - empty output file"
+  exit 1
+fi
+
+SIZE=$(du -h "$OUTPUT_PATH" | cut -f1)
+log_success "Done: $OUTPUT_PATH ($SIZE)"

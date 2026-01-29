@@ -1,0 +1,38 @@
+#!/bin/bash
+# SSH to the news-digest server
+# Usage: bin/ssh [COMMAND...]
+#
+# With no arguments, opens an interactive shell.
+# With arguments, runs the command remotely.
+#
+# Required environment variables (set in .env):
+#   INFRA_DIR - Path to infrastructure repo containing bin/tf
+
+set -e
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
+
+# shellcheck source=lib/log.sh
+source "$SCRIPT_DIR/lib/log.sh"
+
+cd "$PROJECT_DIR"
+
+if [ -f .env ]; then
+  # shellcheck source=/dev/null
+  source .env
+fi
+
+if [ -z "$INFRA_DIR" ]; then
+  log_error "INFRA_DIR environment variable not set"
+  exit 1
+fi
+
+SSH_TARGET=$("$INFRA_DIR/bin/tf" output -raw ssh_command_tailscale 2>/dev/null | sed 's/^ssh //')
+
+if [ -z "$SSH_TARGET" ]; then
+  log_error "Could not get SSH target from terraform output"
+  exit 1
+fi
+
+exec ssh "$SSH_TARGET" "$@"
