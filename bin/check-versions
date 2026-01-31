@@ -15,7 +15,7 @@ def fetch(url):
     except: return None
 
 def sh(cmd): return subprocess.run(cmd, shell=True, capture_output=True, text=True).stdout.strip()
-def has(cmd): return shutil.which(cmd) is not None
+def has(cmd): return shutil.which(cmd) is not None or sh(f"mise current {cmd} 2>/dev/null") != ""
 
 def gh_release(repo):
     d = fetch(f"https://api.github.com/repos/{repo}/releases/latest")
@@ -24,7 +24,7 @@ def gh_release(repo):
 def gh_tag(repo):
     d = fetch(f"https://api.github.com/repos/{repo}/tags")
     if not d: return None
-    vs = [t["name"] for t in d if re.match(r"^v?\d+\.\d+", t["name"])]
+    vs = [t["name"] for t in d if re.match(r"^v?\d+\.\d+(\.\d+)?$", t["name"])]  # exclude alpha/beta/rc
     return max(vs, key=lambda v: [int(x) for x in re.findall(r"\d+", v)], default=None)
 
 def crates_ver(c):
@@ -37,14 +37,18 @@ def err(name, msg): return (name, "error", msg, None, None)
 
 # --- Checks ---
 
+def mise_or_cmd(tool, cmd):
+    """Get version from mise if available, otherwise run command."""
+    ver = sh(f"mise current {tool} 2>/dev/null")
+    return ver if ver else sh(cmd)
+
 def check_python():
-    cur = sh("python3 --version").replace("Python ", "")
+    cur = mise_or_cmd("python", "python3 --version").replace("Python ", "").split()[0]
     return compare("python", cur, gh_tag("python/cpython")) if cur else err("python", "not found")
 
 def check_uv():
-    if not has("uv"): return err("uv", "not installed")
-    cur = sh("uv --version").replace("uv ", "").split()[0]
-    return compare("uv", cur, gh_release("astral-sh/uv"))
+    cur = mise_or_cmd("uv", "uv --version").replace("uv ", "").split()[0]
+    return compare("uv", cur, gh_release("astral-sh/uv")) if cur else err("uv", "not installed")
 
 def check_rust():
     if not has("rustc"): return ok("rust", "(not installed)")
@@ -70,9 +74,9 @@ def check_tailscale():
 
 def check_python_deps():
     if not has("uv"): return err("py-deps", "uv not installed")
-    r = subprocess.run(["uv", "pip", "list", "--outdated", "--format=json"], capture_output=True, text=True, cwd=Path(__file__).parent.parent)
-    if r.returncode != 0: return err("py-deps", "can't check")
-    try: outdated = json.loads(r.stdout) if r.stdout.strip() else []
+    cwd = Path(__file__).parent.parent
+    out = sh(f"cd {cwd} && mise exec -- uv pip list --outdated --format=json")
+    try: outdated = json.loads(out) if out.strip() else []
     except: return err("py-deps", "can't parse")
     if not outdated: return ok("py-deps", "up to date")
     return ("py-deps", "update", f"{len(outdated)} outdated", None, [f"{p['name']}: {p['version']} → {p['latest_version']}" for p in outdated])
@@ -80,8 +84,10 @@ def check_python_deps():
 def check_rust_deps():
     cargo = Path(__file__).parent.parent / "digest-server" / "Cargo.toml"
     if not cargo.exists(): return ok("rust-deps", "(no Cargo.toml)")
-    deps = re.findall(r'^(\w+)\s*=\s*["{].*?(\d+\.\d+(?:\.\d+)?)', cargo.read_text(), re.MULTILINE)
-    outdated = [(n, c, l) for n, c in deps[:5] if (l := crates_ver(n)) and c != l]
+    deps = [(n, c) for n, c in re.findall(r'^(\w+)\s*=\s*["{].*?(\d+\.\d+(?:\.\d+)?)', cargo.read_text(), re.MULTILINE)
+            if n not in ("version", "edition", "rust")]
+    def norm(v): parts = [int(x) for x in v.split(".")]; return parts + [0] * (3 - len(parts))
+    outdated = [(n, c, l) for n, c in deps[:5] if (l := crates_ver(n)) and norm(c) < norm(l)]
     if not outdated: return ok("rust-deps", "checked")
     return ("rust-deps", "update", f"{len(outdated)} outdated", None, [f"{n}: {c} → {l}" for n, c, l in outdated])
 
