@@ -51,38 +51,34 @@ AUTHOR_URL=https://yoursite.com  # Author link
 
 ### Authenticate Claude
 
-**Option 1: Interactive login (local development)**
+**Option 1: OAuth token** (recommended, valid 1 year):
 ```bash
-docker compose run --rm news-digest claude login
-```
-This persists your auth in a Docker volume (`claude-config`).
-
-**Option 2: OAuth token (production/CI)**
-```bash
-# Generate a 1-year token
 claude setup-token
+# Add to .env: CLAUDE_CODE_OAUTH_TOKEN=sk-ant-oat01-...
+```
 
-# Add to .env
-CLAUDE_CODE_OAUTH_TOKEN=sk-ant-oat01-...
+**Option 2: API key** (from [console.anthropic.com](https://console.anthropic.com/)):
+```bash
+# Add to .env: ANTHROPIC_API_KEY=sk-ant-...
 ```
 
 ### Run
 
 ```bash
 # Full run: fetch, generate, email, record
-./run-digest.sh
+docker compose run --rm news-digest
 
 # Dry run (no email, no DB record)
-./run-digest.sh --dry-run
+docker compose run --rm news-digest python run.py --dry-run
 
 # Preview latest digest in browser
-./run-digest.sh --preview
+docker compose run --rm news-digest python run.py --preview
 
 # Validate all RSS feeds
-./run-digest.sh --validate
+docker compose run --rm news-digest python run.py --validate
 
 # Test Resend config
-./run-digest.sh --test-email
+docker compose run --rm news-digest python run.py --test-email
 ```
 
 ### Web Viewer (Optional)
@@ -104,7 +100,7 @@ Access at `http://localhost:8080/YYYY-MM-DD` (e.g., `/2026-01-15`).
 **Local (cron):**
 ```bash
 # Daily at 07:00 UTC
-0 7 * * * /path/to/news-digest/run-digest.sh >> /path/to/news-digest/data/cron.log 2>&1
+0 7 * * * cd /path/to/news-digest && docker compose run --rm news-digest >> data/cron.log 2>&1
 ```
 
 **Server (systemd):** See deployment section below.
@@ -143,7 +139,7 @@ Supports dark mode automatically.
 ### "No digest generated"
 - Check `data/digest.log` for errors
 - Ensure Claude is authenticated: `docker compose run --rm news-digest claude --version`
-- Try: `./run-digest.sh --dry-run`
+- Try: `docker compose run --rm news-digest python run.py --dry-run`
 
 ### Email not sending
 - Verify Resend API key in `.env`

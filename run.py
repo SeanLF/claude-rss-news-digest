@@ -135,7 +135,6 @@ def check_internet() -> bool:
 
 def validate_env(dry_run: bool = False):
     """Check required environment variables. Exit if missing."""
-    # ANTHROPIC_API_KEY is optional - Claude CLI can use `claude login` for Pro subscription
     required = []
     if not dry_run:
         required.extend(["RESEND_API_KEY", "RESEND_FROM", "RESEND_AUDIENCE_ID"])

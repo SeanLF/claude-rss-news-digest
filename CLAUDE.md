@@ -23,11 +23,12 @@ SQLite at `data/digest.db`:
 
 ## Key Files
 
-- `run.py` - main pipeline (two-pass: select → write)
-- `.claude/commands/news-digest-select.md` - Pass 1: story selection
-- `.claude/commands/news-digest-write.md` - Pass 2: HTML generation
-- `sources.json` - RSS feed definitions
+- `run.py` - main pipeline (Claude selects → Python renders)
+- `.claude/commands/news-digest-select.md` - Claude prompt for story selection
+- `digest-template.html` - HTML template for digest output
 - `digest.css` - CSS styles (minified and injected at runtime)
+- `sources.json` - RSS feed definitions
+- `digest-server/` - Rust (Axum) web server for "View in browser" links and archive
 
 ## MCP Server
 

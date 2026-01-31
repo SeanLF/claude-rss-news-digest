@@ -2,7 +2,6 @@ services:
   news-digest:
     build: .
     environment:
-      # Set ANTHROPIC_API_KEY or CLAUDE_CODE_OAUTH_TOKEN for auth
       - ANTHROPIC_API_KEY
       - CLAUDE_CODE_OAUTH_TOKEN
       - RESEND_API_KEY
