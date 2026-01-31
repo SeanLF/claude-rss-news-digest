@@ -359,6 +359,9 @@ main() {
   echo ""
   echo -e "${GREEN}${BOLD}✓ Successfully deployed news-digest${RESET}"
   echo ""
+
+  # Check for dependency updates
+  [[ -x "$SCRIPT_DIR/check-versions" ]] && "$SCRIPT_DIR/check-versions" --quiet || true
 }
 
 main

@@ -1,0 +1,115 @@
+#!/usr/bin/env python3
+"""Check for available updates. Usage: bin/check-versions [--strict] [--quiet]"""
+
+import json, re, shutil, subprocess, sys
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from pathlib import Path
+from urllib.request import urlopen
+
+GREEN, YELLOW, RED, BOLD, RESET = ("\033[32m", "\033[33m", "\033[31m", "\033[1m", "\033[0m") if sys.stdout.isatty() else ("",) * 5
+STRICT, QUIET = "--strict" in sys.argv, "--quiet" in sys.argv
+
+def fetch(url):
+    try:
+        with urlopen(url, timeout=10) as r: return json.loads(r.read())
+    except: return None
+
+def sh(cmd): return subprocess.run(cmd, shell=True, capture_output=True, text=True).stdout.strip()
+def has(cmd): return shutil.which(cmd) is not None
+
+def gh_release(repo):
+    d = fetch(f"https://api.github.com/repos/{repo}/releases/latest")
+    return d["tag_name"].lstrip("v") if d and "tag_name" in d else None
+
+def gh_tag(repo):
+    d = fetch(f"https://api.github.com/repos/{repo}/tags")
+    if not d: return None
+    vs = [t["name"] for t in d if re.match(r"^v?\d+\.\d+", t["name"])]
+    return max(vs, key=lambda v: [int(x) for x in re.findall(r"\d+", v)], default=None)
+
+def crates_ver(c):
+    d = fetch(f"https://crates.io/api/v1/crates/{c}")
+    return d["crate"]["max_stable_version"] if d else None
+
+def compare(name, cur, lat): return (name, "ok" if cur.lstrip("v") == (lat or "").lstrip("v") else "update", cur, lat, None)
+def ok(name, cur): return (name, "ok", cur, None, None)
+def err(name, msg): return (name, "error", msg, None, None)
+
+# --- Checks ---
+
+def check_python():
+    cur = sh("python3 --version").replace("Python ", "")
+    return compare("python", cur, gh_tag("python/cpython")) if cur else err("python", "not found")
+
+def check_uv():
+    if not has("uv"): return err("uv", "not installed")
+    cur = sh("uv --version").replace("uv ", "").split()[0]
+    return compare("uv", cur, gh_release("astral-sh/uv"))
+
+def check_rust():
+    if not has("rustc"): return ok("rust", "(not installed)")
+    cur = sh("rustc --version").split()[1] if sh("rustc --version") else None
+    return compare("rust", cur, gh_tag("rust-lang/rust")) if cur else err("rust", "can't parse")
+
+def check_docker():
+    if not has("docker"): return err("docker", "not installed")
+    if subprocess.run("docker info", shell=True, capture_output=True).returncode != 0: return err("docker", "not running")
+    m = re.search(r"(\d+\.\d+\.\d+)", sh("docker --version"))
+    return ok("docker", m.group(1) if m else "?")
+
+def check_orbstack():
+    if not Path("/Applications/OrbStack.app").is_dir(): return ok("orbstack", "(not installed)")
+    cur = sh("defaults read /Applications/OrbStack.app/Contents/Info.plist CFBundleShortVersionString")
+    lat = re.search(r": ([\d.]+)", sh("brew info --cask orbstack"))
+    return compare("orbstack", cur, lat.group(1) if lat else cur)
+
+def check_tailscale():
+    if not has("tailscale"): return err("tailscale", "not installed")
+    cur = sh("tailscale version").split("\n")[0].strip()
+    return compare("tailscale", cur, gh_release("tailscale/tailscale")) if cur and cur[0].isdigit() else err("tailscale", "not running")
+
+def check_python_deps():
+    if not has("uv"): return err("py-deps", "uv not installed")
+    r = subprocess.run(["uv", "pip", "list", "--outdated", "--format=json"], capture_output=True, text=True, cwd=Path(__file__).parent.parent)
+    if r.returncode != 0: return err("py-deps", "can't check")
+    try: outdated = json.loads(r.stdout) if r.stdout.strip() else []
+    except: return err("py-deps", "can't parse")
+    if not outdated: return ok("py-deps", "up to date")
+    return ("py-deps", "update", f"{len(outdated)} outdated", None, [f"{p['name']}: {p['version']} → {p['latest_version']}" for p in outdated])
+
+def check_rust_deps():
+    cargo = Path(__file__).parent.parent / "digest-server" / "Cargo.toml"
+    if not cargo.exists(): return ok("rust-deps", "(no Cargo.toml)")
+    deps = re.findall(r'^(\w+)\s*=\s*["{].*?(\d+\.\d+(?:\.\d+)?)', cargo.read_text(), re.MULTILINE)
+    outdated = [(n, c, l) for n, c in deps[:5] if (l := crates_ver(n)) and c != l]
+    if not outdated: return ok("rust-deps", "checked")
+    return ("rust-deps", "update", f"{len(outdated)} outdated", None, [f"{n}: {c} → {l}" for n, c, l in outdated])
+
+CHECKS = [check_python, check_uv, check_rust, check_docker, check_orbstack, check_tailscale, check_python_deps, check_rust_deps]
+
+def main():
+    if not QUIET: print(f"\n{BOLD}Checking dependency versions...{RESET}\n")
+
+    with ThreadPoolExecutor(max_workers=8) as ex:
+        results = sorted([f.result() for f in as_completed(ex.submit(c) for c in CHECKS)], key=lambda r: r[0])
+
+    updates, errors = [], False
+    for name, status, cur, lat, details in results:
+        if status == "ok":
+            if not QUIET: print(f"  {name}: {GREEN}✓{RESET} {cur}")
+        elif status == "update":
+            print(f"  {name}: {YELLOW}↑{RESET} {YELLOW}{cur}{RESET}{f' → {GREEN}{lat}{RESET}' if lat else ''}")
+            updates.append(f"{name}: {cur}{f' → {lat}' if lat else ''}")
+            if details and not QUIET:
+                for d in details: print(f"      {d}")
+        else:
+            print(f"  {name}: {RED}✗{RESET} {cur}")
+            errors = True
+
+    print()
+    if updates: print(f"{YELLOW}{BOLD}Updates available:{RESET}\n" + "\n".join(f"  • {u}" for u in updates) + "\n")
+    if errors: print(f"{YELLOW}Some checks failed — results incomplete.{RESET}")
+    if not updates and not errors and not QUIET: print(f"{GREEN}{BOLD}All dependencies up to date.{RESET}")
+    if STRICT and updates: sys.exit(1)
+
+if __name__ == "__main__": main()
