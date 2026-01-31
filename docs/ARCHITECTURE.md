@@ -76,17 +76,20 @@ Claude outputs this; Python renders it to HTML.
 
 ## Claude Authentication
 
-**Recommended:** Use OAuth token for both local and production.
+Two options:
 
-```bash
-# Generate a 1-year token
-claude setup-token
+1. **OAuth token** (recommended) — uses Pro subscription quota, valid 1 year
+   ```bash
+   claude setup-token
+   # Add to .env: CLAUDE_CODE_OAUTH_TOKEN=sk-ant-oat01-...
+   ```
 
-# Add to .env
-CLAUDE_CODE_OAUTH_TOKEN=sk-ant-oat01-...
-```
+2. **API key** — pay-per-use via Anthropic API
+   ```bash
+   # Add to .env: ANTHROPIC_API_KEY=sk-ant-...
+   ```
 
-The token is passed via environment variable — no volume mounts or credential files needed.
+Both are passed via environment variable — no credential files needed.
 
 ## Deduplication
 
