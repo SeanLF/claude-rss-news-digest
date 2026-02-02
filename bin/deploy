@@ -370,8 +370,8 @@ main() {
     echo ""
     echo "About to:"
     [[ $SKIP_BUILD == false ]] && echo "  - Build and push Docker images"
-    echo "  - Run database migrations"
     echo "  - Apply Terraform (news_digest_env, digest_server)"
+    echo "  - Run database migrations"
     echo ""
     read -p "Continue? [y/N] " -n 1 -r
     echo
@@ -379,8 +379,8 @@ main() {
   fi
 
   build_and_push
-  run_migrations || exit 1
   apply_terraform
+  run_migrations || exit 1
   tag_deployment
 
   # Success
