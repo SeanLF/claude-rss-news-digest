@@ -9,6 +9,7 @@ use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
 use crate::AppState;
+use crate::templates::{DIGEST_NAV_CSS, DIGEST_NAV_HTML, render_index};
 use crate::util::{format_date, is_valid_date};
 
 #[derive(Deserialize)]
@@ -86,12 +87,10 @@ pub async fn index(
             .trim_start_matches("http://");
         format!(r#"<a href="{url}" class="meta-link">{display}</a>"#)
     });
-    let source_link = state.source_url.as_ref().map(|_| {
-        format!(
-            r#"<a href="{}" class="meta-link">GitHub</a>"#,
-            state.source_url.as_ref().unwrap()
-        )
-    });
+    let source_link = state
+        .source_url
+        .as_ref()
+        .map(|url| format!(r#"<a href="{url}" class="meta-link">GitHub</a>"#));
     let stats_link = r#"<a href="/stats" class="meta-link">Stats</a>"#;
     let meta_links = match (homepage_link, source_link) {
         (Some(h), Some(s)) => format!(r#"<p class="meta-links">{h} · {s} · {stats_link}</p>"#),
@@ -104,151 +103,15 @@ pub async fn index(
         .as_ref()
         .map(|url| format!(r#"<link rel="stylesheet" href="{url}">"#))
         .unwrap_or_default();
-    let html = format!(
-        r##"<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>{name}</title>
-  {css_link}
-  <style>
-    .container {{
-      max-width: 600px;
-      margin: 0 auto;
-      padding: 3rem 1.5rem;
-    }}
-    h1 {{
-      font-size: 2rem;
-      font-weight: 700;
-      margin-bottom: 0.5rem;
-      letter-spacing: -0.02em;
-    }}
-    .tagline {{
-      color: var(--text-tertiary);
-      margin-bottom: 0.5rem;
-    }}
-    .meta-links {{
-      color: var(--text-tertiary);
-      font-size: 0.875rem;
-      margin-bottom: 1.5rem;
-    }}
-    .meta-link {{
-      color: var(--text-tertiary);
-      text-decoration: none;
-      transition: color 0.2s ease;
-    }}
-    .meta-link:hover {{
-      color: var(--ruby-red);
-    }}
-    .success-msg {{
-      color: var(--accent-green);
-      background: var(--accent-green-bg);
-      padding: 0.75rem 1rem;
-      border-radius: 0.5rem;
-      margin-bottom: 1.5rem;
-      border-left: 3px solid var(--accent-green);
-    }}
-    .subscribe-form {{
-      display: flex;
-      gap: 0.5rem;
-      margin-bottom: 2rem;
-    }}
-    .subscribe-form input {{
-      flex: 1;
-      padding: 0.75rem 1rem;
-      background: var(--bg-card);
-      border: 1px solid var(--border-white-light);
-      border-radius: 0.5rem;
-      color: var(--text-primary);
-      font-size: 1rem;
-    }}
-    .subscribe-form input::placeholder {{
-      color: var(--text-tertiary);
-    }}
-    .subscribe-form input:focus {{
-      outline: none;
-      border-color: var(--ruby-red);
-    }}
-    .subscribe-form button {{
-      padding: 0.75rem 1.5rem;
-      background: linear-gradient(135deg, var(--ruby-red) 0%, var(--ruby-red-light) 100%);
-      color: white;
-      border: none;
-      border-radius: 0.5rem;
-      font-weight: 600;
-      cursor: pointer;
-      transition: transform 0.2s ease, box-shadow 0.2s ease;
-    }}
-    .subscribe-form button:hover {{
-      transform: translateY(-1px);
-      box-shadow: 0 4px 12px rgba(204, 52, 45, 0.3);
-    }}
-    h2 {{
-      font-size: 1rem;
-      font-weight: 600;
-      text-transform: uppercase;
-      letter-spacing: 0.05em;
-      color: var(--text-tertiary);
-      margin-bottom: 1rem;
-    }}
-    ul {{
-      list-style: none;
-    }}
-    li {{
-      margin: 0.5rem 0;
-    }}
-    li a {{
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      padding: 0.75rem 1rem;
-      background: var(--bg-card);
-      border: 1px solid var(--border-white-subtle);
-      border-radius: 0.5rem;
-      color: var(--text-secondary);
-      text-decoration: none;
-      transition: all 0.2s ease;
-    }}
-    li a:hover {{
-      border-color: var(--ruby-red);
-      color: var(--text-primary);
-      transform: translateX(4px);
-    }}
-    .arrow {{
-      color: var(--text-tertiary);
-      transition: transform 0.2s ease, color 0.2s ease;
-    }}
-    li a:hover .arrow {{
-      color: var(--ruby-red);
-      transform: translateX(4px);
-    }}
-    @media (max-width: 480px) {{
-      .subscribe-form {{
-        flex-direction: column;
-      }}
-      .subscribe-form button {{
-        width: 100%;
-      }}
-    }}
-  </style>
-</head>
-<body>
-  <div class="container">
-    <h1>{name}</h1>
-    <p class="tagline">Daily briefing on geopolitics, tech, and privacy. All sides. No fluff.</p>
-    {meta_links}
-    {success_msg}
-    {subscribe_form}
-    <h2>Recent Digests</h2>
-    <ul>
-      {links}
-    </ul>
-  </div>
-</body>
-</html>"##
-    );
 
+    let html = render_index(
+        name,
+        &css_link,
+        &meta_links,
+        success_msg,
+        subscribe_form,
+        &links,
+    );
     Ok(Html(html))
 }
 
@@ -333,37 +196,9 @@ pub async fn get_digest(
         })
         .map_err(|_| (StatusCode::NOT_FOUND, format!("No digest for {date}")))?;
 
-    // Inject navigation header CSS and HTML when viewing in browser
-    let nav_css = r#"<style>
-.digest-nav {
-    max-width: 820px;
-    margin: 0 auto;
-    padding: 12px 16px;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-    font-size: 14px;
-}
-.digest-nav a {
-    color: var(--text-muted, #777);
-    text-decoration: none;
-}
-.digest-nav a:hover {
-    color: var(--accent, #c45a3b);
-}
-</style>"#;
-
-    let nav_html = r#"<nav class="digest-nav">
-    <a href="/">← All digests</a>
-</nav>"#;
-
     // Insert CSS before </head> and nav after <body>
-    let html = html.replacen("</head>", &format!("{}</head>", nav_css), 1);
-    let html = html.replacen("<body>", &format!("<body>{}", nav_html), 1);
-
-    // Note: Email-only elements are stripped at save time in run.py's prepare_for_web()
-    // This keeps serving fast and ensures old digests aren't broken by template changes
+    let html = html.replacen("</head>", &format!("{DIGEST_NAV_CSS}</head>"), 1);
+    let html = html.replacen("<body>", &format!("<body>{DIGEST_NAV_HTML}"), 1);
 
     Ok(Html(html))
 }

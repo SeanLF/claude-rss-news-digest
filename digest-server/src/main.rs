@@ -1,5 +1,6 @@
 mod handlers;
 mod stats;
+mod templates;
 mod util;
 
 use axum::Router;
