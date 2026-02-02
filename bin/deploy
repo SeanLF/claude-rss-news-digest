@@ -278,13 +278,18 @@ build_and_push() {
 run_migrations() {
   log_step "Running database migrations..."
 
-  if dry_run_skip "bin/ssh bin/migrate"; then
+  local docker_cmd="docker run --rm -v news-digest-data:/app/data -e IN_DOCKER=1 $REGISTRY/news-digest:latest ./bin/migrate"
+
+  if dry_run_skip "$docker_cmd"; then
     return 0
   fi
 
-  # Check for pending migrations first
+  # Pull latest image first
+  "$SCRIPT_DIR/ssh" "docker pull $REGISTRY/news-digest:latest" || true
+
+  # Check for pending migrations
   local status
-  if ! status=$("$SCRIPT_DIR/ssh" bin/migrate --dry-run 2>&1); then
+  if ! status=$("$SCRIPT_DIR/ssh" "$docker_cmd --dry-run" 2>&1); then
     log_error "Failed to check migration status"
     return 1
   fi
@@ -296,9 +301,8 @@ run_migrations() {
 
   log_info "Pending migrations found"
 
-  if ! "$SCRIPT_DIR/ssh" bin/migrate; then
-    log_error "Migration failed! Aborting deploy."
-    log_error "Containers NOT updated."
+  if ! "$SCRIPT_DIR/ssh" "$docker_cmd"; then
+    log_error "Migration failed!"
     return 1
   fi
 
