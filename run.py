@@ -170,6 +170,8 @@ CREATE TABLE IF NOT EXISTS source_health (
     source_id TEXT NOT NULL,
     success INTEGER NOT NULL,
     error_message TEXT,
+    articles_fetched INTEGER,
+    articles_kept INTEGER,
     recorded_at DATETIME DEFAULT (datetime('now', 'utc'))
 );
 
@@ -350,13 +352,16 @@ def record_shown_headlines(headlines: list[dict]):
         log(f"DB error recording headlines: {e}", "ERROR")
 
 
-def record_source_health(results: list[tuple[str, bool, str | None]]):
-    """Record source fetch results. Each tuple is (source_id, success, error_message)."""
+def record_source_health(results: list[tuple[str, bool, str | None, int, int]]):
+    """Record source fetch results. Each tuple is (source_id, success, error_message, articles_fetched, articles_kept)."""
     if not results:
         return
     try:
         with sqlite3.connect(DB_PATH) as conn:
-            conn.executemany("INSERT INTO source_health (source_id, success, error_message) VALUES (?, ?, ?)", results)
+            conn.executemany(
+                "INSERT INTO source_health (source_id, success, error_message, articles_fetched, articles_kept) VALUES (?, ?, ?, ?, ?)",
+                results,
+            )
     except sqlite3.Error as e:
         log(f"DB error recording source health for {len(results)} sources: {e}", "ERROR")
 
@@ -727,25 +732,21 @@ def fetch_feeds(sources: list[dict]) -> tuple[int, int]:
     for f in FETCHED_DIR.glob("*.json"):
         f.unlink()
 
-    results = {}
-    health_records = []  # (source_id, success, error_message)
+    # Fetch all sources in parallel
+    fetch_results = {}  # source_id -> (articles, error)
     with ThreadPoolExecutor(max_workers=10) as executor:
         futures = {executor.submit(fetch_source, s): s for s in sources}
         for future in as_completed(futures):
             source_id, articles, error = future.result()
-            results[source_id] = articles
-            health_records.append((source_id, error is None, error))
+            fetch_results[source_id] = (articles, error)
 
-    # Record health to DB
-    record_source_health(health_records)
-
-    # Filter by date and save, tracking per-source counts
+    # Filter by date, save files, and build health records with article counts
     total_kept = 0
     total_fetched = 0
-    per_source_counts = []  # (source_id, fetched, kept)
+    health_records = []  # (source_id, success, error_message, articles_fetched, articles_kept)
     for source in sources:
         source_id = source["id"]
-        articles = results.get(source_id, [])
+        articles, error = fetch_results.get(source_id, ([], "Source not in results"))
         fetched_count = len(articles)
         if last_run:
             articles = [a for a in articles if (pub := parse_date(a.get("published"))) is None or pub > last_run]
@@ -755,10 +756,12 @@ def fetch_feeds(sources: list[dict]) -> tuple[int, int]:
             json.dump(articles, out_file, indent=2)
         total_kept += kept_count
         total_fetched += fetched_count
-        per_source_counts.append((source_id, fetched_count, kept_count))
+        health_records.append((source_id, error is None, error, fetched_count, kept_count))
+
+    record_source_health(health_records)
 
     # Per-source breakdown (show sources with articles, sorted by kept desc)
-    sources_with_articles = [(sid, f, k) for sid, f, k in per_source_counts if f > 0]
+    sources_with_articles = [(sid, fetched, kept) for sid, _, _, fetched, kept in health_records if fetched > 0]
     if sources_with_articles:
         if last_run:
             print(f"  Filtering after: {last_run.isoformat()} (kept/fetched)", flush=True)
@@ -767,7 +770,7 @@ def fetch_feeds(sources: list[dict]) -> tuple[int, int]:
             print(f"  [{sid}] {kept}/{fetched}", flush=True)
 
     # Summary
-    failed_this_run = [(sid, err) for sid, success, err in health_records if not success]
+    failed_this_run = [(sid, err) for sid, success, err, _, _ in health_records if not success]
     succeeded = len(sources) - len(failed_this_run)
     log(f"Fetched {total_kept}/{total_fetched} articles from {succeeded}/{len(sources)} sources")
 
