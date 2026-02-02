@@ -95,6 +95,10 @@ docker compose up -d digest-server
 
 Access at `http://localhost:8080/YYYY-MM-DD` (e.g., `/2026-01-15`).
 
+With [OrbStack](https://orbstack.dev), set `ORBSTACK_DOMAIN=news-digest.yourdomain.local` in `.env` for automatic local DNS (e.g., `http://news-digest.yourdomain.local/2026-01-15`).
+
+Stats dashboard at `/stats` shows source health, usage metrics, and dedup effectiveness.
+
 ### Scheduling
 
 **Local (cron):**
