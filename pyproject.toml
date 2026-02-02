@@ -8,6 +8,7 @@ dependencies = [
     "resend",
     "premailer",
     "jsonschema",
+    "yoyo-migrations",
 ]
 
 [project.optional-dependencies]

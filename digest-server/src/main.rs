@@ -89,17 +89,50 @@ async fn main() {
     axum::serve(listener, app).await.unwrap();
 }
 
-fn verify_database(path: &str) -> Result<(), String> {
-    let conn = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY)
-        .map_err(|e| format!("Cannot open database: {e}"))?;
+/// Required tables for the server to function
+const REQUIRED_TABLES: &[&str] = &[
+    "digests",
+    "digest_runs",
+    "source_health",
+    "shown_narratives",
+    "dedup_log",
+];
 
-    // Check that digests table exists
-    conn.query_row(
-        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='digests'",
-        [],
-        |_| Ok(()),
-    )
-    .map_err(|_| "Table 'digests' not found".to_string())?;
+/// Check database health - returns list of missing tables (empty if healthy).
+/// Returns `["database"]` if the database file cannot be opened.
+pub fn check_database_health(path: &str) -> Vec<String> {
+    let conn = match Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY) {
+        Ok(c) => c,
+        Err(_) => return vec!["database".to_string()],
+    };
+
+    REQUIRED_TABLES
+        .iter()
+        .filter(|table| {
+            conn.query_row(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?1",
+                [table],
+                |row| row.get::<_, i32>(0),
+            )
+            .is_err()
+        })
+        .map(|t| t.to_string())
+        .collect()
+}
+
+fn verify_database(path: &str) -> Result<(), String> {
+    let missing = check_database_health(path);
+
+    if missing.contains(&"database".to_string()) {
+        return Err(format!("Cannot open database: {path}"));
+    }
+
+    if !missing.is_empty() {
+        return Err(format!(
+            "Missing tables: {}. Run: bin/migrate",
+            missing.join(", ")
+        ));
+    }
 
     Ok(())
 }

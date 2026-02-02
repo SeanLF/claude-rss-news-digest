@@ -1,0 +1,102 @@
+#!/bin/bash
+# Run database migrations
+#
+# Usage:
+#   bin/migrate              # Apply pending migrations
+#   bin/migrate --status     # Show migration status
+#   bin/migrate --dry-run    # Show what would be applied
+#   bin/migrate --mark NAME  # Mark migration as applied without running
+#
+# Local dev:  bin/migrate
+# Production: bin/ssh bin/migrate
+
+set -e
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
+
+# If not in Docker, run via docker compose
+if [[ -z "$IN_DOCKER" ]]; then
+  cd "$PROJECT_DIR"
+  exec docker compose run --rm news-digest bin/migrate "$@"
+fi
+
+# shellcheck source=lib/log.sh
+source "$SCRIPT_DIR/lib/log.sh"
+
+DB_PATH="/app/data/digest.db"
+MIGRATIONS_DIR="/app/migrations"
+DATABASE_URL="sqlite:///$DB_PATH"
+YOYO=".venv/bin/yoyo"
+
+# Ensure data directory exists
+mkdir -p "$(dirname "$DB_PATH")"
+
+# Parse args
+ACTION="apply"
+MARK_NAME=""
+
+while [[ $# -gt 0 ]]; do
+  case $1 in
+    --status) ACTION="status"; shift ;;
+    --dry-run) ACTION="dry-run"; shift ;;
+    --mark)
+      ACTION="mark"
+      MARK_NAME="$2"
+      shift 2
+      ;;
+    -h|--help)
+      echo "Usage: bin/migrate [--status] [--dry-run] [--mark NAME]"
+      echo ""
+      echo "Options:"
+      echo "  --status    Show migration status"
+      echo "  --dry-run   Show pending migrations without applying"
+      echo "  --mark NAME Mark a migration as applied without running it"
+      exit 0
+      ;;
+    *)
+      log_error "Unknown option: $1"
+      exit 1
+      ;;
+  esac
+done
+
+case $ACTION in
+  status)
+    log_step "Migration status:"
+    $YOYO list --database "$DATABASE_URL" "$MIGRATIONS_DIR"
+    ;;
+
+  dry-run)
+    log_step "Pending migrations:"
+    # yoyo uses 'U' for unapplied, 'A' for applied
+    if ! $YOYO list --database "$DATABASE_URL" "$MIGRATIONS_DIR" | grep -qE "^U "; then
+      log_info "None"
+    else
+      $YOYO list --database "$DATABASE_URL" "$MIGRATIONS_DIR" | grep -E "^U "
+    fi
+    ;;
+
+  mark)
+    if [[ -z "$MARK_NAME" ]]; then
+      log_error "--mark requires migration name"
+      exit 1
+    fi
+    log_step "Marking $MARK_NAME as applied..."
+    $YOYO mark --database "$DATABASE_URL" "$MIGRATIONS_DIR" "$MARK_NAME"
+    log_success "Done"
+    ;;
+
+  apply)
+    log_step "Checking pending migrations..."
+    # yoyo uses 'U' for unapplied, 'A' for applied
+    if ! $YOYO list --database "$DATABASE_URL" "$MIGRATIONS_DIR" | grep -qE "^U "; then
+      log_info "No pending migrations"
+      exit 0
+    fi
+
+    log_step "Applying migrations..."
+    $YOYO apply --database "$DATABASE_URL" "$MIGRATIONS_DIR" --batch
+    log_success "Migrations applied"
+    ;;
+esac

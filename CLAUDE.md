@@ -10,16 +10,23 @@ Single file architecture: `run.py`. Runtime data in `data/`.
 
 - **CI**: `bin/ci` - Always runs in Docker for reproducibility. Use `bin/ci --fix` to auto-fix style issues.
 - **Tests only**: `docker compose run --rm --build ci pytest -v`
+- **Migrate**: `bin/migrate` - Apply database migrations (runs in Docker)
 - **Run digest**: `docker compose run --rm news-digest`
 
 ## Database
 
-SQLite at `data/digest.db`:
+SQLite at `data/digest.db`. Schema managed by migrations in `migrations/`.
 
+**Tables:**
 - `digest_runs` - run metadata (run_at, articles_fetched, etc.)
 - `shown_narratives` - headlines shown with tier and source_id (7-day deduplication window)
 - `source_health` - feed fetch results for monitoring
 - `digests` - HTML digest blobs keyed by date
+
+**Migrations:**
+- Run `bin/migrate` to apply pending migrations
+- New migrations: `migrations/YYYYMMDDHHMMSS_description.sql`
+- Production: `bin/ssh bin/migrate`
 
 ## Key Files
 

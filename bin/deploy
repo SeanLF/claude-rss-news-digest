@@ -275,6 +275,36 @@ build_and_push() {
   log_success "Images built and pushed"
 }
 
+run_migrations() {
+  log_step "Running database migrations..."
+
+  if dry_run_skip "bin/ssh bin/migrate"; then
+    return 0
+  fi
+
+  # Check for pending migrations first
+  local status
+  if ! status=$("$SCRIPT_DIR/ssh" bin/migrate --dry-run 2>&1); then
+    log_error "Failed to check migration status"
+    return 1
+  fi
+
+  if echo "$status" | grep -q "None"; then
+    log_info "No pending migrations"
+    return 0
+  fi
+
+  log_info "Pending migrations found"
+
+  if ! "$SCRIPT_DIR/ssh" bin/migrate; then
+    log_error "Migration failed! Aborting deploy."
+    log_error "Containers NOT updated."
+    return 1
+  fi
+
+  log_success "Migrations applied"
+}
+
 apply_terraform() {
   log_step "Applying Terraform..."
   dry_run_skip "$INFRA_DIR/bin/tf apply" && return 0
@@ -340,6 +370,7 @@ main() {
     echo ""
     echo "About to:"
     [[ $SKIP_BUILD == false ]] && echo "  - Build and push Docker images"
+    echo "  - Run database migrations"
     echo "  - Apply Terraform (news_digest_env, digest_server)"
     echo ""
     read -p "Continue? [y/N] " -n 1 -r
@@ -348,6 +379,7 @@ main() {
   fi
 
   build_and_push
+  run_migrations || exit 1
   apply_terraform
   tag_deployment
 

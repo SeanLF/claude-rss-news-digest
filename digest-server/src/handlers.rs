@@ -1,14 +1,15 @@
 use axum::{
-    Form,
+    Form, Json,
     extract::{Path, Query, State},
     http::StatusCode,
-    response::{Html, Redirect},
+    response::{Html, IntoResponse, Redirect},
 };
 use rusqlite::{Connection, OpenFlags};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
 use crate::AppState;
+use crate::check_database_health;
 use crate::templates::{DIGEST_NAV_CSS, DIGEST_NAV_HTML, render_index};
 use crate::util::{format_date, is_valid_date, log_row_error};
 
@@ -158,43 +159,56 @@ pub async fn subscribe(
     Ok(Redirect::to("/?subscribed=1"))
 }
 
-/// Health check endpoint - verifies DB is accessible
-pub async fn health(
-    State(state): State<Arc<AppState>>,
-) -> Result<&'static str, (StatusCode, String)> {
-    let conn = Connection::open_with_flags(&state.db_path, OpenFlags::SQLITE_OPEN_READ_ONLY)
-        .map_err(|e| (StatusCode::SERVICE_UNAVAILABLE, format!("DB error: {e}")))?;
+#[derive(Serialize)]
+struct HealthResponse {
+    status: &'static str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    missing_tables: Option<Vec<String>>,
+}
 
-    conn.query_row("SELECT 1", [], |_| Ok(())).map_err(|e| {
+/// Health check endpoint - verifies DB is accessible and schema is complete
+pub async fn health(State(state): State<Arc<AppState>>) -> impl IntoResponse {
+    let missing = check_database_health(&state.db_path);
+
+    if missing.is_empty() {
+        (
+            StatusCode::OK,
+            Json(HealthResponse {
+                status: "healthy",
+                missing_tables: None,
+            }),
+        )
+    } else {
         (
             StatusCode::SERVICE_UNAVAILABLE,
-            format!("DB query failed: {e}"),
+            Json(HealthResponse {
+                status: "degraded",
+                missing_tables: Some(missing),
+            }),
         )
-    })?;
-
-    Ok("ok")
+    }
 }
 
 /// Serve digest HTML by date (YYYY-MM-DD)
 pub async fn get_digest(
     Path(date): Path<String>,
     State(state): State<Arc<AppState>>,
-) -> Result<Html<String>, (StatusCode, String)> {
+) -> Result<Html<String>, (StatusCode, &'static str)> {
     // Validate date format: exactly YYYY-MM-DD
     if !is_valid_date(&date) {
-        return Err((StatusCode::BAD_REQUEST, "Invalid date format".into()));
+        return Err((StatusCode::BAD_REQUEST, "Invalid date format"));
     }
 
     // Open database read-only
     let conn = Connection::open_with_flags(&state.db_path, OpenFlags::SQLITE_OPEN_READ_ONLY)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {e}")))?;
+        .map_err(|_| (StatusCode::SERVICE_UNAVAILABLE, "Digest unavailable"))?;
 
     // Query for digest HTML
     let html: String = conn
         .query_row("SELECT html FROM digests WHERE date = ?1", [&date], |row| {
             row.get(0)
         })
-        .map_err(|_| (StatusCode::NOT_FOUND, format!("No digest for {date}")))?;
+        .map_err(|_| (StatusCode::NOT_FOUND, "Digest not found"))?;
 
     // Insert CSS before </head> and nav after <body>
     let html = html.replacen("</head>", &format!("{DIGEST_NAV_CSS}</head>"), 1);

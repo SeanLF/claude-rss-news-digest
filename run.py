@@ -149,96 +149,28 @@ def validate_env(dry_run: bool = False):
 # Database
 # =============================================================================
 
-DB_SCHEMA = """
-CREATE TABLE IF NOT EXISTS digest_runs (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    run_at DATETIME DEFAULT (datetime('now', 'utc')),
-    articles_fetched INTEGER,
-    articles_emailed INTEGER
-);
 
-CREATE TABLE IF NOT EXISTS shown_narratives (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    headline TEXT NOT NULL,
-    tier TEXT,
-    source_id TEXT,
-    shown_at DATETIME DEFAULT (datetime('now', 'utc'))
-);
+def check_pending_migrations() -> list[str]:
+    """Return list of pending migration IDs. Empty list if all applied."""
+    from yoyo import get_backend, read_migrations
 
-CREATE TABLE IF NOT EXISTS source_health (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    source_id TEXT NOT NULL,
-    success INTEGER NOT NULL,
-    error_message TEXT,
-    articles_fetched INTEGER,
-    articles_kept INTEGER,
-    recorded_at DATETIME DEFAULT (datetime('now', 'utc'))
-);
+    backend = get_backend(f"sqlite:///{DB_PATH}")
+    migrations = read_migrations(str(Path(__file__).parent / "migrations"))
+    pending = backend.to_apply(migrations)
 
-CREATE TABLE IF NOT EXISTS digests (
-    date TEXT PRIMARY KEY,
-    html TEXT NOT NULL,
-    created_at DATETIME DEFAULT (datetime('now', 'utc'))
-);
-
-CREATE TABLE IF NOT EXISTS dedup_log (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    logged_at DATETIME DEFAULT (datetime('now', 'utc')),
-    article_title TEXT NOT NULL,
-    article_source_id TEXT,
-    matched_headline TEXT NOT NULL,
-    similarity REAL NOT NULL,
-    threshold REAL NOT NULL,
-    action TEXT NOT NULL
-);
-
-CREATE INDEX IF NOT EXISTS idx_shown_narratives_date ON shown_narratives(shown_at);
-CREATE INDEX IF NOT EXISTS idx_shown_narratives_source ON shown_narratives(source_id);
-CREATE INDEX IF NOT EXISTS idx_digest_runs_date ON digest_runs(run_at);
-CREATE INDEX IF NOT EXISTS idx_source_health_source ON source_health(source_id, recorded_at);
-CREATE INDEX IF NOT EXISTS idx_digests_date ON digests(date);
-CREATE INDEX IF NOT EXISTS idx_dedup_log_date ON dedup_log(logged_at);
-"""
+    return [m.id for m in pending]
 
 
 def init_db():
-    """Initialize or migrate database."""
+    """Verify database exists and schema is current. Schema managed by bin/migrate."""
     DATA_DIR.mkdir(exist_ok=True)
 
-    with sqlite3.connect(DB_PATH) as conn:
-        # Create tables if they don't exist
-        conn.executescript(DB_SCHEMA)
+    if not DB_PATH.exists():
+        raise RuntimeError("Database not found. Run: bin/migrate")
 
-        # Migrate: add articles_emailed if missing (old schema had different columns)
-        cursor = conn.execute("PRAGMA table_info(digest_runs)")
-        columns = {row[1] for row in cursor.fetchall()}
-
-        if "articles_emailed" not in columns:
-            try:
-                log("Migrating database: adding articles_emailed column...")
-                conn.execute("ALTER TABLE digest_runs ADD COLUMN articles_emailed INTEGER DEFAULT 0")
-                conn.commit()
-            except sqlite3.Error as e:
-                log(f"Migration failed: {e}", "ERROR")
-                conn.rollback()
-                raise
-
-        # Migrate: add source_id to shown_narratives if missing
-        cursor = conn.execute("PRAGMA table_info(shown_narratives)")
-        columns = {row[1] for row in cursor.fetchall()}
-
-        if "source_id" not in columns:
-            try:
-                log("Migrating database: adding source_id column to shown_narratives...")
-                conn.execute("ALTER TABLE shown_narratives ADD COLUMN source_id TEXT")
-                conn.commit()
-            except sqlite3.Error as e:
-                log(f"Migration failed: {e}", "ERROR")
-                conn.rollback()
-                raise
-
-        # Migrate: remove old unused columns by ignoring them (SQLite can't drop columns easily)
-        # Old columns (timezone, narratives_presented) will just be ignored
+    pending = check_pending_migrations()
+    if pending:
+        raise RuntimeError(f"Pending migrations: {', '.join(pending)}\nRun: bin/migrate")
 
 
 def get_last_run_time() -> datetime | None:
