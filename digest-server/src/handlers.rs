@@ -10,7 +10,7 @@ use std::sync::Arc;
 
 use crate::AppState;
 use crate::templates::{DIGEST_NAV_CSS, DIGEST_NAV_HTML, render_index};
-use crate::util::{format_date, is_valid_date};
+use crate::util::{format_date, is_valid_date, log_row_error};
 
 #[derive(Deserialize)]
 pub struct SubscribeForm {
@@ -53,7 +53,7 @@ pub async fn index(
                 format!("Query error: {e}"),
             )
         })?
-        .filter_map(|r| r.ok())
+        .filter_map(|r| log_row_error(r, "digests"))
         .collect();
 
     let links: String = dates

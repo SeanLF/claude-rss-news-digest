@@ -1,3 +1,16 @@
+use tracing::warn;
+
+/// Log row parsing errors and filter them out (returns None on error)
+pub fn log_row_error<T, E: std::fmt::Debug>(result: Result<T, E>, table: &str) -> Option<T> {
+    match result {
+        Ok(v) => Some(v),
+        Err(e) => {
+            warn!("Failed to parse {} row: {:?}", table, e);
+            None
+        }
+    }
+}
+
 /// Format date from YYYY-MM-DD to "Friday, January 17"
 pub fn format_date(date_str: &str) -> String {
     let parts: Vec<&str> = date_str.split('-').collect();
@@ -49,6 +62,15 @@ pub fn format_date(date_str: &str) -> String {
     format!("{}, {} {}", days[dow], months[month as usize], day)
 }
 
+/// Escape HTML special characters for safe rendering
+pub fn escape_html(s: &str) -> String {
+    s.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+        .replace('\'', "&#x27;")
+}
+
 /// Validate date is exactly YYYY-MM-DD format with valid numbers
 pub fn is_valid_date(s: &str) -> bool {
     let parts: Vec<&str> = s.split('-').collect();
@@ -65,6 +87,24 @@ pub fn is_valid_date(s: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    mod escape_html_tests {
+        use super::*;
+
+        #[test]
+        fn escapes_special_chars() {
+            assert_eq!(escape_html("<script>"), "&lt;script&gt;");
+            assert_eq!(escape_html("a & b"), "a &amp; b");
+            assert_eq!(escape_html("\"quoted\""), "&quot;quoted&quot;");
+            assert_eq!(escape_html("it's"), "it&#x27;s");
+        }
+
+        #[test]
+        fn preserves_safe_chars() {
+            assert_eq!(escape_html("hello_world"), "hello_world");
+            assert_eq!(escape_html("foo-bar"), "foo-bar");
+        }
+    }
 
     mod is_valid_date_tests {
         use super::*;

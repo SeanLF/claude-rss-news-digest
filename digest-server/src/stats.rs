@@ -9,6 +9,7 @@ use std::sync::Arc;
 
 use crate::AppState;
 use crate::templates::render_stats;
+use crate::util::log_row_error;
 
 #[derive(Deserialize, Default)]
 pub struct StatsQuery {
@@ -100,7 +101,7 @@ pub fn fetch_stats_data(db_path: &str, days: u32) -> Result<StatsData, (StatusCo
                 format!("Query error: {e}"),
             )
         })?
-        .filter_map(|r| r.ok())
+        .filter_map(|r| log_row_error(r, "source_health"))
         .collect()
     };
 
@@ -135,7 +136,7 @@ pub fn fetch_stats_data(db_path: &str, days: u32) -> Result<StatsData, (StatusCo
                 format!("Query error: {e}"),
             )
         })?
-        .filter_map(|r| r.ok())
+        .filter_map(|r| log_row_error(r, "shown_narratives"))
         .collect()
     };
 
@@ -168,7 +169,7 @@ pub fn fetch_stats_data(db_path: &str, days: u32) -> Result<StatsData, (StatusCo
                 format!("Query error: {e}"),
             )
         })?
-        .filter_map(|r| r.ok())
+        .filter_map(|r| log_row_error(r, "digest_runs"))
         .collect()
     };
 
@@ -227,7 +228,7 @@ pub fn fetch_stats_data(db_path: &str, days: u32) -> Result<StatsData, (StatusCo
                     format!("Query error: {e}"),
                 )
             })?
-            .filter_map(|r| r.ok())
+            .filter_map(|r| log_row_error(r, "source_health"))
             .collect()
     };
 

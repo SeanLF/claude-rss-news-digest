@@ -3,6 +3,7 @@
 use std::collections::HashMap;
 
 use crate::stats::StatsData;
+use crate::util::escape_html;
 
 /// Render the stats dashboard page
 pub fn render_stats(name: &str, css_link: &str, days: u32, data: &StatsData) -> String {
@@ -245,7 +246,11 @@ fn build_health_rows(data: &StatsData) -> String {
                     <td>{}</td>
                     <td class="{}">{:.0}%</td>
                 </tr>"#,
-                h.source_id, h.total_fetches, h.successes, status_class, h.success_rate_pct
+                escape_html(&h.source_id),
+                h.total_fetches,
+                h.successes,
+                status_class,
+                h.success_rate_pct
             )
         })
         .collect()
@@ -286,7 +291,11 @@ fn build_usage_rows(data: &StatsData) -> String {
                     <td>{}</td>
                     <td><strong>{}</strong></td>
                 </tr>"#,
-                source_id, must, should, other, total
+                escape_html(source_id),
+                must,
+                should,
+                other,
+                total
             )
         })
         .collect()
@@ -331,9 +340,7 @@ fn build_never_selected(data: &StatsData) -> String {
     if data.never_selected.is_empty() {
         r#"<p class="empty">All sources have been selected at least once</p>"#.to_string()
     } else {
-        format!(
-            r#"<p class="source-list">{}</p>"#,
-            data.never_selected.join(", ")
-        )
+        let escaped: Vec<String> = data.never_selected.iter().map(|s| escape_html(s)).collect();
+        format!(r#"<p class="source-list">{}</p>"#, escaped.join(", "))
     }
 }
