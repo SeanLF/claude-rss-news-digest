@@ -348,11 +348,21 @@ struct DigestRun {
     articles_emailed: i64,
 }
 
+#[derive(Clone)]
+struct DedupStats {
+    filtered_count: i64,
+    avg_similarity: f64,
+    min_similarity: f64,
+    max_similarity: f64,
+}
+
 struct StatsData {
     period_days: u32,
     source_health: Vec<SourceHealth>,
     source_usage: Vec<SourceUsage>,
     recent_runs: Vec<DigestRun>,
+    dedup_stats: Option<DedupStats>,
+    never_selected: Vec<String>,
 }
 
 /// Fetch stats data from database
@@ -473,11 +483,72 @@ fn fetch_stats_data(db_path: &str, days: u32) -> Result<StatsData, (StatusCode, 
         .collect()
     };
 
+    // Dedup stats: how effective is the TF-IDF filter
+    let dedup_stats: Option<DedupStats> = conn
+        .query_row(
+            "SELECT COUNT(*) as filtered,
+                    AVG(similarity) as avg_sim,
+                    MIN(similarity) as min_sim,
+                    MAX(similarity) as max_sim
+             FROM dedup_log
+             WHERE logged_at >= datetime('now', '-' || ?1 || ' days')",
+            [days],
+            |row| {
+                let count: i64 = row.get(0)?;
+                if count == 0 {
+                    Ok(None)
+                } else {
+                    Ok(Some(DedupStats {
+                        filtered_count: count,
+                        avg_similarity: row.get(1)?,
+                        min_similarity: row.get(2)?,
+                        max_similarity: row.get(3)?,
+                    }))
+                }
+            },
+        )
+        .unwrap_or(None);
+
+    // Never-selected sources: in source_health but not in shown_narratives
+    let never_selected: Vec<String> = {
+        let mut stmt = conn
+            .prepare(
+                "SELECT DISTINCT h.source_id
+                 FROM source_health h
+                 WHERE h.recorded_at >= datetime('now', '-' || ?1 || ' days')
+                   AND h.source_id NOT IN (
+                       SELECT DISTINCT source_id
+                       FROM shown_narratives
+                       WHERE source_id IS NOT NULL
+                         AND shown_at >= datetime('now', '-' || ?1 || ' days')
+                   )
+                 ORDER BY h.source_id",
+            )
+            .map_err(|e| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    format!("Query error: {e}"),
+                )
+            })?;
+
+        stmt.query_map([days], |row| row.get(0))
+            .map_err(|e| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    format!("Query error: {e}"),
+                )
+            })?
+            .filter_map(|r| r.ok())
+            .collect()
+    };
+
     Ok(StatsData {
         period_days: days,
         source_health,
         source_usage,
         recent_runs,
+        dedup_stats,
+        never_selected,
     })
 }
 
@@ -526,11 +597,22 @@ async fn stats_json(
         })
         .collect();
 
+    let dedup_stats = data.dedup_stats.as_ref().map(|d| {
+        serde_json::json!({
+            "filtered_count": d.filtered_count,
+            "avg_similarity": d.avg_similarity,
+            "min_similarity": d.min_similarity,
+            "max_similarity": d.max_similarity
+        })
+    });
+
     Ok(axum::Json(serde_json::json!({
         "period_days": data.period_days,
         "source_health": source_health,
         "source_usage": source_usage,
-        "recent_runs": recent_runs
+        "recent_runs": recent_runs,
+        "dedup_stats": dedup_stats,
+        "never_selected": data.never_selected
     })))
 }
 
@@ -635,6 +717,30 @@ async fn stats_html(
             .collect()
     };
 
+    // Build dedup stats row
+    let dedup_row: String = match &data.dedup_stats {
+        Some(d) => format!(
+            r#"<tr>
+                <td>{}</td>
+                <td>{:.2}</td>
+                <td>{:.2}</td>
+                <td>{:.2}</td>
+            </tr>"#,
+            d.filtered_count, d.avg_similarity, d.min_similarity, d.max_similarity
+        ),
+        None => r#"<tr><td colspan="4" class="empty">No dedup data yet</td></tr>"#.to_string(),
+    };
+
+    // Build never-selected list
+    let never_selected_content: String = if data.never_selected.is_empty() {
+        r#"<p class="empty">All sources have been selected at least once</p>"#.to_string()
+    } else {
+        format!(
+            r#"<p class="source-list">{}</p>"#,
+            data.never_selected.join(", ")
+        )
+    };
+
     let html = format!(
         r##"<!DOCTYPE html>
 <html lang="en">
@@ -730,6 +836,16 @@ async fn stats_html(
     .back-link:hover {{
       color: var(--ruby-red);
     }}
+    .section-note {{
+      color: var(--text-tertiary);
+      font-size: 0.875rem;
+      margin-bottom: 0.75rem;
+    }}
+    .source-list {{
+      color: var(--text-secondary);
+      font-size: 0.875rem;
+      line-height: 1.6;
+    }}
     @media (max-width: 600px) {{
       table {{
         font-size: 0.75rem;
@@ -801,6 +917,29 @@ async fn stats_html(
           {runs_rows}
         </tbody>
       </table>
+    </section>
+
+    <section>
+      <h2>Dedup Effectiveness</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>Articles Filtered</th>
+            <th>Avg Similarity</th>
+            <th>Min</th>
+            <th>Max</th>
+          </tr>
+        </thead>
+        <tbody>
+          {dedup_row}
+        </tbody>
+      </table>
+    </section>
+
+    <section>
+      <h2>Never Selected</h2>
+      <p class="section-note">Sources fetched but never included in digests</p>
+      {never_selected_content}
     </section>
   </div>
 </body>
