@@ -169,6 +169,25 @@ The MCP server needs access to dependencies in the venv. Check `.mcp.json` uses 
 ```
 Using `python3` instead will fail because venv deps aren't available to global Python.
 
+## Database
+
+SQLite database at `data/digest.db`. Migrations managed via [yoyo-migrations](https://ollycope.com/software/yoyo/latest/).
+
+```bash
+# Apply pending migrations (runs in Docker)
+bin/migrate
+
+# Check migration status
+bin/migrate --status
+
+# Preview without applying
+bin/migrate --dry-run
+```
+
+On first run, `bin/migrate` creates the database and applies the baseline schema.
+
+Production migrations run automatically during `bin/deploy`.
+
 ## Development
 
 ```bash
