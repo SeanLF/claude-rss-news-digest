@@ -32,28 +32,18 @@ struct ResendContact {
 pub async fn index(
     State(state): State<Arc<AppState>>,
     Query(query): Query<IndexQuery>,
-) -> Result<Html<String>, (StatusCode, String)> {
+) -> Result<Html<String>, (StatusCode, &'static str)> {
     let conn = Connection::open_with_flags(&state.db_path, OpenFlags::SQLITE_OPEN_READ_ONLY)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {e}")))?;
+        .map_err(|_| (StatusCode::SERVICE_UNAVAILABLE, "Service unavailable"))?;
 
     // Get list of available digests (most recent first)
     let mut stmt = conn
         .prepare("SELECT date FROM digests ORDER BY date DESC LIMIT 30")
-        .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("Query error: {e}"),
-            )
-        })?;
+        .map_err(|_| (StatusCode::SERVICE_UNAVAILABLE, "Service unavailable"))?;
 
     let dates: Vec<String> = stmt
         .query_map([], |row| row.get(0))
-        .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("Query error: {e}"),
-            )
-        })?
+        .map_err(|_| (StatusCode::SERVICE_UNAVAILABLE, "Service unavailable"))?
         .filter_map(|r| log_row_error(r, "digests"))
         .collect();
 
