@@ -1855,8 +1855,9 @@ Examples:
     args = parser.parse_args()
 
     # --dry-run is shorthand for --no-email --no-record
-    skip_email = args.dry_run or args.no_email
-    skip_record = args.dry_run or args.no_record
+    # --select-only also doesn't need email (stops after Pass 1)
+    skip_email = args.dry_run or args.no_email or args.select_only
+    skip_record = args.dry_run or args.no_record or args.select_only
 
     # Test email mode - verify Resend config works
     if args.test_email:
@@ -1954,7 +1955,7 @@ Examples:
         send_health_alert(persistently_failing, failed_count, len(sources))
 
     # Prepare input for Claude (articles + previous headlines)
-    prepare_claude_input(sources, dry_run=skip_email)
+    prepare_claude_input(sources, dry_run=args.dry_run)  # Only limit articles for actual --dry-run
 
     # Pass 1: Select stories (Claude)
     generate_selections()

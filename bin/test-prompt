@@ -1,0 +1,35 @@
+#!/bin/bash
+# Test harness for prompt experiments
+#
+# Usage:
+#   bin/test-prompt snapshot              # Save today's input
+#   bin/test-prompt list                  # List snapshots
+#   bin/test-prompt run baseline          # Run with default settings
+#   bin/test-prompt run baseline --model opus
+#   bin/test-prompt run baseline --context headlines
+#   bin/test-prompt run baseline --date 2026-02-01
+#   bin/test-prompt diff <run1> <run2>    # Compare two runs
+#   bin/test-prompt runs                  # List all runs
+#
+# Local dev:  bin/test-prompt
+# Production: Not intended for production use
+
+set -e
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
+
+# If not in Docker, run via docker compose
+# Use ci service (mounts code for live changes) with news-digest env vars
+if [[ -z "$IN_DOCKER" ]]; then
+  cd "$PROJECT_DIR"
+  # shellcheck disable=SC1091
+  source .env 2>/dev/null || true
+  exec docker compose run --rm \
+    -e CLAUDE_CODE_OAUTH_TOKEN \
+    --entrypoint python3 \
+    ci test_prompt.py "$@"
+fi
+
+# In Docker, delegate to Python
+exec python3 test_prompt.py "$@"

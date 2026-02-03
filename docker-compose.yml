@@ -19,6 +19,7 @@ services:
       - ./data:/app/data
       - ./.claude:/home/appuser/.claude
       - ./digest.css:/app/digest.css:ro
+      - ./prompts:/app/prompts:ro
 
   ci:
     build: .

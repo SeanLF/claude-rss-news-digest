@@ -37,7 +37,7 @@ COPY pyproject.toml ./
 RUN uv venv .venv && uv pip install --python .venv -r pyproject.toml
 
 # Copy application and create data directory
-COPY run.py sources.json digest.css digest-template.html mcp_server.py .mcp.json ./
+COPY run.py test_prompt.py sources.json digest.css digest-template.html mcp_server.py .mcp.json ./
 COPY migrations/ ./migrations/
 COPY bin/ ./bin/
 COPY .claude/commands/ /home/appuser/.claude/commands/

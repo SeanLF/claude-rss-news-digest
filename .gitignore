@@ -7,6 +7,10 @@ CLAUDE.local.md
 # Runtime data
 data/
 
+# Test harness (snapshots and runs are under data/)
+# Experimental prompts - baseline is the production slash command
+prompts/
+
 # macOS
 .DS_Store
 
