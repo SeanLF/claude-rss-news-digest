@@ -23,56 +23,53 @@ Eliminating Pass 2 saved ~50% of runtime.
 
 ## selections.json Schema
 
-Claude outputs this; Python renders it to HTML.
+Claude outputs this via MCP tool; Python renders it to HTML. Schema enforced with `additionalProperties: false` so Claude retries on validation errors.
 
 ```json
 {
   "must_know": [
     {
-      "headline": "string",
-      "summary": "string",
-      "why_it_matters": "string",
-      "reporting_varies": [
-        {"source": "string", "angle": "string", "bias": "string"}
-      ],
+      "headline": "Sentence case headline",
+      "summary": "2-3 sentence summary",
+      "why_it_matters": "1-2 sentence insight",
       "sources": [
-        {"name": "string", "url": "string", "bias": "string"}
+        {"name": "Source Name", "url": "https://...", "bias": "center"}
+      ],
+      "reporting_varies": [
+        {"source": "Source", "angle": "Their take", "bias": "center-left"}
       ]
     }
   ],
-  "should_know": [],
-  "quick_signals": [
+  "should_know": [
     {
-      "headline": "string",
-      "source": {"name": "string", "url": "string", "bias": "string"}
+      "headline": "...",
+      "summary": "...",
+      "why_it_matters": "...",
+      "sources": [...]
     }
   ],
-  "below_fold": {
-    "americas": [{"headline": "string", "source": {...}}],
+  "signals": {
+    "americas": [{"headline": "One-liner", "source": {...}}],
     "europe": [],
     "asia_pacific": [],
     "middle_east_africa": [],
     "tech": []
   },
   "regional_summary": {
-    "americas": "string with [markdown](url) links",
+    "americas": "Narrative with [inline](url) markdown links",
     "europe": "...",
     "asia_pacific": "...",
     "middle_east_africa": "...",
     "tech": "..."
-  },
-  "stats": {
-    "articles_reviewed": 847,
-    "sources_used": 34,
-    "stories_selected": 58
   }
 }
 ```
 
 **Notes:**
-- `reporting_varies` is optional (only on `must_know`)
-- `should_know` has same structure as `must_know` but no `reporting_varies`
-- Empty `below_fold` clusters are skipped in rendering
+- `reporting_varies` is optional (only when sources frame story differently)
+- `bias` enum: left, center-left, center, center-right, right
+- Empty `signals` regions are skipped in rendering
+- All four top-level keys required
 
 ## Claude Authentication
 

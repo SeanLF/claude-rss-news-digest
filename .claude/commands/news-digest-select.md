@@ -1,4 +1,4 @@
-# News Digest - Pass 1: Selection
+# News Digest - Selection
 
 ## Task
 

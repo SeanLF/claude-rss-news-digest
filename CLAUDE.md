@@ -16,6 +16,7 @@ Automated news digest: RSS feeds → Claude curation → HTML email via Resend.
 - **Tests only**: `docker compose run --rm --build ci pytest -v newsroom/tests/`
 - **Migrate**: `bin/migrate` - Apply database migrations (runs in Docker)
 - **Run digest**: `docker compose run --rm digest-newsroom`
+- **Test prompts**: `bin/test-prompt run baseline --model opus` - Prompt experiment harness
 
 ## Database
 
@@ -34,7 +35,8 @@ SQLite at `data/digest.db`. Schema managed by migrations in `migrations/`.
 
 ## Key Files
 
-- `newsroom/src/run.py` - main pipeline (Claude selects → Python renders)
+- `newsroom/src/run.py` - CLI + pipeline orchestration (delegates to focused modules)
+- `newsroom/src/` - modules: config, feeds, prepare, claude, digest, render, broadcast, db, utils
 - `.claude/commands/news-digest-select.md` - Claude prompt for story selection
 - `newsroom/templates/digest-template.html` - HTML template for digest output
 - `newsroom/templates/digest.css` - CSS styles (minified and injected at runtime)

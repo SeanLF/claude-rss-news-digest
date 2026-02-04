@@ -56,8 +56,8 @@ Examples:
   python run.py --dry-run          # Generate but don't email or record
   python run.py --no-email         # Generate and record, but don't email
   python run.py --no-record        # Generate and email, but don't record
-  python run.py --select-only      # Run Pass 1 only (create selections.json)
-  python run.py --write-only       # Run Pass 2 only (use existing selections.json)
+  python run.py --select-only      # Run selection only (create selections.json)
+  python run.py --write-only       # Run rendering only (use existing selections.json)
   python run.py --send-only        # Send latest digest (retry after failure)
   python run.py --preview          # Open latest digest in browser
   python run.py --test-email you@example.com  # Test Resend config
@@ -68,8 +68,8 @@ Examples:
     parser.add_argument("--dry-run", action="store_true", help="Fetch and generate only (no email, no DB record)")
     parser.add_argument("--no-email", action="store_true", help="Skip sending email (still records to DB)")
     parser.add_argument("--no-record", action="store_true", help="Skip recording to DB (still sends email)")
-    parser.add_argument("--select-only", action="store_true", help="Run Pass 1 only (selection)")
-    parser.add_argument("--write-only", action="store_true", help="Run Pass 2 only (writing)")
+    parser.add_argument("--select-only", action="store_true", help="Run selection only (create selections.json)")
+    parser.add_argument("--write-only", action="store_true", help="Run rendering only (use existing selections.json)")
     parser.add_argument("--send-only", action="store_true", help="Send latest digest without fetching/generating")
     parser.add_argument("--preview", action="store_true", help="Open latest digest in browser")
     parser.add_argument("--test-email", metavar="EMAIL", help="Send test email and exit")
@@ -172,7 +172,7 @@ Examples:
     selections = load_selections(CLAUDE_INPUT_DIR / "selections.json", log_fn=log)
 
     if args.select_only:
-        log("Select-only mode: stopping after Pass 1")
+        log("Select-only mode: stopping after selection")
         return 0
 
     digest = write_digest(selections, TEMPLATE_FILE, log_fn=log)

@@ -16,14 +16,14 @@ Automated daily news digest powered by Claude. Fetches from diverse RSS sources,
 ```
 news-digest/
 ├── newsroom/           # Python pipeline
-│   ├── src/            # Main source code (run.py, mcp_server.py)
+│   ├── src/            # Modules: run, feeds, prepare, claude, digest, render, broadcast, db
 │   ├── templates/      # HTML template and CSS
 │   ├── tests/          # Python tests
 │   └── sources.json    # RSS feed definitions
 ├── circulation/        # Rust web server for archive viewing
 ├── data/               # Runtime data (database, logs)
 ├── migrations/         # SQLite schema migrations
-└── bin/                # CLI scripts
+└── bin/                # CLI scripts (ci, migrate, test-prompt, deploy)
 ```
 
 ## Prerequisites

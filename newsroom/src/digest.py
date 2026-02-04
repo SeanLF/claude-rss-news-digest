@@ -23,7 +23,7 @@ def load_selections(selections_file: Path, log_fn=None) -> dict:
         RuntimeError: If file is missing or invalid JSON
     """
     if not selections_file.exists():
-        raise RuntimeError("selections.json not found - Pass 1 failed to create output")
+        raise RuntimeError("selections.json not found - Claude failed to create output")
 
     try:
         with open(selections_file) as f:
@@ -43,7 +43,7 @@ def load_selections(selections_file: Path, log_fn=None) -> dict:
         log_fn(f"Only {should_know} should_know stories (expected 5+)", "WARN")
 
     if log_fn:
-        log_fn(f"Pass 1 complete: {must_know + should_know + signals_count} stories selected")
+        log_fn(f"Selection complete: {must_know + should_know + signals_count} stories")
 
     return selections
 

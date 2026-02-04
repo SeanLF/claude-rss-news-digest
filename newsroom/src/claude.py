@@ -47,8 +47,8 @@ def run_claude_command(command: str, description: str, mcp_config: str | None = 
 
 
 def generate_selections(log_fn=None):
-    """Pass 1: Run Claude to select and curate stories."""
-    run_claude_command("/news-digest-select", "Pass 1: Selecting stories", mcp_config=".mcp.json", log_fn=log_fn)
+    """Run Claude to select and curate stories."""
+    run_claude_command("/news-digest-select", "Selecting stories", mcp_config=".mcp.json", log_fn=log_fn)
 
 
 def health_check(log_fn=None) -> int:
