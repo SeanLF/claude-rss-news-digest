@@ -2,7 +2,7 @@
   "mcpServers": {
     "news-digest": {
       "command": ".venv/bin/python",
-      "args": ["mcp_server.py"]
+      "args": ["src/mcp_server.py"]
     }
   }
 }

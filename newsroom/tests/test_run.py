@@ -3,8 +3,8 @@
 import sys
 from pathlib import Path
 
-# Add parent to path so we can import run
-sys.path.insert(0, str(Path(__file__).parent.parent))
+# Add src/ to path so we can import run
+sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 from run import (
     TfidfMatcher,

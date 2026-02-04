@@ -5,10 +5,10 @@ This document covers deploying news-digest to a production server. The main [REA
 ## Architecture
 
 - **Systemd timer** - Runs daily at configured time (e.g., 07:00 UTC)
-- **Docker containers** - news-digest (cron job) + digest-server (web archive)
+- **Docker containers** - digest-newsroom (cron job) + digest-circulation (web archive)
 - **SQLite database** - Persisted in Docker volume
 - **Claude OAuth** - Uses Pro subscription credentials (refreshed automatically)
-- **digest-server** - Optional web server for "View in browser" links
+- **digest-circulation** - Optional web server for "View in browser" links
 
 ## Terraform Variables
 
@@ -60,7 +60,7 @@ variable "news_digest_author_url" {
 }
 
 variable "news_digest_css_url" {
-  description = "External CSS URL for digest-server styling"
+  description = "External CSS URL for digest-circulation styling"
   default     = ""
 }
 ```
@@ -70,11 +70,11 @@ variable "news_digest_css_url" {
 Build and push images to your registry:
 
 ```bash
-# news-digest (main pipeline)
-docker buildx build --platform linux/amd64 -t YOUR_REGISTRY/news-digest:latest --push .
+# digest-newsroom (main pipeline)
+docker buildx build --platform linux/amd64 -t YOUR_REGISTRY/digest-newsroom:latest --push . -f newsroom/Dockerfile
 
-# digest-server (web archive)
-docker buildx build --platform linux/amd64 -t YOUR_REGISTRY/digest-server:latest --push ./digest-server
+# digest-circulation (web archive)
+docker buildx build --platform linux/amd64 -t YOUR_REGISTRY/digest-circulation:latest --push ./circulation
 ```
 
 ## Systemd Service
@@ -89,7 +89,7 @@ Requires=docker.service
 
 [Service]
 Type=oneshot
-ExecStart=/usr/bin/docker compose -f /opt/news-digest/docker-compose.yml run --rm news-digest
+ExecStart=/usr/bin/docker compose -f /opt/news-digest/docker-compose.yml run --rm digest-newsroom
 WorkingDirectory=/opt/news-digest
 
 [Install]
@@ -126,7 +126,7 @@ CLAUDE_CODE_OAUTH_TOKEN=sk-ant-oat01-...
 
 The token is passed via environment variable - no credentials file needed.
 
-## digest-server Container
+## digest-circulation Container
 
 Environment variables for the web archive server:
 

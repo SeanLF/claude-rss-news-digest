@@ -18,7 +18,7 @@ PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 # If not in Docker, run via docker compose
 if [[ -z "$IN_DOCKER" ]]; then
   cd "$PROJECT_DIR"
-  exec docker compose run --rm news-digest bin/migrate "$@"
+  exec docker compose run --rm digest-newsroom bin/migrate "$@"
 fi
 
 # shellcheck source=lib/log.sh

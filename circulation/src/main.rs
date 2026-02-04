@@ -83,7 +83,7 @@ async fn main() {
         .layer(TraceLayer::new_for_http())
         .with_state(state);
 
-    tracing::info!("digest-server listening on {}", addr);
+    tracing::info!("digest-circulation listening on {}", addr);
 
     let listener = tokio::net::TcpListener::bind(&addr).await.unwrap();
     axum::serve(listener, app).await.unwrap();

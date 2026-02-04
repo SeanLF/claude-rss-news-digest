@@ -1,5 +1,5 @@
 [package]
-name = "digest-server"
+name = "digest-circulation"
 version = "0.1.0"
 edition = "2024"
 

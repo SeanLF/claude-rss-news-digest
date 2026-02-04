@@ -251,12 +251,17 @@ tag_deployment() {
 # ============================================
 
 build_and_push_image() {
-  local name="$1" context="$2"
+  local name="$1" context="$2" dockerfile="$3"
   local tag="$REGISTRY/$name:latest"
 
   log_step "Building $name..."
-  run_or_skip "docker buildx build $name" \
-    docker buildx build --platform linux/amd64 -t "$tag" "$context"
+  if [ -n "$dockerfile" ]; then
+    run_or_skip "docker buildx build $name" \
+      docker buildx build --platform linux/amd64 -t "$tag" -f "$dockerfile" "$context"
+  else
+    run_or_skip "docker buildx build $name" \
+      docker buildx build --platform linux/amd64 -t "$tag" "$context"
+  fi
 
   log_step "Pushing $name..."
   run_or_skip "docker push $name" \
@@ -269,8 +274,8 @@ build_and_push() {
     return 0
   fi
 
-  build_and_push_image "digest-server" "./digest-server"
-  build_and_push_image "news-digest" "."
+  build_and_push_image "digest-circulation" "./circulation"
+  build_and_push_image "digest-newsroom" "." "newsroom/Dockerfile"
 
   log_success "Images built and pushed"
 }
@@ -278,14 +283,14 @@ build_and_push() {
 run_migrations() {
   log_step "Running database migrations..."
 
-  local docker_cmd="docker run --rm -v news-digest-data:/app/data -e IN_DOCKER=1 $REGISTRY/news-digest:latest ./bin/migrate"
+  local docker_cmd="docker run --rm -v news-digest-data:/app/data -e IN_DOCKER=1 $REGISTRY/digest-newsroom:latest ./bin/migrate"
 
   if dry_run_skip "$docker_cmd"; then
     return 0
   fi
 
   # Pull latest image first
-  "$SCRIPT_DIR/ssh" "docker pull $REGISTRY/news-digest:latest" || true
+  "$SCRIPT_DIR/ssh" "docker pull $REGISTRY/digest-newsroom:latest" || true
 
   # Check for pending migrations
   local status

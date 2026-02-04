@@ -28,8 +28,8 @@ if [[ -z "$IN_DOCKER" ]]; then
   exec docker compose run --rm \
     -e CLAUDE_CODE_OAUTH_TOKEN \
     --entrypoint python3 \
-    ci test_prompt.py "$@"
+    ci newsroom/src/test_prompt.py "$@"
 fi
 
 # In Docker, delegate to Python
-exec python3 test_prompt.py "$@"
+exec python3 newsroom/src/test_prompt.py "$@"

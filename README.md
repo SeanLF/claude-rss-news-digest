@@ -11,6 +11,21 @@ Automated daily news digest powered by Claude. Fetches from diverse RSS sources,
 5. **Email** - Sends via [Resend Broadcasts](https://resend.com/broadcasts) to audience subscribers
 6. **Record** - Stores shown headlines in SQLite for 7-day deduplication window
 
+## Repository Structure
+
+```
+news-digest/
+├── newsroom/           # Python pipeline
+│   ├── src/            # Main source code (run.py, mcp_server.py)
+│   ├── templates/      # HTML template and CSS
+│   ├── tests/          # Python tests
+│   └── sources.json    # RSS feed definitions
+├── circulation/        # Rust web server for archive viewing
+├── data/               # Runtime data (database, logs)
+├── migrations/         # SQLite schema migrations
+└── bin/                # CLI scripts
+```
+
 ## Prerequisites
 
 - Docker
@@ -66,31 +81,31 @@ claude setup-token
 
 ```bash
 # Full run: fetch, generate, email, record
-docker compose run --rm news-digest
+docker compose run --rm digest-newsroom
 
 # Dry run (no email, no DB record)
-docker compose run --rm news-digest python run.py --dry-run
+docker compose run --rm digest-newsroom python src/run.py --dry-run
 
 # Preview latest digest in browser
-docker compose run --rm news-digest python run.py --preview
+docker compose run --rm digest-newsroom python src/run.py --preview
 
 # Validate all RSS feeds
-docker compose run --rm news-digest python run.py --validate
+docker compose run --rm digest-newsroom python src/run.py --validate
 
 # Test Resend config
-docker compose run --rm news-digest python run.py --test-email
+docker compose run --rm digest-newsroom python src/run.py --test-email
 ```
 
 ### Web Viewer (Optional)
 
-The `digest-server` serves past digests via HTTP for "View in browser" links:
+The `circulation` server serves past digests via HTTP for "View in browser" links:
 
 ```bash
 # Start both services
 docker compose up -d
 
 # Or just the web server
-docker compose up -d digest-server
+docker compose up -d digest-circulation
 ```
 
 Access at `http://localhost:8080/YYYY-MM-DD` (e.g., `/2026-01-15`).
@@ -104,7 +119,7 @@ Stats dashboard at `/stats` shows source health, usage metrics, and dedup effect
 **Local (cron):**
 ```bash
 # Daily at 07:00 UTC
-0 7 * * * cd /path/to/news-digest && docker compose run --rm news-digest >> data/cron.log 2>&1
+0 7 * * * cd /path/to/news-digest && docker compose run --rm digest-newsroom >> data/cron.log 2>&1
 ```
 
 **Server (systemd):** See deployment section below.
@@ -142,8 +157,8 @@ Supports dark mode automatically.
 
 ### "No digest generated"
 - Check `data/digest.log` for errors
-- Ensure Claude is authenticated: `docker compose run --rm news-digest claude --version`
-- Try: `docker compose run --rm news-digest python run.py --dry-run`
+- Ensure Claude is authenticated: `docker compose run --rm digest-newsroom claude --version`
+- Try: `docker compose run --rm digest-newsroom python src/run.py --dry-run`
 
 ### Email not sending
 - Verify Resend API key in `.env`
@@ -156,13 +171,13 @@ docker compose build --no-cache
 ```
 
 ### Claude says MCP tool isn't available
-The MCP server needs access to dependencies in the venv. Check `.mcp.json` uses `.venv/bin/python`:
+The MCP server needs access to dependencies in the venv. Check `newsroom/.mcp.json` uses `.venv/bin/python`:
 ```json
 {
   "mcpServers": {
     "news-digest": {
       "command": ".venv/bin/python",
-      "args": ["mcp_server.py"]
+      "args": ["src/mcp_server.py"]
     }
   }
 }

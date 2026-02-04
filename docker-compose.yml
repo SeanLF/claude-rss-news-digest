@@ -1,6 +1,8 @@
 services:
-  news-digest:
-    build: .
+  digest-newsroom:
+    build:
+      context: .
+      dockerfile: newsroom/Dockerfile
     environment:
       - ANTHROPIC_API_KEY
       - CLAUDE_CODE_OAUTH_TOKEN
@@ -18,11 +20,13 @@ services:
     volumes:
       - ./data:/app/data
       - ./.claude:/home/appuser/.claude
-      - ./digest.css:/app/digest.css:ro
+      - ./newsroom/templates/digest.css:/app/templates/digest.css:ro
       - ./prompts:/app/prompts:ro
 
   ci:
-    build: .
+    build:
+      context: .
+      dockerfile: newsroom/Dockerfile
     user: root
     working_dir: /app
     environment:
@@ -33,17 +37,17 @@ services:
 
   ci-rust:
     build:
-      context: ./digest-server
+      context: ./circulation
       dockerfile: Dockerfile.ci
     working_dir: /app
     volumes:
-      - ./digest-server:/app
+      - ./circulation:/app
       - cargo-cache:/usr/local/cargo/registry
     entrypoint: ["sh", "-c"]
     command: ["cargo fmt --check && cargo clippy -- -D warnings && cargo audit && cargo test"]
 
-  digest-server:
-    build: ./digest-server
+  digest-circulation:
+    build: ./circulation
     ports:
       - "8080:8080"
     volumes:

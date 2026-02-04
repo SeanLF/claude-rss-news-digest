@@ -25,9 +25,9 @@ from pathlib import Path
 # Configuration
 # =============================================================================
 
-APP_DIR = Path(__file__).parent
-DATA_DIR = APP_DIR / "data"
-PROMPTS_DIR = APP_DIR / "prompts"
+ROOT_DIR = Path("/app")
+DATA_DIR = ROOT_DIR / "data"
+PROMPTS_DIR = ROOT_DIR / "prompts"
 SNAPSHOTS_DIR = DATA_DIR / "snapshots"
 RUNS_DIR = DATA_DIR / "runs"
 CLAUDE_INPUT_DIR = DATA_DIR / "claude_input"
@@ -379,7 +379,7 @@ def resolve_prompt_file(prompt: str) -> Path:
     if prompt == "baseline":
         # Try project dir first (local), then home dir (Docker mount)
         candidates = [
-            APP_DIR / ".claude" / "commands" / "news-digest-select.md",
+            ROOT_DIR / ".claude" / "commands" / "news-digest-select.md",
             Path.home() / ".claude" / "commands" / "news-digest-select.md",
         ]
         return next((p for p in candidates if p.exists()), candidates[0])
@@ -472,7 +472,7 @@ def run_prompt(
     cmd = ["claude", "--print", slash_cmd, "--permission-mode", "acceptEdits"]
     if model != "sonnet":  # Only add --model if not default
         cmd.extend(["--model", model])
-    cmd.extend(["--mcp-config", ".mcp.json", "--allowedTools", "mcp__news-digest__write_selections"])
+    cmd.extend(["--mcp-config", "newsroom/.mcp.json", "--allowedTools", "mcp__news-digest__write_selections"])
     print(f"  Command: {' '.join(cmd)}")
 
     start_time = time.monotonic()
@@ -604,7 +604,7 @@ def list_runs(snapshot: str | None = None) -> list[Run]:
                     run.metrics = json.load(f)
             if snapshot is None or run.snapshot == snapshot:
                 runs.append(run)
-        except (json.JSONDecodeError, KeyError, FileNotFoundError):
+        except json.JSONDecodeError, KeyError, FileNotFoundError:
             continue
 
     return runs

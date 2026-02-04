@@ -47,8 +47,7 @@ DEDUP_WINDOW_DAYS = 7  # Days of headline history for deduplication
 # Deduplication (TF-IDF pre-filter)
 DEDUP_SIMILARITY_THRESHOLD = float(os.environ.get("DEDUP_SIMILARITY_THRESHOLD", "0.35"))
 
-# Paths
-APP_DIR = Path(__file__).parent
+APP_DIR = Path("/app")
 DATA_DIR = APP_DIR / "data"
 DB_PATH = DATA_DIR / "digest.db"
 LOG_FILE = DATA_DIR / "digest.log"
@@ -56,7 +55,7 @@ FETCHED_DIR = DATA_DIR / "fetched"
 OUTPUT_DIR = DATA_DIR / "output"
 CLAUDE_INPUT_DIR = DATA_DIR / "claude_input"  # Intermediate files for Claude
 SOURCES_FILE = APP_DIR / "sources.json"
-STYLES_FILE = APP_DIR / "digest.css"
+STYLES_FILE = APP_DIR / "templates" / "digest.css"
 
 # Logging
 MAX_LOG_LINES = 1000  # Keep last N log lines
@@ -155,7 +154,7 @@ def check_pending_migrations() -> list[str]:
     from yoyo import get_backend, read_migrations
 
     backend = get_backend(f"sqlite:///{DB_PATH}")
-    migrations = read_migrations(str(Path(__file__).parent / "migrations"))
+    migrations = read_migrations(str(APP_DIR / "migrations"))
     pending = backend.to_apply(migrations)
 
     return [m.id for m in pending]
@@ -590,7 +589,7 @@ def parse_date(date_str: str | None) -> datetime | None:
             return datetime.fromisoformat(date_str.replace("Z", "+00:00")).astimezone(UTC)
         # RFC 2822: Tue, 15 Jan 2025 10:30:00 GMT
         return parsedate_to_datetime(date_str).astimezone(UTC)
-    except (ValueError, TypeError):
+    except ValueError, TypeError:
         # Don't log - too noisy for date parsing
         return None
 
@@ -619,7 +618,7 @@ def fetch_source(source: dict, timeout: int = 15) -> tuple[str, list[dict], str 
                 if published:
                     try:
                         pub_str = datetime(*published[:6], tzinfo=UTC).isoformat()  # type: ignore[misc]
-                    except (TypeError, ValueError):
+                    except TypeError, ValueError:
                         pub_str = entry.get("published") or entry.get("updated")
                 else:
                     pub_str = entry.get("published") or entry.get("updated")
@@ -851,7 +850,7 @@ def inline_styles(html: str) -> str:
         return html
 
 
-TEMPLATE_FILE = APP_DIR / "digest-template.html"
+TEMPLATE_FILE = APP_DIR / "templates" / "digest-template.html"
 
 # Region display configuration: (display_name, emoji)
 REGION_CONFIG = {

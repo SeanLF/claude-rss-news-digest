@@ -6,7 +6,7 @@ from io import StringIO
 from pathlib import Path
 from unittest.mock import patch
 
-sys.path.insert(0, str(Path(__file__).parent.parent))
+sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 from mcp_server import handle_tool_call, send_notification, send_response, validate_selections
 

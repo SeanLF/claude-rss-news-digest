@@ -82,7 +82,7 @@ def check_python_deps():
     return ("py-deps", "update", f"{len(outdated)} outdated", None, [f"{p['name']}: {p['version']} → {p['latest_version']}" for p in outdated])
 
 def check_rust_deps():
-    cargo = Path(__file__).parent.parent / "digest-server" / "Cargo.toml"
+    cargo = Path(__file__).parent.parent / "circulation" / "Cargo.toml"
     if not cargo.exists(): return ok("rust-deps", "(no Cargo.toml)")
     deps = [(n, c) for n, c in re.findall(r'^(\w+)\s*=\s*["{].*?(\d+\.\d+(?:\.\d+)?)', cargo.read_text(), re.MULTILINE)
             if n not in ("version", "edition", "rust")]

@@ -1,6 +1,6 @@
 FROM alpine:3.23
 
-ARG OCI_TITLE="claude-rss-news-digest"
+ARG OCI_TITLE="digest-newsroom"
 ARG OCI_DESCRIPTION="Automated news digest: RSS feeds → Claude curation → HTML email"
 ARG OCI_SOURCE="https://github.com/SeanLF/claude-rss-news-digest"
 ARG OCI_LICENSES="MIT"
@@ -33,14 +33,21 @@ USER root
 WORKDIR /app
 
 # Install dependencies from pyproject.toml (before copying app code for better caching)
-COPY pyproject.toml ./
+COPY newsroom/pyproject.toml ./
 RUN uv venv .venv && uv pip install --python .venv -r pyproject.toml
 
-# Copy application and create data directory
-COPY run.py test_prompt.py sources.json digest.css digest-template.html mcp_server.py .mcp.json ./
+# Copy application code
+COPY newsroom/src/ ./src/
+COPY newsroom/sources.json ./
+COPY newsroom/templates/ ./templates/
+COPY newsroom/.mcp.json ./
+
+# Copy shared resources from repo root
 COPY migrations/ ./migrations/
 COPY bin/ ./bin/
 COPY .claude/commands/ /home/appuser/.claude/commands/
+
+# Create data directory and set permissions
 RUN mkdir -p /app/data \
     && ln -s /home/appuser/.local/bin/claude /usr/local/bin/claude \
     && chown -R appuser:appuser /app /home/appuser/.claude
@@ -49,4 +56,4 @@ RUN mkdir -p /app/data \
 USER appuser
 
 # Default command (can be overridden)
-CMD [".venv/bin/python", "run.py"]
+CMD [".venv/bin/python", "src/run.py"]

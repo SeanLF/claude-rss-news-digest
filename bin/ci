@@ -41,9 +41,9 @@ def run_in_docker() -> int:
     if result.returncode != 0:
         return result.returncode
 
-    # Rust checks (if digest-server exists)
-    digest_server = ROOT / "digest-server"
-    if digest_server.exists():
+    # Rust checks (if circulation exists)
+    circulation = ROOT / "circulation"
+    if circulation.exists():
         print(f"\n{BOLD}{PURPLE}Running Rust CI in Docker...{RESET}\n")
         if fix_mode:
             cmd = "cargo fmt && cargo clippy -- -D warnings && cargo audit && cargo test"
@@ -73,7 +73,7 @@ def install_dev_deps() -> bool:
     print(f"{BOLD}{PURPLE}=== Installing dependencies ==={RESET}")
     # Install app deps from pyproject.toml + dev deps
     result = subprocess.run(
-        ["uv", "pip", "install", "--system", "--break-system-packages", "-r", "pyproject.toml", "ruff", "mypy", "bandit", "pytest"],
+        ["uv", "pip", "install", "--system", "--break-system-packages", "-r", "newsroom/pyproject.toml", "ruff", "mypy", "bandit", "pytest"],
         capture_output=True,
     )
     passed = result.returncode == 0
@@ -120,41 +120,42 @@ def run_checks(fix_mode: bool) -> int:
     # Define steps
     steps: list[tuple[str, list[str], Path | None]] = []
 
-    # Python checks
+    # Python checks - target newsroom/src/ and newsroom/tests/
+    ruff_config = ["--config", "newsroom/pyproject.toml"]
     if fix_mode:
-        steps.append(("Style: Python (fix)", py_cmd("ruff", "check", "--fix", "."), None))
-        steps.append(("Format: Python", py_cmd("ruff", "format", "."), None))
+        steps.append(("Style: Python (fix)", py_cmd("ruff", "check", "--fix", *ruff_config, "newsroom/src/", "newsroom/tests/"), None))
+        steps.append(("Format: Python", py_cmd("ruff", "format", *ruff_config, "newsroom/src/", "newsroom/tests/"), None))
     else:
-        steps.append(("Style: Python", py_cmd("ruff", "check", "."), None))
-        steps.append(("Format: Python (check)", py_cmd("ruff", "format", "--check", "."), None))
+        steps.append(("Style: Python", py_cmd("ruff", "check", *ruff_config, "newsroom/src/", "newsroom/tests/"), None))
+        steps.append(("Format: Python (check)", py_cmd("ruff", "format", "--check", *ruff_config, "newsroom/src/", "newsroom/tests/"), None))
 
-    steps.append(("Types: Python", py_cmd("mypy", "run.py", "mcp_server.py"), None))
-    steps.append(("Security: Python", py_cmd("bandit", "-c", "pyproject.toml", "-r", "run.py", "mcp_server.py", "-q"), None))
+    steps.append(("Types: Python", py_cmd("mypy", "--config-file", "newsroom/pyproject.toml", "newsroom/src/run.py", "newsroom/src/mcp_server.py"), None))
+    steps.append(("Security: Python", py_cmd("bandit", "-c", "newsroom/pyproject.toml", "-r", "newsroom/src/run.py", "newsroom/src/mcp_server.py", "-q"), None))
 
-    # Tests (if tests/ exists)
-    if (ROOT / "tests").exists():
-        steps.append(("Tests: Python", py_cmd("pytest", "-v"), None))
+    # Tests (if newsroom/tests/ exists)
+    if (ROOT / "newsroom" / "tests").exists():
+        steps.append(("Tests: Python", py_cmd("pytest", "-v", "newsroom/tests/"), None))
 
     # Rust checks (local only - no cargo in Docker image)
-    digest_server = ROOT / "digest-server"
-    if not IN_DOCKER and digest_server.exists():
+    circulation = ROOT / "circulation"
+    if not IN_DOCKER and circulation.exists():
         try:
             subprocess.run(["cargo", "--version"], capture_output=True, check=True)
             # Format
             if fix_mode:
-                steps.append(("Format: Rust", ["cargo", "fmt"], digest_server))
+                steps.append(("Format: Rust", ["cargo", "fmt"], circulation))
             else:
-                steps.append(("Format: Rust (check)", ["cargo", "fmt", "--check"], digest_server))
+                steps.append(("Format: Rust (check)", ["cargo", "fmt", "--check"], circulation))
             # Lint
-            steps.append(("Style: Rust", ["cargo", "clippy", "--", "-D", "warnings"], digest_server))
+            steps.append(("Style: Rust", ["cargo", "clippy", "--", "-D", "warnings"], circulation))
             # Security (cargo-audit, optional)
             audit_check = subprocess.run(["cargo", "audit", "--version"], capture_output=True)
             if audit_check.returncode == 0:
-                steps.append(("Security: Rust", ["cargo", "audit"], digest_server))
+                steps.append(("Security: Rust", ["cargo", "audit"], circulation))
             else:
                 print(f"{YELLOW}Skipping cargo audit (not installed: cargo install cargo-audit){RESET}")
             # Tests
-            steps.append(("Tests: Rust", ["cargo", "test"], digest_server))
+            steps.append(("Tests: Rust", ["cargo", "test"], circulation))
         except (subprocess.CalledProcessError, FileNotFoundError):
             print(f"{YELLOW}Skipping Rust checks (cargo not found){RESET}")
 

@@ -4,14 +4,18 @@
 
 Automated news digest: RSS feeds → Claude curation → HTML email via Resend.
 
-Single file architecture: `run.py`. Runtime data in `data/`.
+**Architecture:**
+- `newsroom/` - Python pipeline (fetch, curate, render, email)
+- `circulation/` - Rust web server for "View in browser" links and archive
+- `data/` - Runtime data (SQLite database, logs, intermediate files)
+- `migrations/` - Database schema migrations
 
 ## Commands
 
 - **CI**: `bin/ci` - Always runs in Docker for reproducibility. Use `bin/ci --fix` to auto-fix style issues.
-- **Tests only**: `docker compose run --rm --build ci pytest -v`
+- **Tests only**: `docker compose run --rm --build ci pytest -v newsroom/tests/`
 - **Migrate**: `bin/migrate` - Apply database migrations (runs in Docker)
-- **Run digest**: `docker compose run --rm news-digest`
+- **Run digest**: `docker compose run --rm digest-newsroom`
 
 ## Database
 
@@ -30,16 +34,16 @@ SQLite at `data/digest.db`. Schema managed by migrations in `migrations/`.
 
 ## Key Files
 
-- `run.py` - main pipeline (Claude selects → Python renders)
+- `newsroom/src/run.py` - main pipeline (Claude selects → Python renders)
 - `.claude/commands/news-digest-select.md` - Claude prompt for story selection
-- `digest-template.html` - HTML template for digest output
-- `digest.css` - CSS styles (minified and injected at runtime)
-- `sources.json` - RSS feed definitions
-- `digest-server/` - Rust (Axum) web server for "View in browser" links and archive
+- `newsroom/templates/digest-template.html` - HTML template for digest output
+- `newsroom/templates/digest.css` - CSS styles (minified and injected at runtime)
+- `newsroom/sources.json` - RSS feed definitions
+- `circulation/` - Rust (Axum) web server for "View in browser" links and archive
 
 ## MCP Server
 
-- Config: `.mcp.json` - uses `.venv/bin/python` to access venv deps
+- Config: `newsroom/.mcp.json` - uses `.venv/bin/python` to access venv deps
 - Schema validation via `jsonschema` rejects malformed tool calls (Claude retries)
 - If Claude says tool isn't available, check the Python path in `.mcp.json`
 

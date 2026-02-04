@@ -124,7 +124,7 @@ TOOLS = [
     }
 ]
 
-DATA_DIR = Path("data/claude_input")
+DATA_DIR = Path("/app/data/claude_input")
 
 
 def validate_selections(arguments: dict) -> list[str]:
