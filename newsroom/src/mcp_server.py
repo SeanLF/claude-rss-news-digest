@@ -136,7 +136,15 @@ SELECTIONS_SCHEMA = {
 TOOLS = [
     {
         "name": "write_selections",
-        "description": "Write the curated news selections to selections.json. Call this tool with the complete selections object.",
+        "title": "Write News Selections",
+        "description": (
+            "Writes the complete curated news digest to selections.json. "
+            "Call this after reading ALL article files and making editorial selections. "
+            "The selections object must include must_know (3+ stories), should_know (5+ stories), "
+            "signals grouped by region, and regional_summary with inline markdown links. "
+            "Do NOT call until you have processed every article file. "
+            "Schema validation will reject incomplete or malformed input - fix errors and retry."
+        ),
         "inputSchema": SELECTIONS_SCHEMA,
     }
 ]
@@ -235,7 +243,8 @@ def main():
             arguments = params.get("arguments", {})
             result = handle_tool_call(tool_name, arguments)
             if "error" in result:
-                send_response(id, error={"code": -32000, "message": result["error"]})
+                # Tool execution errors use isError per MCP spec (not JSON-RPC error codes)
+                send_response(id, {"content": [{"type": "text", "text": result["error"]}], "isError": True})
             else:
                 send_response(id, result)
 

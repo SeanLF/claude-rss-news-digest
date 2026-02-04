@@ -108,3 +108,16 @@ Narrative paragraphs with inline markdown links. Synthesize must_know and should
 
 1. No story appears in both regional_summary and signals
 2. Same event from multiple sources is combined, not repeated
+
+---
+
+## CRITICAL INSTRUCTION
+
+You MUST call the `write_selections` MCP tool to complete this task.
+
+- Do NOT just describe what you would do
+- Do NOT output JSON to stdout
+- Do NOT explain the tool schema
+- ACTUALLY INVOKE the tool with your selections
+
+This task is incomplete until write_selections is called.
