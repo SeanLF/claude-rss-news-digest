@@ -27,7 +27,7 @@ from pathlib import Path
 
 ROOT_DIR = Path("/app")
 DATA_DIR = ROOT_DIR / "data"
-PROMPTS_DIR = ROOT_DIR / "prompts"
+PROMPTS_DIR = ROOT_DIR / "newsroom" / "prompts"
 SNAPSHOTS_DIR = DATA_DIR / "snapshots"
 RUNS_DIR = DATA_DIR / "runs"
 CLAUDE_INPUT_DIR = DATA_DIR / "claude_input"

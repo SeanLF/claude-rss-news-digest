@@ -9,7 +9,7 @@ data/
 
 # Test harness (snapshots and runs are under data/)
 # Experimental prompts - baseline is the production slash command
-prompts/
+newsroom/prompts/
 
 # macOS
 .DS_Store

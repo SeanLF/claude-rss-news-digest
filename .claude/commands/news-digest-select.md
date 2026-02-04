@@ -7,10 +7,14 @@ Read CSV files from `data/claude_input/`, select noteworthy stories, output via 
 **Input files:**
 - `sources.csv` — source metadata (id, name, bias, perspective)
 - `articles_*.csv` — articles split across files (source_id, title, url, published, summary)
+- `recent_headlines.csv` — headlines from last 7 days (headline, date)
 
 **You MUST read every article file.** Do not skip any or claim "read enough."
 
 Note: Duplicate stories have been pre-filtered. If the same event appears from multiple sources, combine them (don't repeat).
+
+### Continuity
+Reference `recent_headlines.csv`. The goal is avoiding redundancy while catching genuinely new developments. Skip stories already covered unless significant new facts emerged.
 
 ---
 

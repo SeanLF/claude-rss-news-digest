@@ -52,6 +52,17 @@ def prepare_claude_input(sources: list[dict], dry_run: bool = False, log_fn=None
         for s in sources:
             writer.writerow([s["id"], s["name"], s["bias"], s["perspective"]])
 
+    # Write recent headlines for Claude context
+    if previous_headlines:
+        headlines_file = CLAUDE_INPUT_DIR / "recent_headlines.csv"
+        with open(headlines_file, "w", newline="") as f:
+            writer = csv.writer(f)
+            writer.writerow(["headline", "date"])
+            for h in previous_headlines:
+                writer.writerow([h.get("headline", ""), h.get("date", "")])
+        if log_fn:
+            log_fn(f"Context: {len(previous_headlines)} recent headlines")
+
     # Collect all articles, filtering duplicates via TF-IDF
     all_articles = []
     filtered_count = 0
