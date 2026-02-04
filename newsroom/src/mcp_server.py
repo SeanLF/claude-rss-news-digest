@@ -35,7 +35,7 @@ def send_notification(method: str, params: Any = None):
     print(json.dumps(msg), flush=True)
 
 
-# Schema definitions
+# Schema definitions - additionalProperties: false rejects unknown fields
 SOURCE_SCHEMA = {
     "type": "object",
     "properties": {
@@ -44,6 +44,18 @@ SOURCE_SCHEMA = {
         "bias": {"type": "string", "enum": ["left", "center-left", "center", "center-right", "right"]},
     },
     "required": ["name", "url", "bias"],
+    "additionalProperties": False,
+}
+
+REPORTING_VARIES_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "source": {"type": "string"},
+        "angle": {"type": "string"},
+        "bias": {"type": "string"},
+    },
+    "required": ["source", "angle", "bias"],
+    "additionalProperties": False,
 }
 
 ARTICLE_SCHEMA = {
@@ -55,15 +67,12 @@ ARTICLE_SCHEMA = {
         "sources": {"type": "array", "items": SOURCE_SCHEMA, "minItems": 1},
         "reporting_varies": {
             "type": "array",
-            "items": {
-                "type": "object",
-                "properties": {"source": {"type": "string"}, "angle": {"type": "string"}, "bias": {"type": "string"}},
-                "required": ["source", "angle", "bias"],
-            },
+            "items": REPORTING_VARIES_SCHEMA,
             "description": "Optional - only for stories with divergent framing",
         },
     },
     "required": ["headline", "summary", "why_it_matters", "sources"],
+    "additionalProperties": False,
 }
 
 SIGNAL_SCHEMA = {
@@ -73,6 +82,35 @@ SIGNAL_SCHEMA = {
         "source": SOURCE_SCHEMA,
     },
     "required": ["headline", "source"],
+    "additionalProperties": False,
+}
+
+SIGNALS_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "americas": {"type": "array", "items": SIGNAL_SCHEMA},
+        "europe": {"type": "array", "items": SIGNAL_SCHEMA},
+        "asia_pacific": {"type": "array", "items": SIGNAL_SCHEMA},
+        "middle_east_africa": {"type": "array", "items": SIGNAL_SCHEMA},
+        "tech": {"type": "array", "items": SIGNAL_SCHEMA},
+    },
+    "required": ["americas", "europe", "asia_pacific", "middle_east_africa", "tech"],
+    "additionalProperties": False,
+    "description": "One-liner signals clustered by region",
+}
+
+REGIONAL_SUMMARY_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "americas": {"type": "string"},
+        "europe": {"type": "string"},
+        "asia_pacific": {"type": "string"},
+        "middle_east_africa": {"type": "string"},
+        "tech": {"type": "string"},
+    },
+    "required": ["americas", "europe", "asia_pacific", "middle_east_africa", "tech"],
+    "additionalProperties": False,
+    "description": "Narrative summaries with inline markdown links",
 }
 
 SELECTIONS_SCHEMA = {
@@ -88,32 +126,11 @@ SELECTIONS_SCHEMA = {
             "items": ARTICLE_SCHEMA,
             "description": "5+ important but not urgent stories",
         },
-        "signals": {
-            "type": "object",
-            "properties": {
-                "americas": {"type": "array", "items": SIGNAL_SCHEMA},
-                "europe": {"type": "array", "items": SIGNAL_SCHEMA},
-                "asia_pacific": {"type": "array", "items": SIGNAL_SCHEMA},
-                "middle_east_africa": {"type": "array", "items": SIGNAL_SCHEMA},
-                "tech": {"type": "array", "items": SIGNAL_SCHEMA},
-            },
-            "required": ["americas", "europe", "asia_pacific", "middle_east_africa", "tech"],
-            "description": "One-liner signals clustered by region",
-        },
-        "regional_summary": {
-            "type": "object",
-            "properties": {
-                "americas": {"type": "string"},
-                "europe": {"type": "string"},
-                "asia_pacific": {"type": "string"},
-                "middle_east_africa": {"type": "string"},
-                "tech": {"type": "string"},
-            },
-            "required": ["americas", "europe", "asia_pacific", "middle_east_africa", "tech"],
-            "description": "Narrative summaries with inline markdown links",
-        },
+        "signals": SIGNALS_SCHEMA,
+        "regional_summary": REGIONAL_SUMMARY_SCHEMA,
     },
     "required": ["must_know", "should_know", "signals", "regional_summary"],
+    "additionalProperties": False,
 }
 
 TOOLS = [
@@ -136,6 +153,9 @@ def validate_selections(arguments: dict) -> list[str]:
         # Provide clear, actionable error messages
         if error.validator == "type":
             errors.append(f"{path}: expected {error.validator_value}, got {type(error.instance).__name__}")
+        elif error.validator == "additionalProperties":
+            # Extract the unexpected field name from the error
+            errors.append(f"{path}: {error.message}")
         else:
             errors.append(f"{path}: {error.message}")
     return errors
@@ -145,7 +165,7 @@ def handle_tool_call(name: str, arguments: dict) -> dict:
     """Handle tool invocation."""
     log(f"Tool call: {name}")
     if name == "write_selections":
-        # Validate against schema before accepting
+        # Validate against schema - reject invalid input, Claude will retry
         validation_errors = validate_selections(arguments)
         if validation_errors:
             error_msg = "Schema validation failed. Fix these errors and retry:\n" + "\n".join(
@@ -198,7 +218,7 @@ def main():
             send_response(
                 id,
                 {
-                    "protocolVersion": "2024-11-05",
+                    "protocolVersion": "2025-11-25",
                     "capabilities": {"tools": {}},
                     "serverInfo": {"name": "news-digest", "version": "1.0.0"},
                 },

@@ -1,22 +1,20 @@
-"""Tests for run.py pure functions."""
+"""Tests for digest pipeline pure functions."""
 
 import sys
 from pathlib import Path
 
-# Add src/ to path so we can import run
+# Add src/ to path so we can import modules
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
-from run import (
-    TfidfMatcher,
+from dedup import TfidfMatcher, tokenize
+from feeds import parse_date
+from render import (
     estimate_tokens,
-    fix_selections_schema,
     generate_feedback_html,
     is_safe_url,
     minify_css,
-    parse_date,
     resolve_css_variables,
     strip_html,
-    tokenize,
 )
 
 
@@ -120,138 +118,6 @@ class TestParseDate:
 
     def test_empty_string(self):
         assert parse_date("") is None
-
-
-class TestFixSelectionsSchema:
-    """Tests for Claude output normalization - where bugs hide."""
-
-    def _base_selections(self):
-        """Minimal valid selections structure."""
-        return {
-            "must_know": [],
-            "should_know": [],
-            "signals": {
-                "americas": [],
-                "europe": [],
-                "asia_pacific": [],
-                "middle_east_africa": [],
-                "tech": [],
-            },
-            "regional_summary": {
-                "americas": "",
-                "europe": "",
-                "asia_pacific": "",
-                "middle_east_africa": "",
-                "tech": "",
-            },
-        }
-
-    def test_fixes_title_to_headline(self):
-        """Claude sometimes uses 'title' instead of 'headline'."""
-        selections = self._base_selections()
-        selections["must_know"] = [{"title": "Breaking News", "summary": "Sum", "why_it_matters": "Why", "sources": []}]
-
-        result = fix_selections_schema(selections)
-
-        assert result["must_know"][0]["headline"] == "Breaking News"
-        assert "title" not in result["must_know"][0]
-
-    def test_fixes_links_array_to_source_urls(self):
-        """Claude sometimes puts URLs in a separate links array."""
-        selections = self._base_selections()
-        selections["must_know"] = [
-            {
-                "headline": "News",
-                "summary": "Sum",
-                "why_it_matters": "Why",
-                "sources": [{"name": "BBC", "bias": "center"}, {"name": "CNN", "bias": "left"}],
-                "links": ["https://bbc.com/1", "https://cnn.com/2"],
-            }
-        ]
-
-        result = fix_selections_schema(selections)
-
-        assert result["must_know"][0]["sources"][0]["url"] == "https://bbc.com/1"
-        assert result["must_know"][0]["sources"][1]["url"] == "https://cnn.com/2"
-        assert "links" not in result["must_know"][0]
-
-    def test_adds_missing_why_it_matters(self):
-        """Claude sometimes omits why_it_matters."""
-        selections = self._base_selections()
-        selections["should_know"] = [{"headline": "News", "summary": "Sum", "sources": []}]
-
-        result = fix_selections_schema(selections)
-
-        assert result["should_know"][0]["why_it_matters"] == ""
-
-    def test_fixes_plain_string_signals(self):
-        """Claude sometimes outputs signals as plain strings."""
-        selections = self._base_selections()
-        selections["signals"]["americas"] = ["US economy grows 3%", "Canada election update"]
-
-        result = fix_selections_schema(selections)
-
-        assert result["signals"]["americas"][0]["headline"] == "US economy grows 3%"
-        assert "source" in result["signals"]["americas"][0]
-        assert result["signals"]["americas"][1]["headline"] == "Canada election update"
-
-    def test_fixes_one_liner_to_headline(self):
-        """Claude sometimes uses 'one_liner' instead of 'headline' in signals."""
-        selections = self._base_selections()
-        selections["signals"]["tech"] = [{"one_liner": "Apple announces new product", "link": "https://apple.com"}]
-
-        result = fix_selections_schema(selections)
-
-        assert result["signals"]["tech"][0]["headline"] == "Apple announces new product"
-        assert "one_liner" not in result["signals"]["tech"][0]
-
-    def test_fixes_link_to_source(self):
-        """Claude sometimes uses 'link' instead of 'source' object."""
-        selections = self._base_selections()
-        selections["signals"]["europe"] = [{"headline": "EU news", "link": "https://eu.com"}]
-
-        result = fix_selections_schema(selections)
-
-        assert result["signals"]["europe"][0]["source"]["url"] == "https://eu.com"
-        assert "link" not in result["signals"]["europe"][0]
-
-    def test_fixes_string_regional_summary(self):
-        """Claude sometimes outputs regional_summary as a single string."""
-        selections = self._base_selections()
-        selections["regional_summary"] = "Summary of all regions combined."
-
-        result = fix_selections_schema(selections)
-
-        assert isinstance(result["regional_summary"], dict)
-        assert result["regional_summary"]["americas"] == "Summary of all regions combined."
-        assert result["regional_summary"]["europe"] == ""
-
-    def test_preserves_valid_structure(self):
-        """Valid input should pass through unchanged."""
-        selections = self._base_selections()
-        selections["must_know"] = [
-            {
-                "headline": "Valid",
-                "summary": "Sum",
-                "why_it_matters": "Why",
-                "sources": [{"name": "BBC", "url": "https://bbc.com", "bias": "center"}],
-            }
-        ]
-
-        result = fix_selections_schema(selections)
-
-        assert result["must_know"][0]["headline"] == "Valid"
-        assert result["must_know"][0]["sources"][0]["url"] == "https://bbc.com"
-
-    def test_handles_empty_selections(self):
-        """Empty selections should not crash."""
-        result = fix_selections_schema({})
-        assert result == {}
-
-    def test_handles_missing_tiers(self):
-        """Missing tiers should not crash."""
-        result = fix_selections_schema({"must_know": []})
-        assert result == {"must_know": []}
 
 
 class TestTokenize:

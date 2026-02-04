@@ -1,0 +1,163 @@
+"""Email delivery via Resend.
+
+Handles broadcast sending, test emails, and health alerts.
+"""
+
+import os
+import time
+from datetime import UTC, datetime
+from pathlib import Path
+
+import resend
+
+
+def resend_with_retry(fn, *args, max_retries: int = 3, **kwargs):
+    """Call Resend API with exponential backoff on rate limit errors."""
+    for attempt in range(max_retries):
+        try:
+            return fn(*args, **kwargs)
+        except resend.exceptions.ResendError as e:
+            is_rate_limited = "Too many requests" in str(e)
+            has_retries_left = attempt < max_retries - 1
+            if is_rate_limited and has_retries_left:
+                delay = 2**attempt
+                print(f"Rate limited, retrying in {delay}s...", flush=True)
+                time.sleep(delay)
+            else:
+                raise
+
+
+def get_audience_contact_count(audience_id: str) -> int:
+    """Get number of contacts in an audience."""
+    try:
+        contacts = resend_with_retry(resend.Contacts.list, audience_id=audience_id)
+        if not isinstance(contacts, dict) or "data" not in contacts:
+            return 0
+        return len([c for c in contacts["data"] if not c.get("unsubscribed")])
+    except resend.exceptions.ResendError:
+        return 0
+
+
+def send_broadcast(digest_path: Path, prepare_for_email_fn, log_fn=None) -> int:
+    """Send digest via Resend Broadcasts API.
+
+    Args:
+        digest_path: Path to the HTML digest file
+        prepare_for_email_fn: Function to prepare HTML for email (CSS inlining etc)
+        log_fn: Optional logging function
+
+    Returns:
+        Number of recipients
+    """
+    resend.api_key = os.environ["RESEND_API_KEY"]
+    from_email = os.environ["RESEND_FROM"]
+    digest_name = os.environ.get("DIGEST_NAME", "News Digest")
+    audience_id = os.environ["RESEND_AUDIENCE_ID"]
+
+    content = digest_path.read_text()
+    content = prepare_for_email_fn(content)
+    date_str = datetime.now(UTC).strftime("%B %d, %Y")
+
+    try:
+        contact_count = get_audience_contact_count(audience_id)
+
+        broadcast = resend_with_retry(
+            resend.Broadcasts.create,
+            {
+                "from": f"{digest_name} <{from_email}>",
+                "audience_id": audience_id,
+                "subject": f"{digest_name} – {date_str}",
+                "html": content,
+                "name": f"Digest {date_str}",
+            },
+        )
+        broadcast_id = broadcast["id"]
+        if log_fn:
+            log_fn(f"Created broadcast: {broadcast_id}")
+
+        resend_with_retry(resend.Broadcasts.send, {"broadcast_id": broadcast_id})
+        if log_fn:
+            log_fn(f"Sent broadcast to {contact_count} contacts in audience {audience_id}")
+
+        return contact_count
+    except resend.exceptions.ResendError as e:
+        if log_fn:
+            log_fn(f"Broadcast error: {e}", "ERROR")
+        raise
+
+
+def send_test_email(to_email: str, log_fn=None) -> int:
+    """Send a test email to verify Resend config. Returns exit code."""
+    for var in ["RESEND_API_KEY", "RESEND_FROM"]:
+        if not os.environ.get(var):
+            if log_fn:
+                log_fn(f"Missing {var}", "ERROR")
+            return 1
+
+    resend.api_key = os.environ["RESEND_API_KEY"]
+    from_email = os.environ["RESEND_FROM"]
+    digest_name = os.environ.get("DIGEST_NAME", "News Digest")
+
+    try:
+        resend_with_retry(
+            resend.Emails.send,
+            {
+                "from": f"{digest_name} <{from_email}>",
+                "to": [to_email],
+                "subject": f"{digest_name} - Test Email",
+                "html": "<p>This is a test email from News Digest.</p><p>If you received this, your Resend config is working.</p>",
+            },
+        )
+        if log_fn:
+            log_fn(f"Test email sent to {to_email}")
+        return 0
+    except resend.exceptions.ResendError as e:
+        if log_fn:
+            log_fn(f"Resend error: {e}", "ERROR")
+        return 1
+
+
+def send_health_alert(
+    failing_sources: list[tuple[str, int]],
+    failed_this_run: int,
+    total_sources: int,
+    log_fn=None,
+):
+    """Send alert email when sources are persistently failing."""
+    to_email = os.environ.get("HEALTH_ALERT_EMAIL")
+    if not to_email:
+        if log_fn:
+            log_fn("Skipping health alert: HEALTH_ALERT_EMAIL not set", "WARN")
+        return
+    if not os.environ.get("RESEND_API_KEY"):
+        if log_fn:
+            log_fn("Skipping health alert: RESEND_API_KEY not set", "WARN")
+        return
+
+    resend.api_key = os.environ["RESEND_API_KEY"]
+    from_email = os.environ["RESEND_FROM"]
+
+    source_list = "\n".join(f"  • {sid}: {count} consecutive failures" for sid, count in failing_sources)
+    content = f"""<h2>News Digest Source Health Alert</h2>
+<p><strong>{failed_this_run}/{total_sources}</strong> sources failed this run.</p>
+<p>The following sources have failed 3+ times in a row:</p>
+<pre>{source_list}</pre>
+<p>Consider checking these feeds or removing them from sources.json.</p>
+<p style="color: #777; font-size: 0.85em;">This is an automated alert from your News Digest system.</p>
+"""
+
+    try:
+        resend_with_retry(
+            resend.Emails.send,
+            {
+                "from": f"News Digest Alerts <{from_email}>",
+                "to": [to_email],
+                "subject": f"[Alert] {len(failing_sources)} RSS sources failing",
+                "html": content,
+            },
+        )
+        if log_fn:
+            log_fn(f"Health alert sent to {to_email}")
+    except resend.exceptions.ResendError as e:
+        if log_fn:
+            log_fn(f"Failed to send health alert: {e}", "ERROR")
