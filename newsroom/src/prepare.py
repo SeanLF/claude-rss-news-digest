@@ -39,7 +39,7 @@ def prepare_claude_input(sources: list[dict], dry_run: bool = False, log_fn=None
 
     # Get previous headlines for deduplication
     previous_headlines = get_previous_headlines(DB_PATH, days=DEDUP_WINDOW_DAYS)
-    blocklist_headlines = [h.get("headline", "") for h in previous_headlines if h.get("headline")]
+    blocklist_headlines = [h["headline"] for h in previous_headlines if h["headline"]]
 
     # Build TF-IDF matcher for dedup pre-filtering
     dedup_matcher = TfidfMatcher(blocklist_headlines) if blocklist_headlines else None
@@ -59,7 +59,7 @@ def prepare_claude_input(sources: list[dict], dry_run: bool = False, log_fn=None
             writer = csv.writer(f)
             writer.writerow(["headline", "date"])
             for h in previous_headlines:
-                writer.writerow([h.get("headline", ""), h.get("date", "")])
+                writer.writerow([h["headline"], h["date"]])
         if log_fn:
             log_fn(f"Context: {len(previous_headlines)} recent headlines")
 

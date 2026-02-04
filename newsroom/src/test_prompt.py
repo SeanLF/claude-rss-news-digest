@@ -339,9 +339,9 @@ def prepare_context(context_flags: list[str], snapshot_dir: Path):
             csv_path = snapshot_dir / "recent_headlines.csv"
             with open(csv_path, "w", newline="") as f:
                 writer = csv.writer(f)
-                writer.writerow(["headline", "tier", "date"])
+                writer.writerow(["headline", "date"])
                 for h in headlines:
-                    writer.writerow([h["headline"], h["tier"], h["date"]])
+                    writer.writerow([h["headline"], h["date"]])
             print(f"  Added recent_headlines.csv ({len(headlines)} headlines)")
 
 
