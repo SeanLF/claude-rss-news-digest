@@ -20,7 +20,6 @@
   {"id": "nikkei_asia", "name": "Nikkei Asia", "url": "https://news.google.com/rss/search?q=site:asia.nikkei.com&hl=en-US&gl=US&ceid=US:en", "bias": "center-right", "perspective": "japanese"},
   {"id": "npr_world", "name": "NPR World", "url": "https://feeds.npr.org/1004/rss.xml", "bias": "center-left", "perspective": "american"},
   {"id": "nyt_world", "name": "NYT World", "url": "https://rss.nytimes.com/services/xml/rss/nyt/World.xml", "bias": "center-left", "perspective": "american"},
-  {"id": "propublica", "name": "ProPublica", "url": "https://www.propublica.org/feeds/propublica/main", "bias": "center-left", "perspective": "investigative"},
   {"id": "rappler", "name": "Rappler", "url": "https://www.rappler.com/feed/", "bias": "center", "perspective": "filipino"},
   {"id": "rest_of_world", "name": "Rest of World", "url": "https://restofworld.org/feed/latest", "bias": "center", "perspective": "global_tech"},
   {"id": "reuters", "name": "Reuters", "url": "https://news.google.com/rss/search?q=site:reuters.com&hl=en-US&gl=US&ceid=US:en", "bias": "center", "perspective": "wire_service"},
@@ -31,7 +30,6 @@
   {"id": "straits_times", "name": "Straits Times", "url": "https://www.straitstimes.com/news/world/rss.xml", "bias": "center", "perspective": "singaporean"},
   {"id": "the_guardian", "name": "The Guardian", "url": "https://www.theguardian.com/international/rss", "bias": "center-left", "perspective": "western"},
   {"id": "the_hindu", "name": "The Hindu", "url": "https://www.thehindu.com/news/international/feeder/default.rss", "bias": "center", "perspective": "indian"},
-  {"id": "the_intercept", "name": "The Intercept", "url": "https://theintercept.com/feed/?rss", "bias": "left", "perspective": "investigative"},
   {"id": "the_verge", "name": "The Verge", "url": "https://www.theverge.com/rss/index.xml", "bias": "center-left", "perspective": "tech"},
   {"id": "washington_post", "name": "Washington Post", "url": "https://feeds.washingtonpost.com/rss/world", "bias": "center-left", "perspective": "american"},
   {"id": "wsj_world", "name": "WSJ World", "url": "https://feeds.content.dowjones.io/public/rss/RSSWorldNews", "bias": "center-right", "perspective": "american"}
