@@ -92,6 +92,7 @@ def prepare_claude_input(sources: list[dict], dry_run: bool = False, log_fn=None
                             similarity=similarity,
                             threshold=DEDUP_SIMILARITY_THRESHOLD,
                             action="filtered",
+                            log_fn=log_fn,
                         )
                         filtered_count += 1
                         filtered_similarities.append(similarity)

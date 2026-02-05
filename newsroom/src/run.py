@@ -125,8 +125,8 @@ Examples:
         recipients = send_broadcast(digest, prepare_for_email, log_fn=log)
         shown_headlines = read_shown_headlines()
         if shown_headlines:
-            record_shown_headlines(DB_PATH, shown_headlines)
-        record_run(DB_PATH, 0, articles_emailed=recipients)
+            record_shown_headlines(DB_PATH, shown_headlines, log_fn=log)
+        record_run(DB_PATH, 0, articles_emailed=recipients, log_fn=log)
         cleanup_shown_headlines()
         return 0
 
@@ -145,8 +145,8 @@ Examples:
         if not skip_record:
             shown_headlines = read_shown_headlines()
             if shown_headlines:
-                record_shown_headlines(DB_PATH, shown_headlines)
-            record_run(DB_PATH, 0, articles_emailed=recipients)
+                record_shown_headlines(DB_PATH, shown_headlines, log_fn=log)
+            record_run(DB_PATH, 0, articles_emailed=recipients, log_fn=log)
         cleanup_shown_headlines()
         return 0
 
@@ -161,18 +161,18 @@ Examples:
     init_db(DB_PATH, MIGRATIONS_DIR)
 
     # Start run for archival (will be completed at end)
-    run_id = start_run(DB_PATH) if not skip_record else None
+    run_id = start_run(DB_PATH, log_fn=log) if not skip_record else None
 
-    last_run = get_last_run_time(DB_PATH)
+    last_run = get_last_run_time(DB_PATH, log_fn=log)
     fetch_result = fetch_feeds(sources, FETCHED_DIR, last_run, log_fn=log)
-    record_source_health(DB_PATH, fetch_result.health_records)
+    record_source_health(DB_PATH, fetch_result.health_records, log_fn=log)
 
     # Archive fetched articles
     if run_id:
-        archive_articles(DB_PATH, run_id, collect_fetched_articles(FETCHED_DIR))
+        archive_articles(DB_PATH, run_id, collect_fetched_articles(FETCHED_DIR), log_fn=log)
 
     # Health alerts
-    persistently_failing = get_failing_sources(DB_PATH, min_consecutive=HEALTH_ALERT_THRESHOLD)
+    persistently_failing = get_failing_sources(DB_PATH, min_consecutive=HEALTH_ALERT_THRESHOLD, log_fn=log)
     if persistently_failing:
         failed_this_run = sum(1 for _, success, *_ in fetch_result.health_records if not success)
         send_health_alert(persistently_failing, failed_this_run, len(sources), log_fn=log)
@@ -185,7 +185,7 @@ Examples:
     # Archive selections
     selections_path = CLAUDE_INPUT_DIR / "selections.json"
     if run_id and selections_path.exists():
-        archive_selections(DB_PATH, run_id, selections_path.read_text())
+        archive_selections(DB_PATH, run_id, selections_path.read_text(), log_fn=log)
 
     if args.select_only:
         log("Select-only mode: stopping after selection")
@@ -207,11 +207,11 @@ Examples:
         shown_headlines = read_shown_headlines()
         if not shown_headlines:
             log("No headlines recorded - Claude may not have generated shown_headlines.json", "WARN")
-        record_shown_headlines(DB_PATH, shown_headlines)
+        record_shown_headlines(DB_PATH, shown_headlines, log_fn=log)
         if run_id:
-            complete_run(DB_PATH, run_id, fetch_result.total_kept, articles_emailed=recipients)
+            complete_run(DB_PATH, run_id, fetch_result.total_kept, articles_emailed=recipients, log_fn=log)
         else:
-            record_run(DB_PATH, fetch_result.total_kept, articles_emailed=recipients)
+            record_run(DB_PATH, fetch_result.total_kept, articles_emailed=recipients, log_fn=log)
 
     cleanup_shown_headlines()
 
