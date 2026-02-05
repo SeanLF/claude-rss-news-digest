@@ -47,6 +47,28 @@ def get_last_run_time(db_path: Path) -> datetime | None:
     return None
 
 
+def start_run(db_path: Path) -> int | None:
+    """Start a digest run, returning run_id for archival. Update with complete_run() when done."""
+    try:
+        with sqlite3.connect(db_path) as conn:
+            cursor = conn.execute("INSERT INTO digest_runs (articles_fetched, articles_emailed) VALUES (NULL, NULL)")
+            return cursor.lastrowid
+    except sqlite3.Error:
+        return None
+
+
+def complete_run(db_path: Path, run_id: int, articles_fetched: int, articles_emailed: int = 0):
+    """Complete a digest run by updating counts."""
+    try:
+        with sqlite3.connect(db_path) as conn:
+            conn.execute(
+                "UPDATE digest_runs SET articles_fetched = ?, articles_emailed = ? WHERE id = ?",
+                (articles_fetched, articles_emailed, run_id),
+            )
+    except sqlite3.Error:
+        pass
+
+
 def record_run(db_path: Path, articles_fetched: int, articles_emailed: int = 0) -> int | None:
     """Record a successful digest run. Returns run ID or None on error."""
     try:
@@ -176,6 +198,42 @@ def log_dedup_action(
                    (article_title, article_source_id, matched_headline, similarity, threshold, action)
                    VALUES (?, ?, ?, ?, ?, ?)""",
                 (article_title, article_source_id, matched_headline, similarity, threshold, action),
+            )
+    except sqlite3.Error:
+        pass
+
+
+def archive_articles(db_path: Path, run_id: int | None, articles: list[dict]):
+    """Archive all fetched articles for historical analysis.
+
+    Args:
+        db_path: Path to SQLite database
+        run_id: Run ID from start_run(), or None to archive without linking
+        articles: List of dicts with source_id, title, url, published, summary
+    """
+    if not articles:
+        return
+    try:
+        with sqlite3.connect(db_path) as conn:
+            conn.executemany(
+                """INSERT INTO fetched_articles (run_id, source_id, title, url, published, summary)
+                   VALUES (?, ?, ?, ?, ?, ?)""",
+                [
+                    (run_id, a["source_id"], a["title"], a["url"], a.get("published"), a.get("summary"))
+                    for a in articles
+                ],
+            )
+    except sqlite3.Error:
+        pass
+
+
+def archive_selections(db_path: Path, run_id: int | None, selections_json: str):
+    """Archive Claude's raw selection output for historical analysis."""
+    try:
+        with sqlite3.connect(db_path) as conn:
+            conn.execute(
+                "INSERT INTO selections (run_id, selections_json) VALUES (?, ?)",
+                (run_id, selections_json),
             )
     except sqlite3.Error:
         pass

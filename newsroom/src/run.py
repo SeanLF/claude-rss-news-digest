@@ -23,6 +23,9 @@ from config import (
     TEMPLATE_FILE,
 )
 from db import (
+    archive_articles,
+    archive_selections,
+    complete_run,
     get_failing_sources,
     get_last_run_time,
     init_db,
@@ -30,6 +33,7 @@ from db import (
     record_shown_headlines,
     record_source_health,
     save_digest,
+    start_run,
 )
 from digest import (
     cleanup_shown_headlines,
@@ -38,7 +42,7 @@ from digest import (
     read_shown_headlines,
     write_digest,
 )
-from feeds import fetch_feeds, load_sources
+from feeds import collect_fetched_articles, fetch_feeds, load_sources
 from feeds_cli import validate_feeds_cli
 from prepare import prepare_claude_input
 from render import extract_preheader, prepare_for_email, replace_placeholders
@@ -156,9 +160,16 @@ Examples:
     sources = load_sources(SOURCES_FILE)
     init_db(DB_PATH, MIGRATIONS_DIR)
 
+    # Start run for archival (will be completed at end)
+    run_id = start_run(DB_PATH) if not skip_record else None
+
     last_run = get_last_run_time(DB_PATH)
     fetch_result = fetch_feeds(sources, FETCHED_DIR, last_run, log_fn=log)
     record_source_health(DB_PATH, fetch_result.health_records)
+
+    # Archive fetched articles
+    if run_id:
+        archive_articles(DB_PATH, run_id, collect_fetched_articles(FETCHED_DIR))
 
     # Health alerts
     persistently_failing = get_failing_sources(DB_PATH, min_consecutive=HEALTH_ALERT_THRESHOLD)
@@ -170,6 +181,11 @@ Examples:
 
     generate_selections(log_fn=log)
     selections = load_selections(CLAUDE_INPUT_DIR / "selections.json", log_fn=log)
+
+    # Archive selections
+    selections_path = CLAUDE_INPUT_DIR / "selections.json"
+    if run_id and selections_path.exists():
+        archive_selections(DB_PATH, run_id, selections_path.read_text())
 
     if args.select_only:
         log("Select-only mode: stopping after selection")
@@ -192,7 +208,10 @@ Examples:
         if not shown_headlines:
             log("No headlines recorded - Claude may not have generated shown_headlines.json", "WARN")
         record_shown_headlines(DB_PATH, shown_headlines)
-        record_run(DB_PATH, fetch_result.total_kept, articles_emailed=recipients)
+        if run_id:
+            complete_run(DB_PATH, run_id, fetch_result.total_kept, articles_emailed=recipients)
+        else:
+            record_run(DB_PATH, fetch_result.total_kept, articles_emailed=recipients)
 
     cleanup_shown_headlines()
 

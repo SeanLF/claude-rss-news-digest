@@ -138,6 +138,17 @@ def fetch_source(source: dict, timeout: int = 15) -> tuple[str, list[dict], str 
     return source_id, [], f"Failed after {MAX_RETRIES} retries: {error_msg}"
 
 
+def collect_fetched_articles(fetched_dir: Path) -> list[dict]:
+    """Collect all fetched articles from JSON files, adding source_id to each."""
+    articles = []
+    for json_file in fetched_dir.glob("*.json"):
+        source_id = json_file.stem
+        with open(json_file) as f:
+            for article in json.load(f):
+                articles.append({**article, "source_id": source_id})
+    return articles
+
+
 def fetch_feeds(
     sources: list[dict],
     fetched_dir: Path,
