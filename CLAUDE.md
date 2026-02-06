@@ -23,7 +23,7 @@ Automated news digest: RSS feeds → Claude curation → HTML email via Resend.
 SQLite at `data/digest.db`. Schema managed by migrations in `migrations/`.
 
 **Tables:**
-- `digest_runs` - run metadata (run_at, articles_fetched, etc.)
+- `digest_runs` - run metadata (run_at, articles_fetched, completed_at, git_sha)
 - `shown_narratives` - headlines shown with tier and source_id (7-day deduplication window)
 - `source_health` - feed fetch results for monitoring
 - `digests` - HTML digest blobs keyed by date

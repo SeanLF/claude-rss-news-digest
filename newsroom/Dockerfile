@@ -36,6 +36,10 @@ WORKDIR /app
 COPY newsroom/pyproject.toml ./
 RUN uv venv .venv && uv pip install --python .venv -r pyproject.toml
 
+# Track which code version produced each digest
+ARG GIT_SHA
+ENV GIT_SHA=${GIT_SHA}
+
 # Copy application code
 COPY newsroom/src/ ./src/
 COPY newsroom/sources.json ./

@@ -146,6 +146,7 @@ pub fn fetch_stats_data(db_path: &str, days: u32) -> Result<StatsData, (StatusCo
             .prepare(
                 "SELECT run_at, articles_fetched, articles_emailed
                  FROM digest_runs
+                 WHERE completed_at IS NOT NULL
                  ORDER BY run_at DESC
                  LIMIT 10",
             )

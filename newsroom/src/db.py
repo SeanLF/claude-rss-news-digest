@@ -1,6 +1,7 @@
 """Database operations for digest runs, headlines, and source health."""
 
 import logging
+import os
 import re
 import sqlite3
 from dataclasses import dataclass
@@ -14,6 +15,9 @@ logger = logging.getLogger(__name__)
 class _State:
     db_path: Path | None = None
     run_id: int | None = None
+    recording: bool = False
+    broadcasting: bool = False
+    alerting: bool = False
 
 
 _state = _State()
@@ -51,12 +55,12 @@ def check_pending_migrations(db_path: Path, migrations_dir: Path) -> list[str]:
 
 
 def get_last_run_time() -> datetime | None:
-    """Get timestamp of last digest run."""
+    """Get timestamp of last completed digest run."""
     if not _state.db_path or not _state.db_path.exists():
         return None
     try:
         with sqlite3.connect(_state.db_path) as conn:
-            cursor = conn.execute("SELECT MAX(run_at) FROM digest_runs")
+            cursor = conn.execute("SELECT MAX(run_at) FROM digest_runs WHERE completed_at IS NOT NULL")
             result = cursor.fetchone()[0]
             if result:
                 return datetime.fromisoformat(result.replace(" ", "T")).replace(tzinfo=UTC)
@@ -65,29 +69,78 @@ def get_last_run_time() -> datetime | None:
     return None
 
 
-def start_run() -> int | None:
-    """Start a digest run, returning run_id for archival. Update with complete_run() when done."""
+def start_run(*, recording: bool = True, broadcasting: bool = True, alerting: bool = True) -> int | None:
+    """Start a digest run. Sets module-level flags that guard all subsequent writes."""
+    _state.recording = recording
+    _state.broadcasting = broadcasting
+    _state.alerting = alerting
+
+    if not recording:
+        return None
+
     try:
+        git_sha = os.environ.get("GIT_SHA")
         with sqlite3.connect(_db_path()) as conn:
-            cursor = conn.execute("INSERT INTO digest_runs (articles_fetched, articles_emailed) VALUES (NULL, NULL)")
+            cursor = conn.execute(
+                "INSERT INTO digest_runs (articles_fetched, articles_emailed, git_sha) VALUES (NULL, NULL, ?)",
+                (git_sha,),
+            )
             _state.run_id = cursor.lastrowid
             return _state.run_id
     except sqlite3.Error as e:
         logger.error("DB error starting run: %s", e)
         _state.run_id = None
+        _state.recording = False
         return None
 
 
-def complete_run(run_id: int, articles_fetched: int, articles_emailed: int = 0):
-    """Complete a digest run by updating counts."""
+def complete_run(articles_fetched: int, articles_emailed: int = 0):
+    """Complete a digest run by updating counts and marking completion time."""
+    if not _state.recording or _state.run_id is None:
+        return
     try:
         with sqlite3.connect(_db_path()) as conn:
             conn.execute(
-                "UPDATE digest_runs SET articles_fetched = ?, articles_emailed = ? WHERE id = ?",
-                (articles_fetched, articles_emailed, run_id),
+                "UPDATE digest_runs SET articles_fetched = ?, articles_emailed = ?, completed_at = datetime('now', 'utc') WHERE id = ?",
+                (articles_fetched, articles_emailed, _state.run_id),
             )
     except sqlite3.Error as e:
-        logger.error("DB error completing run %d: %s", run_id, e)
+        logger.error("DB error completing run %d: %s", _state.run_id, e)
+
+
+def abort_run():
+    """Clean up the current run on failure."""
+    if _state.run_id:
+        delete_run(_state.run_id)
+    _state.run_id = None
+    _state.recording = False
+    _state.broadcasting = False
+    _state.alerting = False
+
+
+def has_completed_run_today() -> bool:
+    """Check if a completed run exists for today (UTC)."""
+    if not _state.db_path or not _state.db_path.exists():
+        return False
+    try:
+        with sqlite3.connect(_state.db_path) as conn:
+            cursor = conn.execute(
+                "SELECT COUNT(*) FROM digest_runs WHERE date(run_at) = date('now') AND completed_at IS NOT NULL"
+            )
+            return cursor.fetchone()[0] > 0
+    except sqlite3.Error as e:
+        logger.error("DB error checking today's runs: %s", e)
+        return True  # Fail closed: assume run exists when we can't verify
+
+
+def should_broadcast() -> bool:
+    """Whether the current run should send the digest email."""
+    return _state.broadcasting
+
+
+def should_alert() -> bool:
+    """Whether the current run should send health alert emails."""
+    return _state.alerting
 
 
 def get_previous_headlines(days: int = 7) -> list[dict]:
@@ -113,6 +166,8 @@ def get_previous_headlines(days: int = 7) -> list[dict]:
 
 def record_shown_headlines(headlines: list[dict]):
     """Record headlines that were shown in this digest."""
+    if not _state.recording:
+        return
     if not headlines or not isinstance(headlines[0], dict):
         return
     try:
@@ -130,6 +185,8 @@ def record_source_health(results: list[tuple[str, bool, str | None, int, int]]):
 
     Each tuple is (source_id, success, error_message, articles_fetched, articles_kept).
     """
+    if not _state.recording:
+        return
     if not results:
         return
     try:
@@ -196,6 +253,8 @@ def log_dedup_action(
     action: str,
 ):
     """Log a dedup decision to the database."""
+    if not _state.recording:
+        return
     try:
         with sqlite3.connect(_db_path()) as conn:
             conn.execute(
@@ -210,6 +269,8 @@ def log_dedup_action(
 
 def archive_articles(articles: list[dict]):
     """Archive all fetched articles for historical analysis."""
+    if not _state.recording:
+        return
     if not articles:
         return
     try:
@@ -228,6 +289,8 @@ def archive_articles(articles: list[dict]):
 
 def archive_selections(selections_json: str):
     """Archive Claude's raw selection output for historical analysis."""
+    if not _state.recording:
+        return
     try:
         with sqlite3.connect(_db_path()) as conn:
             conn.execute(
@@ -250,6 +313,8 @@ def prepare_for_web(html: str) -> str:
 
 def save_digest(digest_path: Path, preheader: str = ""):
     """Save digest HTML to database for web serving."""
+    if not _state.recording:
+        return
     match = re.search(r"(\d{4}-\d{2}-\d{2})", digest_path.stem)
     if match:
         date_str = match.group(1)
