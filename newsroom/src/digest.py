@@ -1,6 +1,7 @@
 """Digest file operations - loading selections, writing digests, file I/O."""
 
 import json
+import logging
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -8,16 +9,11 @@ from config import DATA_DIR, OUTPUT_DIR, SOURCES_FILE
 from feeds import get_source_id_by_name
 from render import REGION_ORDER, extract_headlines, render_digest
 
+logger = logging.getLogger(__name__)
 
-def load_selections(selections_file: Path, log_fn=None) -> dict:
+
+def load_selections(selections_file: Path) -> dict:
     """Load selections.json and log story counts.
-
-    Args:
-        selections_file: Path to selections.json
-        log_fn: Optional logging function (message, level)
-
-    Returns:
-        Selections dict
 
     Raises:
         RuntimeError: If file is missing or invalid JSON
@@ -37,13 +33,12 @@ def load_selections(selections_file: Path, log_fn=None) -> dict:
     signals = selections.get("signals", {})
     signals_count = sum(len(signals.get(c, [])) for c in REGION_ORDER)
 
-    if must_know < 3 and log_fn:
-        log_fn(f"Only {must_know} must_know stories (expected 3+)", "WARN")
-    if should_know < 5 and log_fn:
-        log_fn(f"Only {should_know} should_know stories (expected 5+)", "WARN")
+    if must_know < 3:
+        logger.warning("Only %d must_know stories (expected 3+)", must_know)
+    if should_know < 5:
+        logger.warning("Only %d should_know stories (expected 5+)", should_know)
 
-    if log_fn:
-        log_fn(f"Selection complete: {must_know + should_know + signals_count} stories")
+    logger.info("Selection complete: %d stories", must_know + should_know + signals_count)
 
     return selections
 
@@ -68,13 +63,8 @@ def cleanup_shown_headlines():
         headlines_file.unlink()
 
 
-def write_digest(selections: dict, template_file: Path, log_fn=None) -> Path:
+def write_digest(selections: dict, template_file: Path) -> Path:
     """Render selections to HTML and write digest file.
-
-    Args:
-        selections: Validated selections dict from Claude
-        template_file: Path to HTML template
-        log_fn: Optional logging function (message, level)
 
     Returns:
         Path to written digest file
@@ -84,8 +74,7 @@ def write_digest(selections: dict, template_file: Path, log_fn=None) -> Path:
     signals = selections.get("signals", {})
     signals_count = sum(len(signals.get(c, [])) for c in REGION_ORDER)
 
-    if log_fn:
-        log_fn(f"Rendering: {must_know} must_know, {should_know} should_know, {signals_count} signals")
+    logger.info("Rendering: %d must_know, %d should_know, %d signals", must_know, should_know, signals_count)
 
     html_content = render_digest(selections, template_file)
 
@@ -103,8 +92,7 @@ def write_digest(selections: dict, template_file: Path, log_fn=None) -> Path:
     with open(headlines_file, "w") as f:
         json.dump(headlines, f, indent=2)
 
-    if log_fn:
-        log_fn(f"Wrote {digest_path.name} ({len(headlines)} stories)")
+    logger.info("Wrote %s (%d stories)", digest_path.name, len(headlines))
 
     return digest_path
 

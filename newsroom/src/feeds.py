@@ -5,6 +5,7 @@ and filtering articles by publication date.
 """
 
 import json
+import logging
 import re
 import time
 import urllib.error
@@ -17,6 +18,8 @@ from pathlib import Path
 
 import feedparser
 from config import MAX_RETRIES, RETRY_DELAY
+
+logger = logging.getLogger(__name__)
 
 # Cache for source name -> id mapping
 _source_name_to_id_cache: dict[str, str] | None = None
@@ -92,9 +95,8 @@ def fetch_source(source: dict, timeout: int = 15) -> tuple[str, list[dict], str 
             feed = feedparser.parse(data)
 
             if feed.bozo and not feed.entries:
-                # Parse error - don't retry, feed is malformed
                 error_msg = f"Feed parse error: {feed.bozo_exception}"
-                print(f"  [{source_id}] {error_msg}", flush=True)
+                logger.warning("[%s] %s", source_id, error_msg)
                 return source_id, [], error_msg
 
             articles = []
@@ -120,21 +122,19 @@ def fetch_source(source: dict, timeout: int = 15) -> tuple[str, list[dict], str 
             return source_id, articles, None  # Success
 
         except (urllib.error.URLError, TimeoutError, OSError) as e:
-            # Transient errors - retry with exponential backoff
             last_error = e
             if attempt < MAX_RETRIES - 1:
                 delay = RETRY_DELAY * (2**attempt)  # 1s, 2s, 4s
                 time.sleep(delay)
             continue
         except Exception as e:
-            # Non-transient error - don't retry
             error_msg = f"{type(e).__name__}: {e}"
-            print(f"  [{source_id}] Error: {error_msg}", flush=True)
+            logger.warning("[%s] Error: %s", source_id, error_msg)
             return source_id, [], error_msg
 
     # All retries exhausted
     error_msg = str(getattr(last_error, "reason", last_error)) if last_error else "Unknown"
-    print(f"  [{source_id}] Failed after {MAX_RETRIES} retries: {error_msg}", flush=True)
+    logger.warning("[%s] Failed after %d retries: %s", source_id, MAX_RETRIES, error_msg)
     return source_id, [], f"Failed after {MAX_RETRIES} retries: {error_msg}"
 
 
@@ -153,7 +153,6 @@ def fetch_feeds(
     sources: list[dict],
     fetched_dir: Path,
     last_run: datetime | None = None,
-    log_fn=None,
 ) -> FetchResult:
     """Fetch all RSS feeds in parallel.
 
@@ -161,13 +160,11 @@ def fetch_feeds(
         sources: List of source definitions from load_sources()
         fetched_dir: Directory to write per-source JSON files
         last_run: Filter articles published after this time
-        log_fn: Optional logging function (message, level)
 
     Returns:
         FetchResult with counts and health records
     """
-    if log_fn:
-        log_fn(f"Fetching {len(sources)} RSS feeds...")
+    logger.info("Fetching %d RSS feeds...", len(sources))
 
     fetched_dir.mkdir(parents=True, exist_ok=True)
     for f in fetched_dir.glob("*.json"):
@@ -206,19 +203,18 @@ def fetch_feeds(
     sources_with_articles = [(sid, fetched, kept) for sid, _, _, fetched, kept in health_records if fetched > 0]
     if sources_with_articles:
         if last_run:
-            print(f"  Filtering after: {last_run.isoformat()} (kept/fetched)", flush=True)
+            logger.info("Filtering after: %s (kept/fetched)", last_run.isoformat())
         sources_with_articles.sort(key=lambda x: (-x[2], -x[1]))
         for sid, fetched, kept in sources_with_articles:
-            print(f"  [{sid}] {kept}/{fetched}", flush=True)
+            logger.info("  [%s] %d/%d", sid, kept, fetched)
 
     # Summary
     failed_this_run = [(sid, err) for sid, success, err, _, _ in health_records if not success]
     succeeded = len(sources) - len(failed_this_run)
-    if log_fn:
-        log_fn(f"Fetched {total_kept}/{total_fetched} articles from {succeeded}/{len(sources)} sources")
+    logger.info("Fetched %d/%d articles from %d/%d sources", total_kept, total_fetched, succeeded, len(sources))
 
-    if failed_this_run and log_fn:
-        log_fn(f"Failed sources this run: {', '.join(sid for sid, _ in failed_this_run)}", "WARN")
+    if failed_this_run:
+        logger.warning("Failed sources this run: %s", ", ".join(sid for sid, _ in failed_this_run))
 
     return FetchResult(
         total_kept=total_kept,

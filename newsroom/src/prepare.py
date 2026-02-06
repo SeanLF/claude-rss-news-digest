@@ -3,12 +3,12 @@
 import csv
 import html
 import json
+import logging
 import shutil
 from pathlib import Path
 
 from config import (
     CLAUDE_INPUT_DIR,
-    DB_PATH,
     DEDUP_SIMILARITY_THRESHOLD,
     DEDUP_WINDOW_DAYS,
     FETCHED_DIR,
@@ -21,14 +21,11 @@ from db import get_previous_headlines, log_dedup_action
 from dedup import TfidfMatcher
 from render import estimate_tokens, is_safe_url, strip_html
 
+logger = logging.getLogger(__name__)
 
-def prepare_claude_input(sources: list[dict], dry_run: bool = False, log_fn=None) -> list[Path]:
+
+def prepare_claude_input(sources: list[dict], dry_run: bool = False) -> list[Path]:
     """Prepare CSV input files for Claude - split if too large.
-
-    Args:
-        sources: List of source definitions from load_sources()
-        dry_run: If True, truncate articles for faster testing
-        log_fn: Optional logging function (message, level)
 
     Returns:
         List of article CSV file paths created
@@ -38,7 +35,7 @@ def prepare_claude_input(sources: list[dict], dry_run: bool = False, log_fn=None
     CLAUDE_INPUT_DIR.mkdir(parents=True)
 
     # Get previous headlines for deduplication
-    previous_headlines = get_previous_headlines(DB_PATH, days=DEDUP_WINDOW_DAYS)
+    previous_headlines = get_previous_headlines(days=DEDUP_WINDOW_DAYS)
     blocklist_headlines = [h["headline"] for h in previous_headlines if h["headline"]]
 
     # Build TF-IDF matcher for dedup pre-filtering
@@ -60,8 +57,7 @@ def prepare_claude_input(sources: list[dict], dry_run: bool = False, log_fn=None
             writer.writerow(["headline", "date"])
             for h in previous_headlines:
                 writer.writerow([h["headline"], h["date"]])
-        if log_fn:
-            log_fn(f"Context: {len(previous_headlines)} recent headlines")
+        logger.info("Context: %d recent headlines", len(previous_headlines))
 
     # Collect all articles, filtering duplicates via TF-IDF
     all_articles = []
@@ -85,14 +81,12 @@ def prepare_claude_input(sources: list[dict], dry_run: bool = False, log_fn=None
                     matched_headline, similarity = dedup_matcher.find_most_similar(title)
                     if similarity >= DEDUP_SIMILARITY_THRESHOLD:
                         log_dedup_action(
-                            DB_PATH,
                             article_title=title,
                             article_source_id=source["id"],
                             matched_headline=matched_headline or "",
                             similarity=similarity,
                             threshold=DEDUP_SIMILARITY_THRESHOLD,
                             action="filtered",
-                            log_fn=log_fn,
                         )
                         filtered_count += 1
                         filtered_similarities.append(similarity)
@@ -141,13 +135,15 @@ def prepare_claude_input(sources: list[dict], dry_run: bool = False, log_fn=None
         article_files.append(file_path)
 
     # Log summary
-    if log_fn:
-        parts = [f"Sending {len(all_articles)} articles to Claude"]
-        if filtered_count > 0:
-            sim_min, sim_max = min(filtered_similarities), max(filtered_similarities)
-            parts.append(f"{filtered_count} filtered as duplicates (sim {sim_min:.2f}-{sim_max:.2f})")
-        if truncated_count > 0:
-            parts.append(f"{truncated_count} truncated for dry-run (limit {MAX_ARTICLES_FOR_DRY_RUN})")
-        log_fn(f"{parts[0]} ({', '.join(parts[1:])})" if len(parts) > 1 else parts[0])
+    details = []
+    if filtered_count > 0:
+        sim_min, sim_max = min(filtered_similarities), max(filtered_similarities)
+        details.append(f"{filtered_count} filtered as duplicates (sim {sim_min:.2f}-{sim_max:.2f})")
+    if truncated_count > 0:
+        details.append(f"{truncated_count} truncated for dry-run (limit {MAX_ARTICLES_FOR_DRY_RUN})")
+    summary = f"Sending {len(all_articles)} articles to Claude"
+    if details:
+        summary += f" ({', '.join(details)})"
+    logger.info(summary)
 
     return article_files

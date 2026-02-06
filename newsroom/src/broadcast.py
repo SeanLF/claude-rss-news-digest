@@ -3,12 +3,15 @@
 Handles broadcast sending, test emails, and health alerts.
 """
 
+import logging
 import os
 import time
 from datetime import UTC, datetime
 from pathlib import Path
 
 import resend
+
+logger = logging.getLogger(__name__)
 
 
 def resend_with_retry(fn, *args, max_retries: int = 3, **kwargs):
@@ -21,7 +24,7 @@ def resend_with_retry(fn, *args, max_retries: int = 3, **kwargs):
             has_retries_left = attempt < max_retries - 1
             if is_rate_limited and has_retries_left:
                 delay = 2**attempt
-                print(f"Rate limited, retrying in {delay}s...", flush=True)
+                logger.info("Rate limited, retrying in %ds...", delay)
                 time.sleep(delay)
             else:
                 raise
@@ -38,13 +41,8 @@ def get_audience_contact_count(audience_id: str) -> int:
         return 0
 
 
-def send_broadcast(digest_path: Path, prepare_for_email_fn, log_fn=None) -> int:
+def send_broadcast(digest_path: Path, prepare_for_email_fn) -> int:
     """Send digest via Resend Broadcasts API.
-
-    Args:
-        digest_path: Path to the HTML digest file
-        prepare_for_email_fn: Function to prepare HTML for email (CSS inlining etc)
-        log_fn: Optional logging function
 
     Returns:
         Number of recipients
@@ -72,26 +70,22 @@ def send_broadcast(digest_path: Path, prepare_for_email_fn, log_fn=None) -> int:
             },
         )
         broadcast_id = broadcast["id"]
-        if log_fn:
-            log_fn(f"Created broadcast: {broadcast_id}")
+        logger.info("Created broadcast: %s", broadcast_id)
 
         resend_with_retry(resend.Broadcasts.send, {"broadcast_id": broadcast_id})
-        if log_fn:
-            log_fn(f"Sent broadcast to {contact_count} contacts in audience {audience_id}")
+        logger.info("Sent broadcast to %d contacts in audience %s", contact_count, audience_id)
 
         return contact_count
     except resend.exceptions.ResendError as e:
-        if log_fn:
-            log_fn(f"Broadcast error: {e}", "ERROR")
+        logger.error("Broadcast error: %s", e)
         raise
 
 
-def send_test_email(to_email: str, log_fn=None) -> int:
+def send_test_email(to_email: str) -> int:
     """Send a test email to verify Resend config. Returns exit code."""
     for var in ["RESEND_API_KEY", "RESEND_FROM"]:
         if not os.environ.get(var):
-            if log_fn:
-                log_fn(f"Missing {var}", "ERROR")
+            logger.error("Missing %s", var)
             return 1
 
     resend.api_key = os.environ["RESEND_API_KEY"]
@@ -108,12 +102,10 @@ def send_test_email(to_email: str, log_fn=None) -> int:
                 "html": "<p>This is a test email from News Digest.</p><p>If you received this, your Resend config is working.</p>",
             },
         )
-        if log_fn:
-            log_fn(f"Test email sent to {to_email}")
+        logger.info("Test email sent to %s", to_email)
         return 0
     except resend.exceptions.ResendError as e:
-        if log_fn:
-            log_fn(f"Resend error: {e}", "ERROR")
+        logger.error("Resend error: %s", e)
         return 1
 
 
@@ -121,17 +113,14 @@ def send_health_alert(
     failing_sources: list[tuple[str, int]],
     failed_this_run: int,
     total_sources: int,
-    log_fn=None,
 ):
     """Send alert email when sources are persistently failing."""
     to_email = os.environ.get("HEALTH_ALERT_EMAIL")
     if not to_email:
-        if log_fn:
-            log_fn("Skipping health alert: HEALTH_ALERT_EMAIL not set", "WARN")
+        logger.warning("Skipping health alert: HEALTH_ALERT_EMAIL not set")
         return
     if not os.environ.get("RESEND_API_KEY"):
-        if log_fn:
-            log_fn("Skipping health alert: RESEND_API_KEY not set", "WARN")
+        logger.warning("Skipping health alert: RESEND_API_KEY not set")
         return
 
     resend.api_key = os.environ["RESEND_API_KEY"]
@@ -156,8 +145,6 @@ def send_health_alert(
                 "html": content,
             },
         )
-        if log_fn:
-            log_fn(f"Health alert sent to {to_email}")
+        logger.info("Health alert sent to %s", to_email)
     except resend.exceptions.ResendError as e:
-        if log_fn:
-            log_fn(f"Failed to send health alert: {e}", "ERROR")
+        logger.error("Failed to send health alert: %s", e)

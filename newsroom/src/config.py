@@ -45,9 +45,3 @@ MAX_SUMMARY_LENGTH = 200
 
 DEDUP_WINDOW_DAYS = 7  # Days of headline history for deduplication
 DEDUP_SIMILARITY_THRESHOLD = float(os.environ.get("DEDUP_SIMILARITY_THRESHOLD", "0.35"))
-
-# =============================================================================
-# Logging
-# =============================================================================
-
-MAX_LOG_LINES = 1000  # Keep last N log lines

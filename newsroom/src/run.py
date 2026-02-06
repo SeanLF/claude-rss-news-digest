@@ -6,10 +6,12 @@ Pipeline: Fetch RSS -> Claude curation -> Email delivery
 """
 
 import argparse
+import logging
 import os
 import subprocess
 import sys
 
+import db
 from broadcast import send_broadcast, send_health_alert, send_test_email
 from claude import generate_selections, health_check
 from config import (
@@ -22,19 +24,6 @@ from config import (
     STYLES_FILE,
     TEMPLATE_FILE,
 )
-from db import (
-    archive_articles,
-    archive_selections,
-    complete_run,
-    get_failing_sources,
-    get_last_run_time,
-    init_db,
-    record_run,
-    record_shown_headlines,
-    record_source_health,
-    save_digest,
-    start_run,
-)
 from digest import (
     cleanup_shown_headlines,
     find_latest_digest,
@@ -46,7 +35,9 @@ from feeds import collect_fetched_articles, fetch_feeds, load_sources
 from feeds_cli import validate_feeds_cli
 from prepare import prepare_claude_input
 from render import extract_preheader, prepare_for_email, replace_placeholders
-from utils import check_internet, log, validate_env
+from utils import check_internet, setup_logging, validate_env
+
+logger = logging.getLogger(__name__)
 
 
 def main():
@@ -82,13 +73,15 @@ Examples:
     parser.add_argument("--health-check", action="store_true", help="Verify Claude auth is working")
     args = parser.parse_args()
 
+    setup_logging()
+
     skip_email = args.dry_run or args.no_email or args.select_only
     skip_record = args.dry_run or args.no_record or args.select_only
 
     # Test email mode
     if args.test_email:
         validate_env(dry_run=True)
-        return send_test_email(args.test_email, log_fn=log)
+        return send_test_email(args.test_email)
 
     # Validate mode
     if args.validate:
@@ -97,57 +90,61 @@ Examples:
 
     # Health check mode
     if args.health_check:
-        return health_check(log_fn=log)
+        return health_check()
 
     # Preview mode
     if args.preview:
         digest = find_latest_digest()
         if not digest:
-            log("No digest found to preview", "ERROR")
+            logger.error("No digest found to preview")
             return 1
         if os.environ.get("IN_DOCKER"):
-            log(f"Preview (Docker): {digest.absolute()}")
+            logger.info("Preview (Docker): %s", digest.absolute())
         else:
-            log(f"Opening: {digest.name}")
+            logger.info("Opening: %s", digest.name)
             subprocess.run(["open", str(digest)])
         return 0
 
     # Send-only mode
     if args.send_only:
         validate_env(dry_run=False)
-        init_db(DB_PATH, MIGRATIONS_DIR)
+        db.init(DB_PATH, MIGRATIONS_DIR)
         digest = find_latest_digest()
         if not digest:
-            log("No digest found to send", "ERROR")
+            logger.error("No digest found to send")
             return 1
-        log(f"Sending existing digest: {digest.name}")
-        save_digest(DB_PATH, digest, log_fn=log)
-        recipients = send_broadcast(digest, prepare_for_email, log_fn=log)
+        logger.info("Sending existing digest: %s", digest.name)
+        run_id = db.start_run()
+        db.save_digest(digest)
+        recipients = send_broadcast(digest, prepare_for_email)
         shown_headlines = read_shown_headlines()
         if shown_headlines:
-            record_shown_headlines(DB_PATH, shown_headlines, log_fn=log)
-        record_run(DB_PATH, 0, articles_emailed=recipients, log_fn=log)
+            db.record_shown_headlines(shown_headlines)
+        if run_id:
+            db.complete_run(run_id, 0, articles_emailed=recipients)
         cleanup_shown_headlines()
         return 0
 
     # Write-only mode
     if args.write_only:
         validate_env(dry_run=skip_email)
-        init_db(DB_PATH, MIGRATIONS_DIR)
-        selections = load_selections(CLAUDE_INPUT_DIR / "selections.json", log_fn=log)
+        db.init(DB_PATH, MIGRATIONS_DIR)
+        selections = load_selections(CLAUDE_INPUT_DIR / "selections.json")
         preheader = extract_preheader(selections)
-        digest = write_digest(selections, TEMPLATE_FILE, log_fn=log)
-        replace_placeholders(digest, selections, STYLES_FILE, preheader, log_fn=log)
-        if not skip_record:
-            save_digest(DB_PATH, digest, preheader=preheader, log_fn=log)
+        digest = write_digest(selections, TEMPLATE_FILE)
+        replace_placeholders(digest, selections, STYLES_FILE, preheader)
+        run_id = db.start_run() if not skip_record else None
         recipients = 0
+        if not skip_record:
+            db.save_digest(digest, preheader=preheader)
         if not skip_email:
-            recipients = send_broadcast(digest, prepare_for_email, log_fn=log)
+            recipients = send_broadcast(digest, prepare_for_email)
         if not skip_record:
             shown_headlines = read_shown_headlines()
             if shown_headlines:
-                record_shown_headlines(DB_PATH, shown_headlines, log_fn=log)
-            record_run(DB_PATH, 0, articles_emailed=recipients, log_fn=log)
+                db.record_shown_headlines(shown_headlines)
+            if run_id:
+                db.complete_run(run_id, 0, articles_emailed=recipients)
         cleanup_shown_headlines()
         return 0
 
@@ -155,65 +152,63 @@ Examples:
     validate_env(dry_run=skip_email)
 
     if not check_internet():
-        log("No internet connection, skipping")
+        logger.info("No internet connection, skipping")
         return 0
 
     sources = load_sources(SOURCES_FILE)
-    init_db(DB_PATH, MIGRATIONS_DIR)
+    db.init(DB_PATH, MIGRATIONS_DIR)
 
     # Start run for archival (will be completed at end)
-    run_id = start_run(DB_PATH, log_fn=log) if not skip_record else None
+    run_id = db.start_run() if not skip_record else None
 
-    last_run = get_last_run_time(DB_PATH, log_fn=log)
-    fetch_result = fetch_feeds(sources, FETCHED_DIR, last_run, log_fn=log)
-    record_source_health(DB_PATH, fetch_result.health_records, log_fn=log)
+    last_run = db.get_last_run_time()
+    fetch_result = fetch_feeds(sources, FETCHED_DIR, last_run)
+    db.record_source_health(fetch_result.health_records)
 
     # Archive fetched articles
     if run_id:
-        archive_articles(DB_PATH, run_id, collect_fetched_articles(FETCHED_DIR), log_fn=log)
+        db.archive_articles(run_id, collect_fetched_articles(FETCHED_DIR))
 
     # Health alerts
-    persistently_failing = get_failing_sources(DB_PATH, min_consecutive=HEALTH_ALERT_THRESHOLD, log_fn=log)
+    persistently_failing = db.get_failing_sources(min_consecutive=HEALTH_ALERT_THRESHOLD)
     if persistently_failing:
         failed_this_run = sum(1 for _, success, *_ in fetch_result.health_records if not success)
-        send_health_alert(persistently_failing, failed_this_run, len(sources), log_fn=log)
+        send_health_alert(persistently_failing, failed_this_run, len(sources))
 
-    prepare_claude_input(sources, dry_run=args.dry_run, log_fn=log)
+    prepare_claude_input(sources, dry_run=args.dry_run)
 
-    generate_selections(log_fn=log)
-    selections = load_selections(CLAUDE_INPUT_DIR / "selections.json", log_fn=log)
+    generate_selections()
+    selections = load_selections(CLAUDE_INPUT_DIR / "selections.json")
 
     # Archive selections
     selections_path = CLAUDE_INPUT_DIR / "selections.json"
     if run_id and selections_path.exists():
-        archive_selections(DB_PATH, run_id, selections_path.read_text(), log_fn=log)
+        db.archive_selections(run_id, selections_path.read_text())
 
     if args.select_only:
-        log("Select-only mode: stopping after selection")
+        logger.info("Select-only mode: stopping after selection")
         return 0
 
     preheader = extract_preheader(selections)
-    digest = write_digest(selections, TEMPLATE_FILE, log_fn=log)
-    replace_placeholders(digest, selections, STYLES_FILE, preheader, log_fn=log)
+    digest = write_digest(selections, TEMPLATE_FILE)
+    replace_placeholders(digest, selections, STYLES_FILE, preheader)
 
     if not skip_record:
-        save_digest(DB_PATH, digest, preheader=preheader, log_fn=log)
+        db.save_digest(digest, preheader=preheader)
 
     recipients = 0
     if not skip_email:
-        recipients = send_broadcast(digest, prepare_for_email, log_fn=log)
+        recipients = send_broadcast(digest, prepare_for_email)
     else:
-        log(f"Skipping broadcast: {digest.name}")
+        logger.info("Skipping broadcast: %s", digest.name)
 
     if not skip_record:
         shown_headlines = read_shown_headlines()
         if not shown_headlines:
-            log("No headlines recorded - Claude may not have generated shown_headlines.json", "WARN")
-        record_shown_headlines(DB_PATH, shown_headlines, log_fn=log)
+            logger.warning("No headlines recorded - Claude may not have generated shown_headlines.json")
+        db.record_shown_headlines(shown_headlines)
         if run_id:
-            complete_run(DB_PATH, run_id, fetch_result.total_kept, articles_emailed=recipients, log_fn=log)
-        else:
-            record_run(DB_PATH, fetch_result.total_kept, articles_emailed=recipients, log_fn=log)
+            db.complete_run(run_id, fetch_result.total_kept, articles_emailed=recipients)
 
     cleanup_shown_headlines()
 
@@ -224,8 +219,8 @@ if __name__ == "__main__":
     try:
         sys.exit(main())
     except KeyboardInterrupt:
-        log("Interrupted", "WARN")
+        logging.warning("Interrupted")
         sys.exit(130)
     except Exception as e:
-        log(f"{type(e).__name__}: {e}", "ERROR")
+        logging.error("%s: %s", type(e).__name__, e)
         sys.exit(1)

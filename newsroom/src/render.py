@@ -6,10 +6,13 @@ and placeholder replacement.
 
 import csv
 import html
+import logging
 import os
 import re
 from datetime import UTC, datetime
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 # Region display configuration: (display_name, emoji)
 REGION_CONFIG = {
@@ -322,7 +325,6 @@ def replace_placeholders(
     selections: dict,
     styles_file: Path,
     preheader: str = "",
-    log_fn=None,
 ):
     """Replace all placeholders in digest HTML (styles, name, date, etc).
 
@@ -407,5 +409,4 @@ def replace_placeholders(
         content = re.sub(r'<a href="\{\{ARCHIVE_URL\}\}">[^<]+</a> · ', "", content)
 
     digest_path.write_text(content)
-    if log_fn:
-        log_fn(f"Date: {date_str}")
+    logger.info("Date: %s", date_str)

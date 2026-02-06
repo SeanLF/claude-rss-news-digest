@@ -7,7 +7,7 @@ import json
 from datetime import datetime
 from pathlib import Path
 
-from db import get_failing_sources, init_db
+import db
 from feeds import fetch_source, load_sources, parse_date
 
 
@@ -94,8 +94,8 @@ def validate_feeds_cli(
     failed_count = sum(1 for r in results if r["error"])
     total_articles = sum(r["article_count"] for r in results)
 
-    init_db(db_path, migrations_dir)
-    persistently_failing = get_failing_sources(db_path, min_consecutive=3)
+    db.init(db_path, migrations_dir)
+    persistently_failing = db.get_failing_sources(min_consecutive=3)
 
     if json_output:
         output = {
