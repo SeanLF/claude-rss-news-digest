@@ -167,7 +167,7 @@ Examples:
 
     # Archive fetched articles
     if run_id:
-        db.archive_articles(run_id, collect_fetched_articles(FETCHED_DIR))
+        db.archive_articles(collect_fetched_articles(FETCHED_DIR))
 
     # Health alerts
     persistently_failing = db.get_failing_sources(min_consecutive=HEALTH_ALERT_THRESHOLD)
@@ -183,7 +183,7 @@ Examples:
     # Archive selections
     selections_path = CLAUDE_INPUT_DIR / "selections.json"
     if run_id and selections_path.exists():
-        db.archive_selections(run_id, selections_path.read_text())
+        db.archive_selections(selections_path.read_text())
 
     if args.select_only:
         logger.info("Select-only mode: stopping after selection")

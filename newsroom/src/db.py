@@ -3,25 +3,32 @@
 import logging
 import re
 import sqlite3
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
-_db_path_value: Path | None = None
+
+@dataclass
+class _State:
+    db_path: Path | None = None
+    run_id: int | None = None
+
+
+_state = _State()
 
 
 def _db_path() -> Path:
     """Return db_path, raising if init() hasn't been called."""
-    if _db_path_value is None:
+    if _state.db_path is None:
         raise RuntimeError("db.init() must be called before database operations")
-    return _db_path_value
+    return _state.db_path
 
 
 def init(db_path: Path, migrations_dir: Path):
     """Initialize database and set module context."""
-    global _db_path_value
-    _db_path_value = db_path
+    _state.db_path = db_path
     db_path.parent.mkdir(exist_ok=True)
 
     if not db_path.exists():
@@ -45,10 +52,10 @@ def check_pending_migrations(db_path: Path, migrations_dir: Path) -> list[str]:
 
 def get_last_run_time() -> datetime | None:
     """Get timestamp of last digest run."""
-    if not _db_path_value or not _db_path_value.exists():
+    if not _state.db_path or not _state.db_path.exists():
         return None
     try:
-        with sqlite3.connect(_db_path_value) as conn:
+        with sqlite3.connect(_state.db_path) as conn:
             cursor = conn.execute("SELECT MAX(run_at) FROM digest_runs")
             result = cursor.fetchone()[0]
             if result:
@@ -63,9 +70,11 @@ def start_run() -> int | None:
     try:
         with sqlite3.connect(_db_path()) as conn:
             cursor = conn.execute("INSERT INTO digest_runs (articles_fetched, articles_emailed) VALUES (NULL, NULL)")
-            return cursor.lastrowid
+            _state.run_id = cursor.lastrowid
+            return _state.run_id
     except sqlite3.Error as e:
         logger.error("DB error starting run: %s", e)
+        _state.run_id = None
         return None
 
 
@@ -83,10 +92,10 @@ def complete_run(run_id: int, articles_fetched: int, articles_emailed: int = 0):
 
 def get_previous_headlines(days: int = 7) -> list[dict]:
     """Get headlines shown in the last N days for deduplication."""
-    if not _db_path_value or not _db_path_value.exists():
+    if not _state.db_path or not _state.db_path.exists():
         return []
     try:
-        with sqlite3.connect(_db_path_value) as conn:
+        with sqlite3.connect(_state.db_path) as conn:
             cursor = conn.execute(
                 """
                 SELECT headline, tier, date(shown_at) as date
@@ -109,8 +118,8 @@ def record_shown_headlines(headlines: list[dict]):
     try:
         with sqlite3.connect(_db_path()) as conn:
             conn.executemany(
-                "INSERT INTO shown_narratives (headline, tier, source_id) VALUES (?, ?, ?)",
-                [(h.get("headline", ""), h.get("tier", ""), h.get("source_id")) for h in headlines],
+                "INSERT INTO shown_narratives (headline, tier, source_id, run_id) VALUES (?, ?, ?, ?)",
+                [(h.get("headline", ""), h.get("tier", ""), h.get("source_id"), _state.run_id) for h in headlines],
             )
     except sqlite3.Error as e:
         logger.error("DB error recording headlines: %s", e)
@@ -126,8 +135,8 @@ def record_source_health(results: list[tuple[str, bool, str | None, int, int]]):
     try:
         with sqlite3.connect(_db_path()) as conn:
             conn.executemany(
-                "INSERT INTO source_health (source_id, success, error_message, articles_fetched, articles_kept) VALUES (?, ?, ?, ?, ?)",
-                results,
+                "INSERT INTO source_health (source_id, success, error_message, articles_fetched, articles_kept, run_id) VALUES (?, ?, ?, ?, ?, ?)",
+                [(*r, _state.run_id) for r in results],
             )
     except sqlite3.Error as e:
         logger.error("DB error recording source health: %s", e)
@@ -135,10 +144,10 @@ def record_source_health(results: list[tuple[str, bool, str | None, int, int]]):
 
 def get_consecutive_failures(source_id: str, limit: int = 10) -> int:
     """Get count of consecutive recent failures for a source."""
-    if not _db_path_value or not _db_path_value.exists():
+    if not _state.db_path or not _state.db_path.exists():
         return 0
     try:
-        with sqlite3.connect(_db_path_value) as conn:
+        with sqlite3.connect(_state.db_path) as conn:
             cursor = conn.execute(
                 """
                 SELECT success FROM source_health
@@ -161,10 +170,10 @@ def get_consecutive_failures(source_id: str, limit: int = 10) -> int:
 
 def get_failing_sources(min_consecutive: int = 3) -> list[tuple[str, int]]:
     """Get sources with N+ consecutive failures. Returns [(source_id, failure_count)]."""
-    if not _db_path_value or not _db_path_value.exists():
+    if not _state.db_path or not _state.db_path.exists():
         return []
     try:
-        with sqlite3.connect(_db_path_value) as conn:
+        with sqlite3.connect(_state.db_path) as conn:
             cursor = conn.execute("""
                 SELECT DISTINCT source_id FROM source_health
                 WHERE recorded_at > datetime('now', '-7 days')
@@ -191,15 +200,15 @@ def log_dedup_action(
         with sqlite3.connect(_db_path()) as conn:
             conn.execute(
                 """INSERT INTO dedup_log
-                   (article_title, article_source_id, matched_headline, similarity, threshold, action)
-                   VALUES (?, ?, ?, ?, ?, ?)""",
-                (article_title, article_source_id, matched_headline, similarity, threshold, action),
+                   (article_title, article_source_id, matched_headline, similarity, threshold, action, run_id)
+                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                (article_title, article_source_id, matched_headline, similarity, threshold, action, _state.run_id),
             )
     except sqlite3.Error as e:
         logger.error("DB error logging dedup action: %s", e)
 
 
-def archive_articles(run_id: int | None, articles: list[dict]):
+def archive_articles(articles: list[dict]):
     """Archive all fetched articles for historical analysis."""
     if not articles:
         return
@@ -209,7 +218,7 @@ def archive_articles(run_id: int | None, articles: list[dict]):
                 """INSERT INTO fetched_articles (run_id, source_id, title, url, published, summary)
                    VALUES (?, ?, ?, ?, ?, ?)""",
                 [
-                    (run_id, a["source_id"], a["title"], a["url"], a.get("published"), a.get("summary"))
+                    (_state.run_id, a["source_id"], a["title"], a["url"], a.get("published"), a.get("summary"))
                     for a in articles
                 ],
             )
@@ -217,13 +226,13 @@ def archive_articles(run_id: int | None, articles: list[dict]):
         logger.error("DB error archiving %d articles: %s", len(articles), e)
 
 
-def archive_selections(run_id: int | None, selections_json: str):
+def archive_selections(selections_json: str):
     """Archive Claude's raw selection output for historical analysis."""
     try:
         with sqlite3.connect(_db_path()) as conn:
             conn.execute(
                 "INSERT INTO selections (run_id, selections_json) VALUES (?, ?)",
-                (run_id, selections_json),
+                (_state.run_id, selections_json),
             )
     except sqlite3.Error as e:
         logger.error("DB error archiving selections: %s", e)
@@ -254,12 +263,32 @@ def save_digest(digest_path: Path, preheader: str = ""):
     try:
         with sqlite3.connect(_db_path()) as conn:
             conn.execute(
-                """INSERT INTO digests (date, html, preheader) VALUES (?, ?, ?)
+                """INSERT INTO digests (date, html, preheader, run_id) VALUES (?, ?, ?, ?)
                    ON CONFLICT(date) DO UPDATE SET
                      html = excluded.html,
-                     preheader = CASE WHEN excluded.preheader = '' THEN digests.preheader ELSE excluded.preheader END""",
-                (date_str, web_html, preheader),
+                     preheader = CASE WHEN excluded.preheader = '' THEN digests.preheader ELSE excluded.preheader END,
+                     run_id = excluded.run_id""",
+                (date_str, web_html, preheader, _state.run_id),
             )
         logger.info("Saved digest to database: %s", date_str)
     except sqlite3.Error as e:
         logger.error("DB error saving digest: %s", e)
+
+
+def delete_run(run_id: int):
+    """Delete a run and all associated data across all tables."""
+    try:
+        with sqlite3.connect(_db_path()) as conn:
+            for table in [
+                "fetched_articles",
+                "selections",
+                "shown_narratives",
+                "source_health",
+                "dedup_log",
+                "digests",
+            ]:
+                conn.execute(f"DELETE FROM {table} WHERE run_id = ?", (run_id,))
+            conn.execute("DELETE FROM digest_runs WHERE id = ?", (run_id,))
+        logger.info("Deleted run %d and all associated data", run_id)
+    except sqlite3.Error as e:
+        logger.error("DB error deleting run %d: %s", run_id, e)
