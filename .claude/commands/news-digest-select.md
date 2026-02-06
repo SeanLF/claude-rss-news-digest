@@ -83,21 +83,11 @@ The Economist meets AP wire: clear, authoritative, zero fluff.
 
 Use `write_selections` tool. Schema defines structure.
 
-### Regional Summaries
-Narrative paragraphs with inline markdown links. Synthesize must_know and should_know stories.
-
-```
-"americas": "Nicaragua [released prisoners](https://...) under US pressure. Canada's [Freeland resigned](https://...) from Parliament."
-```
-
-- Link the action, not generic words
-- Weave into narrative, don't list
-- 3-5 sentences per region
-- Only reference must_know and should_know stories
+### Preheader
+One sentence capturing the 2-3 biggest stories of the day. This appears as the email inbox preview and under each date on the archive page. No links, no markdown. Max 150 characters.
 
 ### Signals
 - One-liner + source link per story
-- Do NOT duplicate stories from regional_summary
 - Group by region
 
 ### Sources
@@ -110,8 +100,7 @@ Narrative paragraphs with inline markdown links. Synthesize must_know and should
 
 **Before calling write_selections, verify:**
 
-1. No story appears in both regional_summary and signals
-2. Same event from multiple sources is combined, not repeated
+1. Same event from multiple sources is combined, not repeated
 
 ---
 

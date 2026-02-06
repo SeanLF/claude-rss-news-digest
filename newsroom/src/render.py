@@ -58,19 +58,6 @@ def calculate_reading_time(html_content: str, words_per_minute: int = 200) -> st
     return f"{minutes} min read"
 
 
-def markdown_to_html(text: str) -> str:
-    """Convert markdown links [text](url) to HTML <a> tags."""
-
-    def replace_link(match):
-        link_text = html.escape(match.group(1))
-        url = match.group(2)
-        if is_safe_url(url):
-            return f'<a href="{html.escape(url)}">{link_text}</a>'
-        return link_text  # Return just text if URL is unsafe
-
-    return re.sub(r"\[([^\]]+)\]\(([^)]+)\)", replace_link, text)
-
-
 # =============================================================================
 # CSS Processing
 # =============================================================================
@@ -234,17 +221,6 @@ def render_digest(selections: dict, template_file: Path) -> str:
         raise RuntimeError(f"Template file not found: {template_file}")
     template = template_file.read_text()
 
-    # Render regional summary
-    regional_summary = selections.get("regional_summary", {})
-    summary_parts = []
-    for region_key in REGION_ORDER:
-        text = regional_summary.get(region_key, "")
-        if text:
-            region_name, emoji = REGION_CONFIG[region_key]
-            text_html = markdown_to_html(text)
-            summary_parts.append(f'    <p><span class="region">{emoji} {region_name}:</span> {text_html}</p>')
-    summary_html = "\n".join(summary_parts)
-
     # Render must_know
     must_know_html = "\n".join(
         render_article(article, include_reporting_varies=True) for article in selections.get("must_know", [])
@@ -272,7 +248,6 @@ def render_digest(selections: dict, template_file: Path) -> str:
 
     # Fill template
     result = template
-    result = result.replace("{{REGIONAL_SUMMARY}}", summary_html)
     result = result.replace("{{MUST_KNOW}}", must_know_html)
     result = result.replace("{{SHOULD_KNOW}}", should_know_html)
     result = result.replace("{{SIGNALS}}", signals_html)
@@ -329,20 +304,9 @@ def extract_headlines(selections: dict, get_source_id_fn) -> list[dict]:
     return headlines
 
 
-def extract_preheader(selections: dict, max_length: int = 150) -> str:
-    """Extract preheader text from first regional summary for email preview."""
-    regional_summary = selections.get("regional_summary", {})
-    for region in REGION_ORDER:
-        summary = regional_summary.get(region, "")
-        if summary:
-            # Strip markdown links, get plain text
-            plain = re.sub(r"\[([^\]]+)\]\([^)]+\)", r"\1", summary)
-            # Get first sentence or truncate
-            first_sentence = plain.split(".")[0] + "."
-            if len(first_sentence) <= max_length:
-                return first_sentence
-            return plain[:max_length].rsplit(" ", 1)[0] + "..."
-    return ""
+def extract_preheader(selections: dict) -> str:
+    """Extract preheader text from selections for email preview."""
+    return selections.get("preheader", "")
 
 
 def format_story_counts(selections: dict) -> str:

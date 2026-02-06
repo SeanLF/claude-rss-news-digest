@@ -135,10 +135,11 @@ Examples:
         validate_env(dry_run=skip_email)
         init_db(DB_PATH, MIGRATIONS_DIR)
         selections = load_selections(CLAUDE_INPUT_DIR / "selections.json", log_fn=log)
+        preheader = extract_preheader(selections)
         digest = write_digest(selections, TEMPLATE_FILE, log_fn=log)
-        replace_placeholders(digest, selections, STYLES_FILE, extract_preheader(selections), log_fn=log)
+        replace_placeholders(digest, selections, STYLES_FILE, preheader, log_fn=log)
         if not skip_record:
-            save_digest(DB_PATH, digest, log_fn=log)
+            save_digest(DB_PATH, digest, preheader=preheader, log_fn=log)
         recipients = 0
         if not skip_email:
             recipients = send_broadcast(digest, prepare_for_email, log_fn=log)
@@ -191,11 +192,12 @@ Examples:
         log("Select-only mode: stopping after selection")
         return 0
 
+    preheader = extract_preheader(selections)
     digest = write_digest(selections, TEMPLATE_FILE, log_fn=log)
-    replace_placeholders(digest, selections, STYLES_FILE, extract_preheader(selections), log_fn=log)
+    replace_placeholders(digest, selections, STYLES_FILE, preheader, log_fn=log)
 
     if not skip_record:
-        save_digest(DB_PATH, digest, log_fn=log)
+        save_digest(DB_PATH, digest, preheader=preheader, log_fn=log)
 
     recipients = 0
     if not skip_email:

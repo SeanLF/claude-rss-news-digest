@@ -55,13 +55,7 @@ Claude outputs this via MCP tool; Python renders it to HTML. Schema enforced wit
     "middle_east_africa": [],
     "tech": []
   },
-  "regional_summary": {
-    "americas": "Narrative with [inline](url) markdown links",
-    "europe": "...",
-    "asia_pacific": "...",
-    "middle_east_africa": "...",
-    "tech": "..."
-  }
+  "preheader": "One sentence summarizing the 2-3 biggest stories (max 150 chars)"
 }
 ```
 
@@ -69,7 +63,7 @@ Claude outputs this via MCP tool; Python renders it to HTML. Schema enforced wit
 - `reporting_varies` is optional (only when sources frame story differently)
 - `bias` enum: left, center-left, center, center-right, right
 - Empty `signals` regions are skipped in rendering
-- All four top-level keys required
+- All four top-level keys required (`must_know`, `should_know`, `signals`, `preheader`)
 
 ## Claude Authentication
 

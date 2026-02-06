@@ -18,13 +18,7 @@ def valid_selections():
         "must_know": [],
         "should_know": [],
         "signals": {"americas": [], "europe": [], "asia_pacific": [], "middle_east_africa": [], "tech": []},
-        "regional_summary": {
-            "americas": "",
-            "europe": "",
-            "asia_pacific": "",
-            "middle_east_africa": "",
-            "tech": "",
-        },
+        "preheader": "Test preheader sentence.",
     }
 
 
@@ -148,13 +142,13 @@ class TestValidateSelections:
         assert any("must_know" in e and "array" in e and "str" in e for e in errors)
 
     def test_rejects_missing_required_fields(self):
-        selections = {"must_know": [], "should_know": []}  # Missing signals, regional_summary
+        selections = {"must_know": [], "should_know": []}  # Missing signals, preheader
 
         errors = validate_selections(selections)
 
         assert len(errors) >= 2
         assert any("signals" in e for e in errors)
-        assert any("regional_summary" in e for e in errors)
+        assert any("preheader" in e for e in errors)
 
     def test_rejects_wrong_signal_structure(self):
         selections = valid_selections()

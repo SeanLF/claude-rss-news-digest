@@ -273,7 +273,7 @@ def prepare_for_web(html: str) -> str:
     return html
 
 
-def save_digest(db_path: Path, digest_path: Path, log_fn: LogFn = None):
+def save_digest(db_path: Path, digest_path: Path, preheader: str = "", log_fn: LogFn = None):
     """Save digest HTML to database for web serving."""
     # Extract date from filename (digest-YYYY-MM-DD*.html -> YYYY-MM-DD)
     match = re.search(r"(\d{4}-\d{2}-\d{2})", digest_path.stem)
@@ -289,7 +289,13 @@ def save_digest(db_path: Path, digest_path: Path, log_fn: LogFn = None):
 
     try:
         with sqlite3.connect(db_path) as conn:
-            conn.execute("INSERT OR REPLACE INTO digests (date, html) VALUES (?, ?)", (date_str, web_html))
+            conn.execute(
+                """INSERT INTO digests (date, html, preheader) VALUES (?, ?, ?)
+                   ON CONFLICT(date) DO UPDATE SET
+                     html = excluded.html,
+                     preheader = CASE WHEN excluded.preheader = '' THEN digests.preheader ELSE excluded.preheader END""",
+                (date_str, web_html, preheader),
+            )
         if log_fn:
             log_fn(f"Saved digest to database: {date_str}")
     except sqlite3.Error as e:

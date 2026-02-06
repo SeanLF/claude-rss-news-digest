@@ -19,7 +19,7 @@ COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/
 # Install Python 3.14 and symlink to /usr/local/bin
 ENV UV_PYTHON_INSTALL_DIR=/opt/python
 RUN uv python install 3.14 \
-    && ln -s /opt/python/*/bin/python3 /usr/local/bin/python3
+    && ln -sf /opt/python/*/bin/python3 /usr/local/bin/python3
 
 # Create non-root user with fixed UID/GID for volume compatibility
 RUN addgroup -g 1001 appuser && adduser -u 1001 -G appuser -s /bin/bash -D appuser

@@ -11,7 +11,7 @@ use std::sync::Arc;
 use crate::AppState;
 use crate::check_database_health;
 use crate::templates::{DIGEST_NAV_CSS, DIGEST_NAV_HTML, render_index};
-use crate::util::{format_date, is_valid_date, log_row_error};
+use crate::util::{escape_html, format_date, is_valid_date, log_row_error};
 
 #[derive(Deserialize)]
 pub struct SubscribeForm {
@@ -38,20 +38,28 @@ pub async fn index(
 
     // Get list of available digests (most recent first)
     let mut stmt = conn
-        .prepare("SELECT date FROM digests ORDER BY date DESC LIMIT 30")
+        .prepare("SELECT date, COALESCE(preheader, '') FROM digests ORDER BY date DESC LIMIT 30")
         .map_err(|_| (StatusCode::SERVICE_UNAVAILABLE, "Service unavailable"))?;
 
-    let dates: Vec<String> = stmt
-        .query_map([], |row| row.get(0))
+    let digests: Vec<(String, String)> = stmt
+        .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
         .map_err(|_| (StatusCode::SERVICE_UNAVAILABLE, "Service unavailable"))?
         .filter_map(|r| log_row_error(r, "digests"))
         .collect();
 
-    let links: String = dates
+    let links: String = digests
         .iter()
-        .map(|d| {
+        .map(|(d, preheader)| {
             let formatted = format_date(d);
-            format!(r#"<li><a href="/{d}"><span class="date-text">{formatted}</span><span class="arrow">→</span></a></li>"#)
+            let preheader_html = if preheader.is_empty() {
+                String::new()
+            } else {
+                let escaped = escape_html(preheader);
+                format!(r#"<span class="preheader-text">{escaped}</span>"#)
+            };
+            format!(
+                r#"<li><a href="/{d}"><span class="link-content"><span class="date-text">{formatted}</span>{preheader_html}</span><span class="arrow">→</span></a></li>"#
+            )
         })
         .collect::<Vec<_>>()
         .join("\n      ");

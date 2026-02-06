@@ -106,7 +106,7 @@ pub fn render_index(
     li a {{
       display: flex;
       justify-content: space-between;
-      align-items: center;
+      align-items: flex-start;
       padding: 0.75rem 1rem;
       background: var(--bg-card);
       border: 1px solid var(--border-white-subtle);
@@ -127,6 +127,22 @@ pub fn render_index(
     li a:hover .arrow {{
       color: var(--ruby-red);
       transform: translateX(4px);
+    }}
+    .link-content {{
+      flex: 1;
+      min-width: 0;
+    }}
+    .date-text {{
+      display: block;
+      font-weight: 500;
+      color: var(--text-primary);
+    }}
+    .preheader-text {{
+      display: block;
+      font-size: 0.82rem;
+      color: var(--text-tertiary);
+      margin-top: 0.25rem;
+      line-height: 1.4;
     }}
     @media (max-width: 480px) {{
       .subscribe-form {{

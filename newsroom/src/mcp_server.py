@@ -99,20 +99,6 @@ SIGNALS_SCHEMA = {
     "description": "One-liner signals clustered by region",
 }
 
-REGIONAL_SUMMARY_SCHEMA = {
-    "type": "object",
-    "properties": {
-        "americas": {"type": "string"},
-        "europe": {"type": "string"},
-        "asia_pacific": {"type": "string"},
-        "middle_east_africa": {"type": "string"},
-        "tech": {"type": "string"},
-    },
-    "required": ["americas", "europe", "asia_pacific", "middle_east_africa", "tech"],
-    "additionalProperties": False,
-    "description": "Narrative summaries with inline markdown links",
-}
-
 SELECTIONS_SCHEMA = {
     "type": "object",
     "properties": {
@@ -127,9 +113,16 @@ SELECTIONS_SCHEMA = {
             "description": "5+ important but not urgent stories",
         },
         "signals": SIGNALS_SCHEMA,
-        "regional_summary": REGIONAL_SUMMARY_SCHEMA,
+        "preheader": {
+            "type": "string",
+            "maxLength": 150,
+            "description": (
+                "One-sentence preview of today's digest for email inbox preview and the archive index page. "
+                "Capture the 2-3 most significant stories. No links."
+            ),
+        },
     },
-    "required": ["must_know", "should_know", "signals", "regional_summary"],
+    "required": ["must_know", "should_know", "signals", "preheader"],
     "additionalProperties": False,
 }
 
@@ -141,7 +134,7 @@ TOOLS = [
             "Writes the complete curated news digest to selections.json. "
             "Call this after reading ALL article files and making editorial selections. "
             "The selections object must include must_know (3+ stories), should_know (5+ stories), "
-            "signals grouped by region, and regional_summary with inline markdown links. "
+            "signals grouped by region, and a preheader sentence for inbox preview. "
             "Do NOT call until you have processed every article file. "
             "Schema validation will reject incomplete or malformed input - fix errors and retry."
         ),
