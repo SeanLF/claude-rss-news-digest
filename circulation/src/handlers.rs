@@ -38,7 +38,7 @@ pub async fn index(
 
     // Get list of available digests (most recent first)
     let mut stmt = conn
-        .prepare("SELECT date, COALESCE(preheader, '') FROM digests ORDER BY date DESC LIMIT 30")
+        .prepare("SELECT date, COALESCE(preheader, '') FROM digests ORDER BY date DESC")
         .map_err(|_| (StatusCode::SERVICE_UNAVAILABLE, "Service unavailable"))?;
 
     let digests: Vec<(String, String)> = stmt
