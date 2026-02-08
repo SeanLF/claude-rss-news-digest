@@ -323,6 +323,7 @@ apply_terraform() {
     -target=null_resource.news_digest_env \
     -target=null_resource.news_digest_service \
     -target=null_resource.digest_server \
+    -var="news_digest_deploy_sha=$SHA" \
     -auto-approve
 
   log_success "Terraform applied"
