@@ -144,6 +144,15 @@ pub fn render_index(
       margin-top: 0.25rem;
       line-height: 1.4;
     }}
+    .site-footer {{
+      margin-top: 2rem;
+      font-size: 0.85rem;
+      opacity: 0.5;
+    }}
+    .site-footer a {{
+      color: inherit;
+      text-decoration: none;
+    }}
     @media (max-width: 480px) {{
       .subscribe-form {{
         flex-direction: column;
@@ -161,10 +170,14 @@ pub fn render_index(
     {meta_links}
     {success_msg}
     {subscribe_form}
-    <h2>Recent Digests</h2>
+    <h2>All Digests</h2>
     <ul>
       {digest_links}
     </ul>
+    <footer class="site-footer">
+      <p><a href="https://seanfloyd.dev/privacy">Privacy Policy</a></p>
+      <p>© Sean Floyd</p>
+    </footer>
   </div>
 </body>
 </html>"##
