@@ -82,12 +82,19 @@ def check_python_deps():
     return ("py-deps", "update", f"{len(outdated)} outdated", None, [f"{p['name']}: {p['version']} → {p['latest_version']}" for p in outdated])
 
 def check_rust_deps():
-    cargo = Path(__file__).parent.parent / "circulation" / "Cargo.toml"
-    if not cargo.exists(): return ok("rust-deps", "(no Cargo.toml)")
-    deps = [(n, c) for n, c in re.findall(r'^(\w+)\s*=\s*["{].*?(\d+\.\d+(?:\.\d+)?)', cargo.read_text(), re.MULTILINE)
-            if n not in ("version", "edition", "rust")]
+    cargo_dir = Path(__file__).parent.parent / "circulation"
+    cargo_toml = cargo_dir / "Cargo.toml"
+    cargo_lock = cargo_dir / "Cargo.lock"
+    if not cargo_toml.exists(): return ok("rust-deps", "(no Cargo.toml)")
+    if not cargo_lock.exists(): return err("rust-deps", "no Cargo.lock")
+    # Direct deps from Cargo.toml
+    direct = {n for n, _ in re.findall(r'^(\w+)\s*=\s*["{].*?(\d+\.\d+(?:\.\d+)?)', cargo_toml.read_text(), re.MULTILINE)
+              if n not in ("version", "edition", "rust")}
+    # Resolved versions from Cargo.lock
+    locked = dict(re.findall(r'^name = "(.+?)"\nversion = "(.+?)"', cargo_lock.read_text(), re.MULTILINE))
+    deps = [(n, locked[n]) for n in direct if n in locked]
     def norm(v): parts = [int(x) for x in v.split(".")]; return parts + [0] * (3 - len(parts))
-    outdated = [(n, c, l) for n, c in deps[:5] if (l := crates_ver(n)) and norm(c) < norm(l)]
+    outdated = [(n, c, l) for n, c in deps if (l := crates_ver(n)) and norm(c) < norm(l)]
     if not outdated: return ok("rust-deps", "checked")
     return ("rust-deps", "update", f"{len(outdated)} outdated", None, [f"{n}: {c} → {l}" for n, c, l in outdated])
 
