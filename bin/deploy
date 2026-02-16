@@ -275,8 +275,29 @@ build_and_push() {
     return 0
   fi
 
-  build_and_push_image "digest-circulation" "./circulation"
-  build_and_push_image "digest-newsroom" "." "newsroom/Dockerfile" "--build-arg GIT_SHA=${SHA:0:7}"
+  # Audit Rust deps before shipping
+  log_step "Auditing Rust dependencies..."
+  run_or_skip "cargo audit" \
+    docker compose run --rm ci-rust "cargo audit"
+
+  # Build both images in parallel
+  log_step "Building images (parallel)..."
+
+  build_and_push_image "digest-circulation" "./circulation" &
+  local circ_pid=$!
+
+  build_and_push_image "digest-newsroom" "." "newsroom/Dockerfile" "--build-arg GIT_SHA=${SHA:0:7}" &
+  local news_pid=$!
+
+  local circ_failed=false news_failed=false
+  wait "$circ_pid" || circ_failed=true
+  wait "$news_pid" || news_failed=true
+
+  if [ "$circ_failed" = "true" ] || [ "$news_failed" = "true" ]; then
+    [ "$circ_failed" = "true" ] && log_error "digest-circulation build failed"
+    [ "$news_failed" = "true" ] && log_error "digest-newsroom build failed"
+    return 1
+  fi
 
   log_success "Images built and pushed"
 }

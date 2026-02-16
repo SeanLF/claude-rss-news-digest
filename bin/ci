@@ -5,6 +5,7 @@ Local CI - run all checks in Docker for reproducibility.
 Usage:
     bin/ci           Run all checks (in Docker)
     bin/ci --fix     Auto-fix style issues
+    bin/ci --full    Include cargo audit (slow, runs by default in deploy)
     bin/ci --local   Run locally (skip Docker)
 """
 
@@ -26,35 +27,46 @@ IN_DOCKER = os.environ.get("IN_DOCKER") == "1"
 
 
 def run_in_docker() -> int:
-    """Run CI via docker compose (Python + Rust)."""
+    """Run CI via docker compose (Python + Rust in parallel)."""
     print(f"{BOLD}{PURPLE}Running CI in Docker...{RESET}\n")
 
-    # Forward args (--fix, etc.)
     args = sys.argv[1:]
     fix_mode = "--fix" in args
+    full_mode = "--full" in args
+    ci_args = [a for a in args if a not in ("--full",)]
 
-    # Python checks
-    result = subprocess.run(
-        ["docker", "compose", "run", "--rm", "--build", "ci", *args],
+    # Start Python CI
+    py_proc = subprocess.Popen(
+        ["docker", "compose", "run", "--rm", "--build", "ci", *ci_args],
         cwd=ROOT,
     )
-    if result.returncode != 0:
-        return result.returncode
 
-    # Rust checks (if circulation exists)
+    # Start Rust CI (if circulation exists)
+    rust_proc = None
     circulation = ROOT / "circulation"
     if circulation.exists():
-        print(f"\n{BOLD}{PURPLE}Running Rust CI in Docker...{RESET}\n")
-        if fix_mode:
-            cmd = "cargo fmt && cargo clippy -- -D warnings && cargo audit && cargo test"
-        else:
-            cmd = "cargo fmt --check && cargo clippy -- -D warnings && cargo audit && cargo test"
-        result = subprocess.run(
+        fmt_cmd = "cargo fmt" if fix_mode else "cargo fmt --check"
+        rust_parts = [fmt_cmd, "cargo clippy -- -D warnings", "cargo test"]
+        if full_mode:
+            rust_parts.insert(2, "cargo audit")
+        cmd = " && ".join(rust_parts)
+        rust_proc = subprocess.Popen(
             ["docker", "compose", "run", "--rm", "ci-rust", cmd],
             cwd=ROOT,
         )
 
-    return result.returncode
+    # Wait for both
+    py_rc = py_proc.wait()
+    rust_rc = rust_proc.wait() if rust_proc else 0
+
+    if py_rc != 0:
+        print(f"\n{RED}Python CI failed (exit {py_rc}){RESET}")
+    if rust_rc != 0:
+        print(f"\n{RED}Rust CI failed (exit {rust_rc}){RESET}")
+
+    if py_rc != 0:
+        return py_rc
+    return rust_rc
 
 
 def run_step(name: str, cmd: list[str], cwd: Path | None = None) -> bool:
@@ -65,24 +77,6 @@ def run_step(name: str, cmd: list[str], cwd: Path | None = None) -> bool:
     passed = result.returncode == 0
 
     print(f"{GREEN}Passed{RESET}" if passed else f"{RED}Failed{RESET}")
-    return passed
-
-
-def install_dev_deps() -> bool:
-    """Install dev dependencies with uv."""
-    print(f"{BOLD}{PURPLE}=== Installing dependencies ==={RESET}")
-    # Install app deps from pyproject.toml + dev deps
-    result = subprocess.run(
-        ["uv", "pip", "install", "--system", "--break-system-packages", "-r", "newsroom/pyproject.toml", "ruff", "mypy", "bandit", "pytest"],
-        capture_output=True,
-    )
-    passed = result.returncode == 0
-
-    if passed:
-        print(f"{GREEN}Done{RESET}")
-    else:
-        print(f"{RED}Failed to install deps{RESET}")
-        print(result.stderr.decode())
     return passed
 
 
@@ -102,13 +96,8 @@ def check_tool(tool: str) -> bool:
         return False
 
 
-def run_checks(fix_mode: bool) -> int:
+def run_checks(fix_mode: bool, full_mode: bool) -> int:
     """Run all CI checks."""
-    # Install dev deps if in Docker (they're not in the base image)
-    if IN_DOCKER:
-        if not install_dev_deps():
-            return 1
-
     # Verify tools available
     tools = ["ruff", "mypy", "bandit", "pytest"]
     missing = [t for t in tools if not check_tool(t)]
@@ -148,12 +137,13 @@ def run_checks(fix_mode: bool) -> int:
                 steps.append(("Format: Rust (check)", ["cargo", "fmt", "--check"], circulation))
             # Lint
             steps.append(("Style: Rust", ["cargo", "clippy", "--", "-D", "warnings"], circulation))
-            # Security (cargo-audit, optional)
-            audit_check = subprocess.run(["cargo", "audit", "--version"], capture_output=True)
-            if audit_check.returncode == 0:
-                steps.append(("Security: Rust", ["cargo", "audit"], circulation))
-            else:
-                print(f"{YELLOW}Skipping cargo audit (not installed: cargo install cargo-audit){RESET}")
+            # Security (cargo-audit, only with --full)
+            if full_mode:
+                audit_check = subprocess.run(["cargo", "audit", "--version"], capture_output=True)
+                if audit_check.returncode == 0:
+                    steps.append(("Security: Rust", ["cargo", "audit"], circulation))
+                else:
+                    print(f"{YELLOW}Skipping cargo audit (not installed: cargo install cargo-audit){RESET}")
             # Tests
             steps.append(("Tests: Rust", ["cargo", "test"], circulation))
         except (subprocess.CalledProcessError, FileNotFoundError):
@@ -175,13 +165,14 @@ def run_checks(fix_mode: bool) -> int:
 
 def main() -> int:
     fix_mode = "--fix" in sys.argv
+    full_mode = "--full" in sys.argv
     local_mode = "--local" in sys.argv
 
     # Re-exec in Docker unless --local or already in Docker
     if not IN_DOCKER and not local_mode:
         return run_in_docker()
 
-    return run_checks(fix_mode)
+    return run_checks(fix_mode, full_mode)
 
 
 if __name__ == "__main__":

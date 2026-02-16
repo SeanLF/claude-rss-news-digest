@@ -14,7 +14,7 @@ LABEL org.opencontainers.image.licenses="${OCI_LICENSES}"
 RUN apk add --no-cache ca-certificates libgcc libstdc++ ripgrep bash curl jq
 
 # Install uv
-COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/
+COPY --from=ghcr.io/astral-sh/uv:0.10 /uv /usr/local/bin/
 
 # Install Python 3.14 and symlink to /usr/local/bin
 ENV UV_PYTHON_INSTALL_DIR=/opt/python
@@ -34,7 +34,8 @@ WORKDIR /app
 
 # Install dependencies from pyproject.toml (before copying app code for better caching)
 COPY newsroom/pyproject.toml ./
-RUN uv venv .venv && uv pip install --python .venv -r pyproject.toml
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv venv .venv && uv pip install --python .venv -r pyproject.toml
 
 # Track which code version produced each digest
 ARG GIT_SHA

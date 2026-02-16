@@ -26,8 +26,7 @@ services:
   ci:
     build:
       context: .
-      dockerfile: newsroom/Dockerfile
-    user: root
+      dockerfile: newsroom/Dockerfile.ci
     working_dir: /app
     environment:
       - IN_DOCKER=1
@@ -44,7 +43,7 @@ services:
       - ./circulation:/app
       - cargo-cache:/usr/local/cargo/registry
     entrypoint: ["sh", "-c"]
-    command: ["cargo fmt --check && cargo clippy -- -D warnings && cargo audit && cargo test"]
+    command: ["cargo fmt --check && cargo clippy -- -D warnings && cargo test"]
 
   digest-circulation:
     build: ./circulation

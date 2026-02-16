@@ -1,0 +1,18 @@
+FROM alpine:3.23
+
+# Pin uv version for stable caching
+COPY --from=ghcr.io/astral-sh/uv:0.10 /uv /usr/local/bin/
+
+# Install Python
+ENV UV_PYTHON_INSTALL_DIR=/opt/python
+RUN uv python install 3.14 \
+    && ln -sf /opt/python/*/bin/python3 /usr/local/bin/python3
+
+WORKDIR /app
+
+# Install app + dev deps in one layer (app deps needed for pytest imports)
+COPY newsroom/pyproject.toml ./newsroom/
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv pip install --system --break-system-packages \
+    -r newsroom/pyproject.toml \
+    ruff mypy bandit pytest
