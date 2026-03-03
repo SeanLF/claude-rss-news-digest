@@ -144,16 +144,23 @@ def should_alert() -> bool:
 
 
 def get_previous_headlines(days: int = 7) -> list[dict]:
-    """Get headlines shown in the last N days for deduplication."""
+    """Get headlines shown in the last N days for deduplication.
+
+    Returns RSS titles (original_title) when available, falling back to
+    editorial headlines. During transition, filters to rows with original_title
+    to avoid cross-register TF-IDF comparison.
+    """
     if not _state.db_path or not _state.db_path.exists():
         return []
     try:
         with sqlite3.connect(_state.db_path) as conn:
             cursor = conn.execute(
                 """
-                SELECT headline, tier, date(shown_at) as date
+                SELECT COALESCE(original_title, headline) as headline,
+                       tier, date(shown_at) as date
                 FROM shown_narratives
                 WHERE shown_at > datetime('now', ?)
+                  AND original_title IS NOT NULL
                 ORDER BY shown_at DESC
             """,
                 (f"-{days} days",),
@@ -165,7 +172,11 @@ def get_previous_headlines(days: int = 7) -> list[dict]:
 
 
 def record_shown_headlines(headlines: list[dict]):
-    """Record headlines that were shown in this digest."""
+    """Record headlines that were shown in this digest.
+
+    Stores both the editorial headline and the original RSS title for
+    same-register deduplication.
+    """
     if not _state.recording:
         return
     if not headlines or not isinstance(headlines[0], dict):
@@ -173,8 +184,17 @@ def record_shown_headlines(headlines: list[dict]):
     try:
         with sqlite3.connect(_db_path()) as conn:
             conn.executemany(
-                "INSERT INTO shown_narratives (headline, tier, source_id, run_id) VALUES (?, ?, ?, ?)",
-                [(h.get("headline", ""), h.get("tier", ""), h.get("source_id"), _state.run_id) for h in headlines],
+                "INSERT INTO shown_narratives (headline, tier, source_id, original_title, run_id) VALUES (?, ?, ?, ?, ?)",
+                [
+                    (
+                        h.get("headline", ""),
+                        h.get("tier", ""),
+                        h.get("source_id"),
+                        h.get("original_title"),
+                        _state.run_id,
+                    )
+                    for h in headlines
+                ],
             )
     except sqlite3.Error as e:
         logger.error("DB error recording headlines: %s", e)

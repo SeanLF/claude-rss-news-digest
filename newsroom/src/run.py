@@ -8,14 +8,17 @@ Pipeline: Fetch RSS -> Claude curation -> Email delivery
 import argparse
 import logging
 import os
+import re
 import subprocess
 import sys
+from datetime import UTC, datetime
 
 import db
 from broadcast import send_broadcast, send_health_alert, send_test_email
-from claude import generate_selections, health_check
+from claude import generate_selections, generate_weekly_recap, health_check
 from config import (
     CLAUDE_INPUT_DIR,
+    DATA_DIR,
     DB_PATH,
     FETCHED_DIR,
     HEALTH_ALERT_THRESHOLD,
@@ -29,6 +32,7 @@ from digest import (
     find_latest_digest,
     load_selections,
     read_shown_headlines,
+    resolve_article_ids,
     write_digest,
 )
 from feeds import collect_fetched_articles, fetch_feeds, load_sources
@@ -38,6 +42,65 @@ from render import extract_preheader, prepare_for_email, replace_placeholders
 from utils import check_internet, setup_logging, validate_env
 
 logger = logging.getLogger(__name__)
+
+WEEKLY_RECAP_MAX_WEEKS = 6
+
+
+def maybe_update_weekly_recap():
+    """Generate weekly recap if last entry is older than 7 days.
+
+    Queries RSS titles from shown_narratives, calls Haiku to summarise,
+    appends to data/weekly_recap.txt. Keeps last WEEKLY_RECAP_MAX_WEEKS weeks.
+    """
+    recap_path = DATA_DIR / "weekly_recap.txt"
+
+    # Check if recap needs updating (parse last "## Week of YYYY-MM-DD" line)
+    if recap_path.exists():
+        content = recap_path.read_text()
+        dates = re.findall(r"^## Week of (\d{4}-\d{2}-\d{2})", content, re.MULTILINE)
+        if dates:
+            try:
+                last_date = datetime.strptime(dates[-1], "%Y-%m-%d").replace(tzinfo=UTC)
+            except ValueError:
+                logger.warning("Could not parse date in weekly_recap.txt, regenerating")
+            else:
+                days_since = (datetime.now(UTC) - last_date).days
+                if days_since < 7:
+                    logger.info("Weekly recap is current (last: %s, %d days ago)", dates[-1], days_since)
+                    return
+
+    # Get RSS titles from the last 7 days
+    titles = db.get_previous_headlines(days=7)
+    if not titles:
+        logger.info("No RSS titles available for weekly recap")
+        return
+
+    title_lines = "\n".join(f"- {t['headline']}" for t in titles if t["headline"])
+    if not title_lines:
+        return
+
+    today = datetime.now(UTC).strftime("%Y-%m-%d")
+    try:
+        summary = generate_weekly_recap(title_lines)
+    except (RuntimeError, subprocess.SubprocessError, OSError) as e:
+        logger.warning("Weekly recap generation failed (non-fatal): %s", e)
+        return
+
+    new_entry = f"## Week of {today}\n{summary.strip()}\n\n"
+
+    # Append and trim to max weeks
+    if recap_path.exists():
+        existing = recap_path.read_text()
+        sections = re.split(r"(?=^## Week of )", existing, flags=re.MULTILINE)
+        sections = [s for s in sections if s.strip()]
+        sections.append(new_entry)
+        # Keep last N weeks
+        sections = sections[-WEEKLY_RECAP_MAX_WEEKS:]
+        recap_path.write_text("".join(sections))
+    else:
+        recap_path.write_text(new_entry)
+
+    logger.info("Updated weekly recap: %s", today)
 
 
 def main():
@@ -135,6 +198,7 @@ Examples:
         validate_env(dry_run=skip_email)
         db.init(DB_PATH, MIGRATIONS_DIR)
         selections = load_selections(CLAUDE_INPUT_DIR / "selections.json")
+        selections = resolve_article_ids(selections)
         preheader = extract_preheader(selections)
         digest = write_digest(selections, TEMPLATE_FILE)
         replace_placeholders(digest, selections, STYLES_FILE, preheader)
@@ -186,10 +250,12 @@ Examples:
                     logger.error("Failed to send health alert (non-fatal): %s", e)
 
         prepare_claude_input(sources, dry_run=args.dry_run)
+        maybe_update_weekly_recap()
         generate_selections()
         selections_path = CLAUDE_INPUT_DIR / "selections.json"
         selections = load_selections(selections_path)
         db.archive_selections(selections_path.read_text())
+        selections = resolve_article_ids(selections)
 
         if args.select_only:
             logger.info("Select-only mode: stopping after selection")

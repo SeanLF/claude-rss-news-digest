@@ -9,6 +9,7 @@ from pathlib import Path
 
 from config import (
     CLAUDE_INPUT_DIR,
+    DATA_DIR,
     DEDUP_SIMILARITY_THRESHOLD,
     DEDUP_WINDOW_DAYS,
     FETCHED_DIR,
@@ -16,6 +17,7 @@ from config import (
     MAX_SUMMARY_LENGTH,
     MAX_TITLE_LENGTH,
     MAX_TOKENS_PER_FILE,
+    OUTPUT_DIR,
 )
 from db import get_previous_headlines, log_dedup_action
 from dedup import TfidfMatcher
@@ -34,7 +36,7 @@ def prepare_claude_input(sources: list[dict], dry_run: bool = False) -> list[Pat
         shutil.rmtree(CLAUDE_INPUT_DIR)
     CLAUDE_INPUT_DIR.mkdir(parents=True)
 
-    # Get previous headlines for deduplication
+    # Get previous headlines for deduplication (returns RSS titles via COALESCE)
     previous_headlines = get_previous_headlines(days=DEDUP_WINDOW_DAYS)
     blocklist_headlines = [h["headline"] for h in previous_headlines if h["headline"]]
 
@@ -49,18 +51,25 @@ def prepare_claude_input(sources: list[dict], dry_run: bool = False) -> list[Pat
         for s in sources:
             writer.writerow([s["id"], s["name"], s["bias"], s["perspective"]])
 
-    # Write recent headlines for Claude context
+    # Write recent RSS titles for RECAP subagent (replaces recent_headlines.csv)
     if previous_headlines:
-        headlines_file = CLAUDE_INPUT_DIR / "recent_headlines.csv"
-        with open(headlines_file, "w", newline="") as f:
+        titles_file = CLAUDE_INPUT_DIR / "recent_rss_titles.csv"
+        with open(titles_file, "w", newline="") as f:
             writer = csv.writer(f)
-            writer.writerow(["headline", "date"])
+            writer.writerow(["title", "date"])
             for h in previous_headlines:
                 writer.writerow([h["headline"], h["date"]])
-        logger.info("Context: %d recent headlines", len(previous_headlines))
+        logger.info("Context: %d recent RSS titles", len(previous_headlines))
+
+    # Copy weekly_recap.txt if it exists
+    weekly_recap = DATA_DIR / "weekly_recap.txt"
+    if weekly_recap.exists():
+        shutil.copy2(weekly_recap, CLAUDE_INPUT_DIR / "weekly_recap.txt")
 
     # Collect all articles, filtering duplicates via TF-IDF
     all_articles = []
+    article_index: dict[str, dict] = {}
+    article_counter = 0
     filtered_count = 0
     filtered_similarities: list[float] = []
 
@@ -92,7 +101,29 @@ def prepare_claude_input(sources: list[dict], dry_run: bool = False) -> list[Pat
                         filtered_similarities.append(similarity)
                         continue
 
-                all_articles.append([source["id"], title, url, a.get("published", ""), summary])
+                article_counter += 1
+                article_id = f"A{article_counter}"
+
+                # Article index: maps ID to resolved metadata (never seen by Claude)
+                article_index[article_id] = {
+                    "url": url,
+                    "source_id": source["id"],
+                    "bias": source["bias"],
+                    "original_title": title,
+                    "name": source["name"],
+                }
+
+                # CSV row: no URL (Claude sees article_id instead)
+                all_articles.append([article_id, source["id"], title, a.get("published", ""), summary])
+
+    # Write article index (for post-Claude resolution)
+    index_path = CLAUDE_INPUT_DIR / "article_index.json"
+    with open(index_path, "w") as f:
+        json.dump(article_index, f, indent=2)
+
+    # Also copy to OUTPUT_DIR for persistence across runs (--write-only needs it)
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(index_path, OUTPUT_DIR / "article_index.json")
 
     # Truncate if too many articles during dry runs
     truncated_count = 0
@@ -105,7 +136,7 @@ def prepare_claude_input(sources: list[dict], dry_run: bool = False) -> list[Pat
     current_file_num = 1
     current_rows: list[list[str]] = []
     current_tokens = 0
-    header = ["source_id", "title", "url", "published", "summary"]
+    header = ["article_id", "source_id", "title", "published", "summary"]
 
     for row in all_articles:
         row_text = ",".join(str(x) for x in row)

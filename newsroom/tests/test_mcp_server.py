@@ -27,14 +27,14 @@ def valid_article(headline="Test"):
         "headline": headline,
         "summary": "Summary",
         "why_it_matters": "Why",
-        "sources": [{"name": "BBC", "url": "https://bbc.com", "bias": "center"}],
+        "sources": [{"article_id": "A1"}],
     }
 
 
 def valid_signal(headline="Signal"):
     return {
         "headline": headline,
-        "source": {"name": "BBC", "url": "https://bbc.com", "bias": "center"},
+        "source": {"article_id": "A1"},
     }
 
 
@@ -174,3 +174,24 @@ class TestValidateSelections:
         # File should NOT be created
         output_file = tmp_path / "selections.json"
         assert not output_file.exists()
+
+    def test_article_id_source_schema(self):
+        """Source schema accepts article_id only."""
+        selections = valid_selections()
+        selections["must_know"] = [valid_article("Test")]
+        errors = validate_selections(selections)
+        assert errors == []
+
+    def test_rejects_old_source_schema(self):
+        """Old source schema (name, url, bias) is rejected."""
+        selections = valid_selections()
+        selections["must_know"] = [
+            {
+                "headline": "Test",
+                "summary": "Summary",
+                "why_it_matters": "Why",
+                "sources": [{"name": "BBC", "url": "https://bbc.com", "bias": "center"}],
+            }
+        ]
+        errors = validate_selections(selections)
+        assert len(errors) > 0

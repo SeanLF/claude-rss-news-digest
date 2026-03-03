@@ -39,11 +39,9 @@ def send_notification(method: str, params: Any = None):
 SOURCE_SCHEMA = {
     "type": "object",
     "properties": {
-        "name": {"type": "string", "description": "Source name (e.g., 'Wall Street Journal')"},
-        "url": {"type": "string", "description": "Article URL"},
-        "bias": {"type": "string", "enum": ["left", "center-left", "center", "center-right", "right"]},
+        "article_id": {"type": "string", "description": "Article ID from articles CSV (e.g., 'A1', 'A42')"},
     },
-    "required": ["name", "url", "bias"],
+    "required": ["article_id"],
     "additionalProperties": False,
 }
 

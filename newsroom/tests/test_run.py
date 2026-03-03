@@ -1,5 +1,6 @@
 """Tests for digest pipeline pure functions."""
 
+import json
 import sys
 from pathlib import Path
 
@@ -7,9 +8,11 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 from dedup import TfidfMatcher, tokenize
+from digest import resolve_article_ids
 from feeds import parse_date
 from render import (
     estimate_tokens,
+    extract_headlines,
     generate_feedback_html,
     is_safe_url,
     minify_css,
@@ -201,3 +204,273 @@ class TestGenerateFeedbackHtml:
         result = generate_feedback_html("<script>@evil.com")
         assert "<script>" not in result
         assert "&lt;script&gt;" in result
+
+
+class TestResolveArticleIds:
+    """Test article_id -> {name, url, bias} resolution."""
+
+    def _write_index(self, tmp_path, index):
+        index_path = tmp_path / "article_index.json"
+        with open(index_path, "w") as f:
+            json.dump(index, f)
+        return index_path
+
+    def test_resolves_article_sources(self, tmp_path):
+        index = {
+            "A1": {
+                "url": "https://bbc.com/article",
+                "source_id": "bbc",
+                "bias": "center",
+                "original_title": "BBC headline",
+                "name": "BBC World",
+            },
+        }
+        self._write_index(tmp_path, index)
+
+        selections = {
+            "must_know": [
+                {
+                    "headline": "Test story",
+                    "summary": "Summary",
+                    "why_it_matters": "Why",
+                    "sources": [{"article_id": "A1"}],
+                }
+            ],
+            "should_know": [],
+            "signals": {"americas": [], "europe": [], "asia_pacific": [], "middle_east_africa": [], "tech": []},
+            "preheader": "Test",
+        }
+
+        from unittest.mock import patch
+
+        with patch("digest.CLAUDE_INPUT_DIR", tmp_path):
+            result = resolve_article_ids(selections)
+
+        src = result["must_know"][0]["sources"][0]
+        assert src["name"] == "BBC World"
+        assert src["url"] == "https://bbc.com/article"
+        assert src["bias"] == "center"
+        assert src["source_id"] == "bbc"
+        assert src["original_title"] == "BBC headline"
+
+    def test_resolves_signal_source(self, tmp_path):
+        index = {
+            "A5": {
+                "url": "https://reuters.com/x",
+                "source_id": "reuters",
+                "bias": "center",
+                "original_title": "Reuters headline",
+                "name": "Reuters",
+            },
+        }
+        self._write_index(tmp_path, index)
+
+        selections = {
+            "must_know": [],
+            "should_know": [],
+            "signals": {
+                "americas": [{"headline": "Signal", "source": {"article_id": "A5"}}],
+                "europe": [],
+                "asia_pacific": [],
+                "middle_east_africa": [],
+                "tech": [],
+            },
+            "preheader": "Test",
+        }
+
+        from unittest.mock import patch
+
+        with patch("digest.CLAUDE_INPUT_DIR", tmp_path):
+            result = resolve_article_ids(selections)
+
+        src = result["signals"]["americas"][0]["source"]
+        assert src["name"] == "Reuters"
+        assert src["source_id"] == "reuters"
+
+    def test_drops_unresolved_ids(self, tmp_path):
+        index = {"A1": {"url": "https://x.com", "source_id": "x", "bias": "center", "original_title": "T", "name": "X"}}
+        self._write_index(tmp_path, index)
+
+        selections = {
+            "must_know": [
+                {
+                    "headline": "Story",
+                    "summary": "S",
+                    "why_it_matters": "W",
+                    "sources": [{"article_id": "A1"}, {"article_id": "A999"}],
+                }
+            ],
+            "should_know": [],
+            "signals": {"americas": [], "europe": [], "asia_pacific": [], "middle_east_africa": [], "tech": []},
+            "preheader": "Test",
+        }
+
+        from unittest.mock import patch
+
+        with patch("digest.CLAUDE_INPUT_DIR", tmp_path):
+            result = resolve_article_ids(selections)
+
+        # A1 resolved, A999 dropped
+        assert len(result["must_know"][0]["sources"]) == 1
+        assert result["must_know"][0]["sources"][0]["name"] == "X"
+
+    def test_drops_story_with_all_unresolved_sources(self, tmp_path):
+        index = {}  # Empty -- no articles resolve
+        self._write_index(tmp_path, index)
+
+        selections = {
+            "must_know": [
+                {
+                    "headline": "Ghost story",
+                    "summary": "S",
+                    "why_it_matters": "W",
+                    "sources": [{"article_id": "A999"}],
+                }
+            ],
+            "should_know": [],
+            "signals": {"americas": [], "europe": [], "asia_pacific": [], "middle_east_africa": [], "tech": []},
+            "preheader": "Test",
+        }
+
+        from unittest.mock import patch
+
+        with patch("digest.CLAUDE_INPUT_DIR", tmp_path):
+            result = resolve_article_ids(selections)
+
+        # Story dropped entirely (not left with empty sources)
+        assert len(result["must_know"]) == 0
+
+    def test_missing_index_returns_unchanged(self, tmp_path):
+        selections = {"must_know": [], "should_know": [], "signals": {}, "preheader": "Test"}
+
+        from unittest.mock import patch
+
+        with patch("digest.CLAUDE_INPUT_DIR", tmp_path), patch("digest.OUTPUT_DIR", tmp_path):
+            result = resolve_article_ids(selections)
+
+        assert result == selections
+
+
+class TestPrepareArticleIndex:
+    """Test article index generation in prepare_claude_input."""
+
+    def test_article_index_created(self, tmp_path):
+        import csv
+        from unittest.mock import patch
+
+        # Set up fetched dir with one source
+        fetched_dir = tmp_path / "fetched"
+        fetched_dir.mkdir()
+        with open(fetched_dir / "bbc.json", "w") as f:
+            json.dump(
+                [
+                    {"title": "Test Article", "url": "https://bbc.com/1", "published": "2026-03-03", "summary": "Sum"},
+                ],
+                f,
+            )
+
+        sources = [
+            {"id": "bbc", "name": "BBC World", "url": "https://bbc.com/rss", "bias": "center", "perspective": "UK"}
+        ]
+
+        input_dir = tmp_path / "claude_input"
+        output_dir = tmp_path / "output"
+        data_dir = tmp_path / "data"
+
+        with (
+            patch("prepare.CLAUDE_INPUT_DIR", input_dir),
+            patch("prepare.FETCHED_DIR", fetched_dir),
+            patch("prepare.OUTPUT_DIR", output_dir),
+            patch("prepare.DATA_DIR", data_dir),
+            patch("prepare.get_previous_headlines", return_value=[]),
+            patch("prepare.log_dedup_action"),
+        ):
+            from prepare import prepare_claude_input
+
+            prepare_claude_input(sources)
+
+        # Check article_index.json exists
+        index_path = input_dir / "article_index.json"
+        assert index_path.exists()
+        with open(index_path) as f:
+            index = json.load(f)
+
+        assert "A1" in index
+        assert index["A1"]["url"] == "https://bbc.com/1"
+        assert index["A1"]["source_id"] == "bbc"
+        assert index["A1"]["bias"] == "center"
+        assert index["A1"]["name"] == "BBC World"
+
+        # Check CSV has article_id column, no url
+        articles_file = input_dir / "articles_1.csv"
+        assert articles_file.exists()
+        with open(articles_file) as f:
+            reader = csv.DictReader(f)
+            rows = list(reader)
+        assert "article_id" in rows[0]
+        assert "url" not in rows[0]
+        assert rows[0]["article_id"] == "A1"
+
+        # Check output dir also has index
+        assert (output_dir / "article_index.json").exists()
+
+
+class TestExtractHeadlinesExpanded:
+    """Test per-source headline expansion."""
+
+    def test_one_row_per_source(self):
+        selections = {
+            "must_know": [
+                {
+                    "headline": "Big story",
+                    "sources": [
+                        {"name": "BBC", "source_id": "bbc", "original_title": "BBC title"},
+                        {"name": "CNN", "source_id": "cnn", "original_title": "CNN title"},
+                    ],
+                }
+            ],
+            "should_know": [],
+            "signals": {"americas": [], "europe": [], "asia_pacific": [], "middle_east_africa": [], "tech": []},
+        }
+
+        headlines = extract_headlines(selections)
+
+        assert len(headlines) == 2
+        assert headlines[0]["source_id"] == "bbc"
+        assert headlines[0]["original_title"] == "BBC title"
+        assert headlines[0]["headline"] == "Big story"
+        assert headlines[1]["source_id"] == "cnn"
+        assert headlines[1]["original_title"] == "CNN title"
+
+    def test_signal_single_source(self):
+        selections = {
+            "must_know": [],
+            "should_know": [],
+            "signals": {
+                "americas": [
+                    {"headline": "Signal story", "source": {"source_id": "reuters", "original_title": "Reuters title"}}
+                ],
+                "europe": [],
+                "asia_pacific": [],
+                "middle_east_africa": [],
+                "tech": [],
+            },
+        }
+
+        headlines = extract_headlines(selections)
+
+        assert len(headlines) == 1
+        assert headlines[0]["tier"] == "signal"
+        assert headlines[0]["source_id"] == "reuters"
+        assert headlines[0]["original_title"] == "Reuters title"
+
+    def test_no_source_id_fn_needed(self):
+        """extract_headlines no longer requires a source_id lookup function."""
+        selections = {
+            "must_know": [{"headline": "Test", "sources": [{"source_id": "x"}]}],
+            "should_know": [],
+            "signals": {"americas": [], "europe": [], "asia_pacific": [], "middle_east_africa": [], "tech": []},
+        }
+        # Should work without any function parameter
+        headlines = extract_headlines(selections)
+        assert len(headlines) == 1

@@ -258,49 +258,39 @@ def render_digest(selections: dict, template_file: Path) -> str:
     return result
 
 
-def extract_headlines(selections: dict, get_source_id_fn) -> list[dict]:
+def extract_headlines(selections: dict) -> list[dict]:
     """Extract all headlines from selections for deduplication tracking.
 
-    Args:
-        selections: The selections dict from Claude
-        get_source_id_fn: Function to map source name to source_id
+    One row per source per story. source_id and original_title are read
+    directly from source dicts (injected by resolve_article_ids).
     """
     headlines = []
 
-    def get_first_source_id(item: dict) -> str | None:
-        """Get source_id from first source in item's sources list."""
-        sources = item.get("sources", [])
-        if sources:
-            name = sources[0].get("name", "")
-            return get_source_id_fn(name)
-        # For signals, source is a single object, not a list
-        source = item.get("source", {})
-        if source:
-            name = source.get("name", "")
-            return get_source_id_fn(name)
-        return None
-
-    # Top-tier articles (must_know, should_know)
+    # Top-tier articles (must_know, should_know) -- one row per source
     for tier in ["must_know", "should_know"]:
         for item in selections.get(tier, []):
-            headlines.append(
-                {
-                    "headline": item.get("headline", ""),
-                    "tier": tier,
-                    "source_id": get_first_source_id(item),
-                }
-            )
+            editorial_headline = item.get("headline", "")
+            for src in item.get("sources", []):
+                headlines.append(
+                    {
+                        "headline": editorial_headline,
+                        "tier": tier,
+                        "source_id": src.get("source_id"),
+                        "original_title": src.get("original_title"),
+                    }
+                )
 
-    # Signals by cluster
+    # Signals by region -- source is a single object
     signals = selections.get("signals", {})
-    for cluster in REGION_ORDER:
-        for item in signals.get(cluster, []):
+    for region in REGION_ORDER:
+        for item in signals.get(region, []):
+            src = item.get("source", {})
             headlines.append(
                 {
                     "headline": item.get("headline", ""),
                     "tier": "signal",
-                    "cluster": cluster,
-                    "source_id": get_first_source_id(item),
+                    "source_id": src.get("source_id"),
+                    "original_title": src.get("original_title"),
                 }
             )
 
