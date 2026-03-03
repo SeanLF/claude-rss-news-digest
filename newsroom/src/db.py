@@ -147,8 +147,7 @@ def get_previous_headlines(days: int = 7) -> list[dict]:
     """Get headlines shown in the last N days for deduplication.
 
     Returns RSS titles (original_title) when available, falling back to
-    editorial headlines. During transition, filters to rows with original_title
-    to avoid cross-register TF-IDF comparison.
+    editorial headlines for comparison.
     """
     if not _state.db_path or not _state.db_path.exists():
         return []
@@ -160,7 +159,6 @@ def get_previous_headlines(days: int = 7) -> list[dict]:
                        tier, date(shown_at) as date
                 FROM shown_narratives
                 WHERE shown_at > datetime('now', ?)
-                  AND original_title IS NOT NULL
                 ORDER BY shown_at DESC
             """,
                 (f"-{days} days",),
