@@ -11,6 +11,7 @@ import os
 import re
 from datetime import UTC, datetime
 from pathlib import Path
+from urllib.parse import urlparse
 
 logger = logging.getLogger(__name__)
 
@@ -46,6 +47,17 @@ def strip_html(text: str) -> str:
 def is_safe_url(url: str) -> bool:
     """Validate URL has a safe scheme (http/https only)."""
     return url.startswith(("http://", "https://"))
+
+
+def _has_article_path(url: str) -> bool:
+    """Check if URL has a meaningful path beyond bare domain.
+
+    Bare domain URLs (e.g. https://www.washingtonpost.com or
+    https://www.washingtonpost.com/) link to homepages -- useless
+    for readers expecting a specific article.
+    """
+    path = urlparse(url).path
+    return path not in ("", "/")
 
 
 def estimate_tokens(text: str) -> int:
@@ -168,15 +180,29 @@ def render_article(article: dict, include_reporting_varies: bool = True) -> str:
     summary = html.escape(article.get("summary", ""))
     why = html.escape(article.get("why_it_matters", ""))
 
-    # Sources line
-    sources_html = []
+    # Sources line -- group by (name, bias) to avoid repetition
+    groups: dict[tuple[str, str], list[str]] = {}
     for src in article.get("sources", []):
         name = html.escape(src.get("name", ""))
-        url = src.get("url", "")
         bias = html.escape(src.get("bias", ""))
-        if name and url and is_safe_url(url):
-            sources_html.append(f'<a href="{html.escape(url)}">{name}</a> ({bias})')
-    sources_line = " · ".join(sources_html)
+        url = src.get("url", "")
+        if not name:
+            continue
+        key = (name, bias)
+        groups.setdefault(key, [])
+        if url and is_safe_url(url) and _has_article_path(url):
+            groups[key].append(html.escape(url))
+
+    sources_parts = []
+    for (name, bias), urls in groups.items():
+        if len(urls) == 1:
+            sources_parts.append(f'<a href="{urls[0]}">{name}</a> ({bias})')
+        elif len(urls) > 1:
+            numbered = ", ".join(f'<a href="{u}">{i}</a>' for i, u in enumerate(urls, 1))
+            sources_parts.append(f"{name} ({bias}) [{numbered}]")
+        else:
+            sources_parts.append(f"{name} ({bias})")
+    sources_line = " · ".join(sources_parts)
 
     # Build article HTML
     parts = [
@@ -213,7 +239,7 @@ def render_signal(item: dict) -> str:
     src = item.get("source", {})
     name = html.escape(src.get("name", ""))
     url = src.get("url", "")
-    if url and is_safe_url(url):
+    if url and is_safe_url(url) and _has_article_path(url):
         return f'      <p class="signal">{headline} — <a href="{html.escape(url)}">{name}</a></p>'
     return f'      <p class="signal">{headline} — {name}</p>'
 

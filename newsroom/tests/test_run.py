@@ -1,8 +1,10 @@
 """Tests for digest pipeline pure functions."""
 
+import csv
 import json
 import sys
 from pathlib import Path
+from unittest.mock import patch
 
 # Add src/ to path so we can import modules
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
@@ -11,11 +13,14 @@ from dedup import TfidfMatcher, tokenize
 from digest import resolve_article_ids
 from feeds import parse_date
 from render import (
+    _has_article_path,
     estimate_tokens,
     extract_headlines,
     generate_feedback_html,
     is_safe_url,
     minify_css,
+    render_article,
+    render_signal,
     resolve_css_variables,
     strip_html,
 )
@@ -241,8 +246,6 @@ class TestResolveArticleIds:
             "preheader": "Test",
         }
 
-        from unittest.mock import patch
-
         with patch("digest.CLAUDE_INPUT_DIR", tmp_path):
             result = resolve_article_ids(selections)
 
@@ -278,8 +281,6 @@ class TestResolveArticleIds:
             "preheader": "Test",
         }
 
-        from unittest.mock import patch
-
         with patch("digest.CLAUDE_INPUT_DIR", tmp_path):
             result = resolve_article_ids(selections)
 
@@ -304,8 +305,6 @@ class TestResolveArticleIds:
             "signals": {"americas": [], "europe": [], "asia_pacific": [], "middle_east_africa": [], "tech": []},
             "preheader": "Test",
         }
-
-        from unittest.mock import patch
 
         with patch("digest.CLAUDE_INPUT_DIR", tmp_path):
             result = resolve_article_ids(selections)
@@ -332,8 +331,6 @@ class TestResolveArticleIds:
             "preheader": "Test",
         }
 
-        from unittest.mock import patch
-
         with patch("digest.CLAUDE_INPUT_DIR", tmp_path):
             result = resolve_article_ids(selections)
 
@@ -342,8 +339,6 @@ class TestResolveArticleIds:
 
     def test_missing_index_returns_unchanged(self, tmp_path):
         selections = {"must_know": [], "should_know": [], "signals": {}, "preheader": "Test"}
-
-        from unittest.mock import patch
 
         with patch("digest.CLAUDE_INPUT_DIR", tmp_path), patch("digest.OUTPUT_DIR", tmp_path):
             result = resolve_article_ids(selections)
@@ -355,9 +350,6 @@ class TestPrepareArticleIndex:
     """Test article index generation in prepare_claude_input."""
 
     def test_article_index_created(self, tmp_path):
-        import csv
-        from unittest.mock import patch
-
         # Set up fetched dir with one source
         fetched_dir = tmp_path / "fetched"
         fetched_dir.mkdir()
@@ -474,3 +466,91 @@ class TestExtractHeadlinesExpanded:
         # Should work without any function parameter
         headlines = extract_headlines(selections)
         assert len(headlines) == 1
+
+
+class TestHasArticlePath:
+    def test_bare_domain(self):
+        assert _has_article_path("https://www.washingtonpost.com") is False
+
+    def test_bare_domain_trailing_slash(self):
+        assert _has_article_path("https://www.washingtonpost.com/") is False
+
+    def test_article_path(self):
+        assert _has_article_path("https://www.washingtonpost.com/politics/article") is True
+
+    def test_short_path(self):
+        assert _has_article_path("https://bbc.com/news") is True
+
+
+class TestRenderArticleSources:
+    def _article(self, sources):
+        return {
+            "headline": "Test",
+            "summary": "Summary",
+            "why_it_matters": "Why",
+            "sources": sources,
+        }
+
+    def test_single_source_unchanged(self):
+        article = self._article([{"name": "BBC", "url": "https://bbc.com/news/1", "bias": "center"}])
+        result = render_article(article, include_reporting_varies=False)
+        assert '<a href="https://bbc.com/news/1">BBC</a> (center)' in result
+
+    def test_grouped_same_source(self):
+        article = self._article(
+            [
+                {"name": "NYT World", "url": "https://nyt.com/a", "bias": "center-left"},
+                {"name": "NYT World", "url": "https://nyt.com/b", "bias": "center-left"},
+                {"name": "NYT World", "url": "https://nyt.com/c", "bias": "center-left"},
+            ]
+        )
+        result = render_article(article, include_reporting_varies=False)
+        # Should NOT repeat source name 3 times
+        assert result.count("NYT World") == 1
+        # Should have numbered links
+        assert "[" in result
+        assert '<a href="https://nyt.com/a">1</a>' in result
+        assert '<a href="https://nyt.com/b">2</a>' in result
+        assert '<a href="https://nyt.com/c">3</a>' in result
+
+    def test_bare_url_fallback_plain_text(self):
+        article = self._article([{"name": "WaPo", "url": "https://www.washingtonpost.com", "bias": "center-left"}])
+        result = render_article(article, include_reporting_varies=False)
+        assert "WaPo (center-left)" in result
+        assert "<a" not in result.split("sources")[1]  # no link in sources line
+
+    def test_mixed_valid_and_bare_urls(self):
+        article = self._article(
+            [
+                {"name": "WaPo", "url": "https://wapo.com/article/1", "bias": "center-left"},
+                {"name": "WaPo", "url": "https://www.washingtonpost.com/", "bias": "center-left"},
+            ]
+        )
+        result = render_article(article, include_reporting_varies=False)
+        # One valid URL -- should render as single linked source
+        assert '<a href="https://wapo.com/article/1">WaPo</a> (center-left)' in result
+
+    def test_multiple_different_sources(self):
+        article = self._article(
+            [
+                {"name": "BBC", "url": "https://bbc.com/news/1", "bias": "center"},
+                {"name": "CNN", "url": "https://cnn.com/story/2", "bias": "center-left"},
+            ]
+        )
+        result = render_article(article, include_reporting_varies=False)
+        assert "BBC" in result
+        assert "CNN" in result
+        assert " · " in result
+
+
+class TestRenderSignalBareUrl:
+    def test_bare_url_plain_text(self):
+        item = {"headline": "Signal", "source": {"name": "WaPo", "url": "https://www.washingtonpost.com"}}
+        result = render_signal(item)
+        assert "WaPo" in result
+        assert "<a" not in result
+
+    def test_valid_url_linked(self):
+        item = {"headline": "Signal", "source": {"name": "BBC", "url": "https://bbc.com/news/1"}}
+        result = render_signal(item)
+        assert '<a href="https://bbc.com/news/1">BBC</a>' in result
