@@ -169,6 +169,35 @@ def get_previous_headlines(days: int = 7) -> list[dict]:
         return []
 
 
+def get_yesterday_digest_headlines() -> list[dict]:
+    """Get editorial headlines from the most recent completed digest.
+
+    Returns the actual headlines shown to readers (not RSS titles) for
+    the SELECT subagent to avoid re-covering the same angles.
+    """
+    if not _state.db_path or not _state.db_path.exists():
+        return []
+    try:
+        with sqlite3.connect(_state.db_path) as conn:
+            cursor = conn.execute(
+                """
+                SELECT headline, tier
+                FROM shown_narratives
+                WHERE run_id = (
+                    SELECT id FROM digest_runs
+                    WHERE completed_at IS NOT NULL
+                    ORDER BY run_at DESC LIMIT 1
+                )
+                  AND tier IN ('must_know', 'should_know')
+                ORDER BY tier, headline
+            """,
+            )
+            return [{"headline": row[0], "tier": row[1]} for row in cursor.fetchall()]
+    except sqlite3.Error as e:
+        logger.error("DB error getting yesterday's headlines: %s", e)
+        return []
+
+
 def record_shown_headlines(headlines: list[dict]):
     """Record headlines that were shown in this digest.
 

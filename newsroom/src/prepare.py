@@ -19,7 +19,7 @@ from config import (
     MAX_TOKENS_PER_FILE,
     OUTPUT_DIR,
 )
-from db import get_previous_headlines, log_dedup_action
+from db import get_previous_headlines, get_yesterday_digest_headlines, log_dedup_action
 from dedup import TfidfMatcher
 from render import estimate_tokens, is_safe_url, strip_html
 
@@ -65,6 +65,15 @@ def prepare_claude_input(sources: list[dict], dry_run: bool = False) -> list[Pat
     weekly_recap = DATA_DIR / "weekly_recap.txt"
     if weekly_recap.exists():
         shutil.copy2(weekly_recap, CLAUDE_INPUT_DIR / "weekly_recap.txt")
+
+    # Write yesterday's digest headlines for SELECT cross-day dedup
+    yesterday_headlines = get_yesterday_digest_headlines()
+    if yesterday_headlines:
+        headlines_file = CLAUDE_INPUT_DIR / "yesterday_headlines.txt"
+        with open(headlines_file, "w") as f:
+            for h in yesterday_headlines:
+                f.write(f"{h['tier']}: {h['headline']}\n")
+        logger.info("Context: %d yesterday digest headlines", len(yesterday_headlines))
 
     # Collect all articles, filtering duplicates via TF-IDF
     all_articles = []

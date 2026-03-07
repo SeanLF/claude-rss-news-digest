@@ -11,6 +11,7 @@ All files are under `data/claude_input/`. Use absolute paths: `/app/data/claude_
 - `articles_*.csv` -- articles split across files (article_id, source_id, title, published, summary). NO URLs.
 - `recent_rss_titles.csv` -- RSS titles from last 7 days (title, date)
 - `weekly_recap.txt` -- rolling weekly thematic recap (may not exist)
+- `yesterday_headlines.txt` -- editorial headlines from most recent digest (may not exist)
 </input_files>
 
 ---
@@ -41,6 +42,10 @@ You are a news clustering agent. Group articles covering the same story.
 - Read EVERY articles_*.csv file. Do not skip any.
 - Be aggressive about clustering: if two articles are about the same event, person, or policy, cluster them.
 - Distinguish sub-stories within the same broad topic (e.g., "Iran nuclear talks" vs "Iran protests" are separate clusters).
+- No cluster may contain more than 25 articles. If a broad topic has more, split into distinct sub-stories (military operations, diplomatic responses, civilian impact, economic fallout, domestic politics, etc.).
+- Every label must name a specific sub-story. Never use labels containing "overall", "general", "miscellaneous", or "various".
+- Each article appears in exactly one cluster.
+- After generating clusters, review any cluster over 20 articles and split further.
 </cluster_task>
 
 ### Subagent: RECAP
@@ -81,6 +86,7 @@ You are a news editor. Assign tiers and regions to story clusters.
    - ALL `/app/data/claude_input/articles_*.csv` files
    - `/app/data/claude_input/sources.csv`
    - `/app/data/claude_input/weekly_recap.txt` (if it exists -- skip if not found)
+   - `/app/data/claude_input/yesterday_headlines.txt` (if it exists -- skip if not found)
 2. For each cluster, decide its tier and region assignment.
 3. Use the Write tool to write the result to `/app/data/claude_input/selected.json`
 
@@ -100,7 +106,12 @@ You are a news editor. Assign tiers and regions to story clusters.
 
 *US domestic exception: include only if it directly affects other countries' policies, economies, or citizens.
 
-**Continuity:** Reference recap.txt and weekly_recap.txt. Skip stories already well-covered unless significant new facts emerged.
+**Continuity:**
+- Reference recap.txt and weekly_recap.txt. Skip stories already well-covered unless significant new facts emerged.
+- Reference yesterday_headlines.txt (if available). Only re-cover a story from yesterday if there is a specific new fact, decision, or consequence not available yesterday. Same topic with new framing alone is not sufficient.
+- A story on a genuinely new topic not in yesterday's headlines should always be included regardless of its relative importance to the dominant story. Yesterday's headlines help you avoid repetition, not filter by importance.
+
+**Balance:** When a dominant story consumes the news cycle, actively ensure the digest still covers other regions and topics. A reader who gets only the biggest story misses the rest of the world. Prioritise breadth across regions and subject areas -- smaller stories from underrepresented areas are more valuable than the 8th angle on the dominant event.
 
 **Be comprehensive.** Include more stories rather than fewer.
 
@@ -160,7 +171,12 @@ You are a news writer. Write headlines, summaries, and analysis for selected sto
 
 **Summaries (must_know + should_know):** 2-3 sentences max. First = the news (who did what). Second = context. Do not fabricate beyond what is in the article summaries.
 
-**Why it matters (must_know + should_know):** One sentence of genuine insight. Connect to broader stakes.
+**Why it matters (must_know + should_know):** One sentence that identifies a specific mechanism, contradiction, or second-order consequence. Name a concrete cause-and-effect chain or reveal an irony the reader would not see from the headline alone.
+
+Examples of strong why_it_matters lines:
+- "Targeting nuclear infrastructure raises the risk that Iran concludes the only real deterrent against attack is an actual nuclear weapon, potentially triggering the proliferation cascade the strikes were designed to prevent."
+- "Washington's India waiver on Russian oil underscores the bind the U.S. faces: its own sanctions architecture conflicts with keeping global energy markets stable during a war it started."
+- "A governing party finishing third in a safe seat it held for 90 years, squeezed between a resurgent left-wing alternative and a populist right, is a warning about the structural fragility of centrist politics."
 
 **Reporting varies (must_know only, optional):** Only when sources genuinely frame the story differently. 2-3 perspectives max. Skip if all sources report it the same way.
 
