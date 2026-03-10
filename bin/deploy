@@ -231,7 +231,7 @@ push_to_github() {
   log_info "$ahead commit(s) to push"
   dry_run_skip "git push origin $BRANCH" && return 0
 
-  git push origin "$BRANCH"
+  run_quiet git push origin "$BRANCH"
   log_success "Pushed to GitHub"
 }
 
@@ -258,15 +258,15 @@ build_and_push_image() {
   if [ -n "$dockerfile" ]; then
     # shellcheck disable=SC2086
     run_or_skip "docker buildx build $name" \
-      docker buildx build --platform linux/amd64 $extra_args -t "$tag" -f "$dockerfile" "$context"
+      run_quiet docker buildx build --platform linux/amd64 $extra_args -t "$tag" -f "$dockerfile" "$context"
   else
     run_or_skip "docker buildx build $name" \
-      docker buildx build --platform linux/amd64 -t "$tag" "$context"
+      run_quiet docker buildx build --platform linux/amd64 -t "$tag" "$context"
   fi
 
   log_step "Pushing $name..."
   run_or_skip "docker push $name" \
-    docker push "$tag"
+    run_quiet docker push "$tag"
 }
 
 build_and_push() {
@@ -278,7 +278,7 @@ build_and_push() {
   # Audit Rust deps before shipping
   log_step "Auditing Rust dependencies..."
   run_or_skip "cargo audit" \
-    docker compose run --rm ci-rust "cargo audit"
+    run_quiet docker compose run --rm ci-rust "cargo audit"
 
   # Build both images in parallel
   log_step "Building images (parallel)..."
@@ -312,7 +312,7 @@ run_migrations() {
   fi
 
   # Pull latest image first
-  "$SCRIPT_DIR/ssh" "docker pull $REGISTRY/digest-newsroom:latest" || true
+  run_quiet "$SCRIPT_DIR/ssh" "docker pull $REGISTRY/digest-newsroom:latest"
 
   # Check for pending migrations
   local status
@@ -340,7 +340,7 @@ apply_terraform() {
   log_step "Applying Terraform..."
   dry_run_skip "$INFRA_DIR/bin/tf apply" && return 0
 
-  "$INFRA_DIR/bin/tf" apply \
+  run_quiet "$INFRA_DIR/bin/tf" apply \
     -target=null_resource.news_digest_env \
     -target=null_resource.news_digest_service \
     -target=null_resource.news_digest_timer \

@@ -24,6 +24,7 @@ RESET = "\033[0m"
 
 ROOT = Path(__file__).resolve().parent.parent
 IN_DOCKER = os.environ.get("IN_DOCKER") == "1"
+QUIET = os.environ.get("CLAUDECODE") == "1"
 
 
 def run_in_docker() -> int:
@@ -35,10 +36,14 @@ def run_in_docker() -> int:
     full_mode = "--full" in args
     ci_args = [a for a in args if a not in ("--full",)]
 
+    # In quiet mode, capture output and only show on failure
+    capture = {"stdout": subprocess.PIPE, "stderr": subprocess.STDOUT} if QUIET else {}
+
     # Start Python CI
     py_proc = subprocess.Popen(
         ["docker", "compose", "run", "--rm", "--build", "ci", *ci_args],
         cwd=ROOT,
+        **capture,
     )
 
     # Start Rust CI (if circulation exists)
@@ -53,16 +58,26 @@ def run_in_docker() -> int:
         rust_proc = subprocess.Popen(
             ["docker", "compose", "run", "--rm", "ci-rust", cmd],
             cwd=ROOT,
+            **capture,
         )
 
     # Wait for both
-    py_rc = py_proc.wait()
-    rust_rc = rust_proc.wait() if rust_proc else 0
+    py_out = py_proc.communicate()[0]
+    py_rc = py_proc.returncode
+    rust_out = rust_proc.communicate()[0] if rust_proc else None
+    rust_rc = rust_proc.returncode if rust_proc else 0
 
     if py_rc != 0:
         print(f"\n{RED}Python CI failed (exit {py_rc}){RESET}")
+        if py_out:
+            print(py_out.decode(errors="replace"))
     if rust_rc != 0:
         print(f"\n{RED}Rust CI failed (exit {rust_rc}){RESET}")
+        if rust_out:
+            print(rust_out.decode(errors="replace"))
+
+    if py_rc == 0 and rust_rc == 0 and QUIET:
+        print(f"{GREEN}CI passed{RESET}")
 
     if py_rc != 0:
         return py_rc
@@ -71,11 +86,20 @@ def run_in_docker() -> int:
 
 def run_step(name: str, cmd: list[str], cwd: Path | None = None) -> bool:
     """Run a CI step and return success status."""
-    print(f"\n{BOLD}{PURPLE}=== {name} ==={RESET}")
+    if QUIET:
+        result = subprocess.run(cmd, cwd=cwd or ROOT, capture_output=True)
+        passed = result.returncode == 0
+        status = f"{GREEN}pass{RESET}" if passed else f"{RED}FAIL{RESET}"
+        print(f"  {status}  {name}")
+        if not passed:
+            output = (result.stdout or b"") + (result.stderr or b"")
+            if output:
+                print(output.decode(errors="replace"))
+        return passed
 
+    print(f"\n{BOLD}{PURPLE}=== {name} ==={RESET}")
     result = subprocess.run(cmd, cwd=cwd or ROOT)
     passed = result.returncode == 0
-
     print(f"{GREEN}Passed{RESET}" if passed else f"{RED}Failed{RESET}")
     return passed
 
