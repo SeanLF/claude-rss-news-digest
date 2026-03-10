@@ -19,6 +19,7 @@ services:
       - RSS_RETRY_DELAY
     volumes:
       - ./data:/app/data
+      - claude-sessions:/home/appuser/.claude
       - ./newsroom/templates/digest.css:/app/templates/digest.css:ro
       - ./prompts:/app/prompts:ro
 
@@ -62,4 +63,5 @@ services:
       - dev.orbstack.domains=${ORBSTACK_DOMAIN:-}
 
 volumes:
+  claude-sessions:
   cargo-cache:
