@@ -4,11 +4,16 @@ FROM rust:1.94-alpine AS builder
 RUN apk add --no-cache musl-dev gcc
 
 WORKDIR /app
-COPY Cargo.toml Cargo.lock* ./
-COPY src ./src
 
-# Build for native musl target (Alpine is already musl-based)
-RUN cargo build --release
+# Cache dependencies: only rebuilds when Cargo.toml/Cargo.lock change
+COPY Cargo.toml Cargo.lock* ./
+RUN mkdir src && echo "fn main() {}" > src/main.rs \
+    && cargo build --release \
+    && rm -rf src
+
+# Build actual source (deps layer cached above)
+COPY src ./src
+RUN touch src/main.rs && cargo build --release
 
 # Runtime stage - Alpine for musl compatibility
 FROM alpine:3.23
