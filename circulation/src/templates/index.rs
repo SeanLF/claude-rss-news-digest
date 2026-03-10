@@ -220,7 +220,7 @@ pub fn render_index(
 <body>
   <div class="container">
     <h1>{name}</h1>
-    <p class="tagline">Daily briefing on geopolitics, tech, and privacy. All sides. No fluff.</p>
+    <p class="tagline">{og_description}</p>
     {meta_links}
     {success_msg}
     {subscribe_form}
