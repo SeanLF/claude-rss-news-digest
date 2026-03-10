@@ -11,6 +11,10 @@ services:
       - DIGEST_EMAIL
       - DIGEST_NAME
       - DIGEST_DOMAIN
+      - AUTHOR_NAME
+      - AUTHOR_URL
+      - ARCHIVE_URL
+      - SOURCE_URL
       - IN_DOCKER=1
       # Optional (have defaults):
       - HEALTH_ALERT_EMAIL

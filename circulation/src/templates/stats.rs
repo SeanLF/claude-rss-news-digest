@@ -2,6 +2,7 @@
 
 use std::collections::HashMap;
 
+use super::digest::FAVICON_SVG;
 use crate::stats::StatsData;
 use crate::util::escape_html;
 
@@ -20,6 +21,7 @@ pub fn render_stats(name: &str, css_link: &str, days: u32, data: &StatsData) -> 
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Stats – {name}</title>
+  {favicon}
   {css_link}
   <style>
     .container {{
@@ -135,9 +137,9 @@ pub fn render_stats(name: &str, css_link: &str, days: u32, data: &StatsData) -> 
     <p class="subtitle">Source health and usage over the last {days} days</p>
 
     <div class="period-select">
-      <a href="/stats?days=7"{}>7 days</a>
-      <a href="/stats?days=30"{}>30 days</a>
-      <a href="/stats?days=90"{}>90 days</a>
+      <a href="/stats?days=7"{active7}>7 days</a>
+      <a href="/stats?days=30"{active30}>30 days</a>
+      <a href="/stats?days=90"{active90}>90 days</a>
     </div>
 
     <section>
@@ -216,9 +218,10 @@ pub fn render_stats(name: &str, css_link: &str, days: u32, data: &StatsData) -> 
   </div>
 </body>
 </html>"##,
-        if days == 7 { " class=\"active\"" } else { "" },
-        if days == 30 { " class=\"active\"" } else { "" },
-        if days == 90 { " class=\"active\"" } else { "" },
+        favicon = FAVICON_SVG,
+        active7 = if days == 7 { " class=\"active\"" } else { "" },
+        active30 = if days == 30 { " class=\"active\"" } else { "" },
+        active90 = if days == 90 { " class=\"active\"" } else { "" },
     )
 }
 

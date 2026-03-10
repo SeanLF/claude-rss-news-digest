@@ -1,5 +1,21 @@
 use tracing::warn;
 
+const MONTH_NAMES: [&str; 13] = [
+    "",
+    "January",
+    "February",
+    "March",
+    "April",
+    "May",
+    "June",
+    "July",
+    "August",
+    "September",
+    "October",
+    "November",
+    "December",
+];
+
 /// Log row parsing errors and filter them out (returns None on error)
 pub fn log_row_error<T, E: std::fmt::Debug>(result: Result<T, E>, table: &str) -> Option<T> {
     match result {
@@ -22,21 +38,6 @@ pub fn format_date(date_str: &str) -> String {
     let month: u32 = parts[1].parse().unwrap_or(1);
     let day: u32 = parts[2].parse().unwrap_or(1);
 
-    let months = [
-        "",
-        "January",
-        "February",
-        "March",
-        "April",
-        "May",
-        "June",
-        "July",
-        "August",
-        "September",
-        "October",
-        "November",
-        "December",
-    ];
     let days = [
         "Sunday",
         "Monday",
@@ -59,7 +60,25 @@ pub fn format_date(date_str: &str) -> String {
     let h = (q + (13 * (m as i32 + 1)) / 5 + k + k / 4 + j / 4 - 2 * j) % 7;
     let dow = ((h + 6) % 7) as usize;
 
-    format!("{}, {} {}", days[dow], months[month as usize], day)
+    format!("{}, {} {}", days[dow], MONTH_NAMES[month as usize], day)
+}
+
+/// Extract "YYYY-MM" from a "YYYY-MM-DD" date string
+pub fn year_month(date_str: &str) -> &str {
+    date_str.get(..7).unwrap_or(date_str)
+}
+
+/// Format "YYYY-MM" to "March 2026" style
+pub fn format_month_year(ym: &str) -> String {
+    let parts: Vec<&str> = ym.split('-').collect();
+    if parts.len() >= 2 {
+        let year = parts[0];
+        let month_idx: usize = parts[1].parse().unwrap_or(0);
+        if (1..=12).contains(&month_idx) {
+            return format!("{} {}", MONTH_NAMES[month_idx], year);
+        }
+    }
+    ym.to_string()
 }
 
 /// Escape HTML special characters for safe rendering

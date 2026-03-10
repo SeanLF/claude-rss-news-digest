@@ -10,8 +10,12 @@ use std::sync::Arc;
 
 use crate::AppState;
 use crate::check_database_health;
-use crate::templates::{DIGEST_NAV_CSS, DIGEST_NAV_HTML, render_index};
-use crate::util::{escape_html, format_date, is_valid_date, log_row_error};
+use crate::templates::{
+    DIGEST_NAV_CSS, DIGEST_NAV_HTML, FAVICON_SVG, digest_og_tags, render_index, web_footer_html,
+};
+use crate::util::{
+    escape_html, format_date, format_month_year, is_valid_date, log_row_error, year_month,
+};
 
 #[derive(Deserialize)]
 pub struct SubscribeForm {
@@ -47,22 +51,40 @@ pub async fn index(
         .filter_map(|r| log_row_error(r, "digests"))
         .collect();
 
-    let links: String = digests
-        .iter()
-        .map(|(d, preheader)| {
-            let formatted = format_date(d);
-            let preheader_html = if preheader.is_empty() {
-                String::new()
-            } else {
-                let escaped = escape_html(preheader);
-                format!(r#"<span class="preheader-text">{escaped}</span>"#)
-            };
-            format!(
-                r#"<li><a href="/{d}"><span class="link-content"><span class="date-text">{formatted}</span>{preheader_html}</span><span class="arrow">→</span></a></li>"#
-            )
-        })
-        .collect::<Vec<_>>()
-        .join("\n      ");
+    // Build digest list HTML with collapsible month groups
+    let mut links = String::new();
+    let mut current_month = String::new();
+    let mut is_first_month = true;
+    for (d, preheader) in &digests {
+        let ym = year_month(d).to_string();
+        if ym != current_month {
+            // Close previous month group
+            if !current_month.is_empty() {
+                links.push_str("</ul></details>");
+            }
+            let month_label = format_month_year(&ym);
+            let open_attr = if is_first_month { " open" } else { "" };
+            links.push_str(&format!(
+                r#"<details{open_attr}><summary class="month-heading">{month_label}</summary><ul>"#
+            ));
+            current_month = ym;
+            is_first_month = false;
+        }
+        let formatted = format_date(d);
+        let preheader_html = if preheader.is_empty() {
+            String::new()
+        } else {
+            let escaped = escape_html(preheader);
+            format!(r#"<span class="preheader-text">{escaped}</span>"#)
+        };
+        links.push_str(&format!(
+            r#"<li><a href="/{d}"><span class="link-content"><span class="date-text">{formatted}</span>{preheader_html}</span><span class="arrow">&rarr;</span></a></li>"#
+        ));
+    }
+    // Close last month group
+    if !current_month.is_empty() {
+        links.push_str("</ul></details>");
+    }
 
     let name = &state.digest_name;
     let success_msg = if query.subscribed.is_some() {
@@ -80,17 +102,26 @@ pub async fn index(
     } else {
         ""
     };
+    let subscribe_teaser = if subscriptions_enabled {
+        digests.first().map_or(String::new(), |(latest_date, _)| {
+            format!(
+                r#"<p class="subscribe-teaser"><a href="/{latest_date}">Open the latest digest</a> to see what you'd receive daily.</p>"#
+            )
+        })
+    } else {
+        String::new()
+    };
     let homepage_link = state.homepage_url.as_ref().map(|url| {
         let display = url
             .trim_start_matches("https://")
             .trim_start_matches("http://");
-        format!(r#"<a href="{url}" class="meta-link">{display}</a>"#)
+        format!(r#"<a href="{url}" class="meta-link">🌐 {display}</a>"#)
     });
     let source_link = state
         .source_url
         .as_ref()
-        .map(|url| format!(r#"<a href="{url}" class="meta-link">GitHub</a>"#));
-    let stats_link = r#"<a href="/stats" class="meta-link">Stats</a>"#;
+        .map(|url| format!(r#"<a href="{url}" class="meta-link">📦 GitHub</a>"#));
+    let stats_link = r#"<a href="/stats" class="meta-link">📊 Stats</a>"#;
     let meta_links = match (homepage_link, source_link) {
         (Some(h), Some(s)) => format!(r#"<p class="meta-links">{h} · {s} · {stats_link}</p>"#),
         (Some(h), None) => format!(r#"<p class="meta-links">{h} · {stats_link}</p>"#),
@@ -103,13 +134,23 @@ pub async fn index(
         .map(|url| format!(r#"<link rel="stylesheet" href="{url}">"#))
         .unwrap_or_default();
 
+    let og_description = "Daily briefing on geopolitics, tech, and privacy. All sides. No fluff.";
+    let canonical_url = state
+        .digest_domain
+        .as_ref()
+        .map(|d| format!("https://{d}"))
+        .unwrap_or_default();
+
     let html = render_index(
         name,
         &css_link,
         &meta_links,
         success_msg,
         subscribe_form,
+        &subscribe_teaser,
         &links,
+        og_description,
+        &canonical_url,
     );
     Ok(Html(html))
 }
@@ -187,6 +228,19 @@ pub async fn health(State(state): State<Arc<AppState>>) -> impl IntoResponse {
     }
 }
 
+/// Extract text between an opening marker and a closing tag in HTML.
+/// Returns empty string if the marker or closing tag is not found.
+fn extract_between(html: &str, open: &str, close: &str) -> String {
+    let Some(start) = html.find(open) else {
+        return String::new();
+    };
+    let after = &html[start + open.len()..];
+    let Some(end) = after.find(close) else {
+        return String::new();
+    };
+    after[..end].trim().to_string()
+}
+
 /// Serve digest HTML by date (YYYY-MM-DD)
 pub async fn get_digest(
     Path(date): Path<String>,
@@ -208,9 +262,50 @@ pub async fn get_digest(
         })
         .map_err(|_| (StatusCode::NOT_FOUND, "Digest not found"))?;
 
-    // Insert CSS before </head> and nav after <body>
-    let html = html.replacen("</head>", &format!("{DIGEST_NAV_CSS}</head>"), 1);
+    // Extract metadata for OG tags
+    let preheader = extract_between(&html, r#"class="preheader">"#, "</span>");
+    let title = extract_between(&html, "<title>", "</title>");
+    let og_title = escape_html(&title);
+    let og_description = escape_html(&preheader);
+
+    // Build OG tags + favicon
+    let canonical_url = state
+        .digest_domain
+        .as_ref()
+        .map(|d| format!("https://{d}/{date}"))
+        .unwrap_or_default();
+    let og_tags = digest_og_tags(
+        &og_title,
+        &og_description,
+        &canonical_url,
+        &state.digest_name,
+    );
+    let head_inject = format!("{FAVICON_SVG}\n  {og_tags}");
+
+    // Build web footer links (subscribe replaces unsubscribe)
+    let (subscribe_url, archive_url) = match &state.digest_domain {
+        Some(d) => (format!("https://{d}/#subscribe"), format!("https://{d}")),
+        None => ("/#subscribe".to_string(), "/".to_string()),
+    };
+    let web_footer = web_footer_html(&subscribe_url, &archive_url);
+
+    // Inject elements into stored HTML
+    let html = html.replacen(
+        "</head>",
+        &format!("{head_inject}\n{DIGEST_NAV_CSS}</head>"),
+        1,
+    );
     let html = html.replacen("<body>", &format!("<body>{DIGEST_NAV_HTML}"), 1);
+    // Insert web links before footer-meta (same position as email links)
+    let html = if html.contains(r#"<p class="footer-meta">"#) {
+        html.replacen(
+            r#"<p class="footer-meta">"#,
+            &format!("{web_footer}\n    <p class=\"footer-meta\">"),
+            1,
+        )
+    } else {
+        html.replacen("</footer>", &format!("{web_footer}\n  </footer>"), 1)
+    };
 
     Ok(Html(html))
 }

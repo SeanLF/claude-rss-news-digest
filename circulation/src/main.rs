@@ -13,6 +13,7 @@ use tower_http::trace::TraceLayer;
 pub struct AppState {
     pub db_path: String,
     pub digest_name: String,
+    pub digest_domain: Option<String>,
     pub css_url: Option<String>,
     pub homepage_url: Option<String>,
     pub source_url: Option<String>,
@@ -55,6 +56,7 @@ async fn main() {
     }
 
     let digest_name = std::env::var("DIGEST_NAME").unwrap_or_else(|_| "News Digest".into());
+    let digest_domain = std::env::var("DIGEST_DOMAIN").ok();
     let css_url = std::env::var("CSS_URL").ok();
     let homepage_url = std::env::var("HOMEPAGE_URL").ok();
     let source_url = std::env::var("SOURCE_URL").ok();
@@ -65,6 +67,7 @@ async fn main() {
     let state = Arc::new(AppState {
         db_path,
         digest_name,
+        digest_domain,
         css_url,
         homepage_url,
         source_url,

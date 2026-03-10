@@ -259,8 +259,8 @@ def render_signal(item: dict) -> str:
     name = html.escape(src.get("name", ""))
     url = src.get("url", "")
     if url and is_safe_url(url) and _has_article_path(url):
-        return f'      <p class="signal">{headline} — <a href="{html.escape(url)}">{name}</a></p>'
-    return f'      <p class="signal">{headline} — {name}</p>'
+        return f'      <p class="signal">{headline}. <a href="{html.escape(url)}">{name}</a></p>'
+    return f'      <p class="signal">{headline}. <span class="signal-source">{name}</span></p>'
 
 
 def render_digest(selections: dict, template_file: Path) -> str:
@@ -443,7 +443,7 @@ def replace_placeholders(
     elif author_name:
         content = content.replace("{{AUTHOR_PLUG}}", f"Made by {html.escape(author_name)}")
     else:
-        content = re.sub(r"\s*<p>\{\{AUTHOR_PLUG\}\}</p>", "", content)
+        content = re.sub(r'\s*<p class="footer-meta">\{\{AUTHOR_PLUG\}\}</p>', "", content)
 
     # Replace HOMEPAGE_URL and SUBSCRIBE_URL for header links
     if digest_domain:
