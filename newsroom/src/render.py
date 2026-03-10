@@ -84,12 +84,25 @@ def estimate_tokens(text: str) -> int:
     return len(text) // 4
 
 
-def calculate_reading_time(html_content: str, words_per_minute: int = 200) -> str:
-    """Calculate reading time from HTML content. Returns string like '5 min read'."""
-    # Strip <style> blocks first so CSS rules aren't counted as words
-    text = re.sub(r"<style[^>]*>.*?</style>", "", html_content, flags=re.DOTALL)
-    plain_text = strip_html(text)
-    word_count = len(plain_text.split())
+def calculate_reading_time(selections: dict, words_per_minute: int = 200) -> str:
+    """Calculate reading time from selections JSON. Returns string like '13 min read'.
+
+    Counts only editorial content readers actually read: headlines, summaries,
+    why_it_matters, reporting angles, and signal headlines. Excludes source
+    citations, nav text, CSS, and boilerplate that inflate HTML-based estimates.
+    """
+    parts: list[str] = []
+    for tier in ("must_know", "should_know"):
+        for article in selections.get(tier, []):
+            parts.append(article.get("headline", ""))
+            parts.append(article.get("summary", ""))
+            parts.append(article.get("why_it_matters", ""))
+            for rv in article.get("reporting_varies", []):
+                parts.append(rv.get("angle", ""))
+    for region_signals in selections.get("signals", {}).values():
+        for signal in region_signals:
+            parts.append(signal.get("headline", ""))
+    word_count = len(" ".join(parts).split())
     minutes = max(1, round(word_count / words_per_minute))
     return f"{minutes} min read"
 
@@ -437,7 +450,7 @@ def replace_placeholders(
     content = content.replace("{{STYLES}}", styles)
     content = content.replace("{{DIGEST_NAME}}", html.escape(digest_name))
     content = content.replace("{{DATE}}", date_str)
-    content = content.replace("{{READING_TIME}}", calculate_reading_time(content))
+    content = content.replace("{{READING_TIME}}", calculate_reading_time(selections))
     content = content.replace("{{STORY_COUNT}}", story_count_str)
     content = content.replace("{{GENERATED_AT}}", generated_at)
     content = content.replace("{{MODEL_NAME}}", html.escape(model_name))
