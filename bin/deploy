@@ -336,17 +336,46 @@ run_migrations() {
   log_success "Migrations applied"
 }
 
+TF_TARGETS=(
+  -target=null_resource.news_digest_env
+  -target=null_resource.news_digest_service
+  -target=null_resource.news_digest_timer
+  -target=null_resource.digest_server
+)
+
 apply_terraform() {
   log_step "Applying Terraform..."
   dry_run_skip "$INFRA_DIR/bin/tf apply" && return 0
 
-  run_quiet "$INFRA_DIR/bin/tf" apply \
-    -target=null_resource.news_digest_env \
-    -target=null_resource.news_digest_service \
-    -target=null_resource.news_digest_timer \
-    -target=null_resource.digest_server \
+  log_step "Running terraform plan to check for changes..."
+  local plan_exit
+  set +e
+  "$INFRA_DIR/bin/tf" plan \
+    "${TF_TARGETS[@]}" \
     -var="news_digest_deploy_sha=$SHA" \
-    -auto-approve
+    -detailed-exitcode \
+    -out=/tmp/news-digest-tfplan \
+    -compact-warnings \
+    -no-color \
+    2>&1 | grep -E "^(Plan:|No changes\.|Error)" || true
+  plan_exit=${PIPESTATUS[0]}
+  set -e
+
+  if [[ $plan_exit -eq 0 ]]; then
+    log_info "No Terraform changes -- skipping apply"
+    return 0
+  fi
+
+  if [[ $plan_exit -ne 2 ]]; then
+    log_error "terraform plan failed (exit $plan_exit)"
+    return 1
+  fi
+
+  log_step "Changes detected, applying..."
+  run_quiet "$INFRA_DIR/bin/tf" apply \
+    -var="news_digest_deploy_sha=$SHA" \
+    -auto-approve \
+    /tmp/news-digest-tfplan
 
   log_success "Terraform applied"
 }
