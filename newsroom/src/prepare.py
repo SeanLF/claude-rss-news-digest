@@ -4,6 +4,7 @@ import csv
 import html
 import json
 import logging
+import random
 import shutil
 from pathlib import Path
 
@@ -134,11 +135,19 @@ def prepare_claude_input(sources: list[dict], dry_run: bool = False) -> list[Pat
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     shutil.copy2(index_path, OUTPUT_DIR / "article_index.json")
 
-    # Truncate if too many articles during dry runs
+    # Truncate for dry runs: sample across sources instead of slicing alphabetically
     truncated_count = 0
     if dry_run and len(all_articles) > MAX_ARTICLES_FOR_DRY_RUN:
-        truncated_count = len(all_articles) - MAX_ARTICLES_FOR_DRY_RUN
-        all_articles = all_articles[:MAX_ARTICLES_FOR_DRY_RUN]
+        random.shuffle(all_articles)
+        seen_sources: set[str] = set()
+        sampled: list = []
+        rest: list = []
+        for article in all_articles:
+            source_id = article[1]
+            (sampled if source_id not in seen_sources else rest).append(article)
+            seen_sources.add(source_id)
+        all_articles = (sampled + rest)[:MAX_ARTICLES_FOR_DRY_RUN]
+        truncated_count = len(sampled) + len(rest) - len(all_articles)
 
     # Split articles into multiple files if needed
     article_files = []
