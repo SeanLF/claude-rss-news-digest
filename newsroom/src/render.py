@@ -152,7 +152,10 @@ def resolve_css_variables(css: str) -> str:
     Email clients don't support CSS variables or prefers-color-scheme, so we
     resolve to light mode values and strip the dark mode media query.
     """
-    # Extract variables from :root (first occurrence = light mode)
+    # Strip dark mode media query first so :root extraction always gets light values
+    css = _strip_media_block(css, "prefers-color-scheme")
+
+    # Extract variables from :root (now guaranteed to be light mode)
     root_match = re.search(r":root\s*\{([^}]+)\}", css)
     if not root_match:
         return css
@@ -169,9 +172,8 @@ def resolve_css_variables(css: str) -> str:
 
     css = re.sub(r"var\(--([a-z-]+)\)", replace_var, css)
 
-    # Remove :root blocks and @media (prefers-color-scheme) - not supported in email
+    # Remove :root blocks - not supported in email
     css = re.sub(r":root\s*\{[^}]+\}", "", css)
-    css = _strip_media_block(css, "prefers-color-scheme")
 
     return css
 
