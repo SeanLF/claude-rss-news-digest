@@ -407,7 +407,6 @@ def delete_run(run_id: int):
                 "shown_narratives",
                 "source_health",
                 "dedup_log",
-                "digests",
             ]:
                 conn.execute(f"DELETE FROM {table} WHERE run_id = ?", (run_id,))
             conn.execute("DELETE FROM digest_runs WHERE id = ?", (run_id,))
