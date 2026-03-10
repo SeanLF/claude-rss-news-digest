@@ -377,12 +377,7 @@ def limit_articles_in_csv(csv_path: Path, limit: int) -> int:
 def resolve_prompt_file(prompt: str) -> Path:
     """Resolve prompt name to file path."""
     if prompt == "baseline":
-        # Try project dir first (local), then home dir (Docker mount)
-        candidates = [
-            ROOT_DIR / ".claude" / "commands" / "news-digest-select.md",
-            Path.home() / ".claude" / "commands" / "news-digest-select.md",
-        ]
-        return next((p for p in candidates if p.exists()), candidates[0])
+        return ROOT_DIR / ".claude" / "commands" / "news-digest-select.md"
     return PROMPTS_DIR / f"{prompt}.md"
 
 

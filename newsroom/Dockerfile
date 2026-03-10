@@ -50,12 +50,12 @@ COPY newsroom/.mcp.json ./
 # Copy shared resources from repo root
 COPY migrations/ ./migrations/
 COPY bin/ ./bin/
-COPY .claude/commands/ /home/appuser/.claude/commands/
+COPY .claude/commands/ /app/.claude/commands/
 
 # Create data directory and set permissions
 RUN mkdir -p /app/data \
     && ln -s /home/appuser/.local/bin/claude /usr/local/bin/claude \
-    && chown -R appuser:appuser /app /home/appuser/.claude
+    && chown -R appuser:appuser /app
 
 # Switch to non-root user
 USER appuser
