@@ -207,7 +207,7 @@ def prepare_for_email(html_content: str) -> str:
         minified_css = minify_css(resolved_css)
         return f"<style>{minified_css}</style>"
 
-    html_content = re.sub(r"<style>([^<]+)</style>", resolve_style_block, html_content)
+    html_content = re.sub(r"<style>(.*?)</style>", resolve_style_block, html_content, flags=re.DOTALL)
     html_content = inline_styles(html_content)
 
     return html_content
