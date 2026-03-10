@@ -9,6 +9,7 @@ dependencies = [
     "premailer",
     "jsonschema",
     "yoyo-migrations",
+    "beautifulsoup4",
 ]
 
 [project.optional-dependencies]

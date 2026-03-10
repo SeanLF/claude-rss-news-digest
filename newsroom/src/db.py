@@ -348,14 +348,24 @@ def archive_selections(selections_json: str):
         logger.error("DB error archiving selections: %s", e)
 
 
-def prepare_for_web(html: str) -> str:
+def prepare_for_web(html_str: str) -> str:
     """Strip email-only elements from digest HTML for web serving."""
-    html = re.sub(r'(?s)\s*<nav class="header-links">.*?</nav>', "", html)
-    html = re.sub(r'<p class="view-in-browser">.*?</p>', "", html)
-    html = re.sub(r'<p><a href="[^"]*">Past digests</a>.*?Unsubscribe</a></p>', "", html)
-    html = re.sub(r'<p><a href="[^"]*">Unsubscribe</a></p>', "", html)
-    html = re.sub(r'(?s)<div class="feedback">.*?</div>\s*</div>', "", html)
-    return html
+    from bs4 import BeautifulSoup
+
+    soup = BeautifulSoup(html_str, "html.parser")
+
+    for sel in ("nav.header-links", "p.view-in-browser", "div.feedback"):
+        for el in soup.select(sel):
+            el.decompose()
+
+    # Remove footer paragraphs containing an Unsubscribe link
+    for a in soup.select("a"):
+        if a.string == "Unsubscribe":
+            p = a.find_parent("p")
+            if p:
+                p.decompose()
+
+    return str(soup)
 
 
 def save_digest(digest_path: Path, preheader: str = ""):
