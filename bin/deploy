@@ -347,35 +347,35 @@ apply_terraform() {
   log_step "Applying Terraform..."
   dry_run_skip "$INFRA_DIR/bin/tf apply" && return 0
 
-  log_step "Running terraform plan to check for changes..."
-  local plan_exit
+  local plan_output plan_exit
   set +e
-  "$INFRA_DIR/bin/tf" plan \
+  plan_output=$("$INFRA_DIR/bin/tf" plan \
     "${TF_TARGETS[@]}" \
     -var="news_digest_deploy_sha=$SHA" \
     -detailed-exitcode \
     -out=/tmp/news-digest-tfplan \
     -compact-warnings \
-    -no-color \
-    2>&1 | grep -E "^(Plan:|No changes\.|Error)" || true
-  plan_exit=${PIPESTATUS[0]}
+    -no-color 2>&1)
+  plan_exit=$?
   set -e
 
   if [[ $plan_exit -eq 0 ]]; then
     log_info "No Terraform changes -- skipping apply"
+    rm -f /tmp/news-digest-tfplan
     return 0
   fi
 
   if [[ $plan_exit -ne 2 ]]; then
+    echo "$plan_output" >&2
     log_error "terraform plan failed (exit $plan_exit)"
+    rm -f /tmp/news-digest-tfplan
     return 1
   fi
 
+  echo "$plan_output" | grep -E "^(Plan:|No changes\.)" || true
   log_step "Changes detected, applying..."
-  run_quiet "$INFRA_DIR/bin/tf" apply \
-    -var="news_digest_deploy_sha=$SHA" \
-    -auto-approve \
-    /tmp/news-digest-tfplan
+  run_quiet "$INFRA_DIR/bin/tf" apply -auto-approve /tmp/news-digest-tfplan
+  rm -f /tmp/news-digest-tfplan
 
   log_success "Terraform applied"
 }
