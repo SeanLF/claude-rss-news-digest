@@ -19,10 +19,8 @@ def resend_with_retry(fn, *args, max_retries: int = 3, **kwargs):
     for attempt in range(max_retries):
         try:
             return fn(*args, **kwargs)
-        except resend.exceptions.ResendError as e:
-            is_rate_limited = "Too many requests" in str(e)
-            has_retries_left = attempt < max_retries - 1
-            if is_rate_limited and has_retries_left:
+        except resend.exceptions.RateLimitError:
+            if attempt < max_retries - 1:
                 delay = 2**attempt
                 logger.info("Rate limited, retrying in %ds...", delay)
                 time.sleep(delay)
