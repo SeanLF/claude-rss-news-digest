@@ -51,9 +51,28 @@ def check_uv():
     return compare("uv", cur, gh_release("astral-sh/uv")) if cur else err("uv", "not installed")
 
 def check_rust():
-    if not has("rustc"): return ok("rust", "(not installed)")
+    # Check Dockerfile pin (what gets deployed)
+    dockerfile = Path(__file__).parent.parent / "circulation" / "Dockerfile"
+    if not dockerfile.exists(): return ok("rust", "(no Dockerfile)")
+    m = re.search(r"FROM rust:(\d+\.\d+)", dockerfile.read_text())
+    if not m: return err("rust", "can't parse Dockerfile pin")
+    cur = m.group(1)
+    lat = gh_tag("rust-lang/rust")
+    lat_minor = ".".join(lat.lstrip("v").split(".")[:2]) if lat else None
+    return compare("rust", cur, lat_minor)
+
+def check_rust_host():
+    if not has("rustc"): return ok("rust-host", "(not installed)")
     cur = sh("rustc --version").split()[1] if sh("rustc --version") else None
-    return compare("rust", cur, gh_tag("rust-lang/rust")) if cur else err("rust", "can't parse")
+    if not cur: return err("rust-host", "can't parse")
+    # Compare against Dockerfile pin
+    dockerfile = Path(__file__).parent.parent / "circulation" / "Dockerfile"
+    m = re.search(r"FROM rust:(\d+\.\d+)", dockerfile.read_text()) if dockerfile.exists() else None
+    pinned = m.group(1) if m else None
+    cur_minor = ".".join(cur.split(".")[:2])
+    if pinned and cur_minor != pinned:
+        return ("rust-host", "update", cur, pinned, [f"Dockerfile pins {pinned}, host has {cur}"])
+    return ok("rust-host", cur)
 
 def check_docker():
     if not has("docker"): return err("docker", "not installed")
@@ -72,14 +91,32 @@ def check_tailscale():
     cur = sh("tailscale version").split("\n")[0].strip()
     return compare("tailscale", cur, gh_release("tailscale/tailscale")) if cur and cur[0].isdigit() else err("tailscale", "not running")
 
+def pypi_ver(pkg):
+    d = fetch(f"https://pypi.org/pypi/{pkg}/json")
+    return d["info"]["version"] if d else None
+
 def check_python_deps():
-    if not has("uv"): return err("py-deps", "uv not installed")
+    # Check uv.lock versions against PyPI (what gets deployed)
+    lockfile = Path(__file__).parent.parent / "newsroom" / "uv.lock"
+    pyproject = Path(__file__).parent.parent / "newsroom" / "pyproject.toml"
+    if not lockfile.exists(): return err("py-deps", "no uv.lock")
+    if not pyproject.exists(): return err("py-deps", "no pyproject.toml")
+    direct = set(re.findall(r'"(\w[\w-]+?)(?:[><=!~]|\[)', pyproject.read_text()))
+    locked = dict(re.findall(r'^name = "(.+?)"\nversion = "(.+?)"', lockfile.read_text(), re.MULTILINE))
+    deps = [(n, locked[n]) for n in direct if n in locked]
+    def norm(v): parts = [int(x) for x in v.split(".")]; return parts + [0] * (3 - len(parts))
+    outdated = [(n, c, l) for n, c in deps if (l := pypi_ver(n)) and norm(c) < norm(l)]
+    if not outdated: return ok("py-deps", "checked")
+    return ("py-deps", "update", f"{len(outdated)} outdated", None, [f"{n}: {c} → {l}" for n, c, l in outdated])
+
+def check_python_deps_host():
+    if not has("uv"): return ok("py-deps-host", "(uv not installed)")
     cwd = Path(__file__).parent.parent
-    out = sh(f"cd {cwd} && mise exec -- uv pip list --outdated --format=json")
+    out = sh(f"cd {cwd} && mise exec -- uv pip list --outdated --format=json 2>/dev/null")
     try: outdated = json.loads(out) if out.strip() else []
-    except: return err("py-deps", "can't parse")
-    if not outdated: return ok("py-deps", "up to date")
-    return ("py-deps", "update", f"{len(outdated)} outdated", None, [f"{p['name']}: {p['version']} → {p['latest_version']}" for p in outdated])
+    except: return ok("py-deps-host", "(no venv)")
+    if not outdated: return ok("py-deps-host", "synced")
+    return ("py-deps-host", "update", f"{len(outdated)} behind lockfile", None, [f"{p['name']}: {p['version']} → {p['latest_version']}" for p in outdated])
 
 def check_rust_deps():
     cargo_dir = Path(__file__).parent.parent / "circulation"
@@ -98,7 +135,7 @@ def check_rust_deps():
     if not outdated: return ok("rust-deps", "checked")
     return ("rust-deps", "update", f"{len(outdated)} outdated", None, [f"{n}: {c} → {l}" for n, c, l in outdated])
 
-CHECKS = [check_python, check_uv, check_rust, check_docker, check_orbstack, check_tailscale, check_python_deps, check_rust_deps]
+CHECKS = [check_python, check_uv, check_rust, check_rust_host, check_docker, check_orbstack, check_tailscale, check_python_deps, check_python_deps_host, check_rust_deps]
 
 def main():
     if not QUIET: print(f"\n{BOLD}Checking dependency versions...{RESET}\n")
