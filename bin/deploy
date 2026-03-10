@@ -360,8 +360,8 @@ DEPLOYMENT_SUCCEEDED=false
 cleanup() {
   local exit_code=$?
 
-  (( exit_code != 0 )) && [[ $DEPLOYMENT_SUCCEEDED == false ]] && \
-    update_deployment_status "failure" "Deployment failed"
+  [[ $DEPLOYMENT_SUCCEEDED == false ]] && \
+    update_deployment_status "failure" "Deployment failed (exit $exit_code)"
 
   if [[ -f $TAILSCALE_MARKER ]]; then
     log_info "Closing Tailscale (started by this deploy)..."
