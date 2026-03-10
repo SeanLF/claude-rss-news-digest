@@ -11,7 +11,8 @@ use std::sync::Arc;
 use crate::AppState;
 use crate::check_database_health;
 use crate::templates::{
-    DIGEST_NAV_CSS, DIGEST_NAV_HTML, FAVICON_SVG, digest_og_tags, render_index, web_footer_html,
+    DIGEST_NAV_CSS, DIGEST_NAV_HTML, FAVICON_SVG, IndexParams, digest_og_tags, render_index,
+    web_footer_html,
 };
 use crate::util::{
     escape_html, format_date, format_month_year, is_valid_date, log_row_error, year_month,
@@ -141,17 +142,17 @@ pub async fn index(
         .map(|d| format!("https://{d}"))
         .unwrap_or_default();
 
-    let html = render_index(
+    let html = render_index(&IndexParams {
         name,
-        &css_link,
-        &meta_links,
+        css_link: &css_link,
+        meta_links: &meta_links,
         success_msg,
         subscribe_form,
-        &subscribe_teaser,
-        &links,
+        subscribe_teaser: &subscribe_teaser,
+        digest_links: &links,
         og_description,
-        &canonical_url,
-    );
+        canonical_url: &canonical_url,
+    });
     Ok(Html(html))
 }
 

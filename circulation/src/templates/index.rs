@@ -2,19 +2,32 @@
 
 use super::digest::FAVICON_SVG;
 
+/// Parameters for rendering the index page.
+pub struct IndexParams<'a> {
+    pub name: &'a str,
+    pub css_link: &'a str,
+    pub meta_links: &'a str,
+    pub success_msg: &'a str,
+    pub subscribe_form: &'a str,
+    pub subscribe_teaser: &'a str,
+    pub digest_links: &'a str,
+    pub og_description: &'a str,
+    pub canonical_url: &'a str,
+}
+
 /// Render the index page listing recent digests
-#[allow(clippy::too_many_arguments)]
-pub fn render_index(
-    name: &str,
-    css_link: &str,
-    meta_links: &str,
-    success_msg: &str,
-    subscribe_form: &str,
-    subscribe_teaser: &str,
-    digest_links: &str,
-    og_description: &str,
-    canonical_url: &str,
-) -> String {
+pub fn render_index(p: &IndexParams) -> String {
+    let IndexParams {
+        name,
+        css_link,
+        meta_links,
+        success_msg,
+        subscribe_form,
+        subscribe_teaser,
+        digest_links,
+        og_description,
+        canonical_url,
+    } = p;
     format!(
         r##"<!DOCTYPE html>
 <html lang="en">
