@@ -86,7 +86,9 @@ def estimate_tokens(text: str) -> int:
 
 def calculate_reading_time(html_content: str, words_per_minute: int = 200) -> str:
     """Calculate reading time from HTML content. Returns string like '5 min read'."""
-    plain_text = strip_html(html_content)
+    # Strip <style> blocks first so CSS rules aren't counted as words
+    text = re.sub(r"<style[^>]*>.*?</style>", "", html_content, flags=re.DOTALL)
+    plain_text = strip_html(text)
     word_count = len(plain_text.split())
     minutes = max(1, round(word_count / words_per_minute))
     return f"{minutes} min read"
