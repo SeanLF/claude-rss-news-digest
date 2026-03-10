@@ -180,22 +180,22 @@ pub async fn subscribe(
         .send()
         .await
         .map_err(|e| {
+            tracing::error!("Resend request failed: {e}");
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                format!("Request failed: {e}"),
+                "Subscription failed, please try again".into(),
             )
         })?;
 
     if !response.status().is_success() {
         let status = response.status();
         let body = response.text().await.unwrap_or_default();
+        tracing::error!(status = %status, body, "Resend API error");
         return Err((
             StatusCode::INTERNAL_SERVER_ERROR,
-            format!("Resend error {}: {}", status, body),
+            "Subscription failed, please try again".into(),
         ));
     }
-
-    // Redirect back to index with success message
     Ok(Redirect::to("/?subscribed=1"))
 }
 
