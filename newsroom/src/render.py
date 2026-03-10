@@ -108,6 +108,29 @@ def minify_css(css: str) -> str:
     return css.strip()
 
 
+def _strip_media_block(css: str, keyword: str) -> str:
+    """Remove @media blocks containing keyword using brace-counting (handles nesting)."""
+    result = []
+    i = 0
+    while i < len(css):
+        match = re.search(rf"@media\s*\([^)]*{re.escape(keyword)}[^)]*\)\s*\{{", css[i:])
+        if not match:
+            result.append(css[i:])
+            break
+        result.append(css[i : i + match.start()])
+        # Walk forward counting braces to find matching close
+        j = i + match.end()
+        depth = 1
+        while j < len(css) and depth > 0:
+            if css[j] == "{":
+                depth += 1
+            elif css[j] == "}":
+                depth -= 1
+            j += 1
+        i = j
+    return "".join(result)
+
+
 def resolve_css_variables(css: str) -> str:
     """Replace CSS variables with their values (light mode only for email).
 
@@ -133,7 +156,7 @@ def resolve_css_variables(css: str) -> str:
 
     # Remove :root blocks and @media (prefers-color-scheme) - not supported in email
     css = re.sub(r":root\s*\{[^}]+\}", "", css)
-    css = re.sub(r"@media\s*\([^)]*prefers-color-scheme[^)]*\)\s*\{[^}]*\{[^}]*\}[^}]*\}", "", css)
+    css = _strip_media_block(css, "prefers-color-scheme")
 
     return css
 
