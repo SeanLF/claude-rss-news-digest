@@ -22,6 +22,7 @@ from render import (
     render_article,
     render_signal,
     resolve_css_variables,
+    slugify,
     strip_html,
 )
 
@@ -541,6 +542,28 @@ class TestRenderArticleSources:
         assert "BBC" in result
         assert "CNN" in result
         assert " · " in result
+
+
+class TestSlugify:
+    def test_basic(self):
+        assert slugify("US Tariffs Spark Trade War") == "us-tariffs-spark-trade-war"
+
+    def test_special_characters(self):
+        assert slugify("Oil hits $120 — what's next?") == "oil-hits-120-what-s-next"
+
+    def test_empty(self):
+        assert slugify("") == "story"
+
+    def test_all_special(self):
+        assert slugify("!@#$%") == "story"
+
+    def test_truncation(self):
+        result = slugify("a" * 100)
+        assert len(result) == 60
+
+    def test_no_trailing_hyphen_after_truncation(self):
+        result = slugify("a" * 59 + " b")
+        assert not result.endswith("-")
 
 
 class TestRenderSignalBareUrl:
