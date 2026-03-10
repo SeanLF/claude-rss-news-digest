@@ -36,6 +36,24 @@ csv.field_size_limit(1_000_000)  # 1MB max
 # =============================================================================
 
 
+ANCHOR_SVG = (
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16">'
+    '<path d="M7.775 3.275a.75.75 0 001.06 1.06l1.25-1.25a2 2 0 112.83 2.83l-2.5 2.5a2 2 0 01-2.83 0'
+    " .75.75 0 00-1.06 1.06 3.5 3.5 0 004.95 0l2.5-2.5a3.5 3.5 0 00-4.95-4.95l-1.25 1.25zm-.025 9.45"
+    "a.75.75 0 01-1.06-1.06l-1.25 1.25a2 2 0 01-2.83-2.83l2.5-2.5a2 2 0 012.83 0"
+    ' .75.75 0 001.06-1.06 3.5 3.5 0 00-4.95 0l-2.5 2.5a3.5 3.5 0 004.95 4.95l1.25-1.25z"/>'
+    "</svg>"
+)
+
+
+def slugify(text: str, max_length: int = 60) -> str:
+    """Convert headline text to a URL-safe slug for anchor IDs."""
+    slug = text.lower()
+    slug = re.sub(r"[^a-z0-9]+", "-", slug)
+    slug = slug.strip("-")[:max_length].rstrip("-")
+    return slug or "story"
+
+
 def strip_html(text: str) -> str:
     """Remove HTML tags and decode entities."""
     text = re.sub(r"<[^>]+>", "", text)  # Remove tags
@@ -174,7 +192,7 @@ def generate_feedback_html(email: str) -> str:
     </div>"""
 
 
-def render_article(article: dict, include_reporting_varies: bool = True) -> str:
+def render_article(article: dict, slug: str, include_reporting_varies: bool = True) -> str:
     """Render a single article (must_know or should_know) to HTML."""
     headline = html.escape(article.get("headline", ""))
     summary = html.escape(article.get("summary", ""))
@@ -206,8 +224,8 @@ def render_article(article: dict, include_reporting_varies: bool = True) -> str:
 
     # Build article HTML
     parts = [
-        "    <article>",
-        f"      <h3>{headline}</h3>",
+        f'    <article id="{slug}">',
+        f'      <h3><a href="#{slug}" class="anchor" aria-label="Link to this story">{ANCHOR_SVG}</a>{headline}</h3>',
         f"      <p>{summary}</p>",
         f'      <p class="why"><strong>Why it matters:</strong> {why}</p>',
     ]
@@ -250,14 +268,31 @@ def render_digest(selections: dict, template_file: Path) -> str:
         raise RuntimeError(f"Template file not found: {template_file}")
     template = template_file.read_text()
 
+    # Track slugs for dedup across sections
+    used_slugs: set[str] = set()
+
+    def unique_slug(headline: str) -> str:
+        slug = slugify(headline)
+        if slug not in used_slugs:
+            used_slugs.add(slug)
+            return slug
+        n = 2
+        while f"{slug}-{n}" in used_slugs:
+            n += 1
+        deduped = f"{slug}-{n}"
+        used_slugs.add(deduped)
+        return deduped
+
     # Render must_know
     must_know_html = "\n".join(
-        render_article(article, include_reporting_varies=True) for article in selections.get("must_know", [])
+        render_article(article, slug=unique_slug(article.get("headline", "")), include_reporting_varies=True)
+        for article in selections.get("must_know", [])
     )
 
     # Render should_know
     should_know_html = "\n".join(
-        render_article(article, include_reporting_varies=False) for article in selections.get("should_know", [])
+        render_article(article, slug=unique_slug(article.get("headline", "")), include_reporting_varies=False)
+        for article in selections.get("should_know", [])
     )
 
     # Render signals (clustered by region)

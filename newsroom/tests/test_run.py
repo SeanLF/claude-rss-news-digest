@@ -493,7 +493,7 @@ class TestRenderArticleSources:
 
     def test_single_source_unchanged(self):
         article = self._article([{"name": "BBC", "url": "https://bbc.com/news/1", "bias": "center"}])
-        result = render_article(article, include_reporting_varies=False)
+        result = render_article(article, slug="test", include_reporting_varies=False)
         assert '<a href="https://bbc.com/news/1">BBC</a> (center)' in result
 
     def test_grouped_same_source(self):
@@ -504,7 +504,7 @@ class TestRenderArticleSources:
                 {"name": "NYT World", "url": "https://nyt.com/c", "bias": "center-left"},
             ]
         )
-        result = render_article(article, include_reporting_varies=False)
+        result = render_article(article, slug="test", include_reporting_varies=False)
         # Should NOT repeat source name 3 times
         assert result.count("NYT World") == 1
         # Should have numbered links
@@ -515,7 +515,7 @@ class TestRenderArticleSources:
 
     def test_bare_url_fallback_plain_text(self):
         article = self._article([{"name": "WaPo", "url": "https://www.washingtonpost.com", "bias": "center-left"}])
-        result = render_article(article, include_reporting_varies=False)
+        result = render_article(article, slug="test", include_reporting_varies=False)
         assert "WaPo (center-left)" in result
         assert "<a" not in result.split("sources")[1]  # no link in sources line
 
@@ -526,7 +526,7 @@ class TestRenderArticleSources:
                 {"name": "WaPo", "url": "https://www.washingtonpost.com/", "bias": "center-left"},
             ]
         )
-        result = render_article(article, include_reporting_varies=False)
+        result = render_article(article, slug="test", include_reporting_varies=False)
         # One valid URL -- should render as single linked source
         assert '<a href="https://wapo.com/article/1">WaPo</a> (center-left)' in result
 
@@ -537,7 +537,7 @@ class TestRenderArticleSources:
                 {"name": "CNN", "url": "https://cnn.com/story/2", "bias": "center-left"},
             ]
         )
-        result = render_article(article, include_reporting_varies=False)
+        result = render_article(article, slug="test", include_reporting_varies=False)
         assert "BBC" in result
         assert "CNN" in result
         assert " · " in result

@@ -146,6 +146,7 @@ section > h2 {
 
 article {
   margin-bottom: 28px;
+  padding-left: 1.4em;
 }
 
 article h3 {
@@ -153,6 +154,31 @@ article h3 {
   font-size: 1.1em;
   font-weight: 600;
   line-height: 1.4;
+  position: relative;
+}
+
+article h3 .anchor {
+  position: absolute;
+  left: -1.4em;
+  top: 0.05em;
+  text-decoration: none;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+
+article h3 .anchor svg {
+  width: 0.7em;
+  height: 0.7em;
+  fill: var(--text-muted);
+  transition: fill 0.15s ease;
+}
+
+article:hover h3 .anchor {
+  opacity: 1;
+}
+
+article h3 .anchor:hover svg {
+  fill: var(--accent);
 }
 
 article p {
