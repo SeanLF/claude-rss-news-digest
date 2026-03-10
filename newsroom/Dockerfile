@@ -53,9 +53,10 @@ COPY bin/ ./bin/
 COPY .claude/commands/ /app/.claude/commands/
 
 # Create data directory and set permissions
-RUN mkdir -p /app/data \
+RUN mkdir -p /app/data /home/appuser/.bash_history_dir \
     && ln -s /home/appuser/.local/bin/claude /usr/local/bin/claude \
-    && chown -R appuser:appuser /app
+    && chown -R appuser:appuser /app /home/appuser/.bash_history_dir
+ENV HISTFILE=/home/appuser/.bash_history_dir/.bash_history
 
 # Switch to non-root user
 USER appuser

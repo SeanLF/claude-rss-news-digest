@@ -20,6 +20,7 @@ services:
     volumes:
       - ./data:/app/data
       - claude-sessions:/home/appuser/.claude
+      - bash-history:/home/appuser/.bash_history_dir
       - ./newsroom/templates/digest.css:/app/templates/digest.css:ro
       - ./prompts:/app/prompts:ro
 
@@ -64,4 +65,5 @@ services:
 
 volumes:
   claude-sessions:
+  bash-history:
   cargo-cache:
