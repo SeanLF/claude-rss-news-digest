@@ -228,17 +228,18 @@ pub async fn health(State(state): State<Arc<AppState>>) -> impl IntoResponse {
     }
 }
 
-/// Extract text between an opening marker and a closing tag in HTML.
-/// Returns empty string if the marker or closing tag is not found.
-fn extract_between(html: &str, open: &str, close: &str) -> String {
-    let Some(start) = html.find(open) else {
-        return String::new();
-    };
-    let after = &html[start + open.len()..];
-    let Some(end) = after.find(close) else {
-        return String::new();
-    };
-    after[..end].trim().to_string()
+/// Replace `needle` with `replacement` in `html`, warning if the needle is missing.
+fn inject(html: &str, needle: &str, replacement: &str, date: &str) -> String {
+    if html.contains(needle) {
+        html.replacen(needle, replacement, 1)
+    } else {
+        tracing::warn!(
+            date,
+            needle,
+            "web injection missed -- stored HTML may have drifted"
+        );
+        html.to_string()
+    }
 }
 
 /// Serve digest HTML by date (YYYY-MM-DD)
@@ -255,17 +256,17 @@ pub async fn get_digest(
     let conn = Connection::open_with_flags(&state.db_path, OpenFlags::SQLITE_OPEN_READ_ONLY)
         .map_err(|_| (StatusCode::SERVICE_UNAVAILABLE, "Digest unavailable"))?;
 
-    // Query for digest HTML
-    let html: String = conn
-        .query_row("SELECT html FROM digests WHERE date = ?1", [&date], |row| {
-            row.get(0)
-        })
+    // Query for digest HTML and preheader (stored column, not scraped from blob)
+    let (html, preheader): (String, String) = conn
+        .query_row(
+            "SELECT html, COALESCE(preheader, '') FROM digests WHERE date = ?1",
+            [&date],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
         .map_err(|_| (StatusCode::NOT_FOUND, "Digest not found"))?;
 
-    // Extract metadata for OG tags
-    let preheader = extract_between(&html, r#"class="preheader">"#, "</span>");
-    let title = extract_between(&html, "<title>", "</title>");
-    let og_title = escape_html(&title);
+    // Build OG metadata -- title from digest name + date, preheader from DB column
+    let og_title = escape_html(&format!("{} \u{2013} {date}", state.digest_name));
     let og_description = escape_html(&preheader);
 
     // Build OG tags + favicon
@@ -289,22 +290,29 @@ pub async fn get_digest(
     };
     let web_footer = web_footer_html(&subscribe_url, &archive_url);
 
-    // Inject elements into stored HTML
-    let html = html.replacen(
+    // Inject elements into stored HTML (warn on miss -- indicates template drift)
+    let html = inject(
+        &html,
         "</head>",
         &format!("{head_inject}\n{DIGEST_NAV_CSS}</head>"),
-        1,
+        &date,
     );
-    let html = html.replacen("<body>", &format!("<body>{DIGEST_NAV_HTML}"), 1);
+    let html = inject(&html, "<body>", &format!("<body>{DIGEST_NAV_HTML}"), &date);
     // Insert web links before footer-meta (same position as email links)
     let html = if html.contains(r#"<p class="footer-meta">"#) {
-        html.replacen(
+        inject(
+            &html,
             r#"<p class="footer-meta">"#,
             &format!("{web_footer}\n    <p class=\"footer-meta\">"),
-            1,
+            &date,
         )
     } else {
-        html.replacen("</footer>", &format!("{web_footer}\n  </footer>"), 1)
+        inject(
+            &html,
+            "</footer>",
+            &format!("{web_footer}\n  </footer>"),
+            &date,
+        )
     };
 
     Ok(Html(html))
