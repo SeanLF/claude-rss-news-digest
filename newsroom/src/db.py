@@ -354,7 +354,7 @@ def prepare_for_web(html_str: str) -> str:
 
     soup = BeautifulSoup(html_str, "html.parser")
 
-    for sel in ("nav.header-links", "p.view-in-browser", "div.feedback"):
+    for sel in ("nav.header-links", "div.feedback"):
         for el in soup.select(sel):
             el.decompose()
 
