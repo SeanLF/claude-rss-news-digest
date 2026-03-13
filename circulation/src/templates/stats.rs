@@ -24,103 +24,174 @@ pub fn render_stats(name: &str, css_link: &str, days: u32, data: &StatsData) -> 
   {favicon}
   {css_link}
   <style>
+    :root {{
+      --bg: #fafaf8;
+      --text: #1c1c1a;
+      --text-muted: #6b6b67;
+      --ruby: #b8372a;
+      --ruby-hover: #d44a3c;
+      --border: #e0e0da;
+      --ink-light: #4a4a46;
+      --bg-offset: #f3f3ef;
+      --green: #2d7a3a;
+      --yellow: #a67c00;
+      color-scheme: light dark;
+    }}
+    @media (prefers-color-scheme: dark) {{
+      :root {{
+        --bg: #141412;
+        --text: #e6e6e2;
+        --text-muted: #9a9a94;
+        --ruby: #e05a4a;
+        --ruby-hover: #f06d5c;
+        --border: #2c2c28;
+        --ink-light: #b0b0aa;
+        --bg-offset: #1c1c18;
+        --green: #4aba5a;
+        --yellow: #eab308;
+      }}
+    }}
+    *, *::before, *::after {{ box-sizing: border-box; }}
+    html {{
+      font-size: 18px;
+      background-color: var(--bg);
+    }}
+    body {{
+      color: var(--text);
+      font-family: Georgia, "Times New Roman", serif;
+      line-height: 1.58;
+      margin: 0;
+      padding: 0;
+      text-rendering: optimizeLegibility;
+      -webkit-font-smoothing: antialiased;
+    }}
+    ::selection {{
+      background: rgba(184, 55, 42, 0.15);
+      color: inherit;
+    }}
+    a {{
+      color: var(--ruby);
+      text-decoration: underline;
+      text-decoration-color: transparent;
+      text-underline-offset: 3px;
+      text-decoration-thickness: 1px;
+      transition: color 0.15s ease, text-decoration-color 0.2s ease;
+    }}
+    a:hover {{
+      color: var(--ruby-hover);
+      text-decoration-color: var(--ruby-hover);
+    }}
     .container {{
       max-width: 900px;
       margin: 0 auto;
-      padding: 2rem 1.5rem;
+      padding: 4.5rem 1.5rem 7rem;
+    }}
+    .back-link {{
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+      font-size: 0.88rem;
+      color: var(--text-muted);
+      text-decoration: none;
+      display: inline-block;
+      margin-bottom: 2rem;
+    }}
+    .back-link:hover {{
+      color: var(--ruby);
+      text-decoration: none;
     }}
     h1 {{
-      font-size: 1.75rem;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+      font-size: 2.25rem;
       font-weight: 700;
-      margin-bottom: 0.25rem;
-      letter-spacing: -0.02em;
+      margin: 0 0 0.25rem;
+      letter-spacing: -0.025em;
+      color: var(--text);
     }}
     .subtitle {{
-      color: var(--text-tertiary);
+      color: var(--text-muted);
       margin-bottom: 2rem;
     }}
     .period-select {{
-      margin-bottom: 2rem;
+      margin-bottom: 2.5rem;
+      display: flex;
+      gap: 0.5rem;
     }}
     .period-select a {{
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
       display: inline-block;
-      padding: 0.5rem 1rem;
-      margin-right: 0.5rem;
-      background: var(--bg-card);
-      border: 1px solid var(--border-white-subtle);
-      border-radius: 0.5rem;
-      color: var(--text-secondary);
+      padding: 0.4rem 0.85rem;
+      border: 1px solid var(--border);
+      border-radius: 0.375rem;
+      color: var(--text-muted);
       text-decoration: none;
-      font-size: 0.875rem;
+      font-size: 0.8rem;
+      font-weight: 500;
+      transition: border-color 0.15s ease, color 0.15s ease;
     }}
-    .period-select a:hover,
-    .period-select a.active {{
-      border-color: var(--ruby-red);
-      color: var(--text-primary);
+    .period-select a:hover {{
+      border-color: var(--ruby);
+      color: var(--text);
     }}
     .period-select a.active {{
-      background: var(--ruby-red);
+      background: var(--ruby);
       color: white;
-      border-color: var(--ruby-red);
+      border-color: var(--ruby);
     }}
     section {{
       margin-bottom: 3rem;
     }}
     h2 {{
-      font-size: 1rem;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+      font-size: 0.75rem;
       font-weight: 600;
       text-transform: uppercase;
-      letter-spacing: 0.05em;
-      color: var(--text-tertiary);
-      margin-bottom: 1rem;
+      letter-spacing: 0.08em;
+      color: var(--text-muted);
+      margin: 0 0 1rem;
     }}
     table {{
       width: 100%;
       border-collapse: collapse;
-      font-size: 0.875rem;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+      font-size: 0.85rem;
     }}
     th, td {{
-      padding: 0.75rem 1rem;
+      padding: 0.6rem 0.75rem;
       text-align: left;
-      border-bottom: 1px solid var(--border-white-subtle);
+      border-bottom: 1px solid var(--border);
     }}
     th {{
-      background: var(--bg-card);
       font-weight: 600;
-      color: var(--text-secondary);
+      color: var(--text-muted);
+      font-size: 0.8rem;
     }}
     td {{
-      color: var(--text-primary);
+      color: var(--text);
     }}
     td.empty, p.empty {{
-      color: var(--text-tertiary);
+      color: var(--text-muted);
       font-style: italic;
       text-align: center;
     }}
-    .good {{ color: var(--accent-green, #22c55e); }}
-    .warn {{ color: var(--accent-yellow, #eab308); }}
-    .bad {{ color: var(--ruby-red); }}
-    .back-link {{
-      display: inline-block;
-      margin-bottom: 1.5rem;
-      color: var(--text-tertiary);
-      text-decoration: none;
-      font-size: 0.875rem;
-    }}
-    .back-link:hover {{
-      color: var(--ruby-red);
-    }}
+    .good {{ color: var(--green); }}
+    .warn {{ color: var(--yellow); }}
+    .bad {{ color: var(--ruby); }}
     .section-note {{
-      color: var(--text-tertiary);
-      font-size: 0.875rem;
+      color: var(--text-muted);
+      font-size: 0.88rem;
       margin-bottom: 0.75rem;
     }}
     .source-list {{
-      color: var(--text-secondary);
-      font-size: 0.875rem;
+      color: var(--ink-light);
+      font-size: 0.88rem;
       line-height: 1.6;
     }}
     @media (max-width: 600px) {{
+      .container {{
+        padding: 3rem 1.25rem 5rem;
+      }}
+      h1 {{
+        font-size: 1.75rem;
+      }}
       table {{
         font-size: 0.75rem;
       }}

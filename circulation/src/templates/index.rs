@@ -44,52 +44,113 @@ pub fn render_index(p: &IndexParams) -> String {
   <meta name="description" content="{og_description}">
   {css_link}
   <style>
+    :root {{
+      --bg: #fafaf8;
+      --text: #1c1c1a;
+      --text-muted: #6b6b67;
+      --ruby: #b8372a;
+      --ruby-hover: #d44a3c;
+      --border: #e0e0da;
+      --ink-light: #4a4a46;
+      --bg-offset: #f3f3ef;
+      --green: #2d7a3a;
+      --green-bg: rgba(45, 122, 58, 0.08);
+      color-scheme: light dark;
+    }}
+    @media (prefers-color-scheme: dark) {{
+      :root {{
+        --bg: #141412;
+        --text: #e6e6e2;
+        --text-muted: #9a9a94;
+        --ruby: #e05a4a;
+        --ruby-hover: #f06d5c;
+        --border: #2c2c28;
+        --ink-light: #b0b0aa;
+        --bg-offset: #1c1c18;
+        --green: #4aba5a;
+        --green-bg: rgba(74, 186, 90, 0.08);
+      }}
+    }}
+    *, *::before, *::after {{ box-sizing: border-box; }}
+    html {{
+      font-size: 18px;
+      background-color: var(--bg);
+    }}
+    body {{
+      color: var(--text);
+      font-family: Georgia, "Times New Roman", serif;
+      line-height: 1.58;
+      margin: 0;
+      padding: 0;
+      text-rendering: optimizeLegibility;
+      -webkit-font-smoothing: antialiased;
+    }}
+    ::selection {{
+      background: rgba(184, 55, 42, 0.15);
+      color: inherit;
+    }}
+    a {{
+      color: var(--ruby);
+      text-decoration: underline;
+      text-decoration-color: transparent;
+      text-underline-offset: 3px;
+      text-decoration-thickness: 1px;
+      transition: color 0.15s ease, text-decoration-color 0.2s ease;
+    }}
+    a:hover {{
+      color: var(--ruby-hover);
+      text-decoration-color: var(--ruby-hover);
+    }}
     .container {{
-      max-width: 600px;
+      max-width: 640px;
       margin: 0 auto;
-      padding: 3rem 1.5rem;
+      padding: 4.5rem 1.5rem 7rem;
     }}
     h1 {{
-      font-size: 2rem;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+      font-size: 2.25rem;
       font-weight: 700;
-      margin-bottom: 0.5rem;
-      letter-spacing: -0.02em;
+      margin: 0 0 0.5rem;
+      letter-spacing: -0.025em;
+      color: var(--text);
     }}
     .tagline {{
-      color: var(--text-tertiary);
+      color: var(--text-muted);
       margin-bottom: 0.5rem;
     }}
     .meta-links {{
-      color: var(--text-tertiary);
-      font-size: 0.875rem;
-      margin-bottom: 1.5rem;
+      color: var(--text-muted);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+      font-size: 0.8rem;
+      margin-bottom: 2rem;
     }}
     .meta-link {{
-      color: var(--text-tertiary);
+      color: var(--text-muted);
       text-decoration: none;
-      transition: color 0.2s ease;
     }}
     .meta-link:hover {{
-      color: #c45a3b;
+      color: var(--ruby);
     }}
     .success-msg {{
-      color: var(--accent-green);
-      background: var(--accent-green-bg);
+      color: var(--green);
+      background: var(--green-bg);
       padding: 0.75rem 1rem;
-      border-radius: 0.5rem;
+      border-radius: 0.375rem;
       margin-bottom: 1.5rem;
-      border-left: 3px solid var(--accent-green);
+      border-left: 3px solid var(--green);
+      font-size: 0.93rem;
     }}
     .subscribe-teaser {{
-      color: var(--text-tertiary);
-      font-size: 0.875rem;
+      color: var(--text-muted);
+      font-size: 0.88rem;
       margin-bottom: 2rem;
     }}
     .subscribe-teaser a {{
-      color: #c45a3b;
+      color: var(--ruby);
       text-decoration: none;
     }}
     .subscribe-teaser a:hover {{
+      color: var(--ruby-hover);
       text-decoration: underline;
     }}
     .subscribe-form {{
@@ -99,54 +160,59 @@ pub fn render_index(p: &IndexParams) -> String {
     }}
     .subscribe-form input {{
       flex: 1;
-      padding: 0.75rem 1rem;
-      background: var(--bg-card);
-      border: 1px solid var(--border-white-light);
-      border-radius: 0.5rem;
-      color: var(--text-primary);
-      font-size: 1rem;
+      padding: 0.65rem 0.85rem;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 0.375rem;
+      color: var(--text);
+      font-family: inherit;
+      font-size: 0.93rem;
     }}
     .subscribe-form input::placeholder {{
-      color: var(--text-tertiary);
+      color: var(--text-muted);
     }}
     .subscribe-form input:focus {{
-      outline: none;
-      border-color: #c45a3b;
+      outline: 2px solid var(--ruby);
+      outline-offset: 2px;
+      border-color: var(--ruby);
     }}
     .subscribe-form button {{
-      padding: 0.75rem 1.5rem;
-      background: linear-gradient(135deg, #c45a3b 0%, #d4897a 100%);
+      padding: 0.65rem 1.25rem;
+      background: var(--ruby);
       color: white;
       border: none;
-      border-radius: 0.5rem;
+      border-radius: 0.375rem;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
       font-weight: 600;
+      font-size: 0.88rem;
       cursor: pointer;
-      transition: transform 0.2s ease, box-shadow 0.2s ease;
+      transition: background 0.15s ease;
     }}
     .subscribe-form button:hover {{
-      transform: translateY(-1px);
-      box-shadow: 0 4px 12px rgba(204, 52, 45, 0.3);
+      background: var(--ruby-hover);
     }}
     h2 {{
-      font-size: 1rem;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+      font-size: 0.75rem;
       font-weight: 600;
       text-transform: uppercase;
-      letter-spacing: 0.05em;
-      color: var(--text-tertiary);
-      margin-bottom: 1rem;
+      letter-spacing: 0.08em;
+      color: var(--text-muted);
+      margin: 3rem 0 1rem;
     }}
     .digest-archive details {{
       margin-bottom: 0.5rem;
     }}
     .month-heading {{
-      font-size: 0.8rem;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+      font-size: 0.75rem;
       font-weight: 600;
       text-transform: uppercase;
       letter-spacing: 0.06em;
-      color: var(--text-tertiary);
-      margin: 1rem 0 0.5rem 0;
+      color: var(--text-muted);
+      margin: 1rem 0 0.5rem;
       padding-bottom: 0.25rem;
-      border-bottom: 1px solid var(--border-white-subtle);
+      border-bottom: 1px solid var(--border);
       cursor: pointer;
       list-style: none;
     }}
@@ -166,34 +232,34 @@ pub fn render_index(p: &IndexParams) -> String {
     ul {{
       list-style: none;
       padding: 0;
+      margin: 0;
     }}
     li {{
-      margin: 0.5rem 0;
+      border-top: 1px solid var(--border);
+    }}
+    li:last-child {{
+      border-bottom: 1px solid var(--border);
     }}
     li a {{
       display: flex;
       justify-content: space-between;
       align-items: flex-start;
-      padding: 0.75rem 1rem;
-      background: var(--bg-card);
-      border: 1px solid var(--border-white-subtle);
-      border-radius: 0.5rem;
-      color: var(--text-secondary);
+      padding: 0.85rem 0;
+      color: var(--text);
       text-decoration: none;
-      transition: all 0.2s ease;
+      transition: color 0.15s ease;
     }}
     li a:hover {{
-      border-color: #c45a3b;
-      color: var(--text-primary);
-      transform: translateX(4px);
+      color: var(--ruby);
     }}
     .arrow {{
-      color: var(--text-tertiary);
-      transition: transform 0.2s ease, color 0.2s ease;
+      color: var(--text-muted);
+      transition: color 0.15s ease;
+      flex-shrink: 0;
+      margin-left: 1rem;
     }}
     li a:hover .arrow {{
-      color: #c45a3b;
-      transform: translateX(4px);
+      color: var(--ruby);
     }}
     .link-content {{
       flex: 1;
@@ -201,26 +267,42 @@ pub fn render_index(p: &IndexParams) -> String {
     }}
     .date-text {{
       display: block;
-      font-weight: 500;
-      color: var(--text-primary);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+      font-weight: 600;
+      font-size: 0.95rem;
     }}
     .preheader-text {{
       display: block;
-      font-size: 0.82rem;
-      color: var(--text-tertiary);
-      margin-top: 0.25rem;
-      line-height: 1.4;
+      font-size: 0.88rem;
+      color: var(--ink-light);
+      margin-top: 0.2rem;
+      line-height: 1.5;
     }}
     .site-footer {{
-      margin-top: 2rem;
-      font-size: 0.85rem;
-      opacity: 0.5;
+      margin-top: 3rem;
+      padding-top: 2rem;
+      border-top: 1px solid var(--border);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+      font-size: 0.8rem;
+      color: var(--text-muted);
     }}
     .site-footer a {{
-      color: inherit;
+      color: var(--text-muted);
       text-decoration: none;
     }}
+    .site-footer a:hover {{
+      color: var(--ruby);
+    }}
+    .site-footer p {{
+      margin: 0.25rem 0;
+    }}
     @media (max-width: 480px) {{
+      .container {{
+        padding: 3rem 1.25rem 5rem;
+      }}
+      h1 {{
+        font-size: 1.75rem;
+      }}
       .subscribe-form {{
         flex-direction: column;
       }}
