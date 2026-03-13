@@ -59,10 +59,6 @@ variable "news_digest_author_url" {
   default     = ""
 }
 
-variable "news_digest_css_url" {
-  description = "External CSS URL for digest-circulation styling"
-  default     = ""
-}
 ```
 
 ## Docker Images
@@ -135,7 +131,6 @@ Environment variables for the web archive server:
 | `DATABASE_PATH` | Path to SQLite database (default: `/data/digest.db`) |
 | `PORT` | HTTP port (default: `8080`) |
 | `DIGEST_NAME` | Display name for the site |
-| `CSS_URL` | Optional external CSS URL |
 | `HOMEPAGE_URL` | Optional footer link to homepage |
 | `SOURCE_URL` | Optional footer link to source code |
 | `RESEND_API_KEY` | Optional, enables subscription form |

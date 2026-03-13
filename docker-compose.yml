@@ -58,7 +58,6 @@ services:
       - ./data:/data:ro
     environment:
       - DATABASE_PATH=/data/digest.db
-      - CSS_URL
       - DIGEST_NAME=${DIGEST_NAME:-News Digest}
       - HOMEPAGE_URL
       - SOURCE_URL

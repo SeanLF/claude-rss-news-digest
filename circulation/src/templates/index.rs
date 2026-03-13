@@ -5,7 +5,6 @@ use super::digest::FAVICON_SVG;
 /// Parameters for rendering the index page.
 pub struct IndexParams<'a> {
     pub name: &'a str,
-    pub css_link: &'a str,
     pub meta_links: &'a str,
     pub success_msg: &'a str,
     pub subscribe_form: &'a str,
@@ -19,7 +18,6 @@ pub struct IndexParams<'a> {
 pub fn render_index(p: &IndexParams) -> String {
     let IndexParams {
         name,
-        css_link,
         meta_links,
         success_msg,
         subscribe_form,
@@ -42,17 +40,15 @@ pub fn render_index(p: &IndexParams) -> String {
   <meta property="og:url" content="{canonical_url}">
   <meta property="og:site_name" content="{name}">
   <meta name="description" content="{og_description}">
-  {css_link}
   <style>
     :root {{
       --bg: #fafaf8;
       --text: #1c1c1a;
       --text-muted: #6b6b67;
-      --ruby: #b8372a;
-      --ruby-hover: #d44a3c;
+      --ruby: #c45a3b;
+      --ruby-hover: #d4897a;
       --border: #e0e0da;
       --ink-light: #4a4a46;
-      --bg-offset: #f3f3ef;
       --green: #2d7a3a;
       --green-bg: rgba(45, 122, 58, 0.08);
       color-scheme: light dark;
@@ -62,11 +58,10 @@ pub fn render_index(p: &IndexParams) -> String {
         --bg: #141412;
         --text: #e6e6e2;
         --text-muted: #9a9a94;
-        --ruby: #e05a4a;
-        --ruby-hover: #f06d5c;
+        --ruby: #e07a5f;
+        --ruby-hover: #f0a08a;
         --border: #2c2c28;
         --ink-light: #b0b0aa;
-        --bg-offset: #1c1c18;
         --green: #4aba5a;
         --green-bg: rgba(74, 186, 90, 0.08);
       }}
@@ -86,8 +81,12 @@ pub fn render_index(p: &IndexParams) -> String {
       -webkit-font-smoothing: antialiased;
     }}
     ::selection {{
-      background: rgba(184, 55, 42, 0.15);
+      background: rgba(196, 90, 59, 0.15);
       color: inherit;
+    }}
+    :focus-visible {{
+      outline: 2px solid var(--ruby);
+      outline-offset: 2px;
     }}
     a {{
       color: var(--ruby);
@@ -110,18 +109,18 @@ pub fn render_index(p: &IndexParams) -> String {
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
       font-size: 2.25rem;
       font-weight: 700;
-      margin: 0 0 0.5rem;
+      margin: 0 0 0.3rem;
       letter-spacing: -0.025em;
       color: var(--text);
     }}
     .tagline {{
       color: var(--text-muted);
-      margin-bottom: 0.5rem;
+      margin: 0 0 0.5rem;
     }}
     .meta-links {{
-      color: var(--text-muted);
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
-      font-size: 0.8rem;
+      font-size: 0.88rem;
+      color: var(--text-muted);
       margin-bottom: 2rem;
     }}
     .meta-link {{
@@ -135,23 +134,19 @@ pub fn render_index(p: &IndexParams) -> String {
       color: var(--green);
       background: var(--green-bg);
       padding: 0.75rem 1rem;
-      border-radius: 0.375rem;
+      border-radius: 4px;
       margin-bottom: 1.5rem;
       border-left: 3px solid var(--green);
       font-size: 0.93rem;
     }}
     .subscribe-teaser {{
       color: var(--text-muted);
-      font-size: 0.88rem;
-      margin-bottom: 2rem;
+      font-size: 0.93rem;
+      margin-bottom: 2.5rem;
     }}
     .subscribe-teaser a {{
       color: var(--ruby);
       text-decoration: none;
-    }}
-    .subscribe-teaser a:hover {{
-      color: var(--ruby-hover);
-      text-decoration: underline;
     }}
     .subscribe-form {{
       display: flex;
@@ -160,10 +155,10 @@ pub fn render_index(p: &IndexParams) -> String {
     }}
     .subscribe-form input {{
       flex: 1;
-      padding: 0.65rem 0.85rem;
+      padding: 0.6rem 0.85rem;
       background: var(--bg);
       border: 1px solid var(--border);
-      border-radius: 0.375rem;
+      border-radius: 4px;
       color: var(--text);
       font-family: inherit;
       font-size: 0.93rem;
@@ -171,17 +166,15 @@ pub fn render_index(p: &IndexParams) -> String {
     .subscribe-form input::placeholder {{
       color: var(--text-muted);
     }}
-    .subscribe-form input:focus {{
-      outline: 2px solid var(--ruby);
-      outline-offset: 2px;
+    .subscribe-form input:focus-visible {{
       border-color: var(--ruby);
     }}
     .subscribe-form button {{
-      padding: 0.65rem 1.25rem;
+      padding: 0.6rem 1.25rem;
       background: var(--ruby);
       color: white;
       border: none;
-      border-radius: 0.375rem;
+      border-radius: 4px;
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
       font-weight: 600;
       font-size: 0.88rem;
@@ -198,7 +191,7 @@ pub fn render_index(p: &IndexParams) -> String {
       text-transform: uppercase;
       letter-spacing: 0.08em;
       color: var(--text-muted);
-      margin: 3rem 0 1rem;
+      margin: 0 0 1rem;
     }}
     .digest-archive details {{
       margin-bottom: 0.5rem;
@@ -210,7 +203,7 @@ pub fn render_index(p: &IndexParams) -> String {
       text-transform: uppercase;
       letter-spacing: 0.06em;
       color: var(--text-muted);
-      margin: 1rem 0 0.5rem;
+      margin: 1rem 0 0;
       padding-bottom: 0.25rem;
       border-bottom: 1px solid var(--border);
       cursor: pointer;
@@ -229,6 +222,9 @@ pub fn render_index(p: &IndexParams) -> String {
     details:first-child .month-heading {{
       margin-top: 0;
     }}
+    details[open] ul li:first-child {{
+      border-top: none;
+    }}
     ul {{
       list-style: none;
       padding: 0;
@@ -241,35 +237,20 @@ pub fn render_index(p: &IndexParams) -> String {
       border-bottom: 1px solid var(--border);
     }}
     li a {{
-      display: flex;
-      justify-content: space-between;
-      align-items: flex-start;
+      display: block;
       padding: 0.85rem 0;
       color: var(--text);
       text-decoration: none;
-      transition: color 0.15s ease;
+      transition: background 0.15s ease;
     }}
     li a:hover {{
-      color: var(--ruby);
-    }}
-    .arrow {{
-      color: var(--text-muted);
-      transition: color 0.15s ease;
-      flex-shrink: 0;
-      margin-left: 1rem;
-    }}
-    li a:hover .arrow {{
-      color: var(--ruby);
-    }}
-    .link-content {{
-      flex: 1;
-      min-width: 0;
+      background: rgba(196, 90, 59, 0.03);
     }}
     .date-text {{
       display: block;
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
       font-weight: 600;
-      font-size: 0.95rem;
+      font-size: 0.93rem;
     }}
     .preheader-text {{
       display: block;
@@ -280,8 +261,6 @@ pub fn render_index(p: &IndexParams) -> String {
     }}
     .site-footer {{
       margin-top: 3rem;
-      padding-top: 2rem;
-      border-top: 1px solid var(--border);
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
       font-size: 0.8rem;
       color: var(--text-muted);

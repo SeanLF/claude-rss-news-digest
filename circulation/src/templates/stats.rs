@@ -7,7 +7,7 @@ use crate::stats::StatsData;
 use crate::util::escape_html;
 
 /// Render the stats dashboard page
-pub fn render_stats(name: &str, css_link: &str, days: u32, data: &StatsData) -> String {
+pub fn render_stats(name: &str, days: u32, data: &StatsData) -> String {
     let health_rows = build_health_rows(data);
     let usage_rows = build_usage_rows(data);
     let runs_rows = build_runs_rows(data);
@@ -22,17 +22,15 @@ pub fn render_stats(name: &str, css_link: &str, days: u32, data: &StatsData) -> 
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Stats – {name}</title>
   {favicon}
-  {css_link}
   <style>
     :root {{
       --bg: #fafaf8;
       --text: #1c1c1a;
       --text-muted: #6b6b67;
-      --ruby: #b8372a;
-      --ruby-hover: #d44a3c;
+      --ruby: #c45a3b;
+      --ruby-hover: #d4897a;
       --border: #e0e0da;
       --ink-light: #4a4a46;
-      --bg-offset: #f3f3ef;
       --green: #2d7a3a;
       --yellow: #a67c00;
       color-scheme: light dark;
@@ -42,11 +40,10 @@ pub fn render_stats(name: &str, css_link: &str, days: u32, data: &StatsData) -> 
         --bg: #141412;
         --text: #e6e6e2;
         --text-muted: #9a9a94;
-        --ruby: #e05a4a;
-        --ruby-hover: #f06d5c;
+        --ruby: #e07a5f;
+        --ruby-hover: #f0a08a;
         --border: #2c2c28;
         --ink-light: #b0b0aa;
-        --bg-offset: #1c1c18;
         --green: #4aba5a;
         --yellow: #eab308;
       }}
@@ -66,8 +63,12 @@ pub fn render_stats(name: &str, css_link: &str, days: u32, data: &StatsData) -> 
       -webkit-font-smoothing: antialiased;
     }}
     ::selection {{
-      background: rgba(184, 55, 42, 0.15);
+      background: rgba(196, 90, 59, 0.15);
       color: inherit;
+    }}
+    :focus-visible {{
+      outline: 2px solid var(--ruby);
+      outline-offset: 2px;
     }}
     a {{
       color: var(--ruby);
@@ -94,21 +95,17 @@ pub fn render_stats(name: &str, css_link: &str, days: u32, data: &StatsData) -> 
       display: inline-block;
       margin-bottom: 2rem;
     }}
-    .back-link:hover {{
-      color: var(--ruby);
-      text-decoration: none;
-    }}
     h1 {{
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
       font-size: 2.25rem;
       font-weight: 700;
-      margin: 0 0 0.25rem;
+      margin: 0 0 0.3rem;
       letter-spacing: -0.025em;
       color: var(--text);
     }}
     .subtitle {{
       color: var(--text-muted);
-      margin-bottom: 2rem;
+      margin-bottom: 2.5rem;
     }}
     .period-select {{
       margin-bottom: 2.5rem;
@@ -120,7 +117,7 @@ pub fn render_stats(name: &str, css_link: &str, days: u32, data: &StatsData) -> 
       display: inline-block;
       padding: 0.4rem 0.85rem;
       border: 1px solid var(--border);
-      border-radius: 0.375rem;
+      border-radius: 4px;
       color: var(--text-muted);
       text-decoration: none;
       font-size: 0.8rem;

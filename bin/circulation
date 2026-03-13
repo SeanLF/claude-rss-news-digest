@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+# Run the circulation server locally for fast iteration (~1s rebuilds).
+# Uses .env for config, points at local database.
+set -euo pipefail
+
+cd "$(dirname "$0")/.."
+
+if [ -f .env ]; then
+  set -a
+  source .env
+  set +a
+fi
+
+export DATABASE_PATH="./data/digest-cloud.db"
+export PORT="${PORT:-8081}"
+
+exec cargo run --manifest-path circulation/Cargo.toml

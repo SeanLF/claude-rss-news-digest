@@ -14,7 +14,6 @@ pub struct AppState {
     pub db_path: String,
     pub digest_name: String,
     pub digest_domain: Option<String>,
-    pub css_url: Option<String>,
     pub homepage_url: Option<String>,
     pub source_url: Option<String>,
     pub resend_api_key: Option<String>,
@@ -57,7 +56,6 @@ async fn main() {
 
     let digest_name = std::env::var("DIGEST_NAME").unwrap_or_else(|_| "News Digest".into());
     let digest_domain = std::env::var("DIGEST_DOMAIN").ok();
-    let css_url = std::env::var("CSS_URL").ok();
     let homepage_url = std::env::var("HOMEPAGE_URL").ok();
     let source_url = std::env::var("SOURCE_URL").ok();
     let resend_api_key = std::env::var("RESEND_API_KEY").ok();
@@ -68,7 +66,6 @@ async fn main() {
         db_path,
         digest_name,
         digest_domain,
-        css_url,
         homepage_url,
         source_url,
         resend_api_key,
@@ -80,6 +77,7 @@ async fn main() {
         .route("/", get(handlers::index))
         .route("/subscribe", post(handlers::subscribe))
         .route("/health", get(handlers::health))
+        .route("/favicon.ico", get(handlers::favicon))
         .route("/stats", get(stats::stats_html))
         .route("/stats.json", get(stats::stats_json))
         .route("/{date}", get(handlers::get_digest))

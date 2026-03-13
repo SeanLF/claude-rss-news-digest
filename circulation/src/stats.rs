@@ -315,12 +315,6 @@ pub async fn stats_html(
     let days = query.days.unwrap_or(30);
     let data = fetch_stats_data(&state.db_path, days)?;
     let name = &state.digest_name;
-    let css_link = state
-        .css_url
-        .as_ref()
-        .map(|url| format!(r#"<link rel="stylesheet" href="{url}">"#))
-        .unwrap_or_default();
-
-    let html = render_stats(name, &css_link, days, &data);
+    let html = render_stats(name, days, &data);
     Ok(Html(html))
 }

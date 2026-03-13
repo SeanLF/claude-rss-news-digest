@@ -79,7 +79,7 @@ pub async fn index(
             format!(r#"<span class="preheader-text">{escaped}</span>"#)
         };
         links.push_str(&format!(
-            r#"<li><a href="/{d}"><span class="link-content"><span class="date-text">{formatted}</span>{preheader_html}</span><span class="arrow">&rarr;</span></a></li>"#
+            r#"<li><a href="/{d}"><span class="date-text">{formatted}</span>{preheader_html}</a></li>"#
         ));
     }
     // Close last month group
@@ -129,12 +129,6 @@ pub async fn index(
         (None, Some(s)) => format!(r#"<p class="meta-links">{s} · {stats_link}</p>"#),
         (None, None) => format!(r#"<p class="meta-links">{stats_link}</p>"#),
     };
-    let css_link = state
-        .css_url
-        .as_ref()
-        .map(|url| format!(r#"<link rel="stylesheet" href="{url}">"#))
-        .unwrap_or_default();
-
     let og_description = "Daily briefing on geopolitics, tech, and privacy. All sides. No fluff.";
     let canonical_url = state
         .digest_domain
@@ -144,7 +138,6 @@ pub async fn index(
 
     let html = render_index(&IndexParams {
         name,
-        css_link: &css_link,
         meta_links: &meta_links,
         success_msg,
         subscribe_form,
@@ -197,6 +190,20 @@ pub async fn subscribe(
         ));
     }
     Ok(Redirect::to("/?subscribed=1"))
+}
+
+const FAVICON_SVG_RAW: &[u8] = b"<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='6' fill='#c45a3b'/><line x1='8' y1='10' x2='24' y2='10' stroke='white' stroke-width='2.5' stroke-linecap='round'/><line x1='8' y1='16' x2='20' y2='16' stroke='white' stroke-width='2.5' stroke-linecap='round' opacity='.7'/><line x1='8' y1='22' x2='16' y2='22' stroke='white' stroke-width='2.5' stroke-linecap='round' opacity='.4'/></svg>";
+
+/// Serve favicon as SVG
+pub async fn favicon() -> impl IntoResponse {
+    (
+        StatusCode::OK,
+        [
+            ("content-type", "image/svg+xml"),
+            ("cache-control", "public, max-age=86400"),
+        ],
+        FAVICON_SVG_RAW,
+    )
 }
 
 #[derive(Serialize)]
