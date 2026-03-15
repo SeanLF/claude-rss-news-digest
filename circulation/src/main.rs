@@ -78,6 +78,12 @@ async fn main() {
         .route("/subscribe", post(handlers::subscribe))
         .route("/health", get(handlers::health))
         .route("/favicon.ico", get(handlers::favicon))
+        .route("/robots.txt", get(handlers::robots_txt))
+        .route("/apple-touch-icon.png", get(handlers::apple_touch_icon))
+        .route(
+            "/apple-touch-icon-precomposed.png",
+            get(handlers::apple_touch_icon),
+        )
         .route("/stats", get(stats::stats_html))
         .route("/stats.json", get(stats::stats_json))
         .route("/{date}", get(handlers::get_digest))

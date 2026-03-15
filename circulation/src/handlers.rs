@@ -194,6 +194,20 @@ pub async fn subscribe(
 
 const FAVICON_SVG_RAW: &[u8] = b"<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='6' fill='#c45a3b'/><line x1='8' y1='10' x2='24' y2='10' stroke='white' stroke-width='2.5' stroke-linecap='round'/><line x1='8' y1='16' x2='20' y2='16' stroke='white' stroke-width='2.5' stroke-linecap='round' opacity='.7'/><line x1='8' y1='22' x2='16' y2='22' stroke='white' stroke-width='2.5' stroke-linecap='round' opacity='.4'/></svg>";
 
+/// Serve robots.txt
+pub async fn robots_txt() -> impl IntoResponse {
+    (
+        StatusCode::OK,
+        [("content-type", "text/plain; charset=utf-8")],
+        "User-agent: *\nAllow: /\n",
+    )
+}
+
+/// Apple-touch-icon -- no PNG asset, redirect to SVG favicon
+pub async fn apple_touch_icon() -> impl IntoResponse {
+    Redirect::permanent("/favicon.ico")
+}
+
 /// Serve favicon as SVG
 pub async fn favicon() -> impl IntoResponse {
     (
