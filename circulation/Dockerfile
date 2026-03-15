@@ -12,6 +12,7 @@ RUN mkdir src && echo "fn main() {}" > src/main.rs \
     && rm -rf src
 
 # Build actual source (deps layer cached above)
+COPY apple-touch-icon.png ./
 COPY src ./src
 RUN touch src/main.rs && cargo build --release
 
