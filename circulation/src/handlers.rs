@@ -203,9 +203,18 @@ pub async fn robots_txt() -> impl IntoResponse {
     )
 }
 
-/// Apple-touch-icon -- no PNG asset, redirect to SVG favicon
+const APPLE_TOUCH_ICON_PNG: &[u8] = include_bytes!("../apple-touch-icon.png");
+
+/// Serve apple-touch-icon as PNG for iMessage/WhatsApp/social previews
 pub async fn apple_touch_icon() -> impl IntoResponse {
-    Redirect::permanent("/favicon.ico")
+    (
+        StatusCode::OK,
+        [
+            ("content-type", "image/png"),
+            ("cache-control", "public, max-age=86400"),
+        ],
+        APPLE_TOUCH_ICON_PNG,
+    )
 }
 
 /// Serve favicon as SVG
