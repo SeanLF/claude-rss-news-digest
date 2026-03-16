@@ -500,5 +500,12 @@ def replace_placeholders(
     else:
         content = re.sub(r'<a href="\{\{ARCHIVE_URL\}\}">[^<]+</a> · ', "", content)
 
+    # Privacy policy URL (derived from author homepage)
+    if author_url and is_safe_url(author_url):
+        privacy_url = f"{author_url.rstrip('/')}/privacy"
+        content = content.replace("{{PRIVACY_URL}}", html.escape(privacy_url))
+    else:
+        content = re.sub(r' · <a href="\{\{PRIVACY_URL\}\}">Privacy</a>', "", content)
+
     digest_path.write_text(content)
     logger.info("Date: %s", date_str)

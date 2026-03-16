@@ -122,15 +122,19 @@ pub async fn index(
             r#"<a href="{url}" class="meta-link">🌐 {display}</a>"#
         ));
     }
+    nav_links.push(format!(
+        r#"<a href="{}" class="meta-link">📰 Sources</a>"#,
+        routes::SOURCES
+    ));
+    let privacy_url = state.privacy_url();
+    nav_links.push(format!(
+        r#"<a href="{privacy_url}" class="meta-link">🔒 Privacy</a>"#
+    ));
     if let Some(url) = &state.source_url {
         nav_links.push(format!(
             r#"<a href="{url}" class="meta-link">📦 GitHub</a>"#
         ));
     }
-    nav_links.push(format!(
-        r#"<a href="{}" class="meta-link">📰 Sources</a>"#,
-        routes::SOURCES
-    ));
     nav_links.push(format!(
         r#"<a href="{}" class="meta-link">📊 Stats</a>"#,
         routes::STATS
@@ -203,6 +207,18 @@ pub async fn subscribe(
 }
 
 const FAVICON_SVG_RAW: &[u8] = b"<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='6' fill='#c45a3b'/><line x1='8' y1='10' x2='24' y2='10' stroke='white' stroke-width='2.5' stroke-linecap='round'/><line x1='8' y1='16' x2='20' y2='16' stroke='white' stroke-width='2.5' stroke-linecap='round' opacity='.7'/><line x1='8' y1='22' x2='16' y2='22' stroke='white' stroke-width='2.5' stroke-linecap='round' opacity='.4'/></svg>";
+
+/// Redirect /privacy to the main site's privacy policy
+pub async fn privacy(State(state): State<Arc<AppState>>) -> Redirect {
+    // Can't use privacy_url() here: fallback to "/privacy" would loop.
+    // HOMEPAGE_URL is always set in production; this hardcodes a safe default.
+    let url = state
+        .homepage_url
+        .as_deref()
+        .map(|u| format!("{}/privacy", u.trim_end_matches('/')))
+        .unwrap_or_else(|| "https://seanfloyd.dev/privacy".to_string());
+    Redirect::temporary(&url)
+}
 
 /// Serve robots.txt
 pub async fn robots_txt() -> impl IntoResponse {
@@ -482,7 +498,12 @@ pub async fn get_digest(
         Some(d) => (format!("https://{d}/#subscribe"), format!("https://{d}")),
         None => ("/#subscribe".to_string(), "/".to_string()),
     };
-    let web_footer = web_footer_html(&subscribe_url, &archive_url, routes::SOURCES);
+    let web_footer = web_footer_html(
+        &subscribe_url,
+        &archive_url,
+        routes::SOURCES,
+        &state.privacy_url(),
+    );
 
     // Inject elements into stored HTML (warn on miss -- indicates template drift)
     let html = inject(

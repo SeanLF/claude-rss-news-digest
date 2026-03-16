@@ -30,6 +30,16 @@ pub struct AppState {
     pub http_client: Client,
 }
 
+impl AppState {
+    /// Privacy policy URL, derived from homepage or falling back to a local path.
+    pub fn privacy_url(&self) -> String {
+        self.homepage_url
+            .as_deref()
+            .map(|u| format!("{}/privacy", u.trim_end_matches('/')))
+            .unwrap_or_else(|| "/privacy".to_string())
+    }
+}
+
 #[tokio::main]
 async fn main() {
     // Initialize tracing subscriber (respects RUST_LOG env var, defaults to info)
@@ -85,6 +95,7 @@ async fn main() {
     let app = Router::new()
         .route("/", get(handlers::index))
         .route("/subscribe", post(handlers::subscribe))
+        .route("/privacy", get(handlers::privacy))
         .route("/health", get(handlers::health))
         .route("/favicon.ico", get(handlers::favicon))
         .route("/robots.txt", get(handlers::robots_txt))
