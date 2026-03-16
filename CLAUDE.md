@@ -12,7 +12,7 @@ Automated news digest: RSS feeds → Claude curation → HTML email via Resend.
 
 **Curation pipeline (thin dispatcher + subagents):**
 
-Claude never sees URLs. Python assigns opaque article IDs (A1, A2...) and builds `article_index.json`. A single `claude --print` invocation runs a thin dispatcher that orchestrates 5 file-based subagents:
+Claude never sees URLs. Python assigns opaque article IDs (A1, A2...) and builds `article_index.json`. A single `claude` invocation runs a thin dispatcher that orchestrates 5 file-based subagents:
 
 1. **CLUSTER** -- group articles by story
 2. **RECAP** -- summarise recent RSS titles (Haiku)
@@ -33,6 +33,7 @@ Parent reads final output, drops failed coherence checks, calls `write_selection
 - **Migrate**: `bin/migrate` - Apply database migrations (runs in Docker)
 - **Run digest**: `docker compose run --rm digest-newsroom` (default CMD: `.venv/bin/python src/run.py`; don't override with bare `python`)
 - **Test prompts**: `bin/test-prompt run baseline --model opus` - Prompt experiment harness
+- **Token usage**: `bin/usage` (per-subagent detail) / `bin/usage daily` (daily totals). Requires `bin/db-clone` first.
 
 ## Database
 
@@ -43,6 +44,7 @@ SQLite at `data/digest.db`. Schema managed by migrations in `migrations/`.
 - `shown_narratives` - headlines shown with tier, source_id, and original_title (RSS title for dedup)
 - `source_health` - feed fetch results for monitoring
 - `digests` - HTML digest blobs keyed by date
+- `run_usage` - per-subagent token usage and API-equivalent costs per run
 
 **Migrations:**
 - Run `bin/migrate` to apply pending migrations
@@ -52,7 +54,7 @@ SQLite at `data/digest.db`. Schema managed by migrations in `migrations/`.
 ## Key Files
 
 - `newsroom/src/run.py` - CLI + pipeline orchestration (delegates to focused modules)
-- `newsroom/src/` - modules: config, feeds, prepare, claude, digest, render, broadcast, db, utils
+- `newsroom/src/` - modules: config, feeds, prepare, claude, digest, render, broadcast, db, usage, utils
 - `.claude/commands/news-digest-select.md` - Thin dispatcher prompt (5 subagent orchestration)
 - `newsroom/templates/digest-template.html` - HTML template for digest output
 - `newsroom/templates/digest.css` - CSS styles (minified and injected at runtime)
