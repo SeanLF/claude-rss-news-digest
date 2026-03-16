@@ -27,7 +27,7 @@ from render import estimate_tokens, is_safe_url, strip_html
 logger = logging.getLogger(__name__)
 
 
-def prepare_claude_input(sources: list[dict], dry_run: bool = False) -> list[Path]:
+def prepare_claude_input(sources: list[dict], dry_run: bool = False, article_limit: int | None = None) -> list[Path]:
     """Prepare CSV input files for Claude - split if too large.
 
     Returns:
@@ -137,7 +137,8 @@ def prepare_claude_input(sources: list[dict], dry_run: bool = False) -> list[Pat
 
     # Truncate for dry runs: sample across sources instead of slicing alphabetically
     truncated_count = 0
-    if dry_run and len(all_articles) > MAX_ARTICLES_FOR_DRY_RUN:
+    limit = article_limit or (MAX_ARTICLES_FOR_DRY_RUN if dry_run else None)
+    if limit and len(all_articles) > limit:
         random.shuffle(all_articles)
         seen_sources: set[str] = set()
         sampled: list = []
@@ -146,7 +147,7 @@ def prepare_claude_input(sources: list[dict], dry_run: bool = False) -> list[Pat
             source_id = article[1]
             (sampled if source_id not in seen_sources else rest).append(article)
             seen_sources.add(source_id)
-        all_articles = (sampled + rest)[:MAX_ARTICLES_FOR_DRY_RUN]
+        all_articles = (sampled + rest)[:limit]
         truncated_count = len(sampled) + len(rest) - len(all_articles)
 
     # Split articles into multiple files if needed
@@ -189,7 +190,7 @@ def prepare_claude_input(sources: list[dict], dry_run: bool = False) -> list[Pat
         sim_min, sim_max = min(filtered_similarities), max(filtered_similarities)
         details.append(f"{filtered_count} filtered as duplicates (sim {sim_min:.2f}-{sim_max:.2f})")
     if truncated_count > 0:
-        details.append(f"{truncated_count} truncated for dry-run (limit {MAX_ARTICLES_FOR_DRY_RUN})")
+        details.append(f"{truncated_count} truncated (limit {limit})")
     summary = f"Sending {len(all_articles)} articles to Claude"
     if details:
         summary += f" ({', '.join(details)})"

@@ -137,6 +137,9 @@ Examples:
     parser.add_argument("--validate", action="store_true", help="Test all RSS feeds")
     parser.add_argument("--json", action="store_true", help="Output in JSON format (with --validate)")
     parser.add_argument("--health-check", action="store_true", help="Verify Claude auth is working")
+    parser.add_argument(
+        "--limit", type=int, metavar="N", help="Limit articles for testing (like dry-run truncation but with recording)"
+    )
     args = parser.parse_args()
 
     setup_logging()
@@ -251,7 +254,7 @@ Examples:
                 except Exception as e:
                     logger.error("Failed to send health alert (non-fatal): %s", e)
 
-        prepare_claude_input(sources, dry_run=args.dry_run)
+        prepare_claude_input(sources, dry_run=args.dry_run, article_limit=args.limit)
         maybe_update_weekly_recap()
         generate_selections()
         try:
