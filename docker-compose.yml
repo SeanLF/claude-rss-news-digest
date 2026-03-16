@@ -16,6 +16,7 @@ services:
       - ARCHIVE_URL
       - SOURCE_URL
       - IN_DOCKER=1
+      - CLAUDE_CODE_EAGER_FLUSH=1
       # Optional (have defaults):
       - HEALTH_ALERT_EMAIL
       - HEALTH_ALERT_THRESHOLD
