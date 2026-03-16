@@ -12,8 +12,8 @@ use crate::AppState;
 use crate::check_database_health;
 use crate::routes;
 use crate::templates::{
-    DIGEST_NAV_CSS, DIGEST_NAV_HTML, FAVICON_SVG, IndexParams, Source, digest_og_tags,
-    render_index, render_sources, web_footer_html,
+    DIGEST_NAV_CSS, DIGEST_NAV_HTML, FAVICON_SVG, IndexParams, REDUCED_MOTION_CSS, SKIP_LINK_CSS,
+    SKIP_LINK_HTML, Source, digest_og_tags, render_index, render_sources, web_footer_html,
 };
 use crate::util::{
     escape_html, format_date, format_month_year, is_valid_date, log_row_error, year_month,
@@ -98,7 +98,7 @@ pub async fn index(
         state.resend_api_key.is_some() && state.resend_audience_id.is_some();
     let subscribe_form = if subscriptions_enabled {
         r#"<form method="post" action="/subscribe" class="subscribe-form">
-        <input type="email" name="email" placeholder="your@email.com" required>
+        <input type="email" name="email" placeholder="your@email.com" required aria-label="Email address">
         <button type="submit">Subscribe</button>
       </form>"#
     } else {
@@ -135,7 +135,10 @@ pub async fn index(
         r#"<a href="{}" class="meta-link">📊 Stats</a>"#,
         routes::STATS
     ));
-    let meta_links = format!(r#"<p class="meta-links">{}</p>"#, nav_links.join(" · "));
+    let meta_links = format!(
+        r#"<nav aria-label="Site navigation"><p class="meta-links">{}</p></nav>"#,
+        nav_links.join(" · ")
+    );
     let og_description = "Daily briefing on geopolitics, tech, and privacy. All sides. No fluff.";
     let canonical_url = state
         .digest_domain
@@ -310,7 +313,7 @@ pub async fn sources(
         ("bbc_world", "bbc"),
         ("cbc_news", "cbc-news-canadian-broadcasting"),
         ("daily_maverick", "daily-maverick"),
-        ("der_spiegel", "der-spiegel"),
+        ("der_spiegel", "spiegel-online"),
         ("deutsche_welle", "dw-news"),
         ("financial_times", "financial-times"),
         ("globe_and_mail", "the-globe-and-mail"),
@@ -360,6 +363,7 @@ pub async fn sources(
     fn website_from_rss(rss_url: &str, name: &str) -> String {
         // Special cases where RSS URL doesn't match the outlet's website
         match name {
+            "BBC World" => return "https://www.bbc.com".to_string(),
             "Hacker News" => return "https://news.ycombinator.com".to_string(),
             "Nikkei Asia" => return "https://asia.nikkei.com".to_string(),
             "Wall Street Journal" => return "https://www.wsj.com".to_string(),
@@ -484,10 +488,17 @@ pub async fn get_digest(
     let html = inject(
         &html,
         "</head>",
-        &format!("{head_inject}\n{DIGEST_NAV_CSS}</head>"),
+        &format!(
+            "{head_inject}\n{DIGEST_NAV_CSS}\n<style>{SKIP_LINK_CSS}\n{REDUCED_MOTION_CSS}</style></head>"
+        ),
         &date,
     );
-    let html = inject(&html, "<body>", &format!("<body>{DIGEST_NAV_HTML}"), &date);
+    let html = inject(
+        &html,
+        "<body>",
+        &format!("<body>{SKIP_LINK_HTML}{DIGEST_NAV_HTML}<main id=\"main\">"),
+        &date,
+    );
     // Insert web links before footer-meta (same position as email links)
     let html = if html.contains(r#"<p class="footer-meta">"#) {
         inject(
@@ -504,6 +515,7 @@ pub async fn get_digest(
             &date,
         )
     };
+    let html = inject(&html, "</body>", "</main></body>", &date);
 
     Ok(Html(html))
 }

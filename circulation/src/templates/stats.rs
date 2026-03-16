@@ -196,9 +196,13 @@ pub fn render_stats(name: &str, days: u32, data: &StatsData) -> String {
         padding: 0.5rem;
       }}
     }}
+    {skip_link_css}
+    {reduced_motion_css}
   </style>
 </head>
 <body>
+  <a href="#main" class="skip-link">Skip to content</a>
+  <main id="main">
   <div class="container">
     <a href="/" class="back-link">← Back to digests</a>
     <h1>Stats</h1>
@@ -215,10 +219,10 @@ pub fn render_stats(name: &str, days: u32, data: &StatsData) -> String {
       <table>
         <thead>
           <tr>
-            <th>Source</th>
-            <th>Fetches</th>
-            <th>Successes</th>
-            <th>Rate</th>
+            <th scope="col">Source</th>
+            <th scope="col">Fetches</th>
+            <th scope="col">Successes</th>
+            <th scope="col">Rate</th>
           </tr>
         </thead>
         <tbody>
@@ -232,11 +236,11 @@ pub fn render_stats(name: &str, days: u32, data: &StatsData) -> String {
       <table>
         <thead>
           <tr>
-            <th>Source</th>
-            <th>Must Know</th>
-            <th>Should Know</th>
-            <th>Other</th>
-            <th>Total</th>
+            <th scope="col">Source</th>
+            <th scope="col">Must Know</th>
+            <th scope="col">Should Know</th>
+            <th scope="col">Other</th>
+            <th scope="col">Total</th>
           </tr>
         </thead>
         <tbody>
@@ -250,9 +254,9 @@ pub fn render_stats(name: &str, days: u32, data: &StatsData) -> String {
       <table>
         <thead>
           <tr>
-            <th>Time (UTC)</th>
-            <th>Articles Fetched</th>
-            <th>Recipients</th>
+            <th scope="col">Time (UTC)</th>
+            <th scope="col">Articles Fetched</th>
+            <th scope="col">Recipients</th>
           </tr>
         </thead>
         <tbody>
@@ -266,10 +270,10 @@ pub fn render_stats(name: &str, days: u32, data: &StatsData) -> String {
       <table>
         <thead>
           <tr>
-            <th>Articles Filtered</th>
-            <th>Avg Similarity</th>
-            <th>Min</th>
-            <th>Max</th>
+            <th scope="col">Articles Filtered</th>
+            <th scope="col">Avg Similarity</th>
+            <th scope="col">Min</th>
+            <th scope="col">Max</th>
           </tr>
         </thead>
         <tbody>
@@ -284,12 +288,15 @@ pub fn render_stats(name: &str, days: u32, data: &StatsData) -> String {
       {never_selected_content}
     </section>
   </div>
+  </main>
 </body>
 </html>"##,
         favicon = FAVICON_SVG,
         active7 = if days == 7 { " class=\"active\"" } else { "" },
         active30 = if days == 30 { " class=\"active\"" } else { "" },
         active90 = if days == 90 { " class=\"active\"" } else { "" },
+        skip_link_css = super::digest::SKIP_LINK_CSS,
+        reduced_motion_css = super::digest::REDUCED_MOTION_CSS,
     )
 }
 

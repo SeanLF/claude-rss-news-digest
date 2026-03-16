@@ -3,6 +3,47 @@
 /// Favicon as inline SVG data URI (terracotta document icon)
 pub const FAVICON_SVG: &str = r#"<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%23c45a3b'/%3E%3Cline x1='8' y1='10' x2='24' y2='10' stroke='white' stroke-width='2.5' stroke-linecap='round'/%3E%3Cline x1='8' y1='16' x2='20' y2='16' stroke='white' stroke-width='2.5' stroke-linecap='round' opacity='.7'/%3E%3Cline x1='8' y1='22' x2='16' y2='22' stroke='white' stroke-width='2.5' stroke-linecap='round' opacity='.4'/%3E%3C/svg%3E">"#;
 
+/// Skip-to-content link CSS -- shared across all pages.
+pub const SKIP_LINK_CSS: &str = r#"
+.skip-link {
+    position: absolute;
+    left: -9999px;
+    top: auto;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    z-index: 1000;
+    padding: 0.75rem 1.5rem;
+    background: var(--bg, #fafaf8);
+    color: var(--ruby, #c45a3b);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+    font-size: 0.9rem;
+    text-decoration: none;
+    border: 2px solid var(--ruby, #c45a3b);
+    border-radius: 4px;
+}
+.skip-link:focus-visible {
+    position: fixed;
+    left: 1rem;
+    top: 1rem;
+    width: auto;
+    height: auto;
+    overflow: visible;
+}"#;
+
+/// Reduced-motion support CSS -- shared across all pages.
+pub const REDUCED_MOTION_CSS: &str = r#"
+@media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+        transition-duration: 0.01ms !important;
+        animation-duration: 0.01ms !important;
+    }
+    html { scroll-behavior: auto; }
+}"#;
+
+/// Skip-to-content link HTML -- first child of <body> on every page.
+pub const SKIP_LINK_HTML: &str = r##"<a href="#main" class="skip-link">Skip to content</a>"##;
+
 /// CSS injected into digest pages for browser navigation and web-specific overrides.
 /// Includes retroactive style improvements that apply to all stored digests.
 pub const DIGEST_NAV_CSS: &str = r#"<style>
@@ -21,6 +62,10 @@ pub const DIGEST_NAV_CSS: &str = r#"<style>
 }
 .digest-nav a:hover {
     color: var(--accent, #c45a3b);
+}
+.digest-nav a:focus-visible {
+    outline: 2px solid var(--accent, #c45a3b);
+    outline-offset: 2px;
 }
 .nav-sections {
     display: flex;

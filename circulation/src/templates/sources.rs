@@ -193,7 +193,7 @@ pub fn render_sources(name: &str, sources: &[Source], source_data_url: Option<&s
       padding: 0.5rem 0.2rem;
       border-bottom: 3px solid var(--border);
       transition: border-color 0.15s, color 0.15s;
-      text-decoration: none;
+      text-decoration: none !important;
       color: var(--text-muted);
       display: flex;
       flex-direction: column;
@@ -220,6 +220,10 @@ pub fn render_sources(name: &str, sources: &[Source], source_data_url: Option<&s
     }}
     .bias-spectrum .empty .count {{
       color: var(--text-muted);
+    }}
+    .bias-spectrum .label-emoji,
+    .bias-spectrum .count {{
+      border-bottom: none;
     }}
     .bias-spectrum .label-emoji {{
       font-size: 0.8rem;
@@ -373,12 +377,16 @@ pub fn render_sources(name: &str, sources: &[Source], source_data_url: Option<&s
         font-size: 0.7rem;
       }}
     }}
+    {skip_link_css}
+    {reduced_motion_css}
   </style>
 </head>
 <body>
+  <a href="#main" class="skip-link">Skip to content</a>
   <nav class="page-nav">
     <a href="/">&#8592; Past digests</a>
   </nav>
+  <main id="main">
   <div class="container">
     <h1>Sources</h1>
     <p class="tagline">{total_outlets} outlets, {total_feeds} feeds.</p>
@@ -428,18 +436,18 @@ pub fn render_sources(name: &str, sources: &[Source], source_data_url: Option<&s
     </nav>
     </div>
 
-    <h2 id="lean-left">&#x2039; Lean left <span class="section-count">{ll_count} outlets</span></h2>
+    <h2 id="lean-left"><span aria-hidden="true">&#x2039;</span> Lean left <span class="section-count">{ll_count} outlets</span></h2>
     <div class="column-header"><span>Source</span><span>Factuality</span></div>
     <ul class="source-list">
 {ll_html}
     </ul>
 
-    <h2 id="centre">&#x25CB; Centre <span class="section-count">{c_count} outlets</span></h2>
+    <h2 id="centre"><span aria-hidden="true">&#x25CB;</span> Centre <span class="section-count">{c_count} outlets</span></h2>
     <ul class="source-list">
 {c_html}
     </ul>
 
-    <h2 id="lean-right">&#x203A; Lean right <span class="section-count">{lr_count} outlets</span></h2>
+    <h2 id="lean-right"><span aria-hidden="true">&#x203A;</span> Lean right <span class="section-count">{lr_count} outlets</span></h2>
     <ul class="source-list">
 {lr_html}
     </ul>
@@ -449,10 +457,11 @@ pub fn render_sources(name: &str, sources: &[Source], source_data_url: Option<&s
       <p>The digest draws from sources across the political spectrum to show how different outlets cover the same stories &mdash; inspired by <a href="https://ground.news">Ground News</a>.{source_data_link}</p>
     </div>
 
-    <div class="site-footer">
+    <footer class="site-footer">
       <p><a href="/">Archive</a> &middot; <a href="{stats_url}">Stats</a> &middot; <a href="https://seanfloyd.dev">seanfloyd.dev</a></p>
-    </div>
+    </footer>
   </div>
+  </main>
 </body>
 </html>"##,
         favicon = FAVICON_SVG,
@@ -460,6 +469,8 @@ pub fn render_sources(name: &str, sources: &[Source], source_data_url: Option<&s
         ll_class = if ll_count > 0 { "active" } else { "empty" },
         c_class = if c_count > 0 { "active" } else { "empty" },
         lr_class = if lr_count > 0 { "active" } else { "empty" },
+        skip_link_css = super::digest::SKIP_LINK_CSS,
+        reduced_motion_css = super::digest::REDUCED_MOTION_CSS,
         source_data_link = match source_data_url {
             Some(url) => format!(
                 r#" View the <a href="{url}/blob/main/newsroom/sources.json">raw source data</a> on GitHub."#
@@ -488,10 +499,18 @@ fn build_source_list(sources: &[&Source]) -> String {
                 String::new()
             };
 
-            let (factuality_label, factuality_class) = match s.factuality.as_str() {
-                "very-high" => ("Very high", " very-high"),
-                "mixed" => ("Mixed", " mixed"),
-                _ => ("High", ""),
+            let badge_html = match s.factuality.as_str() {
+                "unrated" => String::new(),
+                factuality => {
+                    let (label, class) = match factuality {
+                        "very-high" => ("Very high", " very-high"),
+                        "mixed" => ("Mixed", " mixed"),
+                        _ => ("High", ""),
+                    };
+                    format!(
+                        r#"<a class="badge badge-factuality{class}" href="{mbfc_url}" target="_blank" rel="noopener" aria-label="{label} factuality — view {name} on MBFC">{label}</a>"#
+                    )
+                }
             };
 
             format!(
@@ -501,7 +520,7 @@ fn build_source_list(sources: &[&Source]) -> String {
           <div class="source-perspective">{perspective}</div>
         </div>
         <div class="source-meta">
-          <a class="badge badge-factuality{factuality_class}" href="{mbfc_url}" target="_blank" rel="noopener" aria-label="{factuality_label} factuality — view {name} on MBFC">{factuality_label}</a>
+          {badge_html}
         </div>
       </li>"#
             )

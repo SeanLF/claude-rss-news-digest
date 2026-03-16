@@ -10,7 +10,7 @@
   --bg: #fafafa;
   --text: #1a1a1a;
   --text-secondary: #555;
-  --text-muted: #777;
+  --text-muted: #767676;
   --border: #ddd;
   --accent: #c45a3b;
   --accent-muted: #d4897a;
@@ -345,4 +345,11 @@ footer a {
   max-width: 0;
   opacity: 0;
   overflow: hidden;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+  }
 }

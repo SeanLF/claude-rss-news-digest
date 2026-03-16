@@ -289,9 +289,13 @@ pub fn render_index(p: &IndexParams) -> String {
         width: 100%;
       }}
     }}
+    {skip_link_css}
+    {reduced_motion_css}
   </style>
 </head>
 <body>
+  <a href="#main" class="skip-link">Skip to content</a>
+  <main id="main">
   <div class="container">
     <h1>{name}</h1>
     <p class="tagline">{og_description}</p>
@@ -308,8 +312,11 @@ pub fn render_index(p: &IndexParams) -> String {
       <p>&copy; Sean Floyd</p>
     </footer>
   </div>
+  </main>
 </body>
 </html>"##,
         favicon = FAVICON_SVG,
+        skip_link_css = super::digest::SKIP_LINK_CSS,
+        reduced_motion_css = super::digest::REDUCED_MOTION_CSS,
     )
 }

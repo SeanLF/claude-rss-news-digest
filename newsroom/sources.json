@@ -16,7 +16,7 @@
   {"id": "globe_and_mail", "name": "Globe and Mail", "url": "https://www.theglobeandmail.com/arc/outboundfeeds/rss/category/world/", "bias": "lean-right", "factuality": "high", "perspective": "canadian"},
   {"id": "haaretz_middle_east", "name": "Haaretz Middle East", "url": "https://www.haaretz.com/srv/middle-east-news-rss", "bias": "lean-left", "factuality": "very-high", "perspective": "israeli"},
   {"id": "haaretz_world", "name": "Haaretz World", "url": "https://www.haaretz.com/srv/world-news-rss", "bias": "lean-left", "factuality": "very-high", "perspective": "israeli"},
-  {"id": "hacker_news", "name": "Hacker News", "url": "https://hnrss.org/newest?points=100", "bias": "center", "factuality": "high", "perspective": "tech"},
+  {"id": "hacker_news", "name": "Hacker News", "url": "https://hnrss.org/newest?points=100", "bias": "center", "factuality": "unrated", "perspective": "tech"},
   {"id": "le_monde", "name": "Le Monde", "url": "https://www.lemonde.fr/rss/une.xml", "bias": "lean-left", "factuality": "very-high", "perspective": "french"},
   {"id": "nikkei_asia", "name": "Nikkei Asia", "url": "https://news.google.com/rss/search?q=site:asia.nikkei.com&hl=en-US&gl=US&ceid=US:en", "bias": "lean-right", "factuality": "high", "perspective": "japanese"},
   {"id": "npr_world", "name": "NPR World", "url": "https://feeds.npr.org/1004/rss.xml", "bias": "lean-left", "factuality": "very-high", "perspective": "american"},
