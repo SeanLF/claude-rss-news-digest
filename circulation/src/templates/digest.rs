@@ -53,9 +53,9 @@ pub const DIGEST_NAV_HTML: &str = r##"<nav class="digest-nav">
 </nav>"##;
 
 /// Web footer links injected into digest pages (replaces email-only unsubscribe with subscribe)
-pub fn web_footer_html(subscribe_url: &str, archive_url: &str) -> String {
+pub fn web_footer_html(subscribe_url: &str, archive_url: &str, sources_url: &str) -> String {
     format!(
-        r#"<p class="footer-links web-only"><a href="{archive_url}">Past digests</a> · <a href="{subscribe_url}">Subscribe</a></p>"#
+        r#"<p class="footer-links web-only"><a href="{archive_url}">Past digests</a> · <a href="{sources_url}">Sources</a> · <a href="{subscribe_url}">Subscribe</a></p>"#
     )
 }
 

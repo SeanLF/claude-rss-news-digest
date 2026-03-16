@@ -6,14 +6,15 @@ RUN apk add --no-cache musl-dev gcc
 WORKDIR /app
 
 # Cache dependencies: only rebuilds when Cargo.toml/Cargo.lock change
-COPY Cargo.toml Cargo.lock* ./
+COPY circulation/Cargo.toml circulation/Cargo.lock* ./
 RUN mkdir src && echo "fn main() {}" > src/main.rs \
     && cargo build --release \
     && rm -rf src
 
 # Build actual source (deps layer cached above)
-COPY apple-touch-icon.png ./
-COPY src ./src
+COPY circulation/apple-touch-icon.png ./
+COPY circulation/src ./src
+COPY newsroom/sources.json ./sources.json
 RUN touch src/main.rs && cargo build --release
 
 # Runtime stage - Alpine for musl compatibility

@@ -7,7 +7,7 @@ All files are under `data/claude_input/`. Use absolute paths: `/app/data/claude_
 </working_directory>
 
 <input_files>
-- `sources.csv` -- source metadata (id, name, bias, perspective)
+- `sources.csv` -- source metadata (id, name, bias, factuality, perspective)
 - `articles_*.csv` -- articles split across files (article_id, source_id, title, published, summary). NO URLs.
 - `recent_rss_titles.csv` -- RSS titles from last 7 days (title, date)
 - `weekly_recap.txt` -- rolling weekly thematic recap (may not exist)

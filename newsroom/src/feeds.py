@@ -49,7 +49,7 @@ def load_sources(sources_file: Path) -> list[dict]:
         sources = json.load(f)
 
     # Validate schema
-    required_keys = {"id", "name", "url", "bias", "perspective"}
+    required_keys = {"id", "name", "url", "bias", "factuality", "perspective"}
     for i, source in enumerate(sources):
         missing = required_keys - set(source.keys())
         if missing:

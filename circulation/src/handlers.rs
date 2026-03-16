@@ -10,9 +10,10 @@ use std::sync::Arc;
 
 use crate::AppState;
 use crate::check_database_health;
+use crate::routes;
 use crate::templates::{
-    DIGEST_NAV_CSS, DIGEST_NAV_HTML, FAVICON_SVG, IndexParams, digest_og_tags, render_index,
-    web_footer_html,
+    DIGEST_NAV_CSS, DIGEST_NAV_HTML, FAVICON_SVG, IndexParams, Source, digest_og_tags,
+    render_index, render_sources, web_footer_html,
 };
 use crate::util::{
     escape_html, format_date, format_month_year, is_valid_date, log_row_error, year_month,
@@ -112,23 +113,29 @@ pub async fn index(
     } else {
         String::new()
     };
-    let homepage_link = state.homepage_url.as_ref().map(|url| {
+    let mut nav_links: Vec<String> = Vec::new();
+    if let Some(url) = &state.homepage_url {
         let display = url
             .trim_start_matches("https://")
             .trim_start_matches("http://");
-        format!(r#"<a href="{url}" class="meta-link">🌐 {display}</a>"#)
-    });
-    let source_link = state
-        .source_url
-        .as_ref()
-        .map(|url| format!(r#"<a href="{url}" class="meta-link">📦 GitHub</a>"#));
-    let stats_link = r#"<a href="/stats" class="meta-link">📊 Stats</a>"#;
-    let meta_links = match (homepage_link, source_link) {
-        (Some(h), Some(s)) => format!(r#"<p class="meta-links">{h} · {s} · {stats_link}</p>"#),
-        (Some(h), None) => format!(r#"<p class="meta-links">{h} · {stats_link}</p>"#),
-        (None, Some(s)) => format!(r#"<p class="meta-links">{s} · {stats_link}</p>"#),
-        (None, None) => format!(r#"<p class="meta-links">{stats_link}</p>"#),
-    };
+        nav_links.push(format!(
+            r#"<a href="{url}" class="meta-link">🌐 {display}</a>"#
+        ));
+    }
+    if let Some(url) = &state.source_url {
+        nav_links.push(format!(
+            r#"<a href="{url}" class="meta-link">📦 GitHub</a>"#
+        ));
+    }
+    nav_links.push(format!(
+        r#"<a href="{}" class="meta-link">📰 Sources</a>"#,
+        routes::SOURCES
+    ));
+    nav_links.push(format!(
+        r#"<a href="{}" class="meta-link">📊 Stats</a>"#,
+        routes::STATS
+    ));
+    let meta_links = format!(r#"<p class="meta-links">{}</p>"#, nav_links.join(" · "));
     let og_description = "Daily briefing on geopolitics, tech, and privacy. All sides. No fluff.";
     let canonical_url = state
         .digest_domain
@@ -273,6 +280,158 @@ fn inject(html: &str, needle: &str, replacement: &str, date: &str) -> String {
     }
 }
 
+/// Sources page -- lists all news sources with bias and factuality ratings.
+/// Source data is embedded at compile time from newsroom/sources.json.
+pub async fn sources(
+    State(state): State<Arc<AppState>>,
+) -> Result<Html<String>, (StatusCode, &'static str)> {
+    static SOURCES_JSON: &str = include_str!("../sources.json");
+
+    #[derive(Deserialize)]
+    struct RawSource {
+        id: String,
+        name: String,
+        url: String,
+        bias: String,
+        factuality: String,
+        perspective: String,
+    }
+
+    let raw: Vec<RawSource> = serde_json::from_str(SOURCES_JSON)
+        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Bad sources data"))?;
+
+    use std::collections::HashMap;
+
+    // MBFC slug mapping (source_id -> mbfc slug)
+    let mbfc_slugs: HashMap<&str, &str> = [
+        ("al_jazeera", "al-jazeera"),
+        ("al_monitor", "al-monitor"),
+        ("ars_technica", "ars-technica"),
+        ("bbc_world", "bbc"),
+        ("cbc_news", "cbc-news-canadian-broadcasting"),
+        ("daily_maverick", "daily-maverick"),
+        ("der_spiegel", "der-spiegel"),
+        ("deutsche_welle", "dw-news"),
+        ("financial_times", "financial-times"),
+        ("globe_and_mail", "the-globe-and-mail"),
+        ("le_monde", "le-monde"),
+        ("nikkei_asia", "nikkei"),
+        ("npr_world", "npr"),
+        ("nyt_world", "new-york-times"),
+        ("rappler", "rappler"),
+        ("rest_of_world", "rest-of-world"),
+        ("reuters", "reuters"),
+        ("straits_times", "the-straits-times"),
+        ("the_diplomat", "the-diplomat"),
+        ("the_guardian", "the-guardian"),
+        ("the_hindu", "the-hindu"),
+        ("the_verge", "the-verge"),
+        ("washington_post", "washington-post"),
+        ("wsj_world", "wall-street-journal"),
+        ("haaretz_middle_east", "haaretz"),
+        ("haaretz_world", "haaretz"),
+        ("scmp_asia", "south-china-morning-post"),
+        ("scmp_china", "south-china-morning-post"),
+        ("scmp_world", "south-china-morning-post"),
+        ("economist_americas", "the-economist"),
+        ("economist_asia", "the-economist"),
+        ("economist_europe", "the-economist"),
+        ("economist_international", "the-economist"),
+        ("economist_middle_east_africa", "the-economist"),
+    ]
+    .into_iter()
+    .collect();
+
+    // Deduplicate multi-feed sources: group by (name, bias) and count feeds
+    let mut seen: HashMap<String, (RawSource, u32)> = HashMap::new();
+    for s in raw {
+        let dedup_key = match s.id.as_str() {
+            id if id.starts_with("economist_") => "Economist".to_string(),
+            id if id.starts_with("scmp_") => "SCMP".to_string(),
+            id if id.starts_with("haaretz_") => "Haaretz".to_string(),
+            _ => s.name.clone(),
+        };
+        seen.entry(dedup_key)
+            .and_modify(|(_, count)| *count += 1)
+            .or_insert((s, 1));
+    }
+
+    // Extract website from RSS URL (strip path for display)
+    fn website_from_rss(rss_url: &str, name: &str) -> String {
+        // Special cases where RSS URL doesn't match the outlet's website
+        match name {
+            "Hacker News" => return "https://news.ycombinator.com".to_string(),
+            "Nikkei Asia" => return "https://asia.nikkei.com".to_string(),
+            "Wall Street Journal" => return "https://www.wsj.com".to_string(),
+            _ => {}
+        }
+        if rss_url.starts_with("https://news.google.com") {
+            // Google News proxy -- extract site: param
+            if let Some(pos) = rss_url.find("site:") {
+                let domain = &rss_url[pos + 5..];
+                let end = domain.find('&').unwrap_or(domain.len());
+                return format!("https://{}", &domain[..end]);
+            }
+        }
+        // Extract scheme + host from URL
+        if let Some(rest) = rss_url.strip_prefix("https://") {
+            let host_end = rest.find('/').unwrap_or(rest.len());
+            let host = &rest[..host_end];
+            // Strip common RSS subdomains
+            let host = host
+                .strip_prefix("feeds.")
+                .or_else(|| host.strip_prefix("rss."))
+                .unwrap_or(host);
+            format!("https://{host}")
+        } else {
+            rss_url.to_string()
+        }
+    }
+
+    let mut sources: Vec<Source> = seen
+        .into_values()
+        .map(|(raw, feed_count)| {
+            let mbfc_slug = mbfc_slugs.get(raw.id.as_str()).unwrap_or(&"").to_string();
+            let website = website_from_rss(&raw.url, &raw.name);
+            // Clean up display name (strip feed suffixes)
+            let display_name = match raw.id.as_str() {
+                id if id.starts_with("economist_") => "The Economist".to_string(),
+                id if id.starts_with("scmp_") => "South China Morning Post".to_string(),
+                id if id.starts_with("haaretz_") => "Haaretz".to_string(),
+                _ => raw.name,
+            };
+            fn capitalise_word(w: &str) -> String {
+                let mut chars = w.chars();
+                match chars.next() {
+                    None => String::new(),
+                    Some(first) => first.to_uppercase().to_string() + chars.as_str(),
+                }
+            }
+            let perspective = raw
+                .perspective
+                .split('_')
+                .map(capitalise_word)
+                .collect::<Vec<_>>()
+                .join(" ");
+            Source {
+                name: display_name,
+                website,
+                bias: raw.bias,
+                factuality: raw.factuality,
+                perspective,
+                feed_count,
+                mbfc_slug,
+            }
+        })
+        .collect();
+
+    // Sort alphabetically within each bias group
+    sources.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+
+    let html = render_sources(&state.digest_name, &sources, state.source_url.as_deref());
+    Ok(Html(html))
+}
+
 /// Serve digest HTML by date (YYYY-MM-DD)
 pub async fn get_digest(
     Path(date): Path<String>,
@@ -319,7 +478,7 @@ pub async fn get_digest(
         Some(d) => (format!("https://{d}/#subscribe"), format!("https://{d}")),
         None => ("/#subscribe".to_string(), "/".to_string()),
     };
-    let web_footer = web_footer_html(&subscribe_url, &archive_url);
+    let web_footer = web_footer_html(&subscribe_url, &archive_url, routes::SOURCES);
 
     // Inject elements into stored HTML (warn on miss -- indicates template drift)
     let html = inject(

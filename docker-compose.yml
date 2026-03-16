@@ -46,12 +46,15 @@ services:
     working_dir: /app
     volumes:
       - ./circulation:/app
+      - ./newsroom/sources.json:/app/sources.json:ro
       - cargo-cache:/usr/local/cargo/registry
     entrypoint: ["sh", "-c"]
     command: ["cargo fmt --check && cargo clippy -- -D warnings && cargo test"]
 
   digest-circulation:
-    build: ./circulation
+    build:
+      context: .
+      dockerfile: circulation/Dockerfile
     ports:
       - "8080:8080"
     volumes:

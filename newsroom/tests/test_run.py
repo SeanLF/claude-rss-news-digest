@@ -363,7 +363,14 @@ class TestPrepareArticleIndex:
             )
 
         sources = [
-            {"id": "bbc", "name": "BBC World", "url": "https://bbc.com/rss", "bias": "center", "perspective": "UK"}
+            {
+                "id": "bbc",
+                "name": "BBC World",
+                "url": "https://bbc.com/rss",
+                "bias": "center",
+                "factuality": "high",
+                "perspective": "UK",
+            }
         ]
 
         input_dir = tmp_path / "claude_input"
@@ -500,9 +507,9 @@ class TestRenderArticleSources:
     def test_grouped_same_source(self):
         article = self._article(
             [
-                {"name": "NYT World", "url": "https://nyt.com/a", "bias": "center-left"},
-                {"name": "NYT World", "url": "https://nyt.com/b", "bias": "center-left"},
-                {"name": "NYT World", "url": "https://nyt.com/c", "bias": "center-left"},
+                {"name": "NYT World", "url": "https://nyt.com/a", "bias": "lean-left"},
+                {"name": "NYT World", "url": "https://nyt.com/b", "bias": "lean-left"},
+                {"name": "NYT World", "url": "https://nyt.com/c", "bias": "lean-left"},
             ]
         )
         result = render_article(article, slug="test", include_reporting_varies=False)
@@ -515,27 +522,27 @@ class TestRenderArticleSources:
         assert '<a href="https://nyt.com/c">3</a>' in result
 
     def test_bare_url_fallback_plain_text(self):
-        article = self._article([{"name": "WaPo", "url": "https://www.washingtonpost.com", "bias": "center-left"}])
+        article = self._article([{"name": "WaPo", "url": "https://www.washingtonpost.com", "bias": "lean-left"}])
         result = render_article(article, slug="test", include_reporting_varies=False)
-        assert "WaPo (center-left)" in result
+        assert "WaPo (lean-left)" in result
         assert "<a" not in result.split("sources")[1]  # no link in sources line
 
     def test_mixed_valid_and_bare_urls(self):
         article = self._article(
             [
-                {"name": "WaPo", "url": "https://wapo.com/article/1", "bias": "center-left"},
-                {"name": "WaPo", "url": "https://www.washingtonpost.com/", "bias": "center-left"},
+                {"name": "WaPo", "url": "https://wapo.com/article/1", "bias": "lean-left"},
+                {"name": "WaPo", "url": "https://www.washingtonpost.com/", "bias": "lean-left"},
             ]
         )
         result = render_article(article, slug="test", include_reporting_varies=False)
         # One valid URL -- should render as single linked source
-        assert '<a href="https://wapo.com/article/1">WaPo</a> (center-left)' in result
+        assert '<a href="https://wapo.com/article/1">WaPo</a> (lean-left)' in result
 
     def test_multiple_different_sources(self):
         article = self._article(
             [
                 {"name": "BBC", "url": "https://bbc.com/news/1", "bias": "center"},
-                {"name": "CNN", "url": "https://cnn.com/story/2", "bias": "center-left"},
+                {"name": "CNN", "url": "https://cnn.com/story/2", "bias": "lean-left"},
             ]
         )
         result = render_article(article, slug="test", include_reporting_varies=False)

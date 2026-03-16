@@ -10,6 +10,12 @@ use rusqlite::{Connection, OpenFlags};
 use std::sync::Arc;
 use tower_http::trace::TraceLayer;
 
+/// Internal route paths -- single source of truth for handlers and templates.
+pub mod routes {
+    pub const SOURCES: &str = "/sources";
+    pub const STATS: &str = "/stats";
+}
+
 pub struct AppState {
     pub db_path: String,
     pub digest_name: String,
@@ -84,8 +90,9 @@ async fn main() {
             "/apple-touch-icon-precomposed.png",
             get(handlers::apple_touch_icon),
         )
-        .route("/stats", get(stats::stats_html))
-        .route("/stats.json", get(stats::stats_json))
+        .route(routes::SOURCES, get(handlers::sources))
+        .route(routes::STATS, get(stats::stats_html))
+        .route(&format!("{}.json", routes::STATS), get(stats::stats_json))
         .route("/{date}", get(handlers::get_digest))
         .layer(TraceLayer::new_for_http())
         .with_state(state);

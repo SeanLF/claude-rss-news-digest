@@ -774,8 +774,16 @@ def compare_runs(run_a: Run, run_b: Run) -> Comparison:
 
 def format_bias(bias_dict: dict) -> str:
     """Format bias distribution as compact string (e.g., 'L:2 C:5 R:3')."""
-    abbrev = {"left": "L", "center-left": "CL", "center": "C", "center-right": "CR", "right": "R"}
-    order = ["left", "center-left", "center", "center-right", "right"]
+    abbrev = {
+        "far-left": "FL",
+        "left": "L",
+        "lean-left": "LL",
+        "center": "C",
+        "lean-right": "LR",
+        "right": "R",
+        "far-right": "FR",
+    }
+    order = ["far-left", "left", "lean-left", "center", "lean-right", "right", "far-right"]
     parts = [f"{abbrev[b]}:{bias_dict[b]}" for b in order if bias_dict.get(b)]
     return " ".join(parts)
 

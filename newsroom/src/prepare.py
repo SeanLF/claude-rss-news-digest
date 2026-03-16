@@ -48,9 +48,9 @@ def prepare_claude_input(sources: list[dict], dry_run: bool = False) -> list[Pat
     sources_file = CLAUDE_INPUT_DIR / "sources.csv"
     with open(sources_file, "w", newline="") as f:
         writer = csv.writer(f)
-        writer.writerow(["id", "name", "bias", "perspective"])
+        writer.writerow(["id", "name", "bias", "factuality", "perspective"])
         for s in sources:
-            writer.writerow([s["id"], s["name"], s["bias"], s["perspective"]])
+            writer.writerow([s["id"], s["name"], s["bias"], s["factuality"], s["perspective"]])
 
     # Write recent RSS titles for RECAP subagent (replaces recent_headlines.csv)
     if previous_headlines:
