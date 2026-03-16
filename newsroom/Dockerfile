@@ -51,6 +51,7 @@ COPY newsroom/.mcp.json ./
 COPY migrations/ ./migrations/
 COPY bin/ ./bin/
 COPY .claude/commands/ /app/.claude/commands/
+COPY --chmod=755 newsroom/entrypoint.sh /app/entrypoint.sh
 
 # Create data directory and set permissions
 RUN mkdir -p /app/data /home/appuser/.bash_history_dir \
@@ -61,5 +62,5 @@ ENV HISTFILE=/home/appuser/.bash_history_dir/.bash_history
 # Switch to non-root user
 USER appuser
 
-# Default command (can be overridden)
-CMD [".venv/bin/python", "src/run.py"]
+# Entrypoint handles flag passthrough (--dry-run) vs arbitrary commands (claude --version)
+ENTRYPOINT ["/app/entrypoint.sh"]

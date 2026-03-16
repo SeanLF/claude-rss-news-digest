@@ -31,27 +31,24 @@ def _db_path() -> Path:
 
 
 def init(db_path: Path, migrations_dir: Path):
-    """Initialize database and set module context."""
-    _state.db_path = db_path
+    """Initialize database, auto-applying any pending migrations."""
     db_path.parent.mkdir(exist_ok=True)
-
-    if not db_path.exists():
-        raise RuntimeError("Database not found. Run: bin/migrate")
-
-    pending = check_pending_migrations(db_path, migrations_dir)
-    if pending:
-        raise RuntimeError(f"Pending migrations: {', '.join(pending)}\nRun: bin/migrate")
+    _apply_pending_migrations(db_path, migrations_dir)
+    _state.db_path = db_path
 
 
-def check_pending_migrations(db_path: Path, migrations_dir: Path) -> list[str]:
-    """Return list of pending migration IDs. Empty list if all applied."""
+def _apply_pending_migrations(db_path: Path, migrations_dir: Path):
+    """Apply any pending migrations, creating the database if needed."""
     from yoyo import get_backend, read_migrations
 
     backend = get_backend(f"sqlite:///{db_path}")
     migrations = read_migrations(str(migrations_dir))
     pending = backend.to_apply(migrations)
 
-    return [m.id for m in pending]
+    if pending:
+        logger.info("Applying %d pending migration(s)...", len(pending))
+        backend.apply_migrations(pending)
+        logger.info("Migrations applied")
 
 
 def get_last_run_time() -> datetime | None:

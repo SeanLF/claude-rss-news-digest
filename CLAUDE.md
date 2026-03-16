@@ -31,7 +31,7 @@ Parent reads final output, drops failed coherence checks, calls `write_selection
 - **CI**: `bin/ci` - Always runs in Docker for reproducibility. Use `bin/ci --fix` to auto-fix style issues.
 - **Tests only**: `docker compose run --rm --build ci pytest -v newsroom/tests/`
 - **Migrate**: `bin/migrate` - Apply database migrations (runs in Docker)
-- **Run digest**: `docker compose run --rm digest-newsroom` (default CMD: `.venv/bin/python src/run.py`; don't override with bare `python`)
+- **Run digest**: `docker compose run --rm digest-newsroom` (entrypoint passes flags to `run.py`, e.g. `--dry-run`)
 - **Test prompts**: `bin/test-prompt run baseline --model opus` - Prompt experiment harness
 - **Token usage**: `bin/usage` (per-subagent detail) / `bin/usage daily` (daily totals). Requires `bin/db-clone` first.
 
@@ -47,9 +47,10 @@ SQLite at `data/digest.db`. Schema managed by migrations in `migrations/`.
 - `run_usage` - per-subagent token usage and API-equivalent costs per run
 
 **Migrations:**
-- Run `bin/migrate` to apply pending migrations
+- Applied automatically on each run via `db.init()`
+- `bin/migrate` available for manual inspection (`--status`, `--dry-run`)
 - New migrations: `migrations/YYYYMMDDHHMMSS_description.sql`
-- Production: `bin/ssh bin/migrate`
+- Production: also auto-applied; `bin/ssh bin/migrate` for manual use
 
 ## Key Files
 

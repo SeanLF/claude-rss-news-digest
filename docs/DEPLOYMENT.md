@@ -7,7 +7,7 @@ This document covers deploying news-digest to a production server. The main [REA
 - **Systemd timer** - Runs daily at configured time (e.g., 07:00 UTC)
 - **Docker containers** - digest-newsroom (cron job) + digest-circulation (web archive)
 - **SQLite database** - Persisted in Docker volume
-- **Claude OAuth** - Uses Pro subscription credentials (refreshed automatically)
+- **Claude OAuth** - Uses Max or Pro subscription credentials (refreshed automatically)
 - **digest-circulation** - Optional web server for "View in browser" links
 
 ## Terraform Variables
@@ -69,8 +69,8 @@ Build and push images to your registry:
 # digest-newsroom (main pipeline)
 docker buildx build --platform linux/amd64 -t YOUR_REGISTRY/digest-newsroom:latest --push . -f newsroom/Dockerfile
 
-# digest-circulation (web archive)
-docker buildx build --platform linux/amd64 -t YOUR_REGISTRY/digest-circulation:latest --push ./circulation
+# digest-circulation (web archive -- context is repo root, needs sources.json)
+docker buildx build --platform linux/amd64 -t YOUR_REGISTRY/digest-circulation:latest --push -f circulation/Dockerfile .
 ```
 
 ## Systemd Service
@@ -108,7 +108,7 @@ WantedBy=timers.target
 
 ## Claude Authentication
 
-The digest uses Claude Pro subscription via OAuth token. Generate a long-lived token (1 year validity):
+The digest uses a Claude Max or Pro subscription via OAuth token. Generate a long-lived token (1 year validity):
 
 ```bash
 claude setup-token
@@ -146,6 +146,8 @@ journalctl -fu news-digest
 # Check timer status
 ssh user@server 'systemctl list-timers news-digest.timer'
 
-# View recent digests
-ssh user@server 'sqlite3 /opt/news-digest/data/digest.db "SELECT date FROM digests ORDER BY date DESC LIMIT 5"'
+# View recent digests (no sqlite3 on server -- use the newsroom container)
+ssh user@server 'docker compose -f /opt/news-digest/docker-compose.yml run --rm digest-newsroom .venv/bin/python -c "
+import sqlite3; [print(r[0]) for r in sqlite3.connect(\"/app/data/digest.db\").execute(\"SELECT date FROM digests ORDER BY date DESC LIMIT 5\")]
+"'
 ```
