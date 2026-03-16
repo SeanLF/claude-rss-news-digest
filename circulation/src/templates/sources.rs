@@ -186,8 +186,8 @@ pub fn render_sources(name: &str, sources: &[Source], source_data_url: Option<&s
       letter-spacing: 0.03em;
       color: var(--text-muted);
     }}
-    .bias-spectrum a,
-    .bias-spectrum span {{
+    .bias-spectrum > a,
+    .bias-spectrum > span {{
       flex: 1;
       text-align: center;
       padding: 0.5rem 0.2rem;
@@ -220,10 +220,6 @@ pub fn render_sources(name: &str, sources: &[Source], source_data_url: Option<&s
     }}
     .bias-spectrum .empty .count {{
       color: var(--text-muted);
-    }}
-    .bias-spectrum .label-emoji,
-    .bias-spectrum .count {{
-      border-bottom: none;
     }}
     .bias-spectrum .label-emoji {{
       font-size: 0.8rem;
@@ -382,7 +378,7 @@ pub fn render_sources(name: &str, sources: &[Source], source_data_url: Option<&s
   </style>
 </head>
 <body>
-  <a href="#main" class="skip-link">Skip to content</a>
+  {skip_link_html}
   <nav class="page-nav">
     <a href="/">&#8592; Past digests</a>
   </nav>
@@ -469,6 +465,7 @@ pub fn render_sources(name: &str, sources: &[Source], source_data_url: Option<&s
         ll_class = if ll_count > 0 { "active" } else { "empty" },
         c_class = if c_count > 0 { "active" } else { "empty" },
         lr_class = if lr_count > 0 { "active" } else { "empty" },
+        skip_link_html = super::digest::SKIP_LINK_HTML,
         skip_link_css = super::digest::SKIP_LINK_CSS,
         reduced_motion_css = super::digest::REDUCED_MOTION_CSS,
         source_data_link = match source_data_url {

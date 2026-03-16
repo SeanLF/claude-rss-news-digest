@@ -57,7 +57,7 @@ pub const DIGEST_NAV_CSS: &str = r#"<style>
     font-size: 14px;
 }
 .digest-nav a {
-    color: var(--text-muted, #777);
+    color: var(--text-muted, #767676);
     text-decoration: none;
 }
 .digest-nav a:hover {

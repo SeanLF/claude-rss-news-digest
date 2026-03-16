@@ -294,7 +294,7 @@ pub fn render_index(p: &IndexParams) -> String {
   </style>
 </head>
 <body>
-  <a href="#main" class="skip-link">Skip to content</a>
+  {skip_link_html}
   <main id="main">
   <div class="container">
     <h1>{name}</h1>
@@ -316,6 +316,7 @@ pub fn render_index(p: &IndexParams) -> String {
 </body>
 </html>"##,
         favicon = FAVICON_SVG,
+        skip_link_html = super::digest::SKIP_LINK_HTML,
         skip_link_css = super::digest::SKIP_LINK_CSS,
         reduced_motion_css = super::digest::REDUCED_MOTION_CSS,
     )

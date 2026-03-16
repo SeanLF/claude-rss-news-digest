@@ -201,7 +201,7 @@ pub fn render_stats(name: &str, days: u32, data: &StatsData) -> String {
   </style>
 </head>
 <body>
-  <a href="#main" class="skip-link">Skip to content</a>
+  {skip_link_html}
   <main id="main">
   <div class="container">
     <a href="/" class="back-link">← Back to digests</a>
@@ -295,6 +295,7 @@ pub fn render_stats(name: &str, days: u32, data: &StatsData) -> String {
         active7 = if days == 7 { " class=\"active\"" } else { "" },
         active30 = if days == 30 { " class=\"active\"" } else { "" },
         active90 = if days == 90 { " class=\"active\"" } else { "" },
+        skip_link_html = super::digest::SKIP_LINK_HTML,
         skip_link_css = super::digest::SKIP_LINK_CSS,
         reduced_motion_css = super::digest::REDUCED_MOTION_CSS,
     )
