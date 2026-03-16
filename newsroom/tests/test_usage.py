@@ -1,7 +1,9 @@
 """Tests for JSONL session usage parser."""
 
 import json
+import os
 import sys
+import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
@@ -211,6 +213,34 @@ class TestParseSessionUsage:
         """Returns empty list when no JSONL files exist."""
         projects_dir = tmp_path / "projects" / "-app"
         projects_dir.mkdir(parents=True)
+        result = parse_session_usage(projects_dir)
+        assert result == []
+
+    def test_skips_stale_session(self, tmp_path):
+        """Returns empty list when most recent session is too old."""
+        projects_dir = tmp_path / "projects" / "-app"
+        projects_dir.mkdir(parents=True)
+
+        session_file = projects_dir / "abc-123.jsonl"
+        lines = [
+            {
+                "message": {
+                    "role": "assistant",
+                    "model": "claude-sonnet-4-6",
+                    "usage": {
+                        "input_tokens": 100,
+                        "output_tokens": 200,
+                        "cache_creation_input_tokens": 0,
+                        "cache_read_input_tokens": 0,
+                    },
+                }
+            }
+        ]
+        session_file.write_text("\n".join(json.dumps(row) for row in lines))
+        # Set mtime to 2 hours ago
+        old_time = time.time() - 7200
+        os.utime(session_file, (old_time, old_time))
+
         result = parse_session_usage(projects_dir)
         assert result == []
 

@@ -11,6 +11,7 @@ Raw JSONL files in the Docker volume remain the source of truth.
 
 import json
 import logging
+import time
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -23,6 +24,7 @@ _PRICING = {
 }
 
 _PROMPT_PREFIX_LEN = 200
+_MAX_AGE_SECONDS = 30 * 60  # 30 minutes -- generous upper bound for a digest run
 
 
 def _extract_dispatches(parent_lines: list[dict]) -> list[dict]:
@@ -188,6 +190,16 @@ def parse_session_usage(projects_dir: Path) -> list[dict]:
 
     session_file = jsonl_files[-1]  # most recent
     session_id = session_file.stem
+
+    age = time.time() - session_file.stat().st_mtime
+    if age > _MAX_AGE_SECONDS:
+        logger.warning(
+            "Usage tracking skipped: most recent session %s is %.0f minutes old (stale)",
+            session_id,
+            age / 60,
+        )
+        return []
+
     logger.info("Parsing usage from session %s", session_id)
 
     results = []
