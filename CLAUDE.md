@@ -12,7 +12,7 @@ Automated news digest: RSS feeds → Claude curation → HTML email via Resend.
 
 **Curation pipeline (thin dispatcher + subagents):**
 
-Claude never sees URLs. Python assigns opaque article IDs (A1, A2...) and builds `article_index.json`. A single `claude` invocation runs a thin dispatcher that orchestrates 5 file-based subagents:
+Claude never sees URLs. Python assigns opaque article IDs (A1, A2...) and builds `article_index.json`. A single `claude --print` invocation runs a thin dispatcher that orchestrates 5 file-based subagents:
 
 1. **CLUSTER** -- group articles by story
 2. **RECAP** -- summarise recent RSS titles (Haiku)
