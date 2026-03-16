@@ -348,6 +348,42 @@ def archive_selections(selections_json: str):
         logger.error("DB error archiving selections: %s", e)
 
 
+def record_usage(usage_rows: list[dict]):
+    """Record per-subagent token usage for the current run.
+
+    Each dict has: subagent, model, input_tokens, output_tokens,
+    cache_write_tokens, cache_read_tokens, api_cost_usd.
+    """
+    if not _state.recording or _state.run_id is None:
+        return
+    if not usage_rows:
+        return
+    try:
+        with sqlite3.connect(_db_path()) as conn:
+            conn.executemany(
+                """INSERT INTO run_usage
+                   (run_id, subagent, model, input_tokens, output_tokens,
+                    cache_write_tokens, cache_read_tokens, api_cost_usd)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                [
+                    (
+                        _state.run_id,
+                        r["subagent"],
+                        r["model"],
+                        r["input_tokens"],
+                        r["output_tokens"],
+                        r["cache_write_tokens"],
+                        r["cache_read_tokens"],
+                        r["api_cost_usd"],
+                    )
+                    for r in usage_rows
+                ],
+            )
+        logger.info("Recorded %d usage rows for run %d", len(usage_rows), _state.run_id)
+    except sqlite3.Error as e:
+        logger.error("DB error recording usage: %s", e)
+
+
 def prepare_for_web(html_str: str) -> str:
     """Strip email-only elements from digest HTML for web serving."""
     from bs4 import BeautifulSoup
@@ -407,6 +443,7 @@ def delete_run(run_id: int):
                 "shown_narratives",
                 "source_health",
                 "dedup_log",
+                "run_usage",
             ]:
                 conn.execute(f"DELETE FROM {table} WHERE run_id = ?", (run_id,))
             conn.execute("DELETE FROM digest_runs WHERE id = ?", (run_id,))

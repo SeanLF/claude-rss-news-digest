@@ -1,0 +1,59 @@
+#!/bin/bash
+# Query token usage data from local (cloned) database.
+#
+# Prerequisites: bin/db-clone to pull prod DB locally.
+#
+# Usage:
+#   bin/usage              # Per-subagent breakdown, last 14 days
+#   bin/usage daily        # Daily totals
+
+set -e
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
+DB="$PROJECT_DIR/data/digest.db"
+
+if [ ! -f "$DB" ]; then
+  echo "No local database. Run: bin/db-clone" >&2
+  exit 1
+fi
+
+case "${1:-detail}" in
+  detail)
+    sqlite3 -header -column "$DB" "
+      SELECT
+        date(dr.run_at) as date,
+        ru.subagent,
+        ru.model,
+        ru.input_tokens as input,
+        ru.output_tokens as output,
+        ru.cache_write_tokens as cache_w,
+        ru.cache_read_tokens as cache_r,
+        printf('\$%.2f', ru.api_cost_usd) as cost
+      FROM run_usage ru
+      JOIN digest_runs dr ON dr.id = ru.run_id
+      WHERE dr.completed_at IS NOT NULL
+      ORDER BY dr.run_at DESC, ru.subagent
+      LIMIT 50;
+    "
+    ;;
+  daily)
+    sqlite3 -header -column "$DB" "
+      SELECT
+        date(dr.run_at) as date,
+        COUNT(DISTINCT ru.subagent) as subagents,
+        SUM(ru.input_tokens + ru.output_tokens + ru.cache_write_tokens + ru.cache_read_tokens) as total_tokens,
+        printf('\$%.2f', SUM(ru.api_cost_usd)) as total_cost
+      FROM run_usage ru
+      JOIN digest_runs dr ON dr.id = ru.run_id
+      WHERE dr.completed_at IS NOT NULL
+      GROUP BY date(dr.run_at)
+      ORDER BY date DESC
+      LIMIT 14;
+    "
+    ;;
+  *)
+    echo "Usage: bin/usage [detail|daily]"
+    exit 1
+    ;;
+esac

@@ -18,6 +18,7 @@ from broadcast import send_broadcast, send_health_alert, send_test_email
 from claude import generate_selections, generate_weekly_recap, health_check
 from config import (
     CLAUDE_INPUT_DIR,
+    CLAUDE_PROJECTS_DIR,
     DATA_DIR,
     DB_PATH,
     FETCHED_DIR,
@@ -39,6 +40,7 @@ from feeds import collect_fetched_articles, fetch_feeds, load_sources
 from feeds_cli import validate_feeds_cli
 from prepare import prepare_claude_input
 from render import extract_preheader, prepare_for_email, replace_placeholders
+from usage import parse_session_usage
 from utils import check_internet, setup_logging, validate_env
 
 logger = logging.getLogger(__name__)
@@ -252,6 +254,11 @@ Examples:
         prepare_claude_input(sources, dry_run=args.dry_run)
         maybe_update_weekly_recap()
         generate_selections()
+        try:
+            usage_rows = parse_session_usage(CLAUDE_PROJECTS_DIR)
+            db.record_usage(usage_rows)
+        except Exception:
+            logger.warning("Usage tracking failed (non-fatal)", exc_info=True)
         selections_path = CLAUDE_INPUT_DIR / "selections.json"
         selections = load_selections(selections_path)
         db.archive_selections(selections_path.read_text())

@@ -21,6 +21,7 @@ SOURCES_FILE = APP_DIR / "sources.json"
 STYLES_FILE = APP_DIR / "templates" / "digest.css"
 TEMPLATE_FILE = APP_DIR / "templates" / "digest-template.html"
 MIGRATIONS_DIR = APP_DIR / "migrations"
+CLAUDE_PROJECTS_DIR = Path.home() / ".claude" / "projects" / "-app"
 
 # =============================================================================
 # RSS Fetching
