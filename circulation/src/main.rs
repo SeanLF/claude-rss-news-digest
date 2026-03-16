@@ -4,10 +4,13 @@ mod templates;
 mod util;
 
 use axum::Router;
+use axum::ServiceExt;
 use axum::routing::{get, post};
 use reqwest::Client;
 use rusqlite::{Connection, OpenFlags};
 use std::sync::Arc;
+use tower::Layer;
+use tower_http::normalize_path::NormalizePathLayer;
 use tower_http::trace::TraceLayer;
 
 /// Internal route paths -- single source of truth for handlers and templates.
@@ -99,8 +102,15 @@ async fn main() {
 
     tracing::info!("digest-circulation listening on {}", addr);
 
+    let app = NormalizePathLayer::trim_trailing_slash().layer(app);
+
     let listener = tokio::net::TcpListener::bind(&addr).await.unwrap();
-    axum::serve(listener, app).await.unwrap();
+    axum::serve(
+        listener,
+        ServiceExt::<axum::extract::Request>::into_make_service(app),
+    )
+    .await
+    .unwrap();
 }
 
 /// Required tables for the server to function
