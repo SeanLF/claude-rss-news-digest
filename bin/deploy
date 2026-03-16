@@ -283,7 +283,7 @@ build_and_push() {
   # Build both images in parallel
   log_step "Building images (parallel)..."
 
-  build_and_push_image "digest-circulation" "./circulation" &
+  build_and_push_image "digest-circulation" "." "circulation/Dockerfile" &
   local circ_pid=$!
 
   build_and_push_image "digest-newsroom" "." "newsroom/Dockerfile" "--build-arg GIT_SHA=${SHA:0:7}" &
