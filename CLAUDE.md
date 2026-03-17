@@ -28,12 +28,16 @@ Parent reads final output, drops failed coherence checks, calls `write_selection
 
 ## Commands
 
-- **CI**: `bin/ci` - Always runs in Docker for reproducibility. Use `bin/ci --fix` to auto-fix style issues.
-- **Tests only**: `docker compose run --rm --build ci pytest -v newsroom/tests/`
-- **Migrate**: `bin/migrate` - Apply database migrations (runs in Docker)
+Run `make help` for the full list. Key commands:
+- **CI**: `make ci` (all checks in Docker), `make ci-fix` (auto-fix), `make ci-full` (+ cargo audit)
+- **Tests only**: `make test`
+- **Deploy**: `make deploy` (full pipeline), `make deploy-dry` (preview)
+- **Migrate**: `make migrate`, `make migrate-status`
+- **Database**: `make db-clone` (pull prod DB), `make usage` / `make usage-daily`
+- **Server**: `make ssh`
 - **Run digest**: `docker compose run --rm digest-newsroom` (entrypoint passes flags to `run.py`, e.g. `--dry-run`)
-- **Test prompts**: `bin/test-prompt run baseline --model opus` - Prompt experiment harness
-- **Token usage**: `bin/usage` (per-subagent detail) / `bin/usage daily` (daily totals). Requires `bin/db-clone` first.
+- **Test prompts**: `make prompt NAME=baseline`
+- **Versions**: `make versions`
 
 ## Database
 
@@ -48,9 +52,9 @@ SQLite at `data/digest.db`. Schema managed by migrations in `migrations/`.
 
 **Migrations:**
 - Applied automatically on each run via `db.init()`
-- `bin/migrate` available for manual inspection (`--status`, `--dry-run`)
+- `make migrate-status` / `make migrate` for inspection and application
 - New migrations: `migrations/YYYYMMDDHHMMSS_description.sql`
-- Production: also auto-applied; `bin/ssh bin/migrate` for manual use
+- Production: also auto-applied; `make ssh` then `bin/migrate` for manual use
 
 ## Key Files
 
