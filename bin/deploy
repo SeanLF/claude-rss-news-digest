@@ -366,10 +366,17 @@ apply_terraform() {
   fi
 
   if [[ $plan_exit -ne 2 ]]; then
-    echo "$plan_output" >&2
-    log_error "terraform plan failed (exit $plan_exit)"
-    rm -f /tmp/news-digest-tfplan
-    return 1
+    # Terraform 1.14+ returns exit 1 instead of 2 when -target warnings
+    # are present, even with -detailed-exitcode. A valid plan file means
+    # the plan succeeded despite the wrong exit code.
+    if [[ $plan_exit -eq 1 && -f /tmp/news-digest-tfplan ]]; then
+      log_info "Plan has changes (exit 1 with valid plan file -- terraform warning bug)"
+    else
+      echo "$plan_output" >&2
+      log_error "terraform plan failed (exit $plan_exit)"
+      rm -f /tmp/news-digest-tfplan
+      return 1
+    fi
   fi
 
   echo "$plan_output" | grep -E "^(Plan:|No changes\.)" || true
