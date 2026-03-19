@@ -498,7 +498,9 @@ def replace_placeholders(
     if archive_url and is_safe_url(archive_url):
         content = content.replace("{{ARCHIVE_URL}}", html.escape(archive_url))
     else:
-        content = re.sub(r'<a href="\{\{ARCHIVE_URL\}\}">[^<]+</a> · ', "", content)
+        content = re.sub(r'<a href="\{\{ARCHIVE_URL\}\}[^"]*">[^<]+</a> · ', "", content)
+        content = re.sub(r'<a href="\{\{ARCHIVE_URL\}\}/sources">([^<]+)</a>', r"\1", content)
+        content = content.replace("{{ARCHIVE_URL}}", "")
 
     # Privacy policy URL (derived from author homepage)
     if author_url and is_safe_url(author_url):

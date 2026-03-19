@@ -320,7 +320,7 @@ pub fn render_sources(name: &str, sources: &[Source], source_data_url: Option<&s
       border-color: var(--yellow);
     }}
     .methodology {{
-      margin-top: 3rem;
+      margin-bottom: 0.5rem;
       font-size: 0.88rem;
       color: var(--text-muted);
       line-height: 1.6;
@@ -359,6 +359,9 @@ pub fn render_sources(name: &str, sources: &[Source], source_data_url: Option<&s
       h1 {{
         font-size: 1.75rem;
       }}
+      .column-header {{
+        display: none;
+      }}
       .source-item {{
         grid-template-columns: 1fr;
         gap: 0.3rem;
@@ -390,6 +393,11 @@ pub fn render_sources(name: &str, sources: &[Source], source_data_url: Option<&s
       <a class="meta-link" href="/">Archive</a> &middot;
       <a class="meta-link" href="{stats_url}">Stats</a> &middot;
       <a class="meta-link" href="https://ground.news/rating-system">Rating methodology</a>
+    </div>
+
+    <div class="methodology">
+      <p>Bias and factuality ratings aggregated from <a href="https://ground.news/rating-system">Ground News</a>, which combines assessments from <a href="https://www.allsides.com/">AllSides</a>, <a href="https://adfontesmedia.com/">Ad Fontes Media</a>, and <a href="https://mediabiasfactcheck.com/">Media Bias/Fact Check</a>. Perspective labels reflect each outlet's geographic or editorial vantage point.</p>
+      <p>The digest draws from sources across the political spectrum to show how different outlets cover the same stories &mdash; inspired by <a href="https://ground.news">Ground News</a>.{source_data_link}</p>
     </div>
 
     <div class="spectrum-wrapper">
@@ -447,11 +455,6 @@ pub fn render_sources(name: &str, sources: &[Source], source_data_url: Option<&s
     <ul class="source-list">
 {lr_html}
     </ul>
-
-    <div class="methodology">
-      <p>Bias and factuality ratings aggregated from <a href="https://ground.news/rating-system">Ground News</a>, which combines assessments from <a href="https://www.allsides.com/">AllSides</a>, <a href="https://adfontesmedia.com/">Ad Fontes Media</a>, and <a href="https://mediabiasfactcheck.com/">Media Bias/Fact Check</a>. Perspective labels reflect each outlet's geographic or editorial vantage point.</p>
-      <p>The digest draws from sources across the political spectrum to show how different outlets cover the same stories &mdash; inspired by <a href="https://ground.news">Ground News</a>.{source_data_link}</p>
-    </div>
 
     <footer class="site-footer">
       <p><a href="/">Archive</a> &middot; <a href="{stats_url}">Stats</a> &middot; <a href="https://seanfloyd.dev">seanfloyd.dev</a></p>
