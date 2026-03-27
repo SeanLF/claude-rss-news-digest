@@ -21,35 +21,61 @@ fi
 case "${1:-detail}" in
   detail)
     sqlite3 -header -column "$DB" "
-      SELECT
-        date(dr.run_at) as date,
-        ru.subagent,
-        ru.model,
-        ru.input_tokens as input,
-        ru.output_tokens as output,
-        ru.cache_write_tokens as cache_w,
-        ru.cache_read_tokens as cache_r,
-        printf('\$%.2f', ru.api_cost_usd) as cost
-      FROM run_usage ru
-      JOIN digest_runs dr ON dr.id = ru.run_id
-      WHERE dr.completed_at IS NOT NULL
-      ORDER BY dr.run_at DESC, ru.subagent
-      LIMIT 50;
+      WITH recent AS (
+        SELECT
+          date(dr.run_at) as date,
+          ru.subagent,
+          ru.model,
+          ru.input_tokens as input,
+          ru.output_tokens as output,
+          ru.cache_write_tokens as cache_w,
+          ru.cache_read_tokens as cache_r,
+          ru.api_cost_usd as cost_usd
+        FROM run_usage ru
+        JOIN digest_runs dr ON dr.id = ru.run_id
+        WHERE dr.completed_at IS NOT NULL
+        ORDER BY dr.run_at DESC, ru.subagent
+      )
+      SELECT date, subagent, model,
+        CASE WHEN input  >= 1000000 THEN printf('%.1fM', input /1000000.0)  WHEN input  >= 1000 THEN printf('%.0fK', input /1000.0)  ELSE input  END as input,
+        CASE WHEN output >= 1000000 THEN printf('%.1fM', output/1000000.0)  WHEN output >= 1000 THEN printf('%.0fK', output/1000.0)  ELSE output END as output,
+        CASE WHEN cache_w >= 1000000 THEN printf('%.1fM', cache_w/1000000.0) WHEN cache_w >= 1000 THEN printf('%.0fK', cache_w/1000.0) ELSE cache_w END as cache_w,
+        CASE WHEN cache_r >= 1000000 THEN printf('%.1fM', cache_r/1000000.0) WHEN cache_r >= 1000 THEN printf('%.0fK', cache_r/1000.0) ELSE cache_r END as cache_r,
+        printf('\$%.2f', cost_usd) as cost
+      FROM recent
+      UNION ALL
+      SELECT 'TOTAL', '', '',
+        CASE WHEN SUM(input)   >= 1000000 THEN printf('%.1fM', SUM(input)  /1000000.0) WHEN SUM(input)   >= 1000 THEN printf('%.0fK', SUM(input)  /1000.0) ELSE SUM(input)   END,
+        CASE WHEN SUM(output)  >= 1000000 THEN printf('%.1fM', SUM(output) /1000000.0) WHEN SUM(output)  >= 1000 THEN printf('%.0fK', SUM(output) /1000.0) ELSE SUM(output)  END,
+        CASE WHEN SUM(cache_w) >= 1000000 THEN printf('%.1fM', SUM(cache_w)/1000000.0) WHEN SUM(cache_w) >= 1000 THEN printf('%.0fK', SUM(cache_w)/1000.0) ELSE SUM(cache_w) END,
+        CASE WHEN SUM(cache_r) >= 1000000 THEN printf('%.1fM', SUM(cache_r)/1000000.0) WHEN SUM(cache_r) >= 1000 THEN printf('%.0fK', SUM(cache_r)/1000.0) ELSE SUM(cache_r) END,
+        printf('\$%.2f', SUM(cost_usd))
+      FROM recent;
     "
     ;;
   daily)
     sqlite3 -header -column "$DB" "
-      SELECT
-        date(dr.run_at) as date,
-        COUNT(DISTINCT ru.subagent) as subagents,
-        SUM(ru.input_tokens + ru.output_tokens + ru.cache_write_tokens + ru.cache_read_tokens) as total_tokens,
-        printf('\$%.2f', SUM(ru.api_cost_usd)) as total_cost
-      FROM run_usage ru
-      JOIN digest_runs dr ON dr.id = ru.run_id
-      WHERE dr.completed_at IS NOT NULL
-      GROUP BY date(dr.run_at)
-      ORDER BY date DESC
-      LIMIT 14;
+      WITH daily AS (
+        SELECT
+          date(dr.run_at) as date,
+          COUNT(DISTINCT ru.subagent) as subagents,
+          SUM(ru.input_tokens + ru.output_tokens + ru.cache_write_tokens + ru.cache_read_tokens) as total_tokens,
+          SUM(ru.api_cost_usd) as cost_usd
+        FROM run_usage ru
+        JOIN digest_runs dr ON dr.id = ru.run_id
+        WHERE dr.completed_at IS NOT NULL
+        GROUP BY date(dr.run_at)
+        ORDER BY date DESC
+      )
+      SELECT date, subagents,
+        CASE WHEN total_tokens >= 1000000 THEN printf('%.1fM', total_tokens/1000000.0) WHEN total_tokens >= 1000 THEN printf('%.0fK', total_tokens/1000.0) ELSE total_tokens END as total_tokens,
+        printf('\$%.2f', cost_usd) as total_cost
+      FROM daily
+      UNION ALL
+      SELECT 'TOTAL', SUM(subagents),
+        CASE WHEN SUM(total_tokens) >= 1000000 THEN printf('%.1fM', SUM(total_tokens)/1000000.0) WHEN SUM(total_tokens) >= 1000 THEN printf('%.0fK', SUM(total_tokens)/1000.0) ELSE SUM(total_tokens) END,
+        printf('\$%.2f', SUM(cost_usd))
+      FROM daily;
     "
     ;;
   *)

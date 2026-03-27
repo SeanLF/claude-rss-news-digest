@@ -2,13 +2,13 @@
 # Clone SQLite database from cloud to local
 # Usage: bin/db-clone [--output PATH]
 #
-# Copies the production digest.db to data/digest-cloud.db (or specified path)
+# Copies the production digest.db to data/digest.db (or specified path), overwriting it
 
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
-DEFAULT_OUTPUT="$PROJECT_DIR/data/digest-cloud.db"
+DEFAULT_OUTPUT="$PROJECT_DIR/data/digest.db"
 
 # shellcheck source=lib/log.sh
 source "$SCRIPT_DIR/lib/log.sh"
@@ -18,14 +18,17 @@ OUTPUT_PATH="$DEFAULT_OUTPUT"
 while [[ $# -gt 0 ]]; do
   case $1 in
     --output)
-      [[ -z ${2:-} ]] && log_error "--output requires a path argument" && exit 1
+      if [[ -z ${2:-} ]]; then
+        log_error "--output requires a path argument"
+        exit 1
+      fi
       OUTPUT_PATH="$2"
       shift 2
       ;;
     -h|--help)
       echo "Usage: bin/db-clone [--output PATH]"
       echo "Clone production SQLite database to local machine."
-      echo "Default output: data/digest-cloud.db"
+      echo "Default output: data/digest.db (overwrites)"
       exit 0
       ;;
     *)
