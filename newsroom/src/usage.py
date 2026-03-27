@@ -17,10 +17,12 @@ from pathlib import Path
 logger = logging.getLogger(__name__)
 
 # API-equivalent pricing per million tokens (for comparison only -- subscription = $0)
+# Source: https://platform.claude.com/docs/en/about-claude/pricing (2026-03-19)
+# Opus = Opus 4.5/4.6, Sonnet = Sonnet 4.x, Haiku = Haiku 4.5
 _PRICING = {
-    "opus": {"input": 15, "output": 75, "cache_write": 18.75, "cache_read": 1.50},
+    "opus": {"input": 5, "output": 25, "cache_write": 6.25, "cache_read": 0.50},
     "sonnet": {"input": 3, "output": 15, "cache_write": 3.75, "cache_read": 0.30},
-    "haiku": {"input": 0.80, "output": 4, "cache_write": 1.00, "cache_read": 0.08},
+    "haiku": {"input": 1, "output": 5, "cache_write": 1.25, "cache_read": 0.10},
 }
 
 _PROMPT_PREFIX_LEN = 200

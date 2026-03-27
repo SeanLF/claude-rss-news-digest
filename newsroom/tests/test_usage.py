@@ -187,11 +187,11 @@ class TestComputeCost:
 
     def test_opus_pricing(self):
         usage = {"input": 1_000_000, "output": 0, "cache_write": 0, "cache_read": 0}
-        assert _compute_cost("claude-opus-4-6", usage) == 15.0
+        assert _compute_cost("claude-opus-4-6", usage) == 5.0
 
     def test_haiku_pricing(self):
         usage = {"input": 1_000_000, "output": 0, "cache_write": 0, "cache_read": 0}
-        assert _compute_cost("claude-haiku-4-5-20251001", usage) == 0.8
+        assert _compute_cost("claude-haiku-4-5-20251001", usage) == 1.0
 
     def test_unknown_model_defaults_to_sonnet(self):
         usage = {"input": 1_000_000, "output": 0, "cache_write": 0, "cache_read": 0}
