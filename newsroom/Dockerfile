@@ -51,6 +51,7 @@ COPY newsroom/.mcp.json ./
 COPY migrations/ ./migrations/
 COPY bin/ ./bin/
 COPY .claude/commands/ /app/.claude/commands/
+COPY .claude/agents/ /app/.claude/agents/
 COPY --chmod=755 newsroom/entrypoint.sh /app/entrypoint.sh
 
 # Create data directory and set permissions
