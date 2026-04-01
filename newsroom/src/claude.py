@@ -14,6 +14,8 @@ _MCP_TOOL = "mcp__news-digest__write_selections"
 def generate_selections() -> None:
     """Run the dispatcher; streams progress to the log as subagents complete."""
     logger.info("Selecting stories...")
+    pending: dict[str, str] = {}  # Agent tool_use_id -> description
+
     for event in stream_sync(
         "/news-digest-select",
         permission_mode=_PERMISSION_MODE,
@@ -23,15 +25,18 @@ def generate_selections() -> None:
         etype = event.get("type")
 
         if etype == "assistant":
+            # Track each Agent tool_use so we can name it on completion
             for block in event.get("message", {}).get("content", []):
-                if isinstance(block, dict) and block.get("type") == "text":
-                    text = block["text"].strip()
-                    if text:
-                        logger.info("[dispatcher] %s", text[:200])
+                if isinstance(block, dict) and block.get("type") == "tool_use" and block.get("name") == "Agent":
+                    pending[block["id"]] = block.get("input", {}).get("description", "agent")
 
-        elif etype == "system" and event.get("subtype") == "task_notification":
-            # Fires when each subagent (cluster/recap/select/write/coherence) completes
-            logger.info("[subagent complete]")
+        elif etype == "user" and not event.get("parent_tool_use_id"):
+            # Root-level tool_result = Agent returning to dispatcher
+            for block in event.get("message", {}).get("content", []):
+                if isinstance(block, dict) and block.get("type") == "tool_result":
+                    name = pending.pop(block.get("tool_use_id", ""), None)
+                    if name:
+                        logger.info("[%s complete]", name)
 
         elif etype == "result":
             cost = event.get("total_cost_usd", 0)
