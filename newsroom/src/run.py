@@ -140,6 +140,7 @@ Examples:
     parser.add_argument(
         "--limit", type=int, metavar="N", help="Limit articles for testing (like dry-run truncation but with recording)"
     )
+    parser.add_argument("--model", metavar="MODEL", help="Override Claude model (e.g. haiku for cheap test runs)")
     args = parser.parse_args()
 
     setup_logging()
@@ -256,7 +257,7 @@ Examples:
 
         prepare_claude_input(sources, dry_run=args.dry_run, article_limit=args.limit)
         maybe_update_weekly_recap()
-        generate_selections()
+        generate_selections(model=args.model)
         try:
             usage_rows = parse_session_usage(CLAUDE_PROJECTS_DIR)
             db.record_usage(usage_rows)

@@ -11,10 +11,12 @@ _MCP_CONFIG = ".mcp.json"
 _MCP_TOOL = "mcp__news-digest__write_selections"
 
 
-def generate_selections() -> None:
+def generate_selections(model: str | None = None) -> None:
     """Run the dispatcher; streams progress to the log as subagents complete."""
+    _model = model or "sonnet"
     logger.info(
-        "Selecting stories... (claude /news-digest-select --permission-mode %s --allowed-tools %s)",
+        "Selecting stories... (claude /news-digest-select --model %s --permission-mode %s --allowed-tools %s)",
+        _model,
         _PERMISSION_MODE,
         _MCP_TOOL,
     )
@@ -22,6 +24,7 @@ def generate_selections() -> None:
 
     for event in stream_sync(
         "/news-digest-select",
+        model=_model,
         permission_mode=_PERMISSION_MODE,
         allowed_tools=_MCP_TOOL,
         mcp_config=_MCP_CONFIG,
