@@ -1,0 +1,112 @@
+#!/usr/bin/env bash
+# Local test harness for the digest-watchdog script.
+#
+# The production watchdog uses `docker volume inspect` to get mount paths,
+# which are inside the Docker VM on macOS. This script uses bind mounts
+# instead so file scanning works on the host.
+#
+# Usage:
+#   bin/test-watchdog          # happy path: real digest run, verify exit 0
+#   bin/test-watchdog --kill   # kill path: hung container, verify watchdog exits 1
+
+set -euo pipefail
+
+REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+IMAGE="news-digest-digest-newsroom:latest"
+CONTAINER_NAME="news-digest-test-run"
+DATA_PATH="$REPO_DIR/data"
+CLAUDE_PATH="$(mktemp -d)"
+
+if [[ "${1:-}" == "--kill" ]]; then
+  HEARTBEAT_TIMEOUT=30
+  POLL_INTERVAL=5
+  GRACE=5
+  MODE=kill
+else
+  HEARTBEAT_TIMEOUT=900
+  POLL_INTERVAL=30
+  GRACE=15
+  MODE=happy
+fi
+
+echo "==> Building digest-newsroom..."
+docker compose -f "$REPO_DIR/docker-compose.yml" build digest-newsroom
+
+DOCKER_PID=""
+
+cleanup() {
+  if [[ -n "$DOCKER_PID" ]] && kill -0 "$DOCKER_PID" 2>/dev/null; then
+    echo "Watchdog: stopping container"
+    docker stop -t 30 "$CONTAINER_NAME" 2>/dev/null || true
+    wait "$DOCKER_PID" 2>/dev/null || true
+  fi
+  rm -rf "$CLAUDE_PATH"
+}
+trap cleanup EXIT
+
+if [[ "$MODE" == "kill" ]]; then
+  echo "==> Kill path: HEARTBEAT_TIMEOUT=${HEARTBEAT_TIMEOUT}s — running sleep container..."
+  docker run --rm \
+    --name "$CONTAINER_NAME" \
+    -v "$DATA_PATH":/app/data \
+    -v "$CLAUDE_PATH":/home/appuser/.claude \
+    "$IMAGE" sleep 3600 &
+else
+  echo "==> Happy path: running digest (--no-email --no-record --force --article-limit 5 --model haiku)..."
+  docker run --rm --init \
+    --name "$CONTAINER_NAME" \
+    --env-file "$REPO_DIR/.env" \
+    -e IN_DOCKER=1 \
+    -e CLAUDE_CODE_EAGER_FLUSH=1 \
+    -v "$DATA_PATH":/app/data \
+    -v "$CLAUDE_PATH":/home/appuser/.claude \
+    "$IMAGE" \
+    --no-email --no-record --force --limit 5 --model haiku &
+fi
+DOCKER_PID=$!
+
+echo "==> Watchdog active (grace=${GRACE}s, timeout=${HEARTBEAT_TIMEOUT}s, poll=${POLL_INTERVAL}s)..."
+sleep "$GRACE"
+
+# Detect OS once: macOS uses `stat -f %m`, Linux uses `find -printf '%T@'`
+if stat -f %m /dev/null &>/dev/null; then
+  scan_newest_mtime() {
+    find "$1" -type f -exec stat -f %m {} \; 2>/dev/null \
+      | awk 'BEGIN{m=0} {if($1>m) m=$1} END{printf "%d", m}'
+  }
+else
+  scan_newest_mtime() {
+    find "$1" -type f -printf '%T@\n' 2>/dev/null \
+      | awk 'BEGIN{m=0} {if($1>m) m=$1} END{printf "%d", m}'
+  }
+fi
+
+while kill -0 "$DOCKER_PID" 2>/dev/null; do
+  newest_mtime=0
+  for vol_path in "$DATA_PATH" "$CLAUDE_PATH"; do
+    candidate=$(scan_newest_mtime "$vol_path")
+    if [[ -n "$candidate" ]] && (( candidate > newest_mtime )); then
+      newest_mtime=$candidate
+    fi
+  done
+
+  if (( newest_mtime > 0 )); then
+    now=$(date +%s)
+    age=$(( now - newest_mtime ))
+    if (( age > HEARTBEAT_TIMEOUT )); then
+      # Recheck: container may have exited naturally during this poll interval
+      kill -0 "$DOCKER_PID" 2>/dev/null || break
+      echo "Watchdog: no file activity for ${age}s (timeout=${HEARTBEAT_TIMEOUT}s), killing container"
+      exit 1
+    fi
+    echo "Watchdog: last activity ${age}s ago (timeout=${HEARTBEAT_TIMEOUT}s)"
+  else
+    echo "Watchdog: no files found yet"
+  fi
+
+  sleep "$POLL_INTERVAL"
+done
+
+echo "==> Container exited -- propagating exit code..."
+wait "$DOCKER_PID" || exit $?
+echo "==> Watchdog: exit 0"
