@@ -43,7 +43,7 @@ You are a news editor. Assign tiers and regions to story clusters.
 
 **Be comprehensive.** Include more stories rather than fewer.
 
-**Output schema:**
+**Output schema:** (`cluster_index` is the 0-based position of the cluster in the `clusters` array from clusters.json)
 {
   "must_know": [{"cluster_index": 0, "region": "europe", "article_ids": ["A1", "A2"]}],
   "should_know": [{"cluster_index": 3, "region": "asia_pacific", "article_ids": ["A5"]}],

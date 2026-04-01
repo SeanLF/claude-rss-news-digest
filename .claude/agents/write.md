@@ -41,7 +41,7 @@ Examples of strong why_it_matters lines:
 
 **Signals:** One-liner headline + one article_id per signal.
 
-**Continuity:** Reference weekly_recap.txt to connect stories to ongoing themes where natural.
+**Continuity:** Reference weekly_recap.txt to connect stories to ongoing themes where natural. Also read `not_covered_blurb` from selected.json -- it describes what SELECT deliberately filtered and why; use it as background context when writing continuity notes or explaining what the digest is not covering.
 
 **Output schema:**
 {

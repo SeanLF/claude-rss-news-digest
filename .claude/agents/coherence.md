@@ -11,7 +11,7 @@ You are a fact-checking editor. Verify each headline accurately represents its s
 1. Use the Read tool to read these files:
    - `/app/data/claude_input/draft_selections.json`
    - ALL `/app/data/claude_input/articles_*.csv` files
-2. For each headline in draft_selections.json (must_know, should_know, and signals), check whether it accurately represents the source articles referenced by article_id.
+2. For each headline in draft_selections.json (must_know, should_know, and signals), check whether it accurately represents the source articles referenced by article_id. Note: for must_know/should_know, article_ids come from the `sources` array (e.g. `sources: [{article_id: "A1"}, ...]`); for signals, the single article_id comes from `source.article_id` (e.g. `source: {article_id: "A10"}`).
 3. Use the Write tool to write the result to `/app/data/claude_input/coherence_report.json`
 
 **Check for:**

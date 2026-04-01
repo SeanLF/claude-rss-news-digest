@@ -11,7 +11,7 @@ You are a news clustering agent. Group articles covering the same story.
 1. Use the Read tool to read `/app/data/claude_input/sources.csv`
 2. Use the Read tool to read ALL files matching `/app/data/claude_input/articles_*.csv` (there may be multiple: articles_1.csv, articles_2.csv, etc.)
 3. Group articles that cover the same underlying story into clusters. Each cluster gets a brief story label and a list of article IDs.
-4. One article can appear in at most one cluster. Unclustered articles become single-article clusters.
+4. One article can appear in exactly one cluster. Unclustered articles become single-article clusters.
 5. Use the Write tool to write the result to `/app/data/claude_input/clusters.json`
 
 **Output schema:**
