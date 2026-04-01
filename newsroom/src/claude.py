@@ -13,7 +13,11 @@ _MCP_TOOL = "mcp__news-digest__write_selections"
 
 def generate_selections() -> None:
     """Run the dispatcher; streams progress to the log as subagents complete."""
-    logger.info("Selecting stories...")
+    logger.info(
+        "Selecting stories... (claude /news-digest-select --permission-mode %s --allowed-tools %s)",
+        _PERMISSION_MODE,
+        _MCP_TOOL,
+    )
     pending: dict[str, str] = {}  # Agent tool_use_id -> description
 
     for event in stream_sync(
@@ -25,10 +29,16 @@ def generate_selections() -> None:
         etype = event.get("type")
 
         if etype == "assistant":
-            # Track each Agent tool_use so we can name it on completion
             for block in event.get("message", {}).get("content", []):
-                if isinstance(block, dict) and block.get("type") == "tool_use" and block.get("name") == "Agent":
-                    pending[block["id"]] = block.get("input", {}).get("description", "agent")
+                if not isinstance(block, dict) or block.get("type") != "tool_use":
+                    continue
+                name = block.get("name", "")
+                if name == "Agent":
+                    description = block.get("input", {}).get("description", "agent")
+                    pending[block["id"]] = description
+                    logger.info("[%s started]", description)
+                elif name == _MCP_TOOL:
+                    logger.info("[write_selections called]")
 
         elif etype == "user" and not event.get("parent_tool_use_id"):
             # Root-level tool_result = Agent returning to dispatcher
