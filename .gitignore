@@ -3,6 +3,7 @@
 CLAUDE.local.md
 .claude/*
 !.claude/commands/
+!.claude/agents/
 
 # Runtime data
 data/
