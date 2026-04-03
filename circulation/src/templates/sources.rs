@@ -1,6 +1,6 @@
 //! Sources page template - lists news sources with bias and factuality ratings.
 
-use super::digest::FAVICON_SVG;
+use super::digest::{ANCHOR_SVG, FAVICON_SVG, SECTION_ANCHOR_CSS};
 use crate::routes;
 use crate::util::escape_html;
 
@@ -236,10 +236,12 @@ pub fn render_sources(name: &str, sources: &[Source], source_data_url: Option<&s
       padding-bottom: 0.25rem;
       border-bottom: 1px solid var(--border);
       scroll-margin-top: 3.5rem;
+      position: relative;
     }}
     h2:first-of-type {{
       margin-top: 0;
     }}
+    {section_anchor_css}
     .section-count {{
       font-weight: 400;
       opacity: 0.6;
@@ -359,16 +361,6 @@ pub fn render_sources(name: &str, sources: &[Source], source_data_url: Option<&s
       h1 {{
         font-size: 1.75rem;
       }}
-      .column-header {{
-        display: none;
-      }}
-      .source-item {{
-        grid-template-columns: 1fr;
-        gap: 0.3rem;
-      }}
-      .source-meta {{
-        justify-content: flex-start;
-      }}
       .bias-spectrum {{
         font-size: 0.5rem;
       }}
@@ -440,18 +432,18 @@ pub fn render_sources(name: &str, sources: &[Source], source_data_url: Option<&s
     </nav>
     </div>
 
-    <h2 id="lean-left"><span aria-hidden="true">&#x2039;</span> Lean left <span class="section-count">{ll_count} outlets</span></h2>
+    <h2 id="lean-left"><a class="section-anchor" href="#lean-left" aria-label="Link to Lean Left">{anchor_svg}</a><span aria-hidden="true">&#x2039;</span> Lean left <span class="section-count">{ll_count} outlets</span></h2>
     <div class="column-header"><span>Source</span><span>Factuality</span></div>
     <ul class="source-list">
 {ll_html}
     </ul>
 
-    <h2 id="centre"><span aria-hidden="true">&#x25CB;</span> Centre <span class="section-count">{c_count} outlets</span></h2>
+    <h2 id="centre"><a class="section-anchor" href="#centre" aria-label="Link to Centre">{anchor_svg}</a><span aria-hidden="true">&#x25CB;</span> Centre <span class="section-count">{c_count} outlets</span></h2>
     <ul class="source-list">
 {c_html}
     </ul>
 
-    <h2 id="lean-right"><span aria-hidden="true">&#x203A;</span> Lean right <span class="section-count">{lr_count} outlets</span></h2>
+    <h2 id="lean-right"><a class="section-anchor" href="#lean-right" aria-label="Link to Lean Right">{anchor_svg}</a><span aria-hidden="true">&#x203A;</span> Lean right <span class="section-count">{lr_count} outlets</span></h2>
     <ul class="source-list">
 {lr_html}
     </ul>
@@ -471,6 +463,8 @@ pub fn render_sources(name: &str, sources: &[Source], source_data_url: Option<&s
         skip_link_html = super::digest::SKIP_LINK_HTML,
         skip_link_css = super::digest::SKIP_LINK_CSS,
         reduced_motion_css = super::digest::REDUCED_MOTION_CSS,
+        anchor_svg = ANCHOR_SVG,
+        section_anchor_css = SECTION_ANCHOR_CSS,
         source_data_link = match source_data_url {
             Some(url) => format!(
                 r#" View the <a href="{url}/blob/main/newsroom/sources.json">raw source data</a> on GitHub."#

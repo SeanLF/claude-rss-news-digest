@@ -2,7 +2,7 @@
 
 use std::collections::HashMap;
 
-use super::digest::FAVICON_SVG;
+use super::digest::{ANCHOR_SVG, FAVICON_SVG, SECTION_ANCHOR_CSS};
 use crate::stats::StatsData;
 use crate::util::escape_html;
 
@@ -52,6 +52,7 @@ pub fn render_stats(name: &str, days: u32, data: &StatsData) -> String {
     html {{
       font-size: 18px;
       background-color: var(--bg);
+      scroll-behavior: smooth;
     }}
     body {{
       color: var(--text);
@@ -144,7 +145,10 @@ pub fn render_stats(name: &str, days: u32, data: &StatsData) -> String {
       letter-spacing: 0.08em;
       color: var(--text-muted);
       margin: 0 0 1rem;
+      position: relative;
+      scroll-margin-top: 3.5rem;
     }}
+    {section_anchor_css}
     table {{
       width: 100%;
       border-collapse: collapse;
@@ -215,7 +219,7 @@ pub fn render_stats(name: &str, days: u32, data: &StatsData) -> String {
     </div>
 
     <section>
-      <h2>Source Health</h2>
+      <h2 id="source-health"><a class="section-anchor" href="#source-health" aria-label="Link to Source Health">{anchor_svg}</a>Source Health</h2>
       <table>
         <thead>
           <tr>
@@ -232,7 +236,7 @@ pub fn render_stats(name: &str, days: u32, data: &StatsData) -> String {
     </section>
 
     <section>
-      <h2>Source Usage in Digests</h2>
+      <h2 id="source-usage"><a class="section-anchor" href="#source-usage" aria-label="Link to Source Usage">{anchor_svg}</a>Source Usage in Digests</h2>
       <table>
         <thead>
           <tr>
@@ -250,7 +254,7 @@ pub fn render_stats(name: &str, days: u32, data: &StatsData) -> String {
     </section>
 
     <section>
-      <h2>Recent Runs</h2>
+      <h2 id="recent-runs"><a class="section-anchor" href="#recent-runs" aria-label="Link to Recent Runs">{anchor_svg}</a>Recent Runs</h2>
       <table>
         <thead>
           <tr>
@@ -267,7 +271,7 @@ pub fn render_stats(name: &str, days: u32, data: &StatsData) -> String {
     </section>
 
     <section>
-      <h2>Dedup Effectiveness</h2>
+      <h2 id="dedup"><a class="section-anchor" href="#dedup" aria-label="Link to Dedup Effectiveness">{anchor_svg}</a>Dedup Effectiveness</h2>
       <table>
         <thead>
           <tr>
@@ -284,7 +288,7 @@ pub fn render_stats(name: &str, days: u32, data: &StatsData) -> String {
     </section>
 
     <section>
-      <h2>Never Selected</h2>
+      <h2 id="never-selected"><a class="section-anchor" href="#never-selected" aria-label="Link to Never Selected">{anchor_svg}</a>Never Selected</h2>
       <p class="section-note">Sources fetched but never included in digests</p>
       {never_selected_content}
     </section>
@@ -299,6 +303,8 @@ pub fn render_stats(name: &str, days: u32, data: &StatsData) -> String {
         skip_link_html = super::digest::SKIP_LINK_HTML,
         skip_link_css = super::digest::SKIP_LINK_CSS,
         reduced_motion_css = super::digest::REDUCED_MOTION_CSS,
+        anchor_svg = ANCHOR_SVG,
+        section_anchor_css = SECTION_ANCHOR_CSS,
     )
 }
 
