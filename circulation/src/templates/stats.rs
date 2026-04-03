@@ -257,6 +257,7 @@ pub fn render_stats(name: &str, days: u32, data: &StatsData) -> String {
             <th scope="col">Time (UTC)</th>
             <th scope="col">Articles Fetched</th>
             <th scope="col">Recipients</th>
+            <th scope="col">API cost equiv.</th>
           </tr>
         </thead>
         <tbody>
@@ -382,19 +383,24 @@ fn build_usage_rows(data: &StatsData) -> String {
 
 fn build_runs_rows(data: &StatsData) -> String {
     if data.recent_runs.is_empty() {
-        return r#"<tr><td colspan="3" class="empty">No runs yet</td></tr>"#.to_string();
+        return r#"<tr><td colspan="4" class="empty">No runs yet</td></tr>"#.to_string();
     }
 
     data.recent_runs
         .iter()
         .map(|r| {
+            let cost_cell = match r.api_cost_usd {
+                Some(c) => format!("${:.2}", c),
+                None => "—".to_string(),
+            };
             format!(
                 r#"<tr>
                     <td>{}</td>
                     <td>{}</td>
                     <td>{}</td>
+                    <td>{}</td>
                 </tr>"#,
-                r.run_at, r.articles_fetched, r.articles_emailed
+                r.run_at, r.articles_fetched, r.articles_emailed, cost_cell
             )
         })
         .collect()
