@@ -36,6 +36,7 @@ pub struct DigestRun {
     pub run_at: String,
     pub articles_fetched: i64,
     pub articles_emailed: i64,
+    pub api_cost_usd: Option<f64>,
 }
 
 #[derive(Clone)]
@@ -144,10 +145,13 @@ pub fn fetch_stats_data(db_path: &str, days: u32) -> Result<StatsData, (StatusCo
     let recent_runs: Vec<DigestRun> = {
         let mut stmt = conn
             .prepare(
-                "SELECT run_at, articles_fetched, articles_emailed
-                 FROM digest_runs
-                 WHERE completed_at IS NOT NULL
-                 ORDER BY run_at DESC
+                "SELECT dr.run_at, dr.articles_fetched, dr.articles_emailed,
+                        SUM(ru.api_cost_usd) as total_cost
+                 FROM digest_runs dr
+                 LEFT JOIN run_usage ru ON ru.run_id = dr.id
+                 WHERE dr.completed_at IS NOT NULL
+                 GROUP BY dr.id
+                 ORDER BY dr.run_at DESC
                  LIMIT 10",
             )
             .map_err(|e| {
@@ -162,6 +166,7 @@ pub fn fetch_stats_data(db_path: &str, days: u32) -> Result<StatsData, (StatusCo
                 run_at: row.get(0)?,
                 articles_fetched: row.get(1)?,
                 articles_emailed: row.get(2)?,
+                api_cost_usd: row.get(3)?,
             })
         })
         .map_err(|e| {
@@ -283,7 +288,8 @@ pub async fn stats_json(
             serde_json::json!({
                 "run_at": r.run_at,
                 "articles_fetched": r.articles_fetched,
-                "articles_emailed": r.articles_emailed
+                "articles_emailed": r.articles_emailed,
+                "api_cost_usd": r.api_cost_usd
             })
         })
         .collect();
