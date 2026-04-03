@@ -85,14 +85,24 @@ def _match_subagents(dispatches: list[dict], subagent_prompts: dict[str, str]) -
 def _sum_usage(lines: list[dict]) -> dict[str, dict]:
     """Sum token usage per model from parsed JSONL lines.
 
+    The JSONL records streaming snapshots of each assistant message -- multiple
+    entries share the same message.id, with the last having final token counts.
+    We keep only the last entry per message.id to avoid overcounting.
+
     Returns {model: {input, output, cache_write, cache_read}}.
     """
-    totals: dict[str, dict] = {}
+    # Last entry per message.id wins (final streaming state has complete usage)
+    last_per_msg: dict[str, dict] = {}
     for line in lines:
         msg = line.get("message", {})
-        usage = msg.get("usage")
-        if not usage or msg.get("role") != "assistant":
+        if msg.get("role") != "assistant" or not msg.get("usage"):
             continue
+        mid = msg.get("id", "") or str(id(line))  # fallback for missing ids
+        last_per_msg[mid] = msg
+
+    totals: dict[str, dict] = {}
+    for msg in last_per_msg.values():
+        usage = msg["usage"]
         model = msg.get("model", "unknown")
         if model not in totals:
             totals[model] = {"input": 0, "output": 0, "cache_write": 0, "cache_read": 0}
