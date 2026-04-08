@@ -430,7 +430,6 @@ def replace_placeholders(
     digest_name = os.environ.get("DIGEST_NAME", "News Digest")
     digest_domain = os.environ.get("DIGEST_DOMAIN", "")
     source_url = os.environ.get("SOURCE_URL", "")
-    model_name = os.environ.get("MODEL_NAME", "Claude")
     archive_url = os.environ.get("ARCHIVE_URL", "")
 
     # Load CSS: minify but keep variables for dark mode support in browser
@@ -455,7 +454,6 @@ def replace_placeholders(
     content = content.replace("{{READING_TIME}}", calculate_reading_time(selections))
     content = content.replace("{{STORY_COUNT}}", story_count_str)
     content = content.replace("{{GENERATED_AT}}", generated_at)
-    content = content.replace("{{MODEL_NAME}}", html.escape(model_name))
     content = content.replace("{{PREHEADER}}", html.escape(preheader))
 
     # Optional: replace SOURCE_URL if configured, otherwise remove the links
