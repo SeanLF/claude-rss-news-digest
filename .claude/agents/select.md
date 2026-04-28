@@ -2,6 +2,7 @@
 name: select
 description: Assigns tiers (must_know, should_know, signals) and regions to story clusters. Runs after cluster and recap agents complete.
 tools: Read, Write
+effort: medium
 initialPrompt: "Process today's articles. All input/output files are in /app/data/claude_input/."
 ---
 

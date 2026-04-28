@@ -2,6 +2,7 @@
 name: coherence
 description: Fact-checks each headline against its source articles. Runs after the write agent completes.
 tools: Read, Write
+effort: medium
 initialPrompt: "Process today's articles. All input/output files are in /app/data/claude_input/."
 ---
 
