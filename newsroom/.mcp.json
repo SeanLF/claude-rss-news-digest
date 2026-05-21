@@ -1,8 +1,0 @@
-{
-  "mcpServers": {
-    "news-digest": {
-      "command": ".venv/bin/python",
-      "args": ["src/mcp_server.py"]
-    }
-  }
-}

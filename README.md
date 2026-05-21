@@ -72,7 +72,6 @@ Diverse sources weighted toward high-factuality outlets, spanning center to lean
 | No digest generated | Check `data/digest.log`; verify auth with `docker compose run --rm digest-newsroom claude --version` |
 | Email not sending | Verify `RESEND_API_KEY` and `RESEND_FROM` in `.env`; test with `docker compose run --rm digest-newsroom --test-email you@example.com` |
 | Container issues | `docker compose build --no-cache` |
-| MCP tool not available | Check `newsroom/.mcp.json` uses `.venv/bin/python` not `python3` |
 
 ## More
 

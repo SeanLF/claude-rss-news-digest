@@ -124,7 +124,13 @@ def stream_sync(
     max_turns: int | None = None,
     cwd: str | Path | None = None,
 ) -> Generator[dict]:
-    """Stream a prompt synchronously, yielding parsed NDJSON event dicts."""
+    """Stream a prompt synchronously, yielding parsed NDJSON event dicts.
+
+    The streamed `result` event with subtype="success" is the authoritative
+    completion signal. The CLI has been observed to exit non-zero with empty
+    stderr after emitting that event (claude CLI bug, 2026-05-02). When that
+    happens we log a warning and return cleanly rather than killing the run.
+    """
     cmd = _build_cmd(
         prompt,
         model=model,
@@ -146,6 +152,7 @@ def stream_sync(
         cwd=cwd,
     )
     killed = False
+    saw_success = False
     try:
         assert proc.stdout is not None
         for raw in proc.stdout:
@@ -153,9 +160,13 @@ def stream_sync(
             if not raw:
                 continue
             try:
-                yield json.loads(raw)
+                event = json.loads(raw)
             except json.JSONDecodeError:
                 logger.debug("stream_sync non-JSON: %s", raw[:120])
+                continue
+            if event.get("type") == "result" and event.get("subtype") == "success":
+                saw_success = True
+            yield event
     finally:
         if proc.poll() is None:
             _kill_proc(proc)
@@ -165,6 +176,13 @@ def stream_sync(
     assert proc.stderr is not None
     stderr_out = proc.stderr.read()
     if not killed and proc.returncode != 0:
+        if saw_success:
+            logger.warning(
+                "claude exited %d after subtype=success; trusting result event. stderr: %s",
+                proc.returncode,
+                stderr_out[:500] or "(empty)",
+            )
+            return
         raise RuntimeError(f"claude failed (exit {proc.returncode}): {stderr_out[:500]}")
 
 
@@ -248,6 +266,7 @@ async def stream(
         cwd=cwd,
     )
     killed = False
+    saw_success = False
     try:
         assert proc.stdout is not None
         async for line in proc.stdout:
@@ -255,9 +274,13 @@ async def stream(
             if not text:
                 continue
             try:
-                yield json.loads(text)
+                event = json.loads(text)
             except json.JSONDecodeError:
                 logger.debug("stream non-JSON: %s", text[:120])
+                continue
+            if event.get("type") == "result" and event.get("subtype") == "success":
+                saw_success = True
+            yield event
     finally:
         if proc.returncode is None:
             _kill_proc(proc)
@@ -266,4 +289,11 @@ async def stream(
         stderr_data = await proc.stderr.read()
         await proc.wait()
         if not killed and proc.returncode != 0:
-            raise RuntimeError(f"claude failed (exit {proc.returncode}): {stderr_data.decode()[:500]}")
+            if saw_success:
+                logger.warning(
+                    "claude exited %d after subtype=success; trusting result event. stderr: %s",
+                    proc.returncode,
+                    stderr_data.decode()[:500] or "(empty)",
+                )
+            else:
+                raise RuntimeError(f"claude failed (exit {proc.returncode}): {stderr_data.decode()[:500]}")

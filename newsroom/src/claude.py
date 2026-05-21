@@ -7,12 +7,14 @@ from claude_cli import run_sync, stream_sync
 logger = logging.getLogger(__name__)
 
 _PERMISSION_MODE = "acceptEdits"
-_MCP_CONFIG = ".mcp.json"
-_MCP_TOOL = "mcp__news-digest__write_selections"
 
 
 def generate_selections(model: str | None = None) -> None:
-    """Run the dispatcher; streams progress to the log as subagents complete."""
+    """Run the dispatcher; streams progress to the log as subagents complete.
+
+    The dispatcher writes intermediate JSON files via subagents; assembly of
+    selections.json happens in Python after this returns (see merge.py).
+    """
     _model = model or "sonnet"
     logger.info("Selecting stories... (model=%s)", _model)
     pending: dict[str, str] = {}  # Agent tool_use_id -> description
@@ -21,8 +23,6 @@ def generate_selections(model: str | None = None) -> None:
         "/news-digest-select",
         model=_model,
         permission_mode=_PERMISSION_MODE,
-        allowed_tools=_MCP_TOOL,
-        mcp_config=_MCP_CONFIG,
     ):
         etype = event.get("type")
 
@@ -30,16 +30,13 @@ def generate_selections(model: str | None = None) -> None:
             for block in event.get("message", {}).get("content", []):
                 if not isinstance(block, dict) or block.get("type") != "tool_use":
                     continue
-                name = block.get("name", "")
-                if name == "Agent":
+                if block.get("name") == "Agent":
                     description = block.get("input", {}).get("description", "agent")
                     pending[block["id"]] = description
                     logger.info("[%s started]", description)
-                elif name == _MCP_TOOL:
-                    logger.info("[write_selections called]")
 
+        # Root-level tool_result (no parent_tool_use_id) = Agent returning to dispatcher.
         elif etype == "user" and not event.get("parent_tool_use_id"):
-            # Root-level tool_result = Agent returning to dispatcher
             for block in event.get("message", {}).get("content", []):
                 if isinstance(block, dict) and block.get("type") == "tool_result":
                     name = pending.pop(block.get("tool_use_id", ""), None)

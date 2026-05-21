@@ -446,7 +446,7 @@ pub async fn sources(
         .collect();
 
     // Sort alphabetically within each bias group
-    sources.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+    sources.sort_by_key(|s| s.name.to_lowercase());
 
     let html = render_sources(&state.digest_name, &sources, state.source_url.as_deref());
     Ok(Html(html))

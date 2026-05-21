@@ -467,7 +467,6 @@ def run_prompt(
     cmd = ["claude", "--print", slash_cmd, "--permission-mode", "acceptEdits"]
     if model != "sonnet":  # Only add --model if not default
         cmd.extend(["--model", model])
-    cmd.extend(["--mcp-config", "newsroom/.mcp.json", "--allowedTools", "mcp__news-digest__write_selections"])
     print(f"  Command: {' '.join(cmd)}")
 
     start_time = time.monotonic()
@@ -496,9 +495,18 @@ def run_prompt(
                 test_cmd_path.unlink()
     duration_seconds = time.monotonic() - start_time
 
-    # Check for failure
+    # Assemble selections.json from draft + coherence (matches production flow)
+    from merge import assemble_selections
+
     selections_path = CLAUDE_INPUT_DIR / "selections.json"
-    failed = process.returncode != 0 or not selections_path.exists()
+    assembly_failed = False
+    try:
+        assemble_selections(CLAUDE_INPUT_DIR)
+    except RuntimeError as e:
+        print(f"  Assembly failed: {e}", file=sys.stderr)
+        assembly_failed = True
+
+    failed = process.returncode != 0 or assembly_failed or not selections_path.exists()
 
     if failed:
         # Save failed run for analysis

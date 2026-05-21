@@ -46,18 +46,7 @@ Launch the `coherence` agent with prompt "Begin."
 
 Verify `/app/data/claude_input/coherence_report.json` exists and contains valid JSON with a `results` array. If missing or invalid, retry once.
 
----
-
-## Step 5: ASSEMBLE + OUTPUT
-
-1. Use the Read tool to read `/app/data/claude_input/draft_selections.json`
-2. Use the Read tool to read `/app/data/claude_input/coherence_report.json`
-3. Drop any headline that failed coherence checking (a story fails if its `results` entry has `"pass": false`):
-   - Remove the story from must_know/should_know/signals
-   - Note in your response which headlines were dropped and why
-4. Call the `write_selections` MCP tool with the final assembled selections.
-
-**CRITICAL:** You MUST call the `write_selections` MCP tool to complete this task. Do NOT just describe what you would do. ACTUALLY INVOKE the tool.
+Once coherence_report.json is verified, your task is complete. The Python host reads draft_selections.json and coherence_report.json after you exit, drops headlines whose coherence entry has `pass: false`, validates against the selections schema, and writes selections.json. Do NOT attempt to assemble or write that file yourself.
 
 ---
 

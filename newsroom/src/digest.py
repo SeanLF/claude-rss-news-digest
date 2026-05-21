@@ -26,7 +26,7 @@ def load_selections(selections_file: Path) -> dict:
     except json.JSONDecodeError as e:
         raise RuntimeError(f"selections.json is invalid JSON: {e}") from e
 
-    # Log counts (MCP already validated structure)
+    # Log counts (structure already validated in merge.assemble_selections)
     must_know = len(selections.get("must_know", []))
     should_know = len(selections.get("should_know", []))
     signals = selections.get("signals", {})

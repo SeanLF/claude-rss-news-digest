@@ -20,9 +20,9 @@ Claude never sees URLs. Python assigns opaque article IDs (A1, A2...) and builds
 4. **WRITE** -- headlines, summaries, why_it_matters (references article IDs only)
 5. **COHERENCE** -- verify headlines vs source articles (Haiku)
 
-Parent reads final output, drops failed coherence checks, calls `write_selections` MCP tool. Python then resolves article IDs to URLs/source/bias via `resolve_article_ids()` in `digest.py`.
+After the dispatcher exits, Python (`merge.py:assemble_selections`) reads `draft_selections.json` and `coherence_report.json`, drops headlines whose coherence entry has `pass: false`, validates against `schema.SELECTIONS_SCHEMA`, and writes `selections.json`. Python then resolves article IDs to URLs/source/bias via `resolve_article_ids()` in `digest.py`.
 
-**Intermediate files** (in `data/claude_input/`): `clusters.json`, `recap.txt`, `selected.json`, `draft_selections.json`, `coherence_report.json`, `article_index.json`.
+**Intermediate files** (in `data/claude_input/`): `clusters.json`, `recap.txt`, `selected.json`, `draft_selections.json`, `coherence_report.json`, `article_index.json`, `selections.json` (assembled by Python).
 
 **Dedup strategy:** TF-IDF pre-filter on RSS titles (not editorial). `recent_rss_titles.csv` + RECAP subagent + `weekly_recap.txt` replace the old `recent_headlines.csv` feedback loop.
 
@@ -60,17 +60,13 @@ SQLite at `data/digest.db`. Schema managed by migrations in `migrations/`.
 
 - `newsroom/src/run.py` - CLI + pipeline orchestration (delegates to focused modules)
 - `newsroom/src/` - modules: config, feeds, prepare, claude, digest, render, broadcast, db, usage, utils
-- `.claude/commands/news-digest-select.md` - Thin dispatcher prompt (5 subagent orchestration)
+- `.claude/commands/news-digest-select.md` - Thin dispatcher prompt (4 subagents; assembly is in Python)
+- `newsroom/src/merge.py` - post-dispatcher assembly (drop coherence-failed entries, validate, write selections.json)
+- `newsroom/src/schema.py` - SELECTIONS_SCHEMA used to validate the assembled output
 - `newsroom/templates/digest-template.html` - HTML template for digest output
 - `newsroom/templates/digest.css` - CSS styles (minified and injected at runtime)
 - `newsroom/sources.json` - RSS feed definitions
 - `circulation/` - Rust (Axum) web server for "View in browser" links and archive
-
-## MCP Server
-
-- Config: `newsroom/.mcp.json` - uses `.venv/bin/python` to access venv deps
-- Schema validation via `jsonschema` rejects malformed tool calls (Claude retries). `SOURCE_SCHEMA` expects `{article_id}` only -- Python resolves to URLs post-Claude.
-- If Claude says tool isn't available, check the Python path in `.mcp.json`
 
 ## Persistent TODO
 

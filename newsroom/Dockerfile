@@ -45,7 +45,6 @@ ENV GIT_SHA=${GIT_SHA}
 COPY newsroom/src/ ./src/
 COPY newsroom/sources.json ./
 COPY newsroom/templates/ ./templates/
-COPY newsroom/.mcp.json ./
 
 # Copy shared resources from repo root
 COPY migrations/ ./migrations/

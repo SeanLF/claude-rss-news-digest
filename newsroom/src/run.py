@@ -38,6 +38,7 @@ from digest import (
 )
 from feeds import collect_fetched_articles, fetch_feeds, load_sources
 from feeds_cli import validate_feeds_cli
+from merge import assemble_selections
 from prepare import prepare_claude_input
 from render import extract_preheader, prepare_for_email, replace_placeholders
 from usage import parse_session_usage
@@ -263,7 +264,7 @@ Examples:
             db.record_usage(usage_rows)
         except Exception:
             logger.warning("Usage tracking failed (non-fatal)", exc_info=True)
-        selections_path = CLAUDE_INPUT_DIR / "selections.json"
+        selections_path = assemble_selections(CLAUDE_INPUT_DIR)
         selections = load_selections(selections_path)
         db.archive_selections(selections_path.read_text())
         selections = resolve_article_ids(selections)
