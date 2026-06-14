@@ -6,7 +6,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from config import CLAUDE_INPUT_DIR, DATA_DIR, OUTPUT_DIR
-from render import REGION_ORDER, extract_headlines, render_digest
+from render import extract_headlines, render_digest
 
 logger = logging.getLogger(__name__)
 
@@ -29,15 +29,13 @@ def load_selections(selections_file: Path) -> dict:
     # Log counts (structure already validated in merge.assemble_selections)
     must_know = len(selections.get("must_know", []))
     should_know = len(selections.get("should_know", []))
-    signals = selections.get("signals", {})
-    signals_count = sum(len(signals.get(c, [])) for c in REGION_ORDER)
 
     if must_know < 3:
         logger.warning("Only %d must_know stories (expected 3+)", must_know)
     if should_know < 5:
         logger.warning("Only %d should_know stories (expected 5+)", should_know)
 
-    logger.info("Selection complete: %d stories", must_know + should_know + signals_count)
+    logger.info("Selection complete: %d stories", must_know + should_know)
 
     return selections
 
@@ -46,7 +44,7 @@ def resolve_article_ids(selections: dict) -> dict:
     """Resolve article_id references to full source metadata.
 
     Reads article_index.json, replaces {article_id} with {name, url, bias}
-    in sources[] (articles) and source{} (signals). Injects source_id and
+    in sources[] (articles). Injects source_id and
     original_title for downstream recording.
 
     Falls back gracefully when article_index.json is missing (--write-only mode).
@@ -112,18 +110,6 @@ def resolve_article_ids(selections: dict) -> dict:
                 logger.warning("Dropped %s story with no resolved sources: %s", tier, item.get("headline", "?"))
         selections[tier] = resolved_items
 
-    # Resolve signals -- source is a single object
-    signals = selections.get("signals", {})
-    for region in REGION_ORDER:
-        resolved_items = []
-        for item in signals.get(region, []):
-            src = item.get("source", {})
-            resolved = resolve_source(src)
-            if resolved:
-                item["source"] = resolved
-                resolved_items.append(item)
-        signals[region] = resolved_items
-
     if unresolved_count:
         logger.warning("Dropped %d unresolved article_id references", unresolved_count)
 
@@ -159,10 +145,8 @@ def write_digest(selections: dict, template_file: Path) -> Path:
     """
     must_know = len(selections.get("must_know", []))
     should_know = len(selections.get("should_know", []))
-    signals = selections.get("signals", {})
-    signals_count = sum(len(signals.get(c, [])) for c in REGION_ORDER)
 
-    logger.info("Rendering: %d must_know, %d should_know, %d signals", must_know, should_know, signals_count)
+    logger.info("Rendering: %d must_know, %d should_know", must_know, should_know)
 
     html_content = render_digest(selections, template_file)
 

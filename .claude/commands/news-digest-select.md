@@ -28,7 +28,13 @@ If either is missing or invalid, retry that agent once with prompt "Begin."
 
 Launch the `select` agent with prompt "Begin."
 
-Verify `/app/data/claude_input/selected.json` exists and contains valid JSON with `must_know`, `should_know`, and `signals` keys. If missing or invalid, retry once.
+Verify `/app/data/claude_input/selected.json` exists and contains valid JSON with `must_know` and `should_know` keys. If missing or invalid, retry once.
+
+Volume targets (the digest should be tight, not exhaustive -- aim well under a 15-minute read):
+- `must_know`: 3-5 stories (hard max 6)
+- `should_know`: 8-12 stories (hard max 14)
+
+If the returned `selected.json` is far outside these bands (e.g. should_know much larger than 14), retry the `select` agent once with prompt "Begin." to give it a chance to tighten before proceeding.
 
 ---
 
@@ -36,7 +42,7 @@ Verify `/app/data/claude_input/selected.json` exists and contains valid JSON wit
 
 Launch the `write` agent with prompt "Begin."
 
-Verify `/app/data/claude_input/draft_selections.json` exists and contains valid JSON with `must_know`, `should_know`, `signals`, and `preheader` keys. If missing or invalid, retry once.
+Verify `/app/data/claude_input/draft_selections.json` exists and contains valid JSON with `must_know`, `should_know`, and `preheader` keys. If missing or invalid, retry once.
 
 ---
 

@@ -6,6 +6,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pytest
+from claude_agent_sdk import ClaudeSDKError, ProcessError
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
@@ -145,6 +146,64 @@ class TestWithRetry:
         with caplog.at_level(logging.INFO, logger="claude"):
             claude._with_retry(lambda: "ok", label="dispatcher")
         assert "recovered" not in caplog.text
+
+
+class TestRetryOnRealSdkErrors:
+    """Regression: the Agent SDK raises ClaudeSDKError (NOT RuntimeError) on
+    529/overload. _with_retry's except clause must catch the SDK type, or the
+    retry guardrail is dead. These tests lock that contract using the real
+    claude_agent_sdk exception classes, not RuntimeError stand-ins.
+    """
+
+    def test_is_retryable_matches_real_sdk_overload_error(self):
+        # ProcessError folds stderr into its message; a 529/overload stderr
+        # must be recognised as retryable.
+        err = ProcessError("claude failed", exit_code=1, stderr="API Error: 529 overloaded_error")
+        assert claude._is_retryable(err)
+
+    def test_is_retryable_matches_base_sdk_error(self):
+        assert claude._is_retryable(ClaudeSDKError("upstream returned 529 overloaded"))
+
+    @patch("claude.time.sleep")
+    def test_retries_on_sdk_process_error_then_succeeds(self, mock_sleep):
+        calls = []
+
+        def fn():
+            calls.append(1)
+            if len(calls) < 3:
+                raise ProcessError("claude failed", exit_code=1, stderr="529 overloaded_error")
+            return "ok"
+
+        assert claude._with_retry(fn, label="t") == "ok"
+        assert len(calls) == 3
+        assert mock_sleep.call_count == 2
+
+    @patch("claude.time.sleep")
+    def test_retries_on_base_sdk_error_then_succeeds(self, mock_sleep):
+        calls = []
+
+        def fn():
+            calls.append(1)
+            if len(calls) < 2:
+                raise ClaudeSDKError("API Error: 529 overloaded")
+            return "ok"
+
+        assert claude._with_retry(fn, label="t") == "ok"
+        assert len(calls) == 2
+        assert mock_sleep.call_count == 1
+
+    @patch("claude.time.sleep")
+    def test_does_not_retry_non_retryable_sdk_error(self, mock_sleep):
+        calls = []
+
+        def fn():
+            calls.append(1)
+            raise ClaudeSDKError("authentication failed: invalid credentials")
+
+        with pytest.raises(ClaudeSDKError, match="authentication failed"):
+            claude._with_retry(fn, label="t")
+        assert len(calls) == 1  # raised immediately, no retry
+        assert mock_sleep.call_count == 0
 
 
 class TestGenerateSelections:

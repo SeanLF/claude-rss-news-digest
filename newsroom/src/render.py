@@ -15,18 +15,6 @@ from urllib.parse import urlparse
 
 logger = logging.getLogger(__name__)
 
-# Region display configuration: (display_name, emoji)
-REGION_CONFIG = {
-    "europe": ("Europe", "🌍"),
-    "americas": ("Americas", "🌎"),
-    "asia_pacific": ("Asia-Pacific", "🌏"),
-    "middle_east_africa": ("Middle East & Africa", "🌍"),
-    "tech": ("Tech", "🤖"),
-}
-
-# Region display order (Americas first - where subscribers are)
-REGION_ORDER = ["americas", "europe", "asia_pacific", "middle_east_africa", "tech"]
-
 # Set CSV field size limit to prevent memory issues with malformed feeds
 csv.field_size_limit(1_000_000)  # 1MB max
 
@@ -88,8 +76,8 @@ def calculate_reading_time(selections: dict, words_per_minute: int = 200) -> str
     """Calculate reading time from selections JSON. Returns string like '13 min read'.
 
     Counts only editorial content readers actually read: headlines, summaries,
-    why_it_matters, reporting angles, and signal headlines. Excludes source
-    citations, nav text, CSS, and boilerplate that inflate HTML-based estimates.
+    why_it_matters, and reporting angles. Excludes source citations, nav text,
+    CSS, and boilerplate that inflate HTML-based estimates.
     """
     parts: list[str] = []
     for tier in ("must_know", "should_know"):
@@ -99,9 +87,6 @@ def calculate_reading_time(selections: dict, words_per_minute: int = 200) -> str
             parts.append(article.get("why_it_matters", ""))
             for rv in article.get("reporting_varies", []):
                 parts.append(rv.get("angle", ""))
-    for region_signals in selections.get("signals", {}).values():
-        for signal in region_signals:
-            parts.append(signal.get("headline", ""))
     word_count = len(" ".join(parts).split())
     minutes = max(1, round(word_count / words_per_minute))
     return f"{minutes} min read"
@@ -292,17 +277,6 @@ def render_article(article: dict, slug: str, include_reporting_varies: bool = Tr
     return "\n".join(parts)
 
 
-def render_signal(item: dict) -> str:
-    """Render a quick signal or below_fold item to HTML."""
-    headline = html.escape(item.get("headline", ""))
-    src = item.get("source", {})
-    name = html.escape(src.get("name", ""))
-    url = src.get("url", "")
-    if url and is_safe_url(url) and _has_article_path(url):
-        return f'      <p class="signal">{headline}. <a href="{html.escape(url)}">{name}</a></p>'
-    return f'      <p class="signal">{headline}. <span class="signal-source">{name}</span></p>'
-
-
 def render_digest(selections: dict, template_file: Path) -> str:
     """Render selections.json to complete HTML string."""
     if not template_file.exists():
@@ -336,26 +310,10 @@ def render_digest(selections: dict, template_file: Path) -> str:
         for article in selections.get("should_know", [])
     )
 
-    # Render signals (clustered by region)
-    signals = selections.get("signals", {})
-    cluster_parts = []
-    for region_key in REGION_ORDER:
-        items = signals.get(region_key, [])
-        if items:
-            region_name, emoji = REGION_CONFIG[region_key]
-            region_id = region_key.replace("_", "-")
-            cluster_parts.append(f'    <div id="{region_id}" class="cluster">')
-            cluster_parts.append(f"      <h3>{emoji} {region_name}</h3>")
-            for item in items:
-                cluster_parts.append(render_signal(item))
-            cluster_parts.append("    </div>")
-    signals_html = "\n".join(cluster_parts)
-
     # Fill template
     result = template
     result = result.replace("{{MUST_KNOW}}", must_know_html)
     result = result.replace("{{SHOULD_KNOW}}", should_know_html)
-    result = result.replace("{{SIGNALS}}", signals_html)
 
     return result
 
@@ -372,6 +330,7 @@ def extract_headlines(selections: dict) -> list[dict]:
     for tier in ["must_know", "should_know"]:
         for item in selections.get(tier, []):
             editorial_headline = item.get("headline", "")
+            cluster_id = item.get("cluster_id")
             for src in item.get("sources", []):
                 headlines.append(
                     {
@@ -379,22 +338,9 @@ def extract_headlines(selections: dict) -> list[dict]:
                         "tier": tier,
                         "source_id": src.get("source_id"),
                         "original_title": src.get("original_title"),
+                        "cluster_id": cluster_id,
                     }
                 )
-
-    # Signals by region -- source is a single object
-    signals = selections.get("signals", {})
-    for region in REGION_ORDER:
-        for item in signals.get(region, []):
-            src = item.get("source", {})
-            headlines.append(
-                {
-                    "headline": item.get("headline", ""),
-                    "tier": "signal",
-                    "source_id": src.get("source_id"),
-                    "original_title": src.get("original_title"),
-                }
-            )
 
     return headlines
 
@@ -408,8 +354,7 @@ def format_story_counts(selections: dict) -> str:
     """Format story counts per section for meta line."""
     must = len(selections.get("must_know", []))
     should = len(selections.get("should_know", []))
-    signals = sum(len(region) for region in selections.get("signals", {}).values())
-    return f"{must} 🥇 · {should} 🥈 · {signals} 🥉"
+    return f"{must} 🥇 · {should} 🥈"
 
 
 def replace_placeholders(

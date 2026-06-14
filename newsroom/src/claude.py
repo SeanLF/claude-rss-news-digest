@@ -5,6 +5,7 @@ import random
 import time
 from collections.abc import Callable
 
+from claude_agent_sdk import ClaudeSDKError
 from claude_cli import run_sync, stream_sync
 from config import CLAUDE_INPUT_DIR
 
@@ -55,7 +56,7 @@ def _with_retry[T](
             if attempt > 1:
                 logger.info("%s: recovered after %d attempts", label, attempt)
             return result
-        except RuntimeError as e:
+        except (RuntimeError, ClaudeSDKError) as e:
             if not _is_retryable(e) or attempt == max_attempts:
                 raise
             delay = min(_BASE_DELAY * (2 ** (attempt - 1)), _MAX_DELAY)
@@ -86,11 +87,12 @@ def generate_selections(model: str | None = None) -> None:
     The dispatcher writes intermediate JSON files via subagents; assembly of
     selections.json happens in Python after this returns (see merge.py).
     """
-    _model = model or "sonnet"
+    _model = model or "claude-sonnet-4-6"
 
     def _run() -> None:
         logger.info("Selecting stories... (model=%s)", _model)
         pending: dict[str, str] = {}  # Agent tool_use_id -> description
+        saw_result = False
 
         for event in stream_sync(
             "/news-digest-select",
@@ -117,12 +119,18 @@ def generate_selections(model: str | None = None) -> None:
                             logger.info("[%s complete]", name)
 
             elif etype == "result":
+                saw_result = True
                 cost = event.get("total_cost_usd", 0)
                 duration = event.get("duration_ms", 0) / 1000
                 subtype = event.get("subtype", "?")
                 logger.info("Selection %s: %.1fs $%.4f", subtype, duration, cost)
                 if subtype != "success":
                     raise RuntimeError(f"Claude dispatcher ended with subtype={subtype!r}")
+
+        # Fail loud if the stream ended without a result event -- otherwise a
+        # truncated/aborted dispatch would look like a (silent) success.
+        if not saw_result:
+            raise RuntimeError("Claude dispatcher stream ended without a result event")
 
     _with_retry(_run, label="dispatcher", on_retry=_cleanup_dispatcher_intermediates)
 
@@ -138,7 +146,7 @@ def generate_weekly_recap(title_lines: str) -> str:
         f"{title_lines}"
     )
     return _with_retry(
-        lambda: run_sync(prompt, model="haiku", max_turns=1, timeout=120),
+        lambda: run_sync(prompt, model="claude-haiku-4-5", max_turns=1, timeout=120),
         label="weekly_recap",
     )
 
@@ -153,6 +161,6 @@ def health_check() -> int:
             return 0
         logger.error("Health check FAILED: unexpected response: %s", result[:100])
         return 1
-    except RuntimeError as e:
+    except (RuntimeError, ClaudeSDKError) as e:
         logger.error("Health check FAILED: %s", e)
         return 1

@@ -203,53 +203,6 @@ article .sources a {
   text-decoration: none;
 }
 
-.signals {
-  font-size: 0.9em;
-}
-
-.signal {
-  margin: 8px 0;
-  padding-left: 16px;
-  position: relative;
-  line-height: 1.4;
-  color: var(--text-secondary);
-}
-
-.signal::before {
-  content: "•";
-  position: absolute;
-  left: 0;
-  color: var(--accent);
-}
-
-.signal a,
-.signal-source {
-  color: var(--link);
-  text-decoration: none;
-  font-size: 0.75em;
-}
-
-.signal-source {
-  color: var(--text-muted);
-}
-
-.cluster {
-  margin-bottom: 24px;
-}
-
-@media (min-width: 768px) {
-  .signal {
-    break-inside: avoid;
-  }
-}
-
-.cluster h3 {
-  font-size: 0.95em;
-  font-weight: 600;
-  margin: 0 0 12px 0;
-  color: var(--text);
-}
-
 .reporting-varies {
   background: var(--notice-bg);
   padding: 12px 16px;

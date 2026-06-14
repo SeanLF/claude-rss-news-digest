@@ -124,7 +124,6 @@ pub const DIGEST_NAV_HTML: &str = r##"<nav class="digest-nav">
     <div class="nav-sections">
         <a href="#must-know">Must Know</a>
         <a href="#should-know">Should Know</a>
-        <a href="#also-notable">Also Notable</a>
     </div>
 </nav>"##;
 

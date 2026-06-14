@@ -33,9 +33,6 @@ RUNS_DIR = DATA_DIR / "runs"
 CLAUDE_INPUT_DIR = DATA_DIR / "claude_input"
 DB_PATH = DATA_DIR / "digest.db"
 
-# Regions for analysis (from run.py)
-REGION_ORDER = ["americas", "europe", "asia_pacific", "middle_east_africa", "tech"]
-
 # Stopwords for TF-IDF (copied from run.py for self-containment)
 STOPWORDS = frozenset(
     [
@@ -195,7 +192,6 @@ class Comparison:
     tiers: dict
     tier_changes: list[dict]
     sources: dict
-    regions: dict
     quality: dict
 
 
@@ -546,13 +542,33 @@ def run_prompt(
     )
     run.metrics = compute_metrics(selections)
 
+    # Automated L1 grading (binary pass/fail). Non-fatal: a grader error must
+    # never sink an otherwise-successful run.
+    grade: dict | None = None
+    try:
+        grade = grade_run_selections(selections)
+        run.metrics["grade"] = grade
+    except Exception as e:
+        print(f"  Warning: L1 grading failed: {e}", file=sys.stderr)
+
     # Save run data
     for filename, data in [("run.json", run.to_dict()), ("selections.json", selections), ("metrics.json", run.metrics)]:
         with open(run_dir / filename, "w") as f:
             json.dump(data, f, indent=2)
 
+    # Preserve intermediate files so L2 judge grading can run on this run later.
+    intermediate_dir = run_dir / "claude_input"
+    intermediate_dir.mkdir(exist_ok=True)
+    for fname in ("coherence_report.json", "article_index.json", "draft_selections.json"):
+        src = CLAUDE_INPUT_DIR / fname
+        if src.exists():
+            shutil.copy2(src, intermediate_dir / fname)
+
     print(f"  Saved to: {run_dir}")
     print(f"  Stories: {run.metrics.get('total_stories', 0)}")
+    if grade is not None:
+        pct = round(100 * grade["pass_rate"])
+        print(f"  L1 grade: {'PASS' if grade['passed'] else 'FAIL'} ({pct}%, {grade['n_failed']} failed)")
 
     return run
 
@@ -622,19 +638,16 @@ def compute_metrics(selections: dict) -> dict:
     """Compute metrics from selections."""
     must_know = selections.get("must_know", [])
     should_know = selections.get("should_know", [])
-    signals = selections.get("signals", {})
     tiered_articles = must_know + should_know
 
     # Story counts
-    signals_count = sum(len(signals.get(r, [])) for r in REGION_ORDER)
     metrics = {
         "must_know_count": len(must_know),
         "should_know_count": len(should_know),
-        "signals_count": signals_count,
-        "total_stories": len(must_know) + len(should_know) + signals_count,
+        "total_stories": len(must_know) + len(should_know),
     }
 
-    # Source diversity - collect from tiered articles and signals in one pass
+    # Source diversity - collect from tiered articles in one pass
     all_sources: set[str] = set()
     bias_counts: Counter[str] = Counter()
 
@@ -648,13 +661,8 @@ def compute_metrics(selections: dict) -> dict:
         for src in article.get("sources", []):
             collect_source(src)
 
-    for region in REGION_ORDER:
-        for item in signals.get(region, []):
-            collect_source(item.get("source", {}))
-
     metrics["unique_sources"] = len(all_sources)
     metrics["bias_distribution"] = dict(bias_counts)
-    metrics["region_distribution"] = {r: len(signals.get(r, [])) for r in REGION_ORDER}
 
     # Quality metrics from tiered articles
     if tiered_articles:
@@ -672,8 +680,6 @@ def compute_metrics(selections: dict) -> dict:
 def extract_headlines(selections: dict) -> list[str]:
     """Extract all headlines from selections."""
     headlines = [a.get("headline", "") for a in selections.get("must_know", []) + selections.get("should_know", [])]
-    for region in REGION_ORDER:
-        headlines.extend(item.get("headline", "") for item in selections.get("signals", {}).get(region, []))
     return [h for h in headlines if h]
 
 
@@ -685,7 +691,7 @@ def get_headline_tier(headline: str, selections: dict) -> str:
     for article in selections.get("should_know", []):
         if article.get("headline") == headline:
             return "should_know"
-    return "signal"
+    return "unknown"
 
 
 # =============================================================================
@@ -735,7 +741,6 @@ def compare_runs(run_a: Run, run_b: Run) -> Comparison:
         return {
             "must_know": run.metrics.get("must_know_count", 0),
             "should_know": run.metrics.get("should_know_count", 0),
-            "signals": run.metrics.get("signals_count", 0),
         }
 
     tiers = {"a": tier_counts(run_a), "b": tier_counts(run_b)}
@@ -755,9 +760,6 @@ def compare_runs(run_a: Run, run_b: Run) -> Comparison:
         "bias_b": run_b.metrics.get("bias_distribution", {}),
     }
 
-    # Regions comparison
-    regions = {"a": run_a.metrics.get("region_distribution", {}), "b": run_b.metrics.get("region_distribution", {})}
-
     # Quality comparison
     quality = {
         "headline_length_a": run_a.metrics.get("avg_headline_length", 0),
@@ -775,7 +777,6 @@ def compare_runs(run_a: Run, run_b: Run) -> Comparison:
         tiers=tiers,
         tier_changes=tier_changes,
         sources=sources,
-        regions=regions,
         quality=quality,
     )
 
@@ -824,7 +825,6 @@ def format_comparison(comp: Comparison, output_format: str = "text") -> str:
                 "tiers": comp.tiers,
                 "tier_changes": comp.tier_changes,
                 "sources": comp.sources,
-                "regions": comp.regions,
                 "quality": comp.quality,
             },
             indent=2,
@@ -852,7 +852,7 @@ def format_comparison(comp: Comparison, output_format: str = "text") -> str:
         lines.extend(format_headline_list(sel["dropped"], "-"))
 
     lines.extend(["", "TIER DISTRIBUTION", f"            {comp.run_a.prompt:>12}  {comp.run_b.prompt:>12}"])
-    for tier in ["must_know", "should_know", "signals"]:
+    for tier in ["must_know", "should_know"]:
         a_val, b_val = comp.tiers["a"][tier], comp.tiers["b"][tier]
         lines.append(f"  {tier:12} {a_val:>10}  {b_val:>10}  {format_diff(a_val, b_val)}")
 
@@ -870,14 +870,8 @@ def format_comparison(comp: Comparison, output_format: str = "text") -> str:
             "SOURCES",
             f"  Unique: {src['unique_a']} -> {src['unique_b']}",
             f"  Bias: {format_bias(src['bias_a'])} -> {format_bias(src['bias_b'])}",
-            "",
-            "REGIONS",
         ]
     )
-
-    for region in REGION_ORDER:
-        a_val, b_val = comp.regions["a"].get(region, 0), comp.regions["b"].get(region, 0)
-        lines.append(f"  {region}: {a_val} -> {b_val} {format_diff(a_val, b_val)}")
 
     lines.extend(
         [
@@ -890,6 +884,91 @@ def format_comparison(comp: Comparison, output_format: str = "text") -> str:
     )
 
     return "\n".join(lines)
+
+
+# =============================================================================
+# Automated Grading (L1 binary graders, optional L2 judge)
+# =============================================================================
+
+
+def get_recent_rss_titles(days: int = 7) -> set[str]:
+    """Recently-shown RSS titles for the L1 dedup grader.
+
+    Reads `original_title` from `shown_narratives` (the same column production
+    dedup uses). Returns an empty set when the DB is unavailable so the dedup
+    check records as skipped rather than crashing an experiment.
+    """
+    if not DB_PATH.exists():
+        return set()
+    try:
+        with sqlite3.connect(DB_PATH) as conn:
+            cursor = conn.execute(
+                """
+                SELECT original_title
+                FROM shown_narratives
+                WHERE shown_at > datetime('now', ?)
+                  AND original_title IS NOT NULL
+                """,
+                (f"-{days} days",),
+            )
+            return {row[0] for row in cursor.fetchall() if row[0]}
+    except sqlite3.Error as e:
+        print(f"Warning: Could not load recent RSS titles: {e}", file=sys.stderr)
+        return set()
+
+
+def grade_run_selections(selections: dict, *, use_recent: bool = True) -> dict:
+    """Run the L1 binary graders against a run's selections payload.
+
+    Returns a JSON-serialisable summary: overall pass, pass-rate, and per-check
+    name/passed/detail. `use_recent` toggles whether the dedup-vs-recent check
+    pulls history from the DB (set False for deterministic/offline grading).
+    """
+    from eval_graders import grade_selections
+
+    recent = get_recent_rss_titles() if use_recent else None
+    # An empty set still means "history available, nothing matched"; None means
+    # "skip the dedup check". Only pass None when we deliberately opt out.
+    recent_arg: set[str] | None = recent if recent else (set() if use_recent else None)
+    report = grade_selections(selections, recent_titles=recent_arg)
+    return {
+        "passed": report.passed,
+        "pass_rate": round(report.pass_rate, 4),
+        "n_checks": len(report.checks),
+        "n_failed": len(report.failures),
+        "checks": [{"name": c.name, "passed": c.passed, "detail": c.detail} for c in report.checks],
+    }
+
+
+def format_grade_report(grade: dict, label: str = "") -> str:
+    """Human-readable rendering of a grade_run_selections() summary."""
+    header = f"L1 GRADE{f' [{label}]' if label else ''}"
+    pct = round(100 * grade["pass_rate"])
+    lines = [
+        header,
+        "=" * 60,
+        f"  Result: {'PASS' if grade['passed'] else 'FAIL'}  "
+        f"({grade['n_checks'] - grade['n_failed']}/{grade['n_checks']} checks, {pct}%)",
+        "",
+    ]
+    for c in grade["checks"]:
+        mark = "ok  " if c["passed"] else "FAIL"
+        lines.append(f"  [{mark}] {c['name']}: {c['detail']}")
+    return "\n".join(lines)
+
+
+def grade_judge_run(claude_input_dir: Path, labels_path: Path) -> str:
+    """Optional L2: score the COHERENCE judge against independent labels.
+
+    Loads coherence/article-index/draft files from a run's claude_input dir and
+    a labels JSON, returning the AgreementReport rendering. Raises on missing
+    files (the caller surfaces the error) -- L2 is opt-in and needs both inputs.
+    """
+    from eval_judge import load_coherence_cases, load_labels, score_agreement
+
+    cases = load_coherence_cases(claude_input_dir)
+    labels = load_labels(labels_path)
+    return score_agreement(cases, labels).render()
 
 
 # =============================================================================
@@ -942,6 +1021,88 @@ def cmd_diff(args):
     print(format_comparison(comp, args.format))
 
 
+def cmd_grade(args):
+    """Score a run's selections with the L1 graders (and optional L2 judge)."""
+    try:
+        run = load_run(args.run)
+    except ValueError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)
+    if run.failed:
+        print(f"Error: run {run.id} failed; nothing to grade.", file=sys.stderr)
+        sys.exit(1)
+
+    grade = grade_run_selections(run.selections, use_recent=not args.no_recent)
+
+    if args.format == "json":
+        print(json.dumps({"run": run.id, "grade": grade}, indent=2))
+    else:
+        print(format_grade_report(grade, label=run.id))
+
+    if args.labels:
+        labels_path = Path(args.labels)
+        intermediate_dir = RUNS_DIR / run.id / "claude_input"
+        try:
+            print()
+            print(grade_judge_run(intermediate_dir, labels_path))
+        except FileNotFoundError as e:
+            print(f"Error: L2 judge grading needs intermediate files: {e}", file=sys.stderr)
+            sys.exit(1)
+
+
+def cmd_compare(args):
+    """Grade two runs side-by-side (e.g. Haiku vs Sonnet) on binary pass-rate."""
+    try:
+        run_a = load_run(args.run_a)
+        run_b = load_run(args.run_b)
+    except ValueError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)
+    for r in (run_a, run_b):
+        if r.failed:
+            print(f"Error: run {r.id} failed; nothing to grade.", file=sys.stderr)
+            sys.exit(1)
+
+    grade_a = grade_run_selections(run_a.selections, use_recent=not args.no_recent)
+    grade_b = grade_run_selections(run_b.selections, use_recent=not args.no_recent)
+
+    if args.format == "json":
+        print(
+            json.dumps(
+                {
+                    "a": {"run": run_a.id, "model": run_a.model, "grade": grade_a},
+                    "b": {"run": run_b.id, "model": run_b.model, "grade": grade_b},
+                },
+                indent=2,
+            )
+        )
+        return
+
+    checks_a = {c["name"]: c for c in grade_a["checks"]}
+    checks_b = {c["name"]: c for c in grade_b["checks"]}
+    names = list(dict.fromkeys(list(checks_a) + list(checks_b)))
+
+    def pct(g: dict) -> int:
+        return round(100 * g["pass_rate"])
+
+    lines = [
+        f"L1 GRADE COMPARISON: {run_a.model} vs {run_b.model}",
+        "=" * 60,
+        f"  A: {run_a.id} ({run_a.model})  ->  {'PASS' if grade_a['passed'] else 'FAIL'} {pct(grade_a)}%",
+        f"  B: {run_b.id} ({run_b.model})  ->  {'PASS' if grade_b['passed'] else 'FAIL'} {pct(grade_b)}%",
+        "",
+        f"  {'check':<28} {'A':>6} {'B':>6}",
+    ]
+    for name in names:
+        a = checks_a.get(name)
+        b = checks_b.get(name)
+        a_mark = "-" if a is None else ("ok" if a["passed"] else "FAIL")
+        b_mark = "-" if b is None else ("ok" if b["passed"] else "FAIL")
+        flag = "  <-- differs" if a_mark != b_mark else ""
+        lines.append(f"  {name:<28} {a_mark:>6} {b_mark:>6}{flag}")
+    print("\n".join(lines))
+
+
 def cmd_runs(args):
     """List runs."""
     runs = list_runs(snapshot=args.snapshot)
@@ -991,6 +1152,26 @@ def main():
     p_diff.add_argument("run_b", help="Second run ID or prompt name")
     p_diff.add_argument("--format", choices=["text", "json"], default="text")
     p_diff.set_defaults(func=cmd_diff)
+
+    # grade
+    p_grade = subparsers.add_parser("grade", help="Score a run with the L1 graders (+ optional L2 judge)")
+    p_grade.add_argument("run", help="Run ID or prompt name")
+    p_grade.add_argument("--format", choices=["text", "json"], default="text")
+    p_grade.add_argument(
+        "--no-recent", action="store_true", help="Skip the dedup-vs-recent check (deterministic/offline grading)"
+    )
+    p_grade.add_argument("--labels", help="Path to L2 judge labels JSON (enables COHERENCE agreement scoring)")
+    p_grade.set_defaults(func=cmd_grade)
+
+    # compare
+    p_compare = subparsers.add_parser(
+        "compare", help="Grade two runs side-by-side (e.g. Haiku vs Sonnet) on binary pass-rate"
+    )
+    p_compare.add_argument("run_a", help="First run ID or prompt name")
+    p_compare.add_argument("run_b", help="Second run ID or prompt name")
+    p_compare.add_argument("--format", choices=["text", "json"], default="text")
+    p_compare.add_argument("--no-recent", action="store_true", help="Skip the dedup-vs-recent check")
+    p_compare.set_defaults(func=cmd_compare)
 
     # runs
     p_runs = subparsers.add_parser("runs", help="List all runs")

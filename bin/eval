@@ -1,0 +1,233 @@
+#!/usr/bin/env python3
+"""L1 eval floor: grade curated selections against binary code assertions.
+
+Standalone CLI -- does not touch the live pipeline.
+
+Usage:
+  bin/eval [PATH]                 Grade a selections.json (default:
+                                  data/claude_input/selections.json)
+  bin/eval --from-digests N       Pull the last N digests' headlines/summaries
+                                  from a DB and report length-cap violations
+                                  across real recent output.
+  bin/eval --db PATH              DB for --from-digests (default:
+                                  data/digest-prod-fresh.db)
+
+Length caps are GraderLimits defaults; override with --headline-cap /
+--summary-cap / --why-cap (word counts).
+"""
+
+import argparse
+import json
+import sqlite3
+import sys
+from html.parser import HTMLParser
+from pathlib import Path
+
+PROJECT_DIR = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(PROJECT_DIR / "newsroom" / "src"))
+
+from eval_graders import GraderLimits, _word_count, grade_selections  # noqa: E402
+
+DEFAULT_SELECTIONS = PROJECT_DIR / "data" / "claude_input" / "selections.json"
+DEFAULT_DB = PROJECT_DIR / "data" / "digest-prod-fresh.db"
+
+GREEN, RED, DIM, BOLD, RESET = "\033[32m", "\033[31m", "\033[2m", "\033[1m", "\033[0m"
+
+
+def _color(s, code):
+    return f"{code}{s}{RESET}" if sys.stdout.isatty() else s
+
+
+# --------------------------------------------------------------------------- #
+# Mode A: grade a selections.json file
+# --------------------------------------------------------------------------- #
+
+
+def grade_file(path: Path, limits: GraderLimits) -> int:
+    if not path.exists():
+        print(f"selections file not found: {path}", file=sys.stderr)
+        return 2
+    try:
+        selections = json.loads(path.read_text())
+    except json.JSONDecodeError as e:
+        print(f"invalid JSON in {path}: {e}", file=sys.stderr)
+        return 2
+
+    report = grade_selections(selections, limits=limits)
+
+    print(_color(f"L1 grade: {path}", BOLD))
+    print()
+    for c in report.checks:
+        mark = _color("PASS", GREEN) if c.passed else _color("FAIL", RED)
+        print(f"  [{mark}] {c.name:<26} {_color(c.detail, DIM)}")
+    print()
+    rate = report.pass_rate * 100
+    summary = f"{sum(1 for c in report.checks if c.passed)}/{len(report.checks)} checks passed ({rate:.0f}%)"
+    print(_color(summary, GREEN if report.passed else RED))
+    return 0 if report.passed else 1
+
+
+# --------------------------------------------------------------------------- #
+# Mode B: length-cap violations across recent digests (from HTML)
+# --------------------------------------------------------------------------- #
+
+
+class _DigestHTMLParser(HTMLParser):
+    """Extract headlines (h3), summaries, and why-it-matters (p.why) from a
+    rendered digest.
+
+    Scoped per ``<article>`` so we only grab real story fields: the headline
+    (h3), the *first* class-less body ``<p>`` (the summary), and ``p.why``.
+    Classed paragraphs (``sources``, ``meta``, ``signal-source``) and the
+    ``.reporting-varies`` block are ignored. Signals are not extracted -- their
+    text mixes headline + source and isn't a clean field. Reconstructing full
+    selections from HTML is lossy; we only pull what's cleanly parseable.
+    """
+
+    def __init__(self):
+        super().__init__()
+        self.headlines: list[str] = []
+        self.summaries: list[str] = []
+        self.whys: list[str] = []
+        self._mode: str | None = None  # "h3" | "summary" | "why"
+        self._buf: list[str] = []
+        self._in_article = False
+        self._summary_captured = False  # only the first body <p> per article
+
+    def handle_starttag(self, tag, attrs):
+        attrd = dict(attrs)
+        if tag == "article":
+            self._in_article = True
+            self._summary_captured = False
+        elif tag == "h3" and self._in_article:
+            self._mode, self._buf = "h3", []
+        elif tag == "p" and self._in_article:
+            classes = (attrd.get("class") or "").split()
+            if "why" in classes:
+                self._mode, self._buf = "why", []
+            elif not classes and not self._summary_captured:
+                self._mode, self._buf = "summary", []
+
+    def handle_endtag(self, tag):
+        text = "".join(self._buf).strip()
+        if tag == "article":
+            self._in_article = False
+        elif tag == "h3" and self._mode == "h3":
+            if text:
+                self.headlines.append(text)
+            self._mode = None
+        elif tag == "p" and self._mode == "why":
+            text = text.removeprefix("Why it matters:").strip()  # strip lead-in
+            if text:
+                self.whys.append(text)
+            self._mode = None
+        elif tag == "p" and self._mode == "summary":
+            if text:
+                self.summaries.append(text)
+                self._summary_captured = True
+            self._mode = None
+
+    def handle_data(self, data):
+        if self._mode:
+            self._buf.append(data)
+
+
+def _parse_digest_html(html: str):
+    p = _DigestHTMLParser()
+    p.feed(html)
+    return p.headlines, p.summaries, p.whys
+
+
+def report_from_digests(db_path: Path, n: int, limits: GraderLimits) -> int:
+    if not db_path.exists():
+        print(f"database not found: {db_path}", file=sys.stderr)
+        return 2
+
+    conn = sqlite3.connect(db_path)
+    rows = conn.execute(
+        "SELECT date, html FROM digests ORDER BY date DESC LIMIT ?", (n,)
+    ).fetchall()
+    conn.close()
+
+    if not rows:
+        print(f"no digests found in {db_path}", file=sys.stderr)
+        return 2
+
+    print(_color(f"Length-cap violations across last {len(rows)} digest(s) in {db_path.name}", BOLD))
+    print(
+        _color(
+            f"caps: headline {limits.headline_max_words}w, summary {limits.summary_max_words}w, "
+            f"why_it_matters {limits.why_it_matters_max_words}w",
+            DIM,
+        )
+    )
+    print(_color("checkable from HTML: headline, summary, why_it_matters. NOT from HTML: "
+                 "schema, sources, signal regions, dedup, counts.", DIM))
+    print()
+
+    fields = [
+        ("headline", limits.headline_max_words),
+        ("summary", limits.summary_max_words),
+        ("why_it_matters", limits.why_it_matters_max_words),
+    ]
+    totals = {f: [0, 0] for f, _ in fields}  # field -> [over, total]
+    worst = {f: (0, "") for f, _ in fields}  # field -> (wordcount, text)
+
+    for date, html in rows:
+        heads, summaries, whys = _parse_digest_html(html)
+        per_field = {"headline": heads, "summary": summaries, "why_it_matters": whys}
+        line_parts = []
+        for fld, cap in fields:
+            items = per_field[fld]
+            over = [t for t in items if _word_count(t) > cap]
+            totals[fld][0] += len(over)
+            totals[fld][1] += len(items)
+            for t in over:
+                wc = _word_count(t)
+                if wc > worst[fld][0]:
+                    worst[fld] = (wc, t)
+            line_parts.append(f"{fld}: {len(over)}/{len(items)} over")
+        print(f"  {date}  " + "  ".join(line_parts))
+
+    print()
+    print(_color("Totals:", BOLD))
+    for fld, _cap in fields:
+        over, total = totals[fld]
+        pct = (over / total * 100) if total else 0.0
+        line = f"  {fld:<16} {over}/{total} over cap ({pct:.0f}%)"
+        print(_color(line, RED if over else GREEN))
+        if over and worst[fld][1]:
+            wc, text = worst[fld]
+            print(_color(f"      worst: {wc}w -- {text[:90]!r}", DIM))
+    return 0
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(description="L1 eval floor for curated selections.")
+    parser.add_argument("path", nargs="?", help="selections.json to grade (file mode)")
+    parser.add_argument("--from-digests", type=int, metavar="N",
+                        help="report length-cap violations across last N digests from DB")
+    parser.add_argument("--db", type=Path, default=DEFAULT_DB, help="DB path for --from-digests")
+    parser.add_argument("--headline-cap", type=int, help="headline word cap override")
+    parser.add_argument("--summary-cap", type=int, help="summary word cap override")
+    parser.add_argument("--why-cap", type=int, help="why_it_matters word cap override")
+    args = parser.parse_args(argv)
+
+    overrides = {}
+    if args.headline_cap is not None:
+        overrides["headline_max_words"] = args.headline_cap
+    if args.summary_cap is not None:
+        overrides["summary_max_words"] = args.summary_cap
+    if args.why_cap is not None:
+        overrides["why_it_matters_max_words"] = args.why_cap
+    limits = GraderLimits(**overrides)
+
+    if args.from_digests is not None:
+        return report_from_digests(args.db, args.from_digests, limits)
+
+    path = Path(args.path) if args.path else DEFAULT_SELECTIONS
+    return grade_file(path, limits)
+
+
+if __name__ == "__main__":
+    sys.exit(main())

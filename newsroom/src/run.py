@@ -267,6 +267,9 @@ Examples:
         selections_path = assemble_selections(CLAUDE_INPUT_DIR)
         selections = load_selections(selections_path)
         db.archive_selections(selections_path.read_text())
+        clusters_path = CLAUDE_INPUT_DIR / "clusters.json"
+        if clusters_path.exists():
+            db.archive_clusters(clusters_path.read_text())
         selections = resolve_article_ids(selections)
 
         if args.select_only:

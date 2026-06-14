@@ -36,31 +36,11 @@ ARTICLE_SCHEMA = {
         "why_it_matters": {"type": "string"},
         "sources": {"type": "array", "items": SOURCE_SCHEMA, "minItems": 1},
         "reporting_varies": {"type": "array", "items": REPORTING_VARIES_SCHEMA},
+        # Optional CLUSTER story label, attached by merge.assemble_selections for
+        # redundancy/overlap tracking. Absent when no cluster could be mapped.
+        "cluster_id": {"type": "string"},
     },
     "required": ["headline", "summary", "why_it_matters", "sources"],
-    "additionalProperties": False,
-}
-
-SIGNAL_SCHEMA = {
-    "type": "object",
-    "properties": {
-        "headline": {"type": "string"},
-        "source": SOURCE_SCHEMA,
-    },
-    "required": ["headline", "source"],
-    "additionalProperties": False,
-}
-
-SIGNALS_SCHEMA = {
-    "type": "object",
-    "properties": {
-        "americas": {"type": "array", "items": SIGNAL_SCHEMA},
-        "europe": {"type": "array", "items": SIGNAL_SCHEMA},
-        "asia_pacific": {"type": "array", "items": SIGNAL_SCHEMA},
-        "middle_east_africa": {"type": "array", "items": SIGNAL_SCHEMA},
-        "tech": {"type": "array", "items": SIGNAL_SCHEMA},
-    },
-    "required": ["americas", "europe", "asia_pacific", "middle_east_africa", "tech"],
     "additionalProperties": False,
 }
 
@@ -69,10 +49,9 @@ SELECTIONS_SCHEMA = {
     "properties": {
         "must_know": {"type": "array", "items": ARTICLE_SCHEMA},
         "should_know": {"type": "array", "items": ARTICLE_SCHEMA},
-        "signals": SIGNALS_SCHEMA,
         "preheader": {"type": "string", "maxLength": 150},
     },
-    "required": ["must_know", "should_know", "signals", "preheader"],
+    "required": ["must_know", "should_know", "preheader"],
     "additionalProperties": False,
 }
 

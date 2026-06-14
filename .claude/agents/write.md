@@ -2,6 +2,7 @@
 name: write
 description: Writes headlines, summaries, why_it_matters, and preheader for selected stories. Runs after the select agent completes.
 tools: Read, Write
+model: claude-sonnet-4-6
 effort: medium
 initialPrompt: "Process today's articles. All input/output files are in /app/data/claude_input/."
 ---
@@ -40,8 +41,6 @@ Examples of strong why_it_matters lines:
 
 **Preheader:** One sentence capturing 2-3 biggest stories. Max 150 characters. No links.
 
-**Signals:** One-liner headline + one article_id per signal.
-
 **Continuity:** Reference weekly_recap.txt to connect stories to ongoing themes where natural. Also read `not_covered_blurb` from selected.json -- it describes what SELECT deliberately filtered and why; use it as background context when writing continuity notes or explaining what the digest is not covering.
 
 **Output schema:**
@@ -63,13 +62,6 @@ Examples of strong why_it_matters lines:
       "sources": [{"article_id": "A5"}]
     }
   ],
-  "signals": {
-    "americas": [{"headline": "...", "source": {"article_id": "A10"}}],
-    "europe": [],
-    "asia_pacific": [],
-    "middle_east_africa": [],
-    "tech": []
-  },
   "preheader": "..."
 }
 

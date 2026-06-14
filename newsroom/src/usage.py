@@ -7,6 +7,27 @@ comparison purposes (actual cost is $0 on Claude subscription).
 The JSONL format is Claude Code's internal session log -- not a public API.
 If the format changes, this parser fails gracefully (logs warning, returns []).
 Raw JSONL files in the Docker volume remain the source of truth.
+
+Why not the Claude Agent SDK session helpers?
+----------------------------------------------
+The Agent SDK exposes list_sessions()/get_session_messages()/list_subagents()/
+get_subagent_messages(), but they do NOT replace this parser:
+
+  * get_session_messages() walks the parentUuid chain and returns only the
+    de-duplicated user/assistant messages. This parser instead needs the RAW
+    streaming snapshots -- multiple JSONL entries share a message.id and only
+    the last has final token counts (see _sum_usage) -- which the chain-walked
+    SDK view collapses, losing the per-message usage detail.
+  * Per-subagent attribution here is done by matching each subagent file's first
+    prompt against the parent session's `Agent` tool_use dispatch *descriptions*
+    (CLUSTER/RECAP/SELECT/WRITE/COHERENCE). get_subagent_messages() keys
+    subagents by an opaque agent_id, not the dispatch label, so it cannot
+    reproduce the human-readable subagent rows stored in `run_usage`.
+  * SessionMessage.message is typed Any and does not surface a stable per-message
+    `usage` field, so token sums would not be reliably available anyway.
+
+The SDK drives the same `claude` CLI, which still writes these JSONL transcripts,
+so this parser stays valid after the SDK migration.
 """
 
 import json
@@ -27,6 +48,12 @@ _PRICING = {
 
 _PROMPT_PREFIX_LEN = 200
 _MAX_AGE_SECONDS = 30 * 60  # 30 minutes -- generous upper bound for a digest run
+
+# Model IDs the pipeline pins (see claude.py / claude_cli.py / .claude/agents/*.md).
+# The dispatcher passes these explicitly; the resolved model in the JSONL should
+# start with one of them. A mismatch means an alias drifted to a different model
+# (the "prod with no Gemfile.lock" failure) -- log loudly so it can't pass silently.
+_PINNED_MODEL_IDS = ("claude-sonnet-4-6", "claude-haiku-4-5")
 
 
 def _extract_dispatches(parent_lines: list[dict]) -> list[dict]:
@@ -135,6 +162,14 @@ def _compute_cost(model: str, usage: dict) -> float:
 
 def _usage_row(subagent: str, model: str, usage: dict) -> dict:
     """Build a usage result dict from model name and summed token counts."""
+    if model != "unknown" and not model.startswith(_PINNED_MODEL_IDS):
+        logger.warning(
+            "Model drift: subagent %r resolved to %r, which does not match any "
+            "pinned ID %s -- an alias may have drifted to a different model.",
+            subagent,
+            model,
+            _PINNED_MODEL_IDS,
+        )
     return {
         "subagent": subagent,
         "model": model,

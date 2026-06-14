@@ -1,72 +1,266 @@
-"""Claude CLI wrapper.
+"""Claude wrapper backed by the official Claude Agent SDK.
 
-Thin, reusable wrapper around `claude --print` / `--output-format stream-json`.
-Drop into any project; no installation required.
+Thin, reusable wrapper around the Claude Agent SDK (`claude-agent-sdk`).
+The SDK drives the same `claude` CLI over a subprocess, so it INHERITS the
+subscription OAuth / setup-token auth and stays on the Agent-SDK credit. It does
+NOT require ANTHROPIC_API_KEY -- setting one would move billing off the
+subscription credit to pay-as-you-go, so we deliberately never set it here.
 
 Usage:
     from claude_cli import run_sync, stream_sync   # sync (batch pipelines)
     from claude_cli import run, stream             # async (web servers)
+
+The public signatures match the previous hand-rolled subprocess wrapper so the
+rest of the pipeline (claude.py, test_prompt.py) keeps working unchanged. The
+streamed events are adapted from the SDK's dataclass message objects into the
+same dict shape the old `--output-format stream-json` NDJSON produced, because
+claude.py inspects events as dicts (event["type"], event["message"]["content"],
+event.get("parent_tool_use_id"), event.get("total_cost_usd"), ...).
+
+Slash commands: the Agent SDK has no dedicated slash-command API. The CLI it
+drives interprets a prompt that begins with "/" as a slash command (exactly as
+`claude --print "/news-digest-select"` does), so we pass the slash command
+straight through as the prompt. setting_sources is left as None, which makes the
+SDK load the same user+project+local settings as the CLI -- required so the
+`.claude/commands/*.md` slash commands and `.claude/agents` subagents resolve.
 """
 
 import asyncio
-import contextlib
-import json
 import logging
-import os
-import signal
-import subprocess
 from collections.abc import AsyncGenerator, Generator
 from pathlib import Path
+from typing import Any
+
+from claude_agent_sdk import (
+    AssistantMessage,
+    ClaudeAgentOptions,
+    ResultMessage,
+    StreamEvent,
+    SystemMessage,
+    TextBlock,
+    ThinkingBlock,
+    ToolResultBlock,
+    ToolUseBlock,
+    UserMessage,
+    query,
+)
 
 logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
-# Internal helpers
+# SDK message -> legacy stream-json dict adaptation
+# ---------------------------------------------------------------------------
+#
+# claude.py consumes events shaped like the CLI's `stream-json` NDJSON:
+#   {"type": "assistant", "message": {"content": [ {block}, ... ]}, ...}
+#   {"type": "user", "parent_tool_use_id": ..., "message": {"content": [...]}}
+#   {"type": "result", "subtype": "success", "total_cost_usd": ..., "duration_ms": ...}
+# The SDK yields dataclasses instead, so we translate each block/message back
+# into that dict form. Keep these in sync with claude.py's expectations.
+
+
+def _block_to_dict(block: Any) -> dict[str, Any]:
+    """Convert an SDK content block dataclass into a stream-json block dict."""
+    if isinstance(block, TextBlock):
+        return {"type": "text", "text": block.text}
+    if isinstance(block, ThinkingBlock):
+        return {"type": "thinking", "thinking": block.thinking}
+    if isinstance(block, ToolUseBlock):
+        return {"type": "tool_use", "id": block.id, "name": block.name, "input": block.input}
+    if isinstance(block, ToolResultBlock):
+        content = block.content
+        # Nested content blocks (rare) -> recurse so shape stays consistent.
+        if isinstance(content, list):
+            content = [_block_to_dict(b) if not isinstance(b, dict) else b for b in content]
+        return {
+            "type": "tool_result",
+            "tool_use_id": block.tool_use_id,
+            "content": content,
+            "is_error": block.is_error,
+        }
+    # Unknown block type: pass through whatever attributes exist, best-effort.
+    return {"type": getattr(block, "type", "unknown")}
+
+
+def _message_to_event(message: Any) -> dict[str, Any] | None:
+    """Adapt an SDK Message dataclass into the legacy stream-json event dict.
+
+    Returns None for message types that have no legacy-event equivalent (e.g.
+    partial StreamEvents / rate-limit notices), which callers simply skip.
+    """
+    if isinstance(message, AssistantMessage):
+        return {
+            "type": "assistant",
+            "parent_tool_use_id": message.parent_tool_use_id,
+            "message": {
+                "role": "assistant",
+                "model": message.model,
+                "content": [_block_to_dict(b) for b in message.content],
+                "usage": message.usage,
+                "id": message.message_id,
+            },
+        }
+    if isinstance(message, UserMessage):
+        user_content: Any = message.content
+        if isinstance(user_content, list):
+            user_content = [_block_to_dict(b) if not isinstance(b, dict) else b for b in user_content]
+        return {
+            "type": "user",
+            "parent_tool_use_id": message.parent_tool_use_id,
+            "message": {"role": "user", "content": user_content},
+        }
+    if isinstance(message, ResultMessage):
+        return {
+            "type": "result",
+            "subtype": message.subtype,
+            "is_error": message.is_error,
+            "duration_ms": message.duration_ms,
+            "num_turns": message.num_turns,
+            "session_id": message.session_id,
+            "total_cost_usd": message.total_cost_usd,
+            "usage": message.usage,
+            "result": message.result,
+        }
+    if isinstance(message, SystemMessage):
+        return {"type": "system", "subtype": message.subtype, **(message.data or {})}
+    if isinstance(message, StreamEvent):
+        # Only emitted when include_partial_messages=True (we don't enable it);
+        # no legacy equivalent, so skip.
+        return None
+    return None
+
+
+def _build_options(
+    *,
+    model: str,
+    system_prompt: str | None,
+    permission_mode: str | None,
+    allowed_tools: str | None,
+    mcp_config: str | Path | None,
+    max_turns: int | None,
+    max_budget_usd: float | None,
+    cwd: str | Path | None,
+) -> ClaudeAgentOptions:
+    """Build ClaudeAgentOptions from the wrapper's keyword arguments.
+
+    setting_sources is intentionally left at its default (None), which makes the
+    SDK load the same user+project+local filesystem settings as the CLI -- this
+    is what allows the `/news-digest-select` slash command and the project
+    subagents under `.claude/` to resolve. If a future SDK release changes the
+    None default to "load nothing", set setting_sources=["user","project","local"].
+    """
+    kwargs: dict[str, Any] = {"model": model}
+    if system_prompt is not None:
+        kwargs["system_prompt"] = system_prompt
+    if permission_mode is not None:
+        kwargs["permission_mode"] = permission_mode
+    if allowed_tools is not None:
+        # Legacy API took a comma/space-separated string; SDK wants a list.
+        kwargs["allowed_tools"] = [t for t in allowed_tools.replace(",", " ").split() if t]
+    if mcp_config is not None:
+        kwargs["mcp_servers"] = str(mcp_config)
+    if max_turns is not None:
+        kwargs["max_turns"] = max_turns
+    if max_budget_usd is not None:
+        # $100-credit guardrail: the SDK stops the run client-side once its cost
+        # estimate reaches this value, surfacing subtype="error_max_budget_usd".
+        kwargs["max_budget_usd"] = max_budget_usd
+    if cwd is not None:
+        kwargs["cwd"] = str(cwd)
+    return ClaudeAgentOptions(**kwargs)
+
+
+def _result_text(events: list[dict[str, Any]]) -> str:
+    """Reconstruct the plain-text result from collected stream events.
+
+    Mirrors the CLI's default (non-stream) output: the final assistant text. We
+    prefer the ResultMessage.result if present, else concatenate assistant text.
+    """
+    for event in reversed(events):
+        if event.get("type") == "result":
+            result = event.get("result")
+            if result:
+                return str(result).strip()
+            break
+    # Fallback: stitch assistant text blocks together.
+    texts: list[str] = []
+    for event in events:
+        if event.get("type") != "assistant":
+            continue
+        for block in event.get("message", {}).get("content", []):
+            if isinstance(block, dict) and block.get("type") == "text":
+                texts.append(block["text"])
+    return "\n".join(texts).strip()
+
+
+def _check_result(events: list[dict[str, Any]]) -> None:
+    """Raise RuntimeError if the run ended without a successful result event.
+
+    The ResultMessage with subtype="success" is the authoritative completion
+    signal (same contract as the old NDJSON `result`/`success` event). A budget
+    cap trips subtype="error_max_budget_usd"; surface it as a clear error.
+    """
+    for event in events:
+        if event.get("type") == "result":
+            subtype = event.get("subtype")
+            if subtype == "success":
+                return
+            raise RuntimeError(f"claude failed: result subtype={subtype!r}")
+    raise RuntimeError("claude failed: no result event received")
+
+
+# ---------------------------------------------------------------------------
+# Core async driver
 # ---------------------------------------------------------------------------
 
 
-def _build_cmd(
+async def _stream_events(
     prompt: str,
     *,
-    model: str = "sonnet",
-    system_prompt: str | None = None,
-    output_format: str | None = None,
-    verbose: bool = False,
-    permission_mode: str | None = None,
-    allowed_tools: str | None = None,
-    mcp_config: str | Path | None = None,
-    json_schema: str | None = None,
-    max_turns: int | None = None,
-) -> list[str]:
-    cmd = ["claude", "--print", "--model", model]
-    if system_prompt is not None:
-        cmd.extend(["--system-prompt", system_prompt])
-    if output_format is not None:
-        cmd.extend(["--output-format", output_format])
-    if verbose:
-        cmd.append("--verbose")
-    if permission_mode is not None:
-        cmd.extend(["--permission-mode", permission_mode])
-    if allowed_tools is not None:
-        cmd.extend(["--allowed-tools", allowed_tools])
-    if mcp_config is not None:
-        cmd.extend(["--mcp-config", str(mcp_config)])
-    if json_schema is not None:
-        cmd.extend(["--json-schema", json_schema])
-    if max_turns is not None:
-        cmd.extend(["--max-turns", str(max_turns)])
-    cmd.extend(["--", prompt])
-    return cmd
+    model: str,
+    system_prompt: str | None,
+    permission_mode: str | None,
+    allowed_tools: str | None,
+    mcp_config: str | Path | None,
+    max_turns: int | None,
+    max_budget_usd: float | None,
+    cwd: str | Path | None,
+) -> AsyncGenerator[dict[str, Any]]:
+    """Drive the SDK query() and yield adapted legacy-shaped event dicts."""
+    options = _build_options(
+        model=model,
+        system_prompt=system_prompt,
+        permission_mode=permission_mode,
+        allowed_tools=allowed_tools,
+        mcp_config=mcp_config,
+        max_turns=max_turns,
+        max_budget_usd=max_budget_usd,
+        cwd=cwd,
+    )
+    async for message in query(prompt=prompt, options=options):
+        event = _message_to_event(message)
+        if event is not None:
+            yield event
 
 
-def _kill_proc(proc: subprocess.Popen | asyncio.subprocess.Process) -> None:
-    """Kill process group; fall back to direct kill if pgid lookup fails."""
+def _drain_sync(agen: AsyncGenerator[dict[str, Any]]) -> Generator[dict[str, Any]]:
+    """Synchronously iterate an async generator, yielding each item.
+
+    Runs a dedicated event loop and pumps the async generator one item at a
+    time so the caller sees events as they stream (matching the old behaviour).
+    """
+    loop = asyncio.new_event_loop()
     try:
-        os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
-    except ProcessLookupError, PermissionError:
-        with contextlib.suppress(ProcessLookupError):
-            proc.kill()
+        while True:
+            try:
+                item = loop.run_until_complete(agen.__anext__())
+            except StopAsyncIteration:
+                break
+            yield item
+    finally:
+        loop.run_until_complete(agen.aclose())
+        loop.close()
 
 
 # ---------------------------------------------------------------------------
@@ -77,7 +271,7 @@ def _kill_proc(proc: subprocess.Popen | asyncio.subprocess.Process) -> None:
 def run_sync(
     prompt: str,
     *,
-    model: str = "sonnet",
+    model: str = "claude-sonnet-4-6",
     system_prompt: str | None = None,
     output_format: str | None = None,
     permission_mode: str | None = None,
@@ -85,105 +279,69 @@ def run_sync(
     mcp_config: str | Path | None = None,
     json_schema: str | None = None,
     max_turns: int | None = None,
+    max_budget_usd: float | None = None,
     timeout: int = 30,
     cwd: str | Path | None = None,
 ) -> str:
-    """Run a prompt synchronously and return the full output."""
-    cmd = _build_cmd(
-        prompt,
-        model=model,
-        system_prompt=system_prompt,
-        output_format=output_format,
-        permission_mode=permission_mode,
-        allowed_tools=allowed_tools,
-        mcp_config=mcp_config,
-        json_schema=json_schema,
-        max_turns=max_turns,
-    )
-    result = subprocess.run(
-        cmd,
-        capture_output=True,
-        text=True,
-        timeout=timeout,
-        start_new_session=True,
-        cwd=cwd,
-    )
-    if result.returncode != 0:
-        raise RuntimeError(f"claude failed (exit {result.returncode}): {result.stderr[:500]}")
-    return result.stdout.strip()
+    """Run a prompt synchronously and return the full text output.
+
+    `output_format` and `json_schema` are accepted for signature compatibility
+    with the old CLI wrapper but are not used by the SDK path (the SDK returns
+    structured messages; we reconstruct the text result).
+    """
+    del output_format, json_schema  # accepted for compat; not used by SDK path
+
+    async def _run() -> str:
+        events: list[dict[str, Any]] = []
+        agen = _stream_events(
+            prompt,
+            model=model,
+            system_prompt=system_prompt,
+            permission_mode=permission_mode,
+            allowed_tools=allowed_tools,
+            mcp_config=mcp_config,
+            max_turns=max_turns,
+            max_budget_usd=max_budget_usd,
+            cwd=cwd,
+        )
+        async for event in agen:
+            events.append(event)
+        _check_result(events)
+        return _result_text(events)
+
+    return asyncio.run(asyncio.wait_for(_run(), timeout=timeout))
 
 
 def stream_sync(
     prompt: str,
     *,
-    model: str = "sonnet",
+    model: str = "claude-sonnet-4-6",
     system_prompt: str | None = None,
     permission_mode: str | None = None,
     allowed_tools: str | None = None,
     mcp_config: str | Path | None = None,
     max_turns: int | None = None,
+    max_budget_usd: float | None = None,
     cwd: str | Path | None = None,
-) -> Generator[dict]:
-    """Stream a prompt synchronously, yielding parsed NDJSON event dicts.
+) -> Generator[dict[str, Any]]:
+    """Stream a prompt synchronously, yielding legacy-shaped event dicts.
 
-    The streamed `result` event with subtype="success" is the authoritative
-    completion signal. The CLI has been observed to exit non-zero with empty
-    stderr after emitting that event (claude CLI bug, 2026-05-02). When that
-    happens we log a warning and return cleanly rather than killing the run.
+    The ResultMessage with subtype="success" is the authoritative completion
+    signal; callers (claude.py) inspect it for cost/duration and to detect
+    non-success endings (including the max_budget_usd guardrail tripping).
     """
-    cmd = _build_cmd(
+    agen = _stream_events(
         prompt,
         model=model,
         system_prompt=system_prompt,
-        output_format="stream-json",
-        verbose=True,
         permission_mode=permission_mode,
         allowed_tools=allowed_tools,
         mcp_config=mcp_config,
         max_turns=max_turns,
-    )
-    proc = subprocess.Popen(
-        cmd,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True,
-        bufsize=1,
-        start_new_session=True,
+        max_budget_usd=max_budget_usd,
         cwd=cwd,
     )
-    killed = False
-    saw_success = False
-    try:
-        assert proc.stdout is not None
-        for raw in proc.stdout:
-            raw = raw.strip()
-            if not raw:
-                continue
-            try:
-                event = json.loads(raw)
-            except json.JSONDecodeError:
-                logger.debug("stream_sync non-JSON: %s", raw[:120])
-                continue
-            if event.get("type") == "result" and event.get("subtype") == "success":
-                saw_success = True
-            yield event
-    finally:
-        if proc.poll() is None:
-            _kill_proc(proc)
-            killed = True
-        proc.wait()
-
-    assert proc.stderr is not None
-    stderr_out = proc.stderr.read()
-    if not killed and proc.returncode != 0:
-        if saw_success:
-            logger.warning(
-                "claude exited %d after subtype=success; trusting result event. stderr: %s",
-                proc.returncode,
-                stderr_out[:500] or "(empty)",
-            )
-            return
-        raise RuntimeError(f"claude failed (exit {proc.returncode}): {stderr_out[:500]}")
+    yield from _drain_sync(agen)
 
 
 # ---------------------------------------------------------------------------
@@ -194,7 +352,7 @@ def stream_sync(
 async def run(
     prompt: str,
     *,
-    model: str = "sonnet",
+    model: str = "claude-sonnet-4-6",
     system_prompt: str | None = None,
     output_format: str | None = None,
     permission_mode: str | None = None,
@@ -202,98 +360,55 @@ async def run(
     mcp_config: str | Path | None = None,
     json_schema: str | None = None,
     max_turns: int | None = None,
+    max_budget_usd: float | None = None,
     timeout: int = 600,
     cwd: str | Path | None = None,
 ) -> str:
-    """Run a prompt asynchronously and return the full output."""
-    cmd = _build_cmd(
-        prompt,
-        model=model,
-        system_prompt=system_prompt,
-        output_format=output_format,
-        permission_mode=permission_mode,
-        allowed_tools=allowed_tools,
-        mcp_config=mcp_config,
-        json_schema=json_schema,
-        max_turns=max_turns,
-    )
-    proc = await asyncio.create_subprocess_exec(
-        *cmd,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-        start_new_session=True,
-        cwd=cwd,
-    )
-    try:
-        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
-    except TimeoutError:
-        _kill_proc(proc)
-        await proc.wait()
-        raise
-    if proc.returncode != 0:
-        raise RuntimeError(f"claude failed (exit {proc.returncode}): {stderr.decode()[:500]}")
-    return stdout.decode()
+    """Run a prompt asynchronously and return the full text output."""
+    del output_format, json_schema  # accepted for compat; not used by SDK path
+
+    async def _run() -> str:
+        events: list[dict[str, Any]] = []
+        async for event in _stream_events(
+            prompt,
+            model=model,
+            system_prompt=system_prompt,
+            permission_mode=permission_mode,
+            allowed_tools=allowed_tools,
+            mcp_config=mcp_config,
+            max_turns=max_turns,
+            max_budget_usd=max_budget_usd,
+            cwd=cwd,
+        ):
+            events.append(event)
+        _check_result(events)
+        return _result_text(events)
+
+    return await asyncio.wait_for(_run(), timeout=timeout)
 
 
 async def stream(
     prompt: str,
     *,
-    model: str = "sonnet",
+    model: str = "claude-sonnet-4-6",
     system_prompt: str | None = None,
     permission_mode: str | None = None,
     allowed_tools: str | None = None,
     mcp_config: str | Path | None = None,
     max_turns: int | None = None,
+    max_budget_usd: float | None = None,
     cwd: str | Path | None = None,
-) -> AsyncGenerator[dict]:
-    """Stream a prompt asynchronously, yielding parsed NDJSON event dicts."""
-    cmd = _build_cmd(
+) -> AsyncGenerator[dict[str, Any]]:
+    """Stream a prompt asynchronously, yielding legacy-shaped event dicts."""
+    async for event in _stream_events(
         prompt,
         model=model,
         system_prompt=system_prompt,
-        output_format="stream-json",
-        verbose=True,
         permission_mode=permission_mode,
         allowed_tools=allowed_tools,
         mcp_config=mcp_config,
         max_turns=max_turns,
-    )
-    proc = await asyncio.create_subprocess_exec(
-        *cmd,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-        start_new_session=True,
+        max_budget_usd=max_budget_usd,
         cwd=cwd,
-    )
-    killed = False
-    saw_success = False
-    try:
-        assert proc.stdout is not None
-        async for line in proc.stdout:
-            text = line.decode().strip()
-            if not text:
-                continue
-            try:
-                event = json.loads(text)
-            except json.JSONDecodeError:
-                logger.debug("stream non-JSON: %s", text[:120])
-                continue
-            if event.get("type") == "result" and event.get("subtype") == "success":
-                saw_success = True
-            yield event
-    finally:
-        if proc.returncode is None:
-            _kill_proc(proc)
-            killed = True
-        assert proc.stderr is not None
-        stderr_data = await proc.stderr.read()
-        await proc.wait()
-        if not killed and proc.returncode != 0:
-            if saw_success:
-                logger.warning(
-                    "claude exited %d after subtype=success; trusting result event. stderr: %s",
-                    proc.returncode,
-                    stderr_data.decode()[:500] or "(empty)",
-                )
-            else:
-                raise RuntimeError(f"claude failed (exit {proc.returncode}): {stderr_data.decode()[:500]}")
+    ):
+        yield event

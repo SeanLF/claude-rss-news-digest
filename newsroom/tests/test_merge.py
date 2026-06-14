@@ -21,15 +21,10 @@ def _article(headline, article_id="A1"):
     }
 
 
-def _signal(headline, article_id="A1"):
-    return {"headline": headline, "source": {"article_id": article_id}}
-
-
-def _draft(must_know=None, should_know=None, signals=None, preheader="Preheader."):
+def _draft(must_know=None, should_know=None, preheader="Preheader."):
     return {
         "must_know": must_know or [],
         "should_know": should_know or [],
-        "signals": signals or {"americas": [], "europe": [], "asia_pacific": [], "middle_east_africa": [], "tech": []},
         "preheader": preheader,
     }
 
@@ -38,9 +33,11 @@ def _coherence(*results):
     return {"results": list(results)}
 
 
-def _write(tmp_path, draft, coherence):
+def _write(tmp_path, draft, coherence, clusters=None):
     (tmp_path / "draft_selections.json").write_text(json.dumps(draft))
     (tmp_path / "coherence_report.json").write_text(json.dumps(coherence))
+    if clusters is not None:
+        (tmp_path / "clusters.json").write_text(json.dumps(clusters))
 
 
 class TestAssembleSelections:
@@ -73,33 +70,6 @@ class TestAssembleSelections:
         assembled = json.loads(out.read_text())
 
         assert [a["headline"] for a in assembled["should_know"]] == ["keep"]
-
-    def test_drops_failed_signals_per_region(self, tmp_path):
-        draft = _draft(
-            must_know=[_article("mk")],
-            signals={
-                "americas": [_signal("ok"), _signal("nope")],
-                "europe": [_signal("eu-ok")],
-                "asia_pacific": [],
-                "middle_east_africa": [],
-                "tech": [_signal("tech-bad")],
-            },
-        )
-        coherence = _coherence(
-            {"headline": "mk", "pass": True},
-            {"headline": "ok", "pass": True},
-            {"headline": "nope", "pass": False},
-            {"headline": "eu-ok", "pass": True},
-            {"headline": "tech-bad", "pass": False},
-        )
-        _write(tmp_path, draft, coherence)
-
-        out = assemble_selections(tmp_path)
-        assembled = json.loads(out.read_text())
-
-        assert [s["headline"] for s in assembled["signals"]["americas"]] == ["ok"]
-        assert [s["headline"] for s in assembled["signals"]["europe"]] == ["eu-ok"]
-        assert assembled["signals"]["tech"] == []
 
     def test_pass_missing_defaults_to_keep(self, tmp_path):
         # If coherence omits a headline entirely, treat it as passing.
@@ -166,6 +136,59 @@ class TestAssembleSelections:
             assemble_selections(tmp_path)
 
 
+class TestClusterIdMapping:
+    def test_attaches_cluster_id_from_clusters_json(self, tmp_path):
+        draft = _draft(
+            must_know=[_article("mk", article_id="A267")],
+            should_know=[_article("sk", article_id="A354")],
+        )
+        coherence = _coherence(
+            {"headline": "mk", "pass": True},
+            {"headline": "sk", "pass": True},
+        )
+        clusters = {
+            "clusters": [
+                {"story": "Iran Missile Attacks on Gulf States", "article_ids": ["A267"]},
+                {"story": "Energy Crisis Impact on Asian Markets", "article_ids": ["A354", "A999"]},
+            ]
+        }
+        _write(tmp_path, draft, coherence, clusters=clusters)
+
+        assembled = json.loads(assemble_selections(tmp_path).read_text())
+
+        assert assembled["must_know"][0]["cluster_id"] == "Iran Missile Attacks on Gulf States"
+        assert assembled["should_know"][0]["cluster_id"] == "Energy Crisis Impact on Asian Markets"
+
+    def test_no_cluster_id_when_clusters_json_missing(self, tmp_path):
+        # Best-effort: missing clusters.json must not break assembly.
+        draft = _draft(must_know=[_article("mk", article_id="A1")])
+        _write(tmp_path, draft, _coherence({"headline": "mk", "pass": True}))
+
+        assembled = json.loads(assemble_selections(tmp_path).read_text())
+
+        assert "cluster_id" not in assembled["must_know"][0]
+
+    def test_no_cluster_id_when_article_unmapped(self, tmp_path):
+        # Article not present in any cluster -> no cluster_id, still valid.
+        draft = _draft(must_know=[_article("mk", article_id="A1")])
+        clusters = {"clusters": [{"story": "Other", "article_ids": ["A2"]}]}
+        _write(tmp_path, draft, _coherence({"headline": "mk", "pass": True}), clusters=clusters)
+
+        assembled = json.loads(assemble_selections(tmp_path).read_text())
+
+        assert "cluster_id" not in assembled["must_know"][0]
+
+    def test_malformed_clusters_json_does_not_break(self, tmp_path):
+        draft = _draft(must_know=[_article("mk", article_id="A1")])
+        (tmp_path / "draft_selections.json").write_text(json.dumps(draft))
+        (tmp_path / "coherence_report.json").write_text(json.dumps(_coherence({"headline": "mk", "pass": True})))
+        (tmp_path / "clusters.json").write_text("{ not valid json")
+
+        assembled = json.loads(assemble_selections(tmp_path).read_text())
+
+        assert "cluster_id" not in assembled["must_know"][0]
+
+
 class TestValidateSelections:
     def _valid(self):
         return _draft(must_know=[_article("h")])
@@ -180,9 +203,9 @@ class TestValidateSelections:
         assert any("must_know" in e and "array" in e for e in errors)
 
     def test_rejects_missing_required(self):
-        bad = {"must_know": [], "should_know": []}
+        bad = {"must_know": []}
         errors = validate_selections(bad)
-        assert any("signals" in e for e in errors)
+        assert any("should_know" in e for e in errors)
         assert any("preheader" in e for e in errors)
 
     def test_rejects_old_source_schema(self):
@@ -191,8 +214,8 @@ class TestValidateSelections:
         errors = validate_selections(bad)
         assert errors
 
-    def test_rejects_extra_signal_keys(self):
+    def test_rejects_unknown_top_level_key(self):
         bad = self._valid()
-        bad["signals"]["americas"] = [{"headline": "x", "source": {"article_id": "A1"}, "extra": "no"}]
+        bad["signals"] = {"americas": []}
         errors = validate_selections(bad)
         assert errors

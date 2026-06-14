@@ -20,7 +20,6 @@ from render import (
     is_safe_url,
     minify_css,
     render_article,
-    render_signal,
     resolve_css_variables,
     slugify,
     strip_html,
@@ -243,7 +242,6 @@ class TestResolveArticleIds:
                 }
             ],
             "should_know": [],
-            "signals": {"americas": [], "europe": [], "asia_pacific": [], "middle_east_africa": [], "tech": []},
             "preheader": "Test",
         }
 
@@ -256,38 +254,6 @@ class TestResolveArticleIds:
         assert src["bias"] == "center"
         assert src["source_id"] == "bbc"
         assert src["original_title"] == "BBC headline"
-
-    def test_resolves_signal_source(self, tmp_path):
-        index = {
-            "A5": {
-                "url": "https://reuters.com/x",
-                "source_id": "reuters",
-                "bias": "center",
-                "original_title": "Reuters headline",
-                "name": "Reuters",
-            },
-        }
-        self._write_index(tmp_path, index)
-
-        selections = {
-            "must_know": [],
-            "should_know": [],
-            "signals": {
-                "americas": [{"headline": "Signal", "source": {"article_id": "A5"}}],
-                "europe": [],
-                "asia_pacific": [],
-                "middle_east_africa": [],
-                "tech": [],
-            },
-            "preheader": "Test",
-        }
-
-        with patch("digest.CLAUDE_INPUT_DIR", tmp_path):
-            result = resolve_article_ids(selections)
-
-        src = result["signals"]["americas"][0]["source"]
-        assert src["name"] == "Reuters"
-        assert src["source_id"] == "reuters"
 
     def test_drops_unresolved_ids(self, tmp_path):
         index = {"A1": {"url": "https://x.com", "source_id": "x", "bias": "center", "original_title": "T", "name": "X"}}
@@ -303,7 +269,6 @@ class TestResolveArticleIds:
                 }
             ],
             "should_know": [],
-            "signals": {"americas": [], "europe": [], "asia_pacific": [], "middle_east_africa": [], "tech": []},
             "preheader": "Test",
         }
 
@@ -328,7 +293,6 @@ class TestResolveArticleIds:
                 }
             ],
             "should_know": [],
-            "signals": {"americas": [], "europe": [], "asia_pacific": [], "middle_east_africa": [], "tech": []},
             "preheader": "Test",
         }
 
@@ -339,7 +303,7 @@ class TestResolveArticleIds:
         assert len(result["must_know"]) == 0
 
     def test_missing_index_returns_unchanged(self, tmp_path):
-        selections = {"must_know": [], "should_know": [], "signals": {}, "preheader": "Test"}
+        selections = {"must_know": [], "should_know": [], "preheader": "Test"}
 
         with patch("digest.CLAUDE_INPUT_DIR", tmp_path), patch("digest.OUTPUT_DIR", tmp_path):
             result = resolve_article_ids(selections)
@@ -430,7 +394,6 @@ class TestExtractHeadlinesExpanded:
                 }
             ],
             "should_know": [],
-            "signals": {"americas": [], "europe": [], "asia_pacific": [], "middle_east_africa": [], "tech": []},
         }
 
         headlines = extract_headlines(selections)
@@ -442,34 +405,11 @@ class TestExtractHeadlinesExpanded:
         assert headlines[1]["source_id"] == "cnn"
         assert headlines[1]["original_title"] == "CNN title"
 
-    def test_signal_single_source(self):
-        selections = {
-            "must_know": [],
-            "should_know": [],
-            "signals": {
-                "americas": [
-                    {"headline": "Signal story", "source": {"source_id": "reuters", "original_title": "Reuters title"}}
-                ],
-                "europe": [],
-                "asia_pacific": [],
-                "middle_east_africa": [],
-                "tech": [],
-            },
-        }
-
-        headlines = extract_headlines(selections)
-
-        assert len(headlines) == 1
-        assert headlines[0]["tier"] == "signal"
-        assert headlines[0]["source_id"] == "reuters"
-        assert headlines[0]["original_title"] == "Reuters title"
-
     def test_no_source_id_fn_needed(self):
         """extract_headlines no longer requires a source_id lookup function."""
         selections = {
             "must_know": [{"headline": "Test", "sources": [{"source_id": "x"}]}],
             "should_know": [],
-            "signals": {"americas": [], "europe": [], "asia_pacific": [], "middle_east_africa": [], "tech": []},
         }
         # Should work without any function parameter
         headlines = extract_headlines(selections)
@@ -571,16 +511,3 @@ class TestSlugify:
     def test_no_trailing_hyphen_after_truncation(self):
         result = slugify("a" * 59 + " b")
         assert not result.endswith("-")
-
-
-class TestRenderSignalBareUrl:
-    def test_bare_url_plain_text(self):
-        item = {"headline": "Signal", "source": {"name": "WaPo", "url": "https://www.washingtonpost.com"}}
-        result = render_signal(item)
-        assert "WaPo" in result
-        assert "<a" not in result
-
-    def test_valid_url_linked(self):
-        item = {"headline": "Signal", "source": {"name": "BBC", "url": "https://bbc.com/news/1"}}
-        result = render_signal(item)
-        assert '<a href="https://bbc.com/news/1">BBC</a>' in result

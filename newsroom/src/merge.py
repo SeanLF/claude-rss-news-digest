@@ -15,8 +15,54 @@ from schema import validate_selections
 logger = logging.getLogger(__name__)
 
 
+def _load_cluster_map(claude_input_dir: Path) -> dict[str, str]:
+    """Build an article_id -> cluster story label map from clusters.json.
+
+    Best-effort: a missing or malformed clusters.json yields an empty map and a
+    warning rather than failing the run. The story label is the cluster
+    identifier we persist for overlap/redundancy analysis.
+    """
+    clusters_path = claude_input_dir / "clusters.json"
+    if not clusters_path.exists():
+        logger.warning("clusters.json missing -- shown headlines will have no cluster_id")
+        return {}
+    try:
+        clusters = json.loads(clusters_path.read_text())
+    except (json.JSONDecodeError, OSError) as e:
+        logger.warning("clusters.json unreadable (%s) -- skipping cluster_id mapping", e)
+        return {}
+
+    mapping: dict[str, str] = {}
+    for cluster in clusters.get("clusters", []):
+        story = cluster.get("story")
+        if not story:
+            continue
+        for article_id in cluster.get("article_ids", []):
+            mapping[article_id] = story
+    return mapping
+
+
+def _attach_cluster_id(item: dict, sources: list[dict], cluster_map: dict[str, str]) -> None:
+    """Attach the cluster story label to a draft item from its source article_ids.
+
+    Uses the first source whose article_id maps to a cluster. No-op when the map
+    is empty or none of the article_ids are known.
+    """
+    if not cluster_map:
+        return
+    for src in sources:
+        aid = src.get("article_id")
+        story = cluster_map.get(aid) if isinstance(aid, str) else None
+        if story:
+            item["cluster_id"] = story
+            return
+
+
 def assemble_selections(claude_input_dir: Path) -> Path:
     """Read draft + coherence, drop coherence-failed entries, write selections.json.
+
+    Also maps each surviving story back to its CLUSTER story label (via
+    clusters.json) and attaches it as ``cluster_id`` for redundancy tracking.
 
     Raises:
         RuntimeError: if intermediate files missing/invalid or assembled output
@@ -32,6 +78,7 @@ def assemble_selections(claude_input_dir: Path) -> Path:
 
     draft = json.loads(draft_path.read_text())
     coherence = json.loads(coherence_path.read_text())
+    cluster_map = _load_cluster_map(claude_input_dir)
 
     failed = {r["headline"] for r in coherence.get("results", []) if not r.get("pass", True)}
 
@@ -42,17 +89,9 @@ def assemble_selections(claude_input_dir: Path) -> Path:
             if item.get("headline") in failed:
                 dropped.append((tier, item.get("headline")))
             else:
+                _attach_cluster_id(item, item.get("sources", []), cluster_map)
                 kept.append(item)
         draft[tier] = kept
-
-    for region, items in draft.get("signals", {}).items():
-        kept = []
-        for item in items:
-            if item.get("headline") in failed:
-                dropped.append((f"signals.{region}", item.get("headline")))
-            else:
-                kept.append(item)
-        draft["signals"][region] = kept
 
     if dropped:
         logger.info("Coherence dropped %d headlines:", len(dropped))
@@ -73,7 +112,6 @@ def assemble_selections(claude_input_dir: Path) -> Path:
 
     must_know = len(draft["must_know"])
     should_know = len(draft["should_know"])
-    signals = sum(len(v) for v in draft["signals"].values())
-    logger.info("Assembled selections.json: %d must_know, %d should_know, %d signals", must_know, should_know, signals)
+    logger.info("Assembled selections.json: %d must_know, %d should_know", must_know, should_know)
 
     return output_path

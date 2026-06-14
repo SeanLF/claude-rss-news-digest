@@ -208,13 +208,14 @@ def record_shown_headlines(headlines: list[dict]):
     try:
         with sqlite3.connect(_db_path()) as conn:
             conn.executemany(
-                "INSERT INTO shown_narratives (headline, tier, source_id, original_title, run_id) VALUES (?, ?, ?, ?, ?)",
+                "INSERT INTO shown_narratives (headline, tier, source_id, original_title, cluster_id, run_id) VALUES (?, ?, ?, ?, ?, ?)",
                 [
                     (
                         h.get("headline", ""),
                         h.get("tier", ""),
                         h.get("source_id"),
                         h.get("original_title"),
+                        h.get("cluster_id"),
                         _state.run_id,
                     )
                     for h in headlines
@@ -345,6 +346,24 @@ def archive_selections(selections_json: str):
         logger.error("DB error archiving selections: %s", e)
 
 
+def archive_clusters(clusters_json: str):
+    """Archive the per-run clusters.json blob for historical analysis.
+
+    clusters.json is overwritten every run; persisting it keyed by run makes
+    historical cluster composition queryable alongside shown_narratives.cluster_id.
+    """
+    if not _state.recording:
+        return
+    try:
+        with sqlite3.connect(_db_path()) as conn:
+            conn.execute(
+                "INSERT INTO cluster_runs (run_id, clusters_json) VALUES (?, ?)",
+                (_state.run_id, clusters_json),
+            )
+    except sqlite3.Error as e:
+        logger.error("DB error archiving clusters: %s", e)
+
+
 def record_usage(usage_rows: list[dict]):
     """Record per-subagent token usage for the current run.
 
@@ -441,6 +460,7 @@ def delete_run(run_id: int):
                 "source_health",
                 "dedup_log",
                 "run_usage",
+                "cluster_runs",
             ]:
                 conn.execute(f"DELETE FROM {table} WHERE run_id = ?", (run_id,))
             conn.execute("DELETE FROM digest_runs WHERE id = ?", (run_id,))

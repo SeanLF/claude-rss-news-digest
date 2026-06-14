@@ -1,0 +1,54 @@
+#!/bin/bash
+# L2 eval harness: validate the COHERENCE LLM-as-judge against independent labels.
+#
+# Loads the joined COHERENCE cases (verdict + resolved source articles) from a
+# claude_input dir, joins them to an independent labels JSON file, and prints
+# the agreement report (confusion matrix, agreement rate, disagreements).
+#
+# Runs under `uv` because the host python lacks the project's deps / version
+# (mirrors bin/usage's "no bare python3" convention).
+#
+# Usage:
+#   bin/eval-judge [LABELS_JSON] [CLAUDE_INPUT_DIR]
+#
+# Defaults:
+#   LABELS_JSON       data/claude_input/coherence_labels_april_sample.json
+#   CLAUDE_INPUT_DIR  data/claude_input
+
+set -e
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
+
+LABELS="${1:-$PROJECT_DIR/data/claude_input/coherence_labels_april_sample.json}"
+INPUT_DIR="${2:-$PROJECT_DIR/data/claude_input}"
+
+if [ ! -f "$LABELS" ]; then
+  echo "Labels file not found: $LABELS" >&2
+  echo "Write a list of {headline, label_pass, label_rationale} first." >&2
+  exit 1
+fi
+
+cd "$PROJECT_DIR/newsroom"
+
+LABELS="$LABELS" INPUT_DIR="$INPUT_DIR" uv run python - <<'PY'
+import os
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path.cwd() / "src"))
+
+from eval_judge import load_coherence_cases, load_labels, score_agreement  # noqa: E402
+
+input_dir = os.environ["INPUT_DIR"]
+labels_path = os.environ["LABELS"]
+
+cases = load_coherence_cases(input_dir)
+labels = load_labels(labels_path)
+report = score_agreement(cases, labels)
+
+print(report.render())
+print()
+print(f"source representation: RSS title-level proxy ({len(cases)} judge cases loaded)")
+print("NOTE: titles only, not full article bodies -- a floor, not a verdict on the judge.")
+PY
