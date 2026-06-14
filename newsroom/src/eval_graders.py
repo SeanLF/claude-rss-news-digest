@@ -46,9 +46,12 @@ class GraderLimits:
     # Preheader character cap (matches SELECTIONS_SCHEMA maxLength).
     preheader_max_chars: int = 150
 
-    # Story-count ranges (inclusive [min, max]).
+    # Story-count ranges (inclusive [min, max]). Bounds track the live volume
+    # policy (SELECT targets must_know 3-5 / hard-max 6, should_know 8-12 /
+    # hard-max 14) with slack below target so the L1 floor catches bloat
+    # regressions (e.g. should_know > 14) rather than spuriously failing.
     must_know_range: tuple[int, int] = (1, 6)
-    should_know_range: tuple[int, int] = (3, 25)
+    should_know_range: tuple[int, int] = (3, 14)
 
 
 @dataclass(frozen=True)

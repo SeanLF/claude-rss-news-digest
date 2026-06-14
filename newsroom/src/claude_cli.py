@@ -60,6 +60,17 @@ logger = logging.getLogger(__name__)
 # into that dict form. Keep these in sync with claude.py's expectations.
 
 
+def _normalize_content(content: Any) -> Any:
+    """Normalize a content list of SDK blocks/dicts into stream-json block dicts.
+
+    Non-list content is returned unchanged; list items that are already dicts
+    pass through, SDK block dataclasses are converted via ``_block_to_dict``.
+    """
+    if isinstance(content, list):
+        return [b if isinstance(b, dict) else _block_to_dict(b) for b in content]
+    return content
+
+
 def _block_to_dict(block: Any) -> dict[str, Any]:
     """Convert an SDK content block dataclass into a stream-json block dict."""
     if isinstance(block, TextBlock):
@@ -69,10 +80,8 @@ def _block_to_dict(block: Any) -> dict[str, Any]:
     if isinstance(block, ToolUseBlock):
         return {"type": "tool_use", "id": block.id, "name": block.name, "input": block.input}
     if isinstance(block, ToolResultBlock):
-        content = block.content
-        # Nested content blocks (rare) -> recurse so shape stays consistent.
-        if isinstance(content, list):
-            content = [_block_to_dict(b) if not isinstance(b, dict) else b for b in content]
+        # Nested content blocks (rare) -> normalize so shape stays consistent.
+        content = _normalize_content(block.content)
         return {
             "type": "tool_result",
             "tool_use_id": block.tool_use_id,
@@ -102,9 +111,7 @@ def _message_to_event(message: Any) -> dict[str, Any] | None:
             },
         }
     if isinstance(message, UserMessage):
-        user_content: Any = message.content
-        if isinstance(user_content, list):
-            user_content = [_block_to_dict(b) if not isinstance(b, dict) else b for b in user_content]
+        user_content = _normalize_content(message.content)
         return {
             "type": "user",
             "parent_tool_use_id": message.parent_tool_use_id,

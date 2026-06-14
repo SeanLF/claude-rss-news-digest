@@ -270,6 +270,7 @@ Examples:
         clusters_path = CLAUDE_INPUT_DIR / "clusters.json"
         if clusters_path.exists():
             db.archive_clusters(clusters_path.read_text())
+        db.archive_run_artifacts(CLAUDE_INPUT_DIR, models={"select": args.model or "claude-sonnet-4-6"})
         selections = resolve_article_ids(selections)
 
         if args.select_only:

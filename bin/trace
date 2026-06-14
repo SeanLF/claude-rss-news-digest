@@ -1,0 +1,82 @@
+#!/bin/bash
+# Reproduce a run's full per-run trace from the durable run_artifacts store.
+#
+# The per-run intermediates in data/claude_input/ are overwritten every run;
+# run_artifacts persists them keyed by run_id so any run can be reproduced.
+#
+# Runs under `uv` because the host python lacks the project's deps / version
+# (mirrors bin/usage's "no bare python3" convention).
+#
+# Usage:
+#   bin/trace RUN_ID [ARTIFACT_NAME]   Print all artifacts (or one) for a run
+#   bin/trace --list                   List runs that have archived trace
+#
+# Defaults:
+#   DB  data/digest.db   (override with $DIGEST_DB; pull prod via bin/db-clone)
+
+set -e
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
+DB="${DIGEST_DB:-$PROJECT_DIR/data/digest.db}"
+
+if [ ! -f "$DB" ]; then
+  echo "No database at $DB. Run: bin/db-clone" >&2
+  exit 1
+fi
+
+if [ -z "$1" ]; then
+  echo "Usage: bin/trace RUN_ID [ARTIFACT_NAME] | bin/trace --list" >&2
+  exit 1
+fi
+
+cd "$PROJECT_DIR/newsroom"
+
+DB="$DB" ARG="$1" NAME="${2:-}" uv run python - <<'PY'
+import os
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path.cwd() / "src"))
+
+import db  # noqa: E402
+
+db._state.db_path = Path(os.environ["DB"])
+arg = os.environ["ARG"]
+name = os.environ.get("NAME") or None
+
+if arg == "--list":
+    import sqlite3
+
+    with sqlite3.connect(db._state.db_path) as conn:
+        rows = conn.execute(
+            """SELECT run_id, COUNT(*), MIN(created_at)
+               FROM run_artifacts GROUP BY run_id ORDER BY run_id DESC"""
+        ).fetchall()
+    if not rows:
+        print("No archived trace yet.")
+    else:
+        print(f"{'run_id':>7}  {'artifacts':>9}  archived_at")
+        for run_id, n, at in rows:
+            print(f"{run_id:>7}  {n:>9}  {at}")
+    sys.exit(0)
+
+run_id = int(arg)
+artifacts = db.get_run_artifacts(run_id)
+if not artifacts:
+    print(f"No trace archived for run {run_id} (try: bin/trace --list)")
+    sys.exit(1)
+
+if name:
+    if name not in artifacts:
+        print(f"Run {run_id} has no artifact '{name}'. Have: {', '.join(artifacts)}")
+        sys.exit(1)
+    print(artifacts[name])
+    sys.exit(0)
+
+for i, (an, content) in enumerate(artifacts.items()):
+    if i:
+        print()
+    print(f"===== run {run_id} :: {an} =====")
+    print(content)
+PY

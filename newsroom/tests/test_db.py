@@ -94,3 +94,65 @@ def test_delete_run_removes_cluster_runs(fresh_db):
     with sqlite3.connect(fresh_db) as conn:
         count = conn.execute("SELECT COUNT(*) FROM cluster_runs WHERE run_id = ?", (run_id,)).fetchone()[0]
     assert count == 0
+
+
+# --- run_artifacts (durable per-run trace store) ---------------------------
+
+
+def _write_claude_input(tmp_path):
+    """Build a claude_input dir with a representative subset of trace files."""
+    d = tmp_path / "claude_input"
+    d.mkdir()
+    (d / "clusters.json").write_text('{"clusters": [{"story": "A"}]}')
+    (d / "selected.json").write_text('{"selected": ["A1"]}')
+    (d / "recap.txt").write_text("recent titles recap")
+    return d
+
+
+def test_migration_creates_run_artifacts_table(fresh_db):
+    with sqlite3.connect(fresh_db) as conn:
+        tables = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+    assert "run_artifacts" in tables
+
+
+def test_archive_run_artifacts_persists_existing_files(fresh_db, tmp_path):
+    d = _write_claude_input(tmp_path)
+    db.archive_run_artifacts(d)
+    arts = db.get_run_artifacts(db._state.run_id)
+    # Only files that exist are stored; missing ones (e.g. coherence_report.json) skipped.
+    assert set(arts) == {"clusters.json", "selected.json", "recap.txt"}
+    assert arts["recap.txt"] == "recent titles recap"
+    assert json.loads(arts["clusters.json"]) == {"clusters": [{"story": "A"}]}
+
+
+def test_archive_run_artifacts_stores_models(fresh_db, tmp_path):
+    d = _write_claude_input(tmp_path)
+    db.archive_run_artifacts(d, models={"select": "claude-sonnet-4-6"})
+    arts = db.get_run_artifacts(db._state.run_id)
+    assert json.loads(arts["models.json"]) == {"select": "claude-sonnet-4-6"}
+
+
+def test_archive_run_artifacts_noop_when_not_recording(tmp_path):
+    db._state = db._State()
+    db.init(tmp_path / "test.db", MIGRATIONS_DIR)
+    db.start_run(recording=False)
+    db.archive_run_artifacts(_write_claude_input(tmp_path))
+    with sqlite3.connect(tmp_path / "test.db") as conn:
+        count = conn.execute("SELECT COUNT(*) FROM run_artifacts").fetchone()[0]
+    assert count == 0
+
+
+def test_archive_run_artifacts_empty_dir_is_soft(fresh_db, tmp_path):
+    empty = tmp_path / "claude_input"
+    empty.mkdir()
+    db.archive_run_artifacts(empty)  # no files, no models -> no rows, no crash
+    assert db.get_run_artifacts(db._state.run_id) == {}
+
+
+def test_delete_run_removes_run_artifacts(fresh_db, tmp_path):
+    run_id = db._state.run_id
+    db.archive_run_artifacts(_write_claude_input(tmp_path))
+    db.delete_run(run_id)
+    with sqlite3.connect(fresh_db) as conn:
+        count = conn.execute("SELECT COUNT(*) FROM run_artifacts WHERE run_id = ?", (run_id,)).fetchone()[0]
+    assert count == 0

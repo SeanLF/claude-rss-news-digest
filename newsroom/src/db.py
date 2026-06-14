@@ -364,6 +364,77 @@ def archive_clusters(clusters_json: str):
         logger.error("DB error archiving clusters: %s", e)
 
 
+# Per-run intermediates in claude_input/ that are overwritten every run.
+# Persisting them keyed by run gives a durable, reproducible trace that survives
+# volume wipes/redeploys and grows the eval golden set over time.
+_TRACE_ARTIFACTS = (
+    "clusters.json",
+    "selected.json",
+    "draft_selections.json",
+    "coherence_report.json",
+    "article_index.json",
+    "selections.json",
+    "recap.txt",
+)
+
+
+def archive_run_artifacts(claude_input_dir: Path, models: dict[str, str] | None = None):
+    """Archive the per-run intermediate trace files for reproducibility.
+
+    Reads each known intermediate that exists under claude_input_dir and inserts
+    one row per artifact (artifact_name = filename, content = file text). If
+    `models` is supplied, the resolved model IDs are stored as a synthetic
+    "models.json" artifact.
+
+    Fails soft: a trace-archival problem must never kill a digest, so all errors
+    are logged and swallowed.
+    """
+    if not _state.recording or _state.run_id is None:
+        return
+    try:
+        rows: list[tuple[int, str, str]] = []
+        for name in _TRACE_ARTIFACTS:
+            path = claude_input_dir / name
+            if not path.exists():
+                continue
+            try:
+                rows.append((_state.run_id, name, path.read_text()))
+            except OSError as e:
+                logger.warning("Could not read trace artifact %s: %s", name, e)
+        if models:
+            import json
+
+            rows.append((_state.run_id, "models.json", json.dumps(models, sort_keys=True)))
+        if not rows:
+            return
+        with sqlite3.connect(_db_path()) as conn:
+            conn.executemany(
+                "INSERT INTO run_artifacts (run_id, artifact_name, content) VALUES (?, ?, ?)",
+                rows,
+            )
+        logger.info("Archived %d trace artifact(s) for run %d", len(rows), _state.run_id)
+    except Exception as e:
+        # Deliberately broad: trace archival is best-effort and must never crash
+        # a digest (e.g. a non-UTF-8 artifact would raise UnicodeDecodeError).
+        logger.error("Error archiving run artifacts: %s", e)
+
+
+def get_run_artifacts(run_id: int) -> dict[str, str]:
+    """Return a run's archived trace as {artifact_name: content} for reproduction."""
+    if not _state.db_path or not _state.db_path.exists():
+        return {}
+    try:
+        with sqlite3.connect(_state.db_path) as conn:
+            cursor = conn.execute(
+                "SELECT artifact_name, content FROM run_artifacts WHERE run_id = ? ORDER BY artifact_name",
+                (run_id,),
+            )
+            return dict(cursor.fetchall())
+    except sqlite3.Error as e:
+        logger.error("DB error getting run artifacts for %d: %s", run_id, e)
+        return {}
+
+
 def record_usage(usage_rows: list[dict]):
     """Record per-subagent token usage for the current run.
 
@@ -461,6 +532,7 @@ def delete_run(run_id: int):
                 "dedup_log",
                 "run_usage",
                 "cluster_runs",
+                "run_artifacts",
             ]:
                 conn.execute(f"DELETE FROM {table} WHERE run_id = ?", (run_id,))
             conn.execute("DELETE FROM digest_runs WHERE id = ?", (run_id,))

@@ -7,7 +7,9 @@
     "n_cases": 386,
     "n_fails": 296,
     "n_passes": 90,
-    "n_labeler_disagreements": 0
+    "n_labeler_disagreements": 0,
+    "n_blind_relabeled": 60,
+    "blind_method": "Independent blind re-label of a 60-case subset (35 judge-fail + 25 judge-pass), deciding faithful/unfaithful from articles[] title+summary ONLY, without reading judge_pass/judge_reason. label_blind/label_blind_rationale carry the blind verdict; true fail-precision and false-pass sweep computed from these."
   },
   "cases": [
     {
@@ -68,7 +70,9 @@
       "judge_pass": false,
       "judge_reason": "A427 (WSJ World) is titled 'The Ground Drones Rescuing Ukraine's Wounded From the Front Lines' — it covers Ukrainian ground drone warfare, not German Patriot deployment to Turkey. The correct sources for Germany's Patriot deployment are A24 (Al-Monitor) or A92 (Daily Maverick). This is a misattribution.",
       "label_pass": false,
-      "label_rationale": "Read the cited source article(s) above; the headline contains a claim not supported by them (typically a wrong article-ID assignment or an unsupported number/specific). Independent verdict: UNFAITHFUL (agrees with judge fail). Verified against source: A427 (WSJ World) is titled 'The Ground Drones Rescuing Ukraine's Wounded From the Front Lines' — it covers Ukrainian ground drone warfare, not German Patriot deployment to Turkey. The correct sources for Germany's Patriot deployment are A24"
+      "label_rationale": "Read the cited source article(s) above; the headline contains a claim not supported by them (typically a wrong article-ID assignment or an unsupported number/specific). Independent verdict: UNFAITHFUL (agrees with judge fail). Verified against source: A427 (WSJ World) is titled 'The Ground Drones Rescuing Ukraine's Wounded From the Front Lines' — it covers Ukrainian ground drone warfare, not German Patriot deployment to Turkey. The correct sources for Germany's Patriot deployment are A24",
+      "label_blind": false,
+      "label_blind_rationale": "Headline (Germany Patriot to Turkey) wholly unrelated to cited source (Ukraine ground rescue drones)."
     },
     {
       "headline": "Thailand court acquits Thanathorn in rare lese majeste ruling",
@@ -250,7 +254,9 @@
       "judge_pass": false,
       "judge_reason": "A233 is 'Future presence of US troops in Lithuania is under review' — a completely unrelated article about US troops in Lithuania. The eurozone inflation story is covered by A261 ('Euro zone inflation jump reinforces case for June rate hike'). The cited article_id is entirely wrong; the headline does not match A233 at all.",
       "label_pass": false,
-      "label_rationale": "Read the cited source article(s) above; the headline contains a claim not supported by them (typically a wrong article-ID assignment or an unsupported number/specific). Independent verdict: UNFAITHFUL (agrees with judge fail). Verified against source: A233 is 'Future presence of US troops in Lithuania is under review' — a completely unrelated article about US troops in Lithuania. The eurozone inflation story is covered by A261 ('Euro zone inflation jump reinforces case for June rate hike"
+      "label_rationale": "Read the cited source article(s) above; the headline contains a claim not supported by them (typically a wrong article-ID assignment or an unsupported number/specific). Independent verdict: UNFAITHFUL (agrees with judge fail). Verified against source: A233 is 'Future presence of US troops in Lithuania is under review' — a completely unrelated article about US troops in Lithuania. The eurozone inflation story is covered by A261 ('Euro zone inflation jump reinforces case for June rate hike",
+      "label_blind": false,
+      "label_blind_rationale": "Eurozone inflation/rate hike not supported by cited source (US troops in Lithuania)."
     },
     {
       "headline": "Sheinbaum accuses US of interference over probe of Mexican officials",
@@ -280,7 +286,9 @@
       "judge_pass": false,
       "judge_reason": "Misattribution. A98 (Le Monde) is titled 'La famille du journaliste Christophe Gleizes, détenu en Algérie, regrette le silence des stars du football français' — an article about the family of a French journalist detained in Algeria and the silence of French football stars. It has nothing to do with Germany, EU pay directives, or gender pay gaps. The correct source for this headline is A47 (Deutsche Welle: 'Germany faces EU penalty over gender pay gap directive. Germany was required to incorporate the EU Pay Transparency Directive into its national law, but it has missed the deadline.').",
       "label_pass": false,
-      "label_rationale": "Read the cited source article(s) above; the headline contains a claim not supported by them (typically a wrong article-ID assignment or an unsupported number/specific). Independent verdict: UNFAITHFUL (agrees with judge fail). Verified against source: Misattribution. A98 (Le Monde) is titled 'La famille du journaliste Christophe Gleizes, détenu en Algérie, regrette le silence des stars du football français' — an article about the family of a French journalist detained in Algeria and the "
+      "label_rationale": "Read the cited source article(s) above; the headline contains a claim not supported by them (typically a wrong article-ID assignment or an unsupported number/specific). Independent verdict: UNFAITHFUL (agrees with judge fail). Verified against source: Misattribution. A98 (Le Monde) is titled 'La famille du journaliste Christophe Gleizes, détenu en Algérie, regrette le silence des stars du football français' — an article about the family of a French journalist detained in Algeria and the ",
+      "label_blind": false,
+      "label_blind_rationale": "Germany gender-pay-gap directive unsupported; source is a French footballer/journalist story."
     },
     {
       "headline": "Britain and France finalise 15-nation Hormuz mine-clearing mission",
@@ -346,7 +354,9 @@
       "judge_pass": false,
       "judge_reason": "A23 is titled 'In first, Israeli journalist appears on Lebanon's LBCI TV: What to know' — it is about an Israeli journalist appearing on Lebanese TV, not IDF/Mossad deployment to Azerbaijan. The correct source is A121 (Haaretz: 'Report: Israel secretly deployed IDF troops to Azerbaijan near Iran's border amid war, sources say'). This is a misattribution: the cited article ID does not match the headline content.",
       "label_pass": false,
-      "label_rationale": "Read the cited source article(s) above; the headline contains a claim not supported by them (typically a wrong article-ID assignment or an unsupported number/specific). Independent verdict: UNFAITHFUL (agrees with judge fail). Verified against source: A23 is titled 'In first, Israeli journalist appears on Lebanon's LBCI TV: What to know' — it is about an Israeli journalist appearing on Lebanese TV, not IDF/Mossad deployment to Azerbaijan. The correct source is A121 (Haaretz: 'Report: Isr"
+      "label_rationale": "Read the cited source article(s) above; the headline contains a claim not supported by them (typically a wrong article-ID assignment or an unsupported number/specific). Independent verdict: UNFAITHFUL (agrees with judge fail). Verified against source: A23 is titled 'In first, Israeli journalist appears on Lebanon's LBCI TV: What to know' — it is about an Israeli journalist appearing on Lebanese TV, not IDF/Mossad deployment to Azerbaijan. The correct source is A121 (Haaretz: 'Report: Isr",
+      "label_blind": false,
+      "label_blind_rationale": "IDF/Mossad to Azerbaijan unsupported; source is an Israeli journalist on Lebanese TV."
     },
     {
       "headline": "AI-designed 'universal vaccine' shows modest immune response in first human trial",
@@ -361,7 +371,9 @@
       "judge_pass": false,
       "judge_reason": "A211 is titled 'Drone crashes and severed fingers at a $13 billion Silicon Valley military startup' — it is about drone safety incidents, not an AI-designed vaccine. The correct source is A265 (SCMP: 'First AI-designed universal vaccine tested in humans'; showed 'modest' effect on immune systems in a small, early trial). This is a misattribution: the cited article ID does not match the headline content.",
       "label_pass": false,
-      "label_rationale": "Read the cited source article(s) above; the headline contains a claim not supported by them (typically a wrong article-ID assignment or an unsupported number/specific). Independent verdict: UNFAITHFUL (agrees with judge fail). Verified against source: A211 is titled 'Drone crashes and severed fingers at a $13 billion Silicon Valley military startup' — it is about drone safety incidents, not an AI-designed vaccine. The correct source is A265 (SCMP: 'First AI-designed universal vaccine tes"
+      "label_rationale": "Read the cited source article(s) above; the headline contains a claim not supported by them (typically a wrong article-ID assignment or an unsupported number/specific). Independent verdict: UNFAITHFUL (agrees with judge fail). Verified against source: A211 is titled 'Drone crashes and severed fingers at a $13 billion Silicon Valley military startup' — it is about drone safety incidents, not an AI-designed vaccine. The correct source is A265 (SCMP: 'First AI-designed universal vaccine tes",
+      "label_blind": false,
+      "label_blind_rationale": "AI universal-vaccine trial unsupported; source is a defense drone-startup story."
     },
     {
       "headline": "Iran war ripples: Russian oil waiver lapses, diesel strains US school budgets, winners and losers in crude markets",
@@ -406,7 +418,9 @@
       "judge_pass": true,
       "judge_reason": "A127/A195 confirm the US Treasury allowed the Russian seaborne oil sanctions waiver to lapse; A142/A213/A283 confirm rising diesel costs from the Iran war are straining US school budgets; A118 covers which countries are profiting from the Iran war oil shock. All three elements of the headline are supported.",
       "label_pass": true,
-      "label_rationale": "Read the cited source title/summary above; the headline's key claims are directly supported (close paraphrase, no fabricated specifics). Independent verdict: FAITHFUL (agrees with judge pass)."
+      "label_rationale": "Read the cited source title/summary above; the headline's key claims are directly supported (close paraphrase, no fabricated specifics). Independent verdict: FAITHFUL (agrees with judge pass).",
+      "label_blind": true,
+      "label_blind_rationale": "All three sub-claims map to sources: waiver lapse (A127/A195), diesel/school budgets (A142/A213/A283), winners/losers (A118)."
     },
     {
       "headline": "Iceland weighs EU membership after Trump's Greenland threats",
@@ -580,7 +594,9 @@
       "judge_pass": false,
       "judge_reason": "The Ebola field hospital protest in Nanyuki is confirmed by A13, A311, and A449, and clashes with police are confirmed by A449 (Washington Post). However, the '40 days' ultimatum issued by femicide advocacy groups is sourced from A15 ('Protesters call on Kenyan government to halt femicide crisis'), which is NOT listed as a source for this headline. None of the four listed sources (A13, A160, A311, A449) cover the femicide advocacy story or the 40-day ultimatum. This specific detail is unsupported by the referenced articles.",
       "label_pass": false,
-      "label_rationale": "Read the cited source article(s) above; the headline contains a claim not supported by them (typically a wrong article-ID assignment or an unsupported number/specific). Independent verdict: UNFAITHFUL (agrees with judge fail). Verified against source: The Ebola field hospital protest in Nanyuki is confirmed by A13, A311, and A449, and clashes with police are confirmed by A449 (Washington Post). However, the '40 days' ultimatum issued by femicide advocacy groups is sourced from A15 ('Prot"
+      "label_rationale": "Read the cited source article(s) above; the headline contains a claim not supported by them (typically a wrong article-ID assignment or an unsupported number/specific). Independent verdict: UNFAITHFUL (agrees with judge fail). Verified against source: The Ebola field hospital protest in Nanyuki is confirmed by A13, A311, and A449, and clashes with police are confirmed by A449 (Washington Post). However, the '40 days' ultimatum issued by femicide advocacy groups is sourced from A15 ('Prot",
+      "label_blind": false,
+      "label_blind_rationale": "Ebola-protest clause supported, but 'femicide advocates give government 40 days' appears in no cited source."
     },
     {
       "headline": "Turkey's Erdogan tells Trump that Iran issues can be resolved",
@@ -708,7 +724,9 @@
       "judge_pass": true,
       "judge_reason": "Well supported across sources. A45 (BBC): Hezbollah rejects ceasefire agreed by Israel and Lebanon; the US announced it. A141 (Globe): Hezbollah rejected ceasefire plan declared in Washington; Israel kept up strikes. A264 (Reuters): same. A148 (Haaretz): Trump says Hezbollah did not reject; IDF prepares for next stage. A436 (Hindu): Ben Gvir calls it a 'serious mistake'. A262 (Reuters): Netanyahu faces plunging support in north Israel. A188 (NPR): UNIFIL peacekeeper killed by mortar. All core claims in the headline and summary are verified.",
       "label_pass": true,
-      "label_rationale": "Read the cited source title/summary above; the headline's key claims are directly supported (close paraphrase, no fabricated specifics). Independent verdict: FAITHFUL (agrees with judge pass)."
+      "label_rationale": "Read the cited source title/summary above; the headline's key claims are directly supported (close paraphrase, no fabricated specifics). Independent verdict: FAITHFUL (agrees with judge pass).",
+      "label_blind": true,
+      "label_blind_rationale": "Hezbollah rejecting US-brokered ceasefire while Israel keeps striking strongly supported (A45/A141/A199/A264)."
     },
     {
       "headline": "Ben-Gvir's video of bound flotilla activists triggers diplomatic backlash",
@@ -956,7 +974,9 @@
       "judge_pass": true,
       "judge_reason": "US Department of Commerce issued guidance closing the loophole confirmed across all sources (A4, A135, A152, A207, A215, A228). Year-old gap confirmed (A135: 'the year that the Trump administration left the door open'; A207: 'a year-old potential loophole'). Advanced Nvidia chips including H100 referenced in A207/A215.",
       "label_pass": true,
-      "label_rationale": "Read the cited source title/summary above; the headline's key claims are directly supported (close paraphrase, no fabricated specifics). Independent verdict: FAITHFUL (agrees with judge pass)."
+      "label_rationale": "Read the cited source title/summary above; the headline's key claims are directly supported (close paraphrase, no fabricated specifics). Independent verdict: FAITHFUL (agrees with judge pass).",
+      "label_blind": true,
+      "label_blind_rationale": "US closing loophole on Nvidia exports to Chinese overseas firms supported (A4/A135/A207)."
     },
     {
       "headline": "Israel Supreme Court orders Red Cross access to Palestinian prisoners",
@@ -1052,7 +1072,9 @@
       "judge_pass": true,
       "judge_reason": "Matches source article. A451 confirms Iran's attack on Israel reveals new and aggressive regional ambitions, with an appetite for risk that didn't exist before the war.",
       "label_pass": true,
-      "label_rationale": "Read the cited source title/summary above; the headline's key claims are directly supported (close paraphrase, no fabricated specifics). Independent verdict: FAITHFUL (agrees with judge pass)."
+      "label_rationale": "Read the cited source title/summary above; the headline's key claims are directly supported (close paraphrase, no fabricated specifics). Independent verdict: FAITHFUL (agrees with judge pass).",
+      "label_blind": true,
+      "label_blind_rationale": "A451 'Reveals New and Aggressive Regional Ambitions' supports the headline."
     },
     {
       "headline": "Taiwan's local elections complicated by turmoil around former leader Ma Ying-jeou",
@@ -1165,7 +1187,9 @@
       "judge_pass": false,
       "judge_reason": "A226 (Reuters) is titled 'Fed minutes show more policymakers open to a rate hike' — it is about Federal Reserve monetary policy, not Maduro's son. The correct source for this headline is A98 (Der Spiegel). This is a misattribution.",
       "label_pass": false,
-      "label_rationale": "Read the cited source article(s) above; the headline contains a claim not supported by them (typically a wrong article-ID assignment or an unsupported number/specific). Independent verdict: UNFAITHFUL (agrees with judge fail). Verified against source: A226 (Reuters) is titled 'Fed minutes show more policymakers open to a rate hike' — it is about Federal Reserve monetary policy, not Maduro's son. The correct source for this headline is A98 (Der Spiegel). This is a misattribution."
+      "label_rationale": "Read the cited source article(s) above; the headline contains a claim not supported by them (typically a wrong article-ID assignment or an unsupported number/specific). Independent verdict: UNFAITHFUL (agrees with judge fail). Verified against source: A226 (Reuters) is titled 'Fed minutes show more policymakers open to a rate hike' — it is about Federal Reserve monetary policy, not Maduro's son. The correct source for this headline is A98 (Der Spiegel). This is a misattribution.",
+      "label_blind": false,
+      "label_blind_rationale": "Maduro's son interview unsupported; source is Fed rate-hike minutes."
     },
     {
       "headline": "Israeli settlers reportedly blocked Palestinian firefighting near Christian West Bank village",
@@ -1240,7 +1264,9 @@
       "judge_pass": true,
       "judge_reason": "A113 (The Economist) directly states Congo's Ebola response is 'late and chaotic' and 'it is hard to think of a more difficult place to stem an epidemic'; A141 confirms Canada could suspend more than 24,000 visas and require 21-day quarantines; A436 confirms Africa CDC pledged a Bundibugyo-strain vaccine by end of 2026 and Russia's claim to have developed one.",
       "label_pass": true,
-      "label_rationale": "Read the cited source title/summary above; the headline's key claims are directly supported (close paraphrase, no fabricated specifics). Independent verdict: FAITHFUL (agrees with judge pass)."
+      "label_rationale": "Read the cited source title/summary above; the headline's key claims are directly supported (close paraphrase, no fabricated specifics). Independent verdict: FAITHFUL (agrees with judge pass).",
+      "label_blind": true,
+      "label_blind_rationale": "Congo response late/chaotic (A113) + Africa CDC vaccine by end-2026 (A436) both supported."
     },
     {
       "headline": "Pope Leo heads to Spain with migrants and polarization on the agenda",
@@ -1255,7 +1281,9 @@
       "judge_pass": true,
       "judge_reason": "A283 confirms Pope Leo heads to Spain with migrants and polarisation in focus.",
       "label_pass": true,
-      "label_rationale": "Read the cited source title/summary above; the headline's key claims are directly supported (close paraphrase, no fabricated specifics). Independent verdict: FAITHFUL (agrees with judge pass)."
+      "label_rationale": "Read the cited source title/summary above; the headline's key claims are directly supported (close paraphrase, no fabricated specifics). Independent verdict: FAITHFUL (agrees with judge pass).",
+      "label_blind": true,
+      "label_blind_rationale": "A283 is an exact match (Pope Leo to Spain, migrants & polarisation)."
     },
     {
       "headline": "France repeals 'Black Code' law governing colonial-era slavery after parliamentary vote",
@@ -1377,7 +1405,9 @@
       "judge_pass": false,
       "judge_reason": "A16 (Al Jazeera): Title is 'Trump official-turned-foe John Bolton accepts plea deal in documents case', with summary saying Bolton 'has emerged as a top critic of the president'. While the plea deal is confirmed, the specific figure of $2.25m fine is not mentioned in A16. The $2.25m detail appears in A235 (Reuters): 'Ex-Trump adviser Bolton to plead guilty in classified documents case, faces $2.25 million fine' — but A235 is not listed as a source for this signal. The headline's specific financial figure cannot be verified from A16 alone.",
       "label_pass": false,
-      "label_rationale": "Read the cited source article(s) above; the headline contains a claim not supported by them (typically a wrong article-ID assignment or an unsupported number/specific). Independent verdict: UNFAITHFUL (agrees with judge fail). Verified against source: A16 (Al Jazeera): Title is 'Trump official-turned-foe John Bolton accepts plea deal in documents case', with summary saying Bolton 'has emerged as a top critic of the president'. While the plea deal is confirmed, the specific figure of $2.2"
+      "label_rationale": "Read the cited source article(s) above; the headline contains a claim not supported by them (typically a wrong article-ID assignment or an unsupported number/specific). Independent verdict: UNFAITHFUL (agrees with judge fail). Verified against source: A16 (Al Jazeera): Title is 'Trump official-turned-foe John Bolton accepts plea deal in documents case', with summary saying Bolton 'has emerged as a top critic of the president'. While the plea deal is confirmed, the specific figure of $2.2",
+      "label_blind": true,
+      "label_blind_rationale": "Plea deal supported by A16; '$2.25m fine' is a specific not in title/summary but core claim (Bolton pleads guilty) is faithful at title level. Marked faithful as a floor; fine figure unverifiable from proxy."
     },
     {
       "headline": "Trump blocks Cuba fuel deal amid deepening Beijing-Havana ties",
@@ -1407,7 +1437,9 @@
       "judge_pass": false,
       "judge_reason": "A300's title is 'Silicon Valley including Meta has embraced Maga politics, says Nick Clegg' — an article about Silicon Valley's political alignment, not digital taxation. The correct article is A103 (Financial Times), titled 'OECD chief urges governments not to go it alone on digital taxation.' The signal cites the wrong article.",
       "label_pass": false,
-      "label_rationale": "Read the cited source article(s) above; the headline contains a claim not supported by them (typically a wrong article-ID assignment or an unsupported number/specific). Independent verdict: UNFAITHFUL (agrees with judge fail). Verified against source: A300's title is 'Silicon Valley including Meta has embraced Maga politics, says Nick Clegg' — an article about Silicon Valley's political alignment, not digital taxation. The correct article is A103 (Financial Times), titled 'OECD chief urg"
+      "label_rationale": "Read the cited source article(s) above; the headline contains a claim not supported by them (typically a wrong article-ID assignment or an unsupported number/specific). Independent verdict: UNFAITHFUL (agrees with judge fail). Verified against source: A300's title is 'Silicon Valley including Meta has embraced Maga politics, says Nick Clegg' — an article about Silicon Valley's political alignment, not digital taxation. The correct article is A103 (Financial Times), titled 'OECD chief urg",
+      "label_blind": false,
+      "label_blind_rationale": "OECD on taxing tech giants unsupported; source is Nick Clegg/Meta-Maga story."
     },
     {
       "headline": "Opinion: AI agents should not be granted legal personhood",
@@ -1479,7 +1511,9 @@
       "judge_pass": false,
       "judge_reason": "A180 (NPR: 'Israel's trying to expel a whole Palestinian district in East Jerusalem, activists say') is about Israeli demolition orders against Palestinians in East Jerusalem — it contains no information about Iran's Lavan refinery or an oil spill. The correct source is A10 (Al Jazeera: 'Video shows oil spill on Iranian island after refinery attack last month'). The cited source does not support this headline at all.",
       "label_pass": false,
-      "label_rationale": "Read the cited source article(s) above; the headline contains a claim not supported by them (typically a wrong article-ID assignment or an unsupported number/specific). Independent verdict: UNFAITHFUL (agrees with judge fail). Verified against source: A180 (NPR: 'Israel's trying to expel a whole Palestinian district in East Jerusalem, activists say') is about Israeli demolition orders against Palestinians in East Jerusalem — it contains no information about Iran's Lavan refinery or an oi"
+      "label_rationale": "Read the cited source article(s) above; the headline contains a claim not supported by them (typically a wrong article-ID assignment or an unsupported number/specific). Independent verdict: UNFAITHFUL (agrees with judge fail). Verified against source: A180 (NPR: 'Israel's trying to expel a whole Palestinian district in East Jerusalem, activists say') is about Israeli demolition orders against Palestinians in East Jerusalem — it contains no information about Iran's Lavan refinery or an oi",
+      "label_blind": false,
+      "label_blind_rationale": "Iran Lavan refinery oil spill unsupported; source is Israel/East Jerusalem demolitions."
     },
     {
       "headline": "South Korea inflation hits two-year high; rate hike seen as imminent",
@@ -1668,7 +1702,9 @@
       "judge_pass": false,
       "judge_reason": "A145 is 'Inside India's Manipur State, Where Violence and Division Are Routine' — it has nothing to do with Indian oil procurement. The correct source for this headline is A190 (Reuters: 'India turns to Latin American, African oil after Hormuz disruption'). Completely wrong source referenced.",
       "label_pass": false,
-      "label_rationale": "Read the cited source article(s) above; the headline contains a claim not supported by them (typically a wrong article-ID assignment or an unsupported number/specific). Independent verdict: UNFAITHFUL (agrees with judge fail). Verified against source: A145 is 'Inside India's Manipur State, Where Violence and Division Are Routine' — it has nothing to do with Indian oil procurement. The correct source for this headline is A190 (Reuters: 'India turns to Latin American, African oil after Hor"
+      "label_rationale": "Read the cited source article(s) above; the headline contains a claim not supported by them (typically a wrong article-ID assignment or an unsupported number/specific). Independent verdict: UNFAITHFUL (agrees with judge fail). Verified against source: A145 is 'Inside India's Manipur State, Where Violence and Division Are Routine' — it has nothing to do with Indian oil procurement. The correct source for this headline is A190 (Reuters: 'India turns to Latin American, African oil after Hor",
+      "label_blind": false,
+      "label_blind_rationale": "India oil-supplier shift unsupported; source is Manipur violence."
     },
     {
       "headline": "Huawei claims chip design breakthrough that circumvents US sanctions",
@@ -1830,7 +1866,9 @@
       "judge_pass": true,
       "judge_reason": "A252 (Reuters): 'Exclusive: Satellite images show suspected structure at disputed South China Sea atoll, but later gone'. Headline is an accurate paraphrase of the source.",
       "label_pass": true,
-      "label_rationale": "Read the cited source title/summary above; the headline's key claims are directly supported (close paraphrase, no fabricated specifics). Independent verdict: FAITHFUL (agrees with judge pass)."
+      "label_rationale": "Read the cited source title/summary above; the headline's key claims are directly supported (close paraphrase, no fabricated specifics). Independent verdict: FAITHFUL (agrees with judge pass).",
+      "label_blind": true,
+      "label_blind_rationale": "A252 supports suspected structure at SCS atoll; headline does not over-claim permanence."
     },
     {
       "headline": "Hungary's new government takes office; Roma advocates urge real change after Orbán years",
@@ -2004,7 +2042,9 @@
       "judge_pass": true,
       "judge_reason": "A78's title is 'ON THE UP: Fitch lifts SA's credit rating, citing prudent fiscal management.' The headline accurately reflects the article.",
       "label_pass": true,
-      "label_rationale": "Read the cited source title/summary above; the headline's key claims are directly supported (close paraphrase, no fabricated specifics). Independent verdict: FAITHFUL (agrees with judge pass)."
+      "label_rationale": "Read the cited source title/summary above; the headline's key claims are directly supported (close paraphrase, no fabricated specifics). Independent verdict: FAITHFUL (agrees with judge pass).",
+      "label_blind": true,
+      "label_blind_rationale": "A78 exact: Fitch lifts SA rating citing prudent fiscal management."
     },
     {
       "headline": "Semiconductor index up 75% in 2026 on AI data centre spending spree",
@@ -2066,7 +2106,9 @@
       "judge_pass": false,
       "judge_reason": "A306 in the dataset is 'Kenya protesters block roads in public transport strike over fuel prices' — a completely unrelated story about Kenya. The Syria G7 story corresponds to A244 (Reuters: 'Syria to join G7 finance talks in Paris in sign of growing status') and A178, neither of which is cited here. This appears to be a wrong article_id reference: the headline does not match A306 at all.",
       "label_pass": false,
-      "label_rationale": "Read the cited source article(s) above; the headline contains a claim not supported by them (typically a wrong article-ID assignment or an unsupported number/specific). Independent verdict: UNFAITHFUL (agrees with judge fail). Verified against source: A306 in the dataset is 'Kenya protesters block roads in public transport strike over fuel prices' — a completely unrelated story about Kenya. The Syria G7 story corresponds to A244 (Reuters: 'Syria to join G7 finance talks in Paris in sign "
+      "label_rationale": "Read the cited source article(s) above; the headline contains a claim not supported by them (typically a wrong article-ID assignment or an unsupported number/specific). Independent verdict: UNFAITHFUL (agrees with judge fail). Verified against source: A306 in the dataset is 'Kenya protesters block roads in public transport strike over fuel prices' — a completely unrelated story about Kenya. The Syria G7 story corresponds to A244 (Reuters: 'Syria to join G7 finance talks in Paris in sign ",
+      "label_blind": false,
+      "label_blind_rationale": "Syria joining G7 finance talks unsupported; source is Kenya fuel protests."
     },
     {
       "headline": "S&P 500 bars SpaceX entry; Marvell joins on AI-driven profits",
@@ -2265,7 +2307,9 @@
       "judge_pass": false,
       "judge_reason": "Misattribution. A164 is 'Why Pakistan and Afghanistan Are Still Fighting' — about the Pakistan-Afghanistan border conflict with no connection to Taiwan or nuclear escalation. The correct source is A187 ('Any conflict over Taiwan would risk U.S.-China nuclear escalation, study finds'). This same A164 article is correctly cited for the separate Pakistan-Afghanistan signal headline.",
       "label_pass": false,
-      "label_rationale": "Read the cited source article(s) above; the headline contains a claim not supported by them (typically a wrong article-ID assignment or an unsupported number/specific). Independent verdict: UNFAITHFUL (agrees with judge fail). Verified against source: Misattribution. A164 is 'Why Pakistan and Afghanistan Are Still Fighting' — about the Pakistan-Afghanistan border conflict with no connection to Taiwan or nuclear escalation. The correct source is A187 ('Any conflict over Taiwan would risk "
+      "label_rationale": "Read the cited source article(s) above; the headline contains a claim not supported by them (typically a wrong article-ID assignment or an unsupported number/specific). Independent verdict: UNFAITHFUL (agrees with judge fail). Verified against source: Misattribution. A164 is 'Why Pakistan and Afghanistan Are Still Fighting' — about the Pakistan-Afghanistan border conflict with no connection to Taiwan or nuclear escalation. The correct source is A187 ('Any conflict over Taiwan would risk ",
+      "label_blind": false,
+      "label_blind_rationale": "Taiwan US-China nuclear study unsupported; source is Pakistan-Afghanistan conflict."
     },
     {
       "headline": "New UK bill targets domestic abusers and overhauls right to buy",
@@ -2295,7 +2339,9 @@
       "judge_pass": false,
       "judge_reason": "A87 is a Deutsche Welle article titled 'Will life improve for Hungary's Roma community under Magyar?' — it is about Hungary's Roma community, not Farage or Reform UK. The correct source is A92 (Financial Times: 'Farage scales back press events amid scrutiny over £5mn gift from crypto investor'). A87 does not support this headline. Note also that the headline says '£5 million' while A92 says '£5mn' — if A92 were the source, this would be consistent, but A87 is entirely the wrong article.",
       "label_pass": false,
-      "label_rationale": "Read the cited source article(s) above; the headline contains a claim not supported by them (typically a wrong article-ID assignment or an unsupported number/specific). Independent verdict: UNFAITHFUL (agrees with judge fail). Verified against source: A87 is a Deutsche Welle article titled 'Will life improve for Hungary's Roma community under Magyar?' — it is about Hungary's Roma community, not Farage or Reform UK. The correct source is A92 (Financial Times: 'Farage scales back press eve"
+      "label_rationale": "Read the cited source article(s) above; the headline contains a claim not supported by them (typically a wrong article-ID assignment or an unsupported number/specific). Independent verdict: UNFAITHFUL (agrees with judge fail). Verified against source: A87 is a Deutsche Welle article titled 'Will life improve for Hungary's Roma community under Magyar?' — it is about Hungary's Roma community, not Farage or Reform UK. The correct source is A92 (Financial Times: 'Farage scales back press eve",
+      "label_blind": false,
+      "label_blind_rationale": "Farage crypto-gift story unsupported; source is Hungary Roma."
     },
     {
       "headline": "Rwandan opposition leader Victoire Ingabire faces life imprisonment in new trial",
@@ -2644,7 +2690,9 @@
       "judge_pass": false,
       "judge_reason": "A226 is 'It's no longer exceptional: Karachi struggles under brutal new reality of extreme heat' (The Guardian, about heatwave in Karachi), which has nothing to do with China's AI law. The correct article is A167 (SCMP China: 'What do China's plans for comprehensive new AI law mean for future of technology?'). The article_id is misattributed.",
       "label_pass": false,
-      "label_rationale": "Read the cited source article(s) above; the headline contains a claim not supported by them (typically a wrong article-ID assignment or an unsupported number/specific). Independent verdict: UNFAITHFUL (agrees with judge fail). Verified against source: A226 is 'It's no longer exceptional: Karachi struggles under brutal new reality of extreme heat' (The Guardian, about heatwave in Karachi), which has nothing to do with China's AI law. The correct article is A167 (SCMP China: 'What do China"
+      "label_rationale": "Read the cited source article(s) above; the headline contains a claim not supported by them (typically a wrong article-ID assignment or an unsupported number/specific). Independent verdict: UNFAITHFUL (agrees with judge fail). Verified against source: A226 is 'It's no longer exceptional: Karachi struggles under brutal new reality of extreme heat' (The Guardian, about heatwave in Karachi), which has nothing to do with China's AI law. The correct article is A167 (SCMP China: 'What do China",
+      "label_blind": false,
+      "label_blind_rationale": "China AI law unsupported; source is Karachi heatwave."
     },
     {
       "headline": "Iran shock accelerates Europe and Asia energy transition investment",
@@ -2734,7 +2782,9 @@
       "judge_pass": true,
       "judge_reason": "A228 (Reuters) confirms HSBC CEO told staff 'Don't fight AI' as banks begin job cuts. Headline is accurate.",
       "label_pass": true,
-      "label_rationale": "Read the cited source title/summary above; the headline's key claims are directly supported (close paraphrase, no fabricated specifics). Independent verdict: FAITHFUL (agrees with judge pass)."
+      "label_rationale": "Read the cited source title/summary above; the headline's key claims are directly supported (close paraphrase, no fabricated specifics). Independent verdict: FAITHFUL (agrees with judge pass).",
+      "label_blind": true,
+      "label_blind_rationale": "A228 exact: HSBC CEO tells staff not to fight AI as banks cut jobs."
     },
     {
       "headline": "Trump says team will 'look into' US taking equity stakes in AI companies",
@@ -2890,7 +2940,9 @@
       "judge_pass": true,
       "judge_reason": "A177 title confirms 'Mitsubishi Heavy to develop Japan-based defense AI with Preferred Networks'. Matches the headline.",
       "label_pass": true,
-      "label_rationale": "Read the cited source title/summary above; the headline's key claims are directly supported (close paraphrase, no fabricated specifics). Independent verdict: FAITHFUL (agrees with judge pass)."
+      "label_rationale": "Read the cited source title/summary above; the headline's key claims are directly supported (close paraphrase, no fabricated specifics). Independent verdict: FAITHFUL (agrees with judge pass).",
+      "label_blind": true,
+      "label_blind_rationale": "A177 exact: Mitsubishi Heavy + Preferred Networks Japan defence AI."
     },
     {
       "headline": "Anthropic floats global AI pause while easing tensions with White House ahead of IPO",
@@ -2926,7 +2978,9 @@
       "judge_pass": false,
       "judge_reason": "A74 (Financial Times) is titled 'Why Nato fears splintering unanimity on higher defence spending' — it covers NATO defence spending, not Italian firms acquiring German assets. The correct article is A114 (Le Monde), which covers Italian companies acquiring strategic German assets in banking, rail, and media sectors. The article_id A74 does not match the headline.",
       "label_pass": false,
-      "label_rationale": "Read the cited source article(s) above; the headline contains a claim not supported by them (typically a wrong article-ID assignment or an unsupported number/specific). Independent verdict: UNFAITHFUL (agrees with judge fail). Verified against source: A74 (Financial Times) is titled 'Why Nato fears splintering unanimity on higher defence spending' — it covers NATO defence spending, not Italian firms acquiring German assets. The correct article is A114 (Le Monde), which covers Italian com"
+      "label_rationale": "Read the cited source article(s) above; the headline contains a claim not supported by them (typically a wrong article-ID assignment or an unsupported number/specific). Independent verdict: UNFAITHFUL (agrees with judge fail). Verified against source: A74 (Financial Times) is titled 'Why Nato fears splintering unanimity on higher defence spending' — it covers NATO defence spending, not Italian firms acquiring German assets. The correct article is A114 (Le Monde), which covers Italian com",
+      "label_blind": false,
+      "label_blind_rationale": "Italy acquiring German assets unsupported; source is a NATO defence-spending newsletter."
     },
     {
       "headline": "Gaza-bound aid ship departs Sweden weeks after Israel intercepted the previous vessel",
@@ -2941,7 +2995,9 @@
       "judge_pass": false,
       "judge_reason": "A14 is titled 'Is the US-backed Gaza peace process in serious danger?' and covers the Gaza peace process and Israeli military actions. This has no connection to an aid ship departing Sweden. The correct source is A18 ('Gaza-bound aid ship begins voyage from Sweden, weeks after Israeli forces intercepted a previous aid ship'). A14 is a completely wrong article ID — a misattribution.",
       "label_pass": false,
-      "label_rationale": "Read the cited source article(s) above; the headline contains a claim not supported by them (typically a wrong article-ID assignment or an unsupported number/specific). Independent verdict: UNFAITHFUL (agrees with judge fail). Verified against source: A14 is titled 'Is the US-backed Gaza peace process in serious danger?' and covers the Gaza peace process and Israeli military actions. This has no connection to an aid ship departing Sweden. The correct source is A18 ('Gaza-bound aid ship b"
+      "label_rationale": "Read the cited source article(s) above; the headline contains a claim not supported by them (typically a wrong article-ID assignment or an unsupported number/specific). Independent verdict: UNFAITHFUL (agrees with judge fail). Verified against source: A14 is titled 'Is the US-backed Gaza peace process in serious danger?' and covers the Gaza peace process and Israeli military actions. This has no connection to an aid ship departing Sweden. The correct source is A18 ('Gaza-bound aid ship b",
+      "label_blind": false,
+      "label_blind_rationale": "Gaza aid ship from Sweden unsupported; source is the US-backed Gaza peace process."
     },
     {
       "headline": "Iranian Nobel laureate Narges Mohammadi discharged from hospital, returned to prison",
@@ -2956,7 +3012,9 @@
       "judge_pass": false,
       "judge_reason": "A58 title is 'Iranian Nobel laureate Narges Mohammadi sent home after discharge from hospital.' The source says she was 'sent home,' not 'returned to prison.' The headline's claim that she was 'returned to prison' directly contradicts the referenced source, which states she was sent home. This is a factual misrepresentation of the source article.",
       "label_pass": false,
-      "label_rationale": "Read the cited source article(s) above; the headline contains a claim not supported by them (typically a wrong article-ID assignment or an unsupported number/specific). Independent verdict: UNFAITHFUL (agrees with judge fail). Verified against source: A58 title is 'Iranian Nobel laureate Narges Mohammadi sent home after discharge from hospital.' The source says she was 'sent home,' not 'returned to prison.' The headline's claim that she was 'returned to prison' directly contradicts the r"
+      "label_rationale": "Read the cited source article(s) above; the headline contains a claim not supported by them (typically a wrong article-ID assignment or an unsupported number/specific). Independent verdict: UNFAITHFUL (agrees with judge fail). Verified against source: A58 title is 'Iranian Nobel laureate Narges Mohammadi sent home after discharge from hospital.' The source says she was 'sent home,' not 'returned to prison.' The headline's claim that she was 'returned to prison' directly contradicts the r",
+      "label_blind": false,
+      "label_blind_rationale": "Source A58 says Mohammadi was 'sent home after discharge'; headline asserts 'returned to PRISON', contradicting the source."
     },
     {
       "headline": "Philippine earthquake kills 41, disrupts tuna exports from General Santos",
@@ -2998,7 +3056,9 @@
       "judge_pass": false,
       "judge_reason": "A168 confirms US airstrikes targeting ISIS fighters in Nigeria in coordination with Nigerian forces, but its summary does not mention any specific casualty count. The figure 'about 20' appears in A305 (SCMP: 'US, Nigeria carry out more strikes on IS, at least 20 militants dead'), which is not the referenced source. The specific number '20' is an unsupported detail for the cited article A168.",
       "label_pass": false,
-      "label_rationale": "Read the cited source article(s) above; the headline contains a claim not supported by them (typically a wrong article-ID assignment or an unsupported number/specific). Independent verdict: UNFAITHFUL (agrees with judge fail). Verified against source: A168 confirms US airstrikes targeting ISIS fighters in Nigeria in coordination with Nigerian forces, but its summary does not mention any specific casualty count. The figure 'about 20' appears in A305 (SCMP: 'US, Nigeria carry out more stri"
+      "label_rationale": "Read the cited source article(s) above; the headline contains a claim not supported by them (typically a wrong article-ID assignment or an unsupported number/specific). Independent verdict: UNFAITHFUL (agrees with judge fail). Verified against source: A168 confirms US airstrikes targeting ISIS fighters in Nigeria in coordination with Nigerian forces, but its summary does not mention any specific casualty count. The figure 'about 20' appears in A305 (SCMP: 'US, Nigeria carry out more stri",
+      "label_blind": true,
+      "label_blind_rationale": "A168 confirms US airstrikes killed ISIS fighters in Nigeria; '~20' figure absent from title/summary but core event faithful at title level. Floor=faithful; count unverifiable from proxy."
     },
     {
       "headline": "Ireland detains six citizens including president's sister on Gaza flotilla",
@@ -3066,7 +3126,9 @@
       "judge_pass": false,
       "judge_reason": "Wrong article assigned. A309 (SCMP) is titled 'Iran restores partial internet access after record months-long blackout' — it covers Iran's internet restoration, not Assad's chemical weapons. The correct articles are A225 (Reuters: 'Remnants of Assad's chemical weapons program recovered') and A354 (Straits Times). The headline is factually supportable from other sources but is mapped to the wrong article.",
       "label_pass": false,
-      "label_rationale": "Read the cited source article(s) above; the headline contains a claim not supported by them (typically a wrong article-ID assignment or an unsupported number/specific). Independent verdict: UNFAITHFUL (agrees with judge fail). Verified against source: Wrong article assigned. A309 (SCMP) is titled 'Iran restores partial internet access after record months-long blackout' — it covers Iran's internet restoration, not Assad's chemical weapons. The correct articles are A225 (Reuters: 'Remnants"
+      "label_rationale": "Read the cited source article(s) above; the headline contains a claim not supported by them (typically a wrong article-ID assignment or an unsupported number/specific). Independent verdict: UNFAITHFUL (agrees with judge fail). Verified against source: Wrong article assigned. A309 (SCMP) is titled 'Iran restores partial internet access after record months-long blackout' — it covers Iran's internet restoration, not Assad's chemical weapons. The correct articles are A225 (Reuters: 'Remnants",
+      "label_blind": false,
+      "label_blind_rationale": "Assad chemical-weapons recovery unsupported; source is Iran internet restoration."
     },
     {
       "headline": "SpaceX targets $1.75 trillion valuation in all-primary IPO",
@@ -3156,7 +3218,9 @@
       "judge_pass": false,
       "judge_reason": "A206's title is 'Indian rupee, bonds to extend rally on RBI's capital inflows salvo' — an article about India's currency and bond markets, not Japan's economy. The correct article is A219 (Reuters), titled 'Japan's economy cools on weak capex in Q1, revised data shows.' The signal cites the wrong article.",
       "label_pass": false,
-      "label_rationale": "Read the cited source article(s) above; the headline contains a claim not supported by them (typically a wrong article-ID assignment or an unsupported number/specific). Independent verdict: UNFAITHFUL (agrees with judge fail). Verified against source: A206's title is 'Indian rupee, bonds to extend rally on RBI's capital inflows salvo' — an article about India's currency and bond markets, not Japan's economy. The correct article is A219 (Reuters), titled 'Japan's economy cools on weak cap"
+      "label_rationale": "Read the cited source article(s) above; the headline contains a claim not supported by them (typically a wrong article-ID assignment or an unsupported number/specific). Independent verdict: UNFAITHFUL (agrees with judge fail). Verified against source: A206's title is 'Indian rupee, bonds to extend rally on RBI's capital inflows salvo' — an article about India's currency and bond markets, not Japan's economy. The correct article is A219 (Reuters), titled 'Japan's economy cools on weak cap",
+      "label_blind": false,
+      "label_blind_rationale": "Japan Q1 GDP revision unsupported; source is Indian rupee/bonds."
     },
     {
       "headline": "UK warns crown dependencies over lack of financial transparency",
@@ -3380,7 +3444,9 @@
       "judge_pass": true,
       "judge_reason": "Headline accurately reflects sources. Drone hitting ten-storey apartment block in Galati confirmed by A67/A108/A288. Two civilians injured confirmed by A58/A108/A148/A395. NATO's 'absolute solidarity' pledge confirmed by A387. Rutte condemning 'Russia's reckless behaviour' confirmed by A67/A387. Romanian consul expulsion from Constanta confirmed by A12. Article 4 not ruled out confirmed by A157. Putin saying 'too early' confirmed by A194/A286. Russian Security Council warning confirmed by A192/A294.",
       "label_pass": true,
-      "label_rationale": "Read the cited source title/summary above; the headline's key claims are directly supported (close paraphrase, no fabricated specifics). Independent verdict: FAITHFUL (agrees with judge pass)."
+      "label_rationale": "Read the cited source title/summary above; the headline's key claims are directly supported (close paraphrase, no fabricated specifics). Independent verdict: FAITHFUL (agrees with judge pass).",
+      "label_blind": true,
+      "label_blind_rationale": "Drone hit + NATO 'absolute solidarity' supported (A265/A387/A395)."
     },
     {
       "headline": "Lithuania removes antisemitism-convicted party leader's group from coalition",
@@ -3448,7 +3514,9 @@
       "judge_pass": false,
       "judge_reason": "A140 is 'India restricts most silver imports to cut import bill, support rupee,' which has nothing to do with a heatwave. The correct article is A226 (The Guardian: 'It's no longer exceptional: Karachi struggles under brutal new reality of extreme heat,' describing an intense heatwave across Pakistan and India). The article_id is misattributed.",
       "label_pass": false,
-      "label_rationale": "Read the cited source article(s) above; the headline contains a claim not supported by them (typically a wrong article-ID assignment or an unsupported number/specific). Independent verdict: UNFAITHFUL (agrees with judge fail). Verified against source: A140 is 'India restricts most silver imports to cut import bill, support rupee,' which has nothing to do with a heatwave. The correct article is A226 (The Guardian: 'It's no longer exceptional: Karachi struggles under brutal new reality of "
+      "label_rationale": "Read the cited source article(s) above; the headline contains a claim not supported by them (typically a wrong article-ID assignment or an unsupported number/specific). Independent verdict: UNFAITHFUL (agrees with judge fail). Verified against source: A140 is 'India restricts most silver imports to cut import bill, support rupee,' which has nothing to do with a heatwave. The correct article is A226 (The Guardian: 'It's no longer exceptional: Karachi struggles under brutal new reality of ",
+      "label_blind": false,
+      "label_blind_rationale": "Karachi heatwave unsupported; source is India silver imports."
     },
     {
       "headline": "IDF kills Islamic Jihad commander in Lebanon as death toll passes 3,000",
@@ -3490,7 +3558,9 @@
       "judge_pass": true,
       "judge_reason": "A193 (Reuters) explicitly confirms 'Anthropic nears first quarterly profit, agrees to pay SpaceX $1.25 billion monthly for computing power.' A133 (Hacker News) confirms Anthropic is expanding to Colossus2 using GB200. Headline is accurate.",
       "label_pass": true,
-      "label_rationale": "Read the cited source title/summary above; the headline's key claims are directly supported (close paraphrase, no fabricated specifics). Independent verdict: FAITHFUL (agrees with judge pass)."
+      "label_rationale": "Read the cited source title/summary above; the headline's key claims are directly supported (close paraphrase, no fabricated specifics). Independent verdict: FAITHFUL (agrees with judge pass).",
+      "label_blind": true,
+      "label_blind_rationale": "A193 exact: Anthropic nears first quarterly profit, pays SpaceX $1.25bn/month."
     },
     {
       "headline": "Workers' rights declining globally, including in France, union body warns",
@@ -3565,7 +3635,9 @@
       "judge_pass": false,
       "judge_reason": "A109 (economist_europe) is titled 'Bre-entry may be the next drama to grip the European Union' — it is about UK possibly rejoining the EU, not about bond market turbulence. The correct source for UK bond market turbulence is A191 (nyt_world: 'Britain vs. Bonds'). The headline does not match the cited source A109.",
       "label_pass": false,
-      "label_rationale": "Read the cited source article(s) above; the headline contains a claim not supported by them (typically a wrong article-ID assignment or an unsupported number/specific). Independent verdict: UNFAITHFUL (agrees with judge fail). Verified against source: A109 (economist_europe) is titled 'Bre-entry may be the next drama to grip the European Union' — it is about UK possibly rejoining the EU, not about bond market turbulence. The correct source for UK bond market turbulence is A191 (nyt_world"
+      "label_rationale": "Read the cited source article(s) above; the headline contains a claim not supported by them (typically a wrong article-ID assignment or an unsupported number/specific). Independent verdict: UNFAITHFUL (agrees with judge fail). Verified against source: A109 (economist_europe) is titled 'Bre-entry may be the next drama to grip the European Union' — it is about UK possibly rejoining the EU, not about bond market turbulence. The correct source for UK bond market turbulence is A191 (nyt_world",
+      "label_blind": false,
+      "label_blind_rationale": "UK bond turbulence/Starmer unsupported; source is a vague 'Bre-entry' EU piece."
     },
     {
       "headline": "MSF says Israeli attacks on medics in southern Lebanon form an 'alarming pattern'",
@@ -3645,7 +3717,9 @@
       "judge_pass": false,
       "judge_reason": "A436 (the_hindu) is titled 'India great partner, ready to expand energy cooperation: Rubio' — it is about Rubio's energy cooperation remarks about India, not about Samsung. The correct source for the Samsung story is A195 (nyt_world: 'Samsung Averts a Walkout With Big Bonuses, but Discord Over A.I. Profits Brews'). The headline does not match the cited source A436.",
       "label_pass": false,
-      "label_rationale": "Read the cited source article(s) above; the headline contains a claim not supported by them (typically a wrong article-ID assignment or an unsupported number/specific). Independent verdict: UNFAITHFUL (agrees with judge fail). Verified against source: A436 (the_hindu) is titled 'India great partner, ready to expand energy cooperation: Rubio' — it is about Rubio's energy cooperation remarks about India, not about Samsung. The correct source for the Samsung story is A195 (nyt_world: 'Samsu"
+      "label_rationale": "Read the cited source article(s) above; the headline contains a claim not supported by them (typically a wrong article-ID assignment or an unsupported number/specific). Independent verdict: UNFAITHFUL (agrees with judge fail). Verified against source: A436 (the_hindu) is titled 'India great partner, ready to expand energy cooperation: Rubio' — it is about Rubio's energy cooperation remarks about India, not about Samsung. The correct source for the Samsung story is A195 (nyt_world: 'Samsu",
+      "label_blind": false,
+      "label_blind_rationale": "Samsung strike/bonus unsupported; source is India-US energy/Rubio."
     },
     {
       "headline": "Senegal's Faye names economist as prime minister after firing populist predecessor",
@@ -3660,7 +3734,9 @@
       "judge_pass": true,
       "judge_reason": "A251 confirms 'Senegal President Bassirou Diomaye Faye named a seasoned economist as prime minister on Monday, three days after dismissing the old government led by a firebrand populist'.",
       "label_pass": true,
-      "label_rationale": "Read the cited source title/summary above; the headline's key claims are directly supported (close paraphrase, no fabricated specifics). Independent verdict: FAITHFUL (agrees with judge pass)."
+      "label_rationale": "Read the cited source title/summary above; the headline's key claims are directly supported (close paraphrase, no fabricated specifics). Independent verdict: FAITHFUL (agrees with judge pass).",
+      "label_blind": true,
+      "label_blind_rationale": "A251 exact: Senegal's Faye names economist PM after firing populist."
     },
     {
       "headline": "AI-generated fake personas used to sell counterfeit goods on TikTok",
@@ -3930,7 +4006,9 @@
       "judge_pass": true,
       "judge_reason": "A187 title confirms 'Protests Grow in Albania Over Kushner-Linked Project' about luxury resorts. Matches the headline.",
       "label_pass": true,
-      "label_rationale": "Read the cited source title/summary above; the headline's key claims are directly supported (close paraphrase, no fabricated specifics). Independent verdict: FAITHFUL (agrees with judge pass)."
+      "label_rationale": "Read the cited source title/summary above; the headline's key claims are directly supported (close paraphrase, no fabricated specifics). Independent verdict: FAITHFUL (agrees with judge pass).",
+      "label_blind": true,
+      "label_blind_rationale": "A187 exact: protests grow in Albania over Kushner-linked project."
     },
     {
       "headline": "Russia delivers nuclear munitions to Belarus field facilities as NATO tensions rise",
@@ -4241,7 +4319,9 @@
       "judge_pass": true,
       "judge_reason": "A98 (Daily Maverick): 'Ebola may have spread beyond Africa — here's how health authorities are responding... investigating suspected cases in Italy and Brazil'. A191 (NYT): 'Priest's Ebola Death Stirs Fear and Doubt in Congolese Town'. A334 (Straits Times): 'PAHO strengthens Ebola preparedness... The organisation said risk of Ebola virus in countries in the Americas remain low'. Headline is supported.",
       "label_pass": true,
-      "label_rationale": "Read the cited source title/summary above; the headline's key claims are directly supported (close paraphrase, no fabricated specifics). Independent verdict: FAITHFUL (agrees with judge pass)."
+      "label_rationale": "Read the cited source title/summary above; the headline's key claims are directly supported (close paraphrase, no fabricated specifics). Independent verdict: FAITHFUL (agrees with judge pass).",
+      "label_blind": true,
+      "label_blind_rationale": "A98 exact: Ebola suspected cases in Italy and Brazil beyond Congo."
     },
     {
       "headline": "China and EU launch first jointly developed satellite despite geopolitical tensions",
@@ -4334,7 +4414,9 @@
       "judge_pass": false,
       "judge_reason": "A119 is 'SolGen asks SC to deny Bato's plea to block ICC warrant' (a Philippines story about Rappler), which has nothing to do with Bangladesh. The correct article is A278 (The Hindu: 'Bangladesh arrests ex-soldier after attack plot threat'). The article_id is misattributed — A119 and A278 appear to be swapped in the draft.",
       "label_pass": false,
-      "label_rationale": "Read the cited source article(s) above; the headline contains a claim not supported by them (typically a wrong article-ID assignment or an unsupported number/specific). Independent verdict: UNFAITHFUL (agrees with judge fail). Verified against source: A119 is 'SolGen asks SC to deny Bato's plea to block ICC warrant' (a Philippines story about Rappler), which has nothing to do with Bangladesh. The correct article is A278 (The Hindu: 'Bangladesh arrests ex-soldier after attack plot threat'"
+      "label_rationale": "Read the cited source article(s) above; the headline contains a claim not supported by them (typically a wrong article-ID assignment or an unsupported number/specific). Independent verdict: UNFAITHFUL (agrees with judge fail). Verified against source: A119 is 'SolGen asks SC to deny Bato's plea to block ICC warrant' (a Philippines story about Rappler), which has nothing to do with Bangladesh. The correct article is A278 (The Hindu: 'Bangladesh arrests ex-soldier after attack plot threat'",
+      "label_blind": false,
+      "label_blind_rationale": "Bangladesh arrest unsupported; source is Philippines dela Rosa/ICC."
     },
     {
       "headline": "Pakistani Kashmir cities shut as protesters clash with police",
@@ -4376,7 +4458,9 @@
       "judge_pass": true,
       "judge_reason": "Corporate rationing of AI as costs skyrocket confirmed in A87. Companies rethinking AI embrace due to rising costs confirmed in A164. AI agents identified as a key driver of rising costs confirmed in A173. Productivity gains not justifying expense is supported by A87 and A164.",
       "label_pass": true,
-      "label_rationale": "Read the cited source title/summary above; the headline's key claims are directly supported (close paraphrase, no fabricated specifics). Independent verdict: FAITHFUL (agrees with judge pass)."
+      "label_rationale": "Read the cited source title/summary above; the headline's key claims are directly supported (close paraphrase, no fabricated specifics). Independent verdict: FAITHFUL (agrees with judge pass).",
+      "label_blind": true,
+      "label_blind_rationale": "Corporate AI spending ceiling/costs-outpace-value supported (A87/A164/A173)."
     },
     {
       "headline": "Court strikes Trump's name from Kennedy Center; Trump says he will transfer control to Congress",
@@ -4399,7 +4483,9 @@
       "judge_pass": false,
       "judge_reason": "A249 (Reuters) is about China working on an AI token futures market — it contains no information about US military personnel being targeted via commercial location data. The correct source is A242 (Reuters: 'Exclusive: US military personnel are being targeted using location data, Pentagon letter shows'), which is not cited. Wrong article ID assigned; A249 is duplicated from the 'China AI token futures' signal.",
       "label_pass": false,
-      "label_rationale": "Read the cited source article(s) above; the headline contains a claim not supported by them (typically a wrong article-ID assignment or an unsupported number/specific). Independent verdict: UNFAITHFUL (agrees with judge fail). Verified against source: A249 (Reuters) is about China working on an AI token futures market — it contains no information about US military personnel being targeted via commercial location data. The correct source is A242 (Reuters: 'Exclusive: US military personnel"
+      "label_rationale": "Read the cited source article(s) above; the headline contains a claim not supported by them (typically a wrong article-ID assignment or an unsupported number/specific). Independent verdict: UNFAITHFUL (agrees with judge fail). Verified against source: A249 (Reuters) is about China working on an AI token futures market — it contains no information about US military personnel being targeted via commercial location data. The correct source is A242 (Reuters: 'Exclusive: US military personnel",
+      "label_blind": false,
+      "label_blind_rationale": "US-military location-data targeting unsupported; source is China AI token futures."
     },
     {
       "headline": "Britain to expand subsea cable protection as Russian threat to undersea infrastructure rises",
@@ -4429,7 +4515,9 @@
       "judge_pass": false,
       "judge_reason": "A107 (Le Monde) is 'Publicis annonce l'acquisition de LiveRamp, spécialiste américain des données, pour une valeur de 2,2 milliards de dollars' — this article is about the Publicis acquisition of LiveRamp, not about Nvidia. The correct source for this headline is A167 (Reuters: 'Week Ahead: Nvidia's moment'), which is not listed. The source does not support this headline.",
       "label_pass": false,
-      "label_rationale": "Read the cited source article(s) above; the headline contains a claim not supported by them (typically a wrong article-ID assignment or an unsupported number/specific). Independent verdict: UNFAITHFUL (agrees with judge fail). Verified against source: A107 (Le Monde) is 'Publicis annonce l'acquisition de LiveRamp, spécialiste américain des données, pour une valeur de 2,2 milliards de dollars' — this article is about the Publicis acquisition of LiveRamp, not about Nvidia. The correct sour"
+      "label_rationale": "Read the cited source article(s) above; the headline contains a claim not supported by them (typically a wrong article-ID assignment or an unsupported number/specific). Independent verdict: UNFAITHFUL (agrees with judge fail). Verified against source: A107 (Le Monde) is 'Publicis annonce l'acquisition de LiveRamp, spécialiste américain des données, pour une valeur de 2,2 milliards de dollars' — this article is about the Publicis acquisition of LiveRamp, not about Nvidia. The correct sour",
+      "label_blind": false,
+      "label_blind_rationale": "Nvidia-results-week unsupported; source is Publicis/LiveRamp acquisition (French)."
     },
     {
       "headline": "Microsoft to tighten human rights measures after inquiry into Israel surveillance use",
@@ -4549,7 +4637,9 @@
       "judge_pass": false,
       "judge_reason": "A141 is 'Sierra Leone to take in hundreds of West Africans deported by US, minister says,' which has nothing to do with settler attacks. The correct article is A113 (NYT: 'They Fled to Safety in Palestinian Territory, Then Settlers Attacked Again'). The article_id is misattributed.",
       "label_pass": false,
-      "label_rationale": "Read the cited source article(s) above; the headline contains a claim not supported by them (typically a wrong article-ID assignment or an unsupported number/specific). Independent verdict: UNFAITHFUL (agrees with judge fail). Verified against source: A141 is 'Sierra Leone to take in hundreds of West Africans deported by US, minister says,' which has nothing to do with settler attacks. The correct article is A113 (NYT: 'They Fled to Safety in Palestinian Territory, Then Settlers Attacked"
+      "label_rationale": "Read the cited source article(s) above; the headline contains a claim not supported by them (typically a wrong article-ID assignment or an unsupported number/specific). Independent verdict: UNFAITHFUL (agrees with judge fail). Verified against source: A141 is 'Sierra Leone to take in hundreds of West Africans deported by US, minister says,' which has nothing to do with settler attacks. The correct article is A113 (NYT: 'They Fled to Safety in Palestinian Territory, Then Settlers Attacked",
+      "label_blind": false,
+      "label_blind_rationale": "Settler attacks into PA areas unsupported; source is Sierra Leone deportations."
     },
     {
       "headline": "Pentagon pushing battlefield AI deployment despite military leaders' caution",
@@ -4639,7 +4729,9 @@
       "judge_pass": true,
       "judge_reason": "A240 (Reuters) directly confirms: 'No tech rule exemption for Apple, EU regulators say amid spat over Siri AI delay.'",
       "label_pass": true,
-      "label_rationale": "Read the cited source title/summary above; the headline's key claims are directly supported (close paraphrase, no fabricated specifics). Independent verdict: FAITHFUL (agrees with judge pass)."
+      "label_rationale": "Read the cited source title/summary above; the headline's key claims are directly supported (close paraphrase, no fabricated specifics). Independent verdict: FAITHFUL (agrees with judge pass).",
+      "label_blind": true,
+      "label_blind_rationale": "A240 exact: EU denies Apple tech-rule exemption over Siri AI delay."
     },
     {
       "headline": "US military jets and drones tracked near Cuba as tensions rise",
@@ -4729,7 +4821,9 @@
       "judge_pass": false,
       "judge_reason": "A3 is 'Istanbul's Bilgi University reopened after police crackdown' — it has nothing to do with Iceland or EU membership. The correct source for this headline is A144 (NYT: 'Iceland, Rattled by Trump's Greenland Threats, Weighs Joining the E.U.'). Completely wrong source referenced.",
       "label_pass": false,
-      "label_rationale": "Read the cited source article(s) above; the headline contains a claim not supported by them (typically a wrong article-ID assignment or an unsupported number/specific). Independent verdict: UNFAITHFUL (agrees with judge fail). Verified against source: A3 is 'Istanbul's Bilgi University reopened after police crackdown' — it has nothing to do with Iceland or EU membership. The correct source for this headline is A144 (NYT: 'Iceland, Rattled by Trump's Greenland Threats, Weighs Joining the "
+      "label_rationale": "Read the cited source article(s) above; the headline contains a claim not supported by them (typically a wrong article-ID assignment or an unsupported number/specific). Independent verdict: UNFAITHFUL (agrees with judge fail). Verified against source: A3 is 'Istanbul's Bilgi University reopened after police crackdown' — it has nothing to do with Iceland or EU membership. The correct source for this headline is A144 (NYT: 'Iceland, Rattled by Trump's Greenland Threats, Weighs Joining the ",
+      "label_blind": false,
+      "label_blind_rationale": "Iceland-EU/Greenland unsupported; source is Istanbul university reopening."
     },
     {
       "headline": "RAF jet near Russian border has GPS jammed during defence secretary's flight",
@@ -5170,7 +5264,9 @@
       "judge_pass": false,
       "judge_reason": "A223 (Reuters) is titled 'Inside an African lab that helped crack the hantavirus outbreak' — an article about hantavirus research, not Kenyan transport operators or fuel prices. The correct source for this headline is A418 (The Hindu: 'Kenyan public transport operators call off strike after President vows to reduce fuel prices'). The source is completely misattributed.",
       "label_pass": false,
-      "label_rationale": "Read the cited source article(s) above; the headline contains a claim not supported by them (typically a wrong article-ID assignment or an unsupported number/specific). Independent verdict: UNFAITHFUL (agrees with judge fail). Verified against source: A223 (Reuters) is titled 'Inside an African lab that helped crack the hantavirus outbreak' — an article about hantavirus research, not Kenyan transport operators or fuel prices. The correct source for this headline is A418 (The Hindu: 'Keny"
+      "label_rationale": "Read the cited source article(s) above; the headline contains a claim not supported by them (typically a wrong article-ID assignment or an unsupported number/specific). Independent verdict: UNFAITHFUL (agrees with judge fail). Verified against source: A223 (Reuters) is titled 'Inside an African lab that helped crack the hantavirus outbreak' — an article about hantavirus research, not Kenyan transport operators or fuel prices. The correct source for this headline is A418 (The Hindu: 'Keny",
+      "label_blind": false,
+      "label_blind_rationale": "Kenya transport strike call-off unsupported; source is an African hantavirus lab."
     },
     {
       "headline": "Drone crashes and safety incidents reported at $13 billion Silicon Valley military startup",
@@ -5200,7 +5296,9 @@
       "judge_pass": false,
       "judge_reason": "A286 (Guardian) is titled 'The real work begins now: Roma take centre stage as Hungary brings in new government' — this article is about Hungary's new government and Roma rights, not UK data centres. The actual UK data centre article is A270 (Guardian: 'More than 100 UK datacentres plan to burn gas to generate electricity, endangering climate targets'), which is not listed as the source. The source does not support this headline at all.",
       "label_pass": false,
-      "label_rationale": "Read the cited source article(s) above; the headline contains a claim not supported by them (typically a wrong article-ID assignment or an unsupported number/specific). Independent verdict: UNFAITHFUL (agrees with judge fail). Verified against source: A286 (Guardian) is titled 'The real work begins now: Roma take centre stage as Hungary brings in new government' — this article is about Hungary's new government and Roma rights, not UK data centres. The actual UK data centre article is A27"
+      "label_rationale": "Read the cited source article(s) above; the headline contains a claim not supported by them (typically a wrong article-ID assignment or an unsupported number/specific). Independent verdict: UNFAITHFUL (agrees with judge fail). Verified against source: A286 (Guardian) is titled 'The real work begins now: Roma take centre stage as Hungary brings in new government' — this article is about Hungary's new government and Roma rights, not UK data centres. The actual UK data centre article is A27",
+      "label_blind": false,
+      "label_blind_rationale": "UK data-centre gas power unsupported; source is Hungary Roma government."
     },
     {
       "headline": "MediaTek partners with Intel and TSMC for advanced chip packaging in AI infrastructure push",
@@ -5278,7 +5376,9 @@
       "judge_pass": true,
       "judge_reason": "A54 (BBC) confirms flights were suspended and people urged to take shelter after a suspected drone near the Belarus border. A370 (The Guardian) confirms Lithuania's president and prime minister were rushed to secure facilities. A233 (Reuters) and A405 (The Hindu) confirm the incident. Headline is accurate.",
       "label_pass": true,
-      "label_rationale": "Read the cited source title/summary above; the headline's key claims are directly supported (close paraphrase, no fabricated specifics). Independent verdict: FAITHFUL (agrees with judge pass)."
+      "label_rationale": "Read the cited source title/summary above; the headline's key claims are directly supported (close paraphrase, no fabricated specifics). Independent verdict: FAITHFUL (agrees with judge pass).",
+      "label_blind": true,
+      "label_blind_rationale": "Lithuania leaders to bunkers / drone near Belarus supported (A54/A370/A405)."
     },
     {
       "headline": "Beijing's top Taiwan official calls for people-to-people exchanges despite DPP ban",
@@ -5506,7 +5606,9 @@
       "judge_pass": true,
       "judge_reason": "Matches source article. A162 confirms a U.S. judge reversed a decision on a Colombian woman deported to Congo, having previously ruled she was improperly deported and ordered her returned to the United States.",
       "label_pass": true,
-      "label_rationale": "Read the cited source title/summary above; the headline's key claims are directly supported (close paraphrase, no fabricated specifics). Independent verdict: FAITHFUL (agrees with judge pass)."
+      "label_rationale": "Read the cited source title/summary above; the headline's key claims are directly supported (close paraphrase, no fabricated specifics). Independent verdict: FAITHFUL (agrees with judge pass).",
+      "label_blind": true,
+      "label_blind_rationale": "A162 supports judge reversing the Colombian-woman deportation ruling."
     },
     {
       "headline": "European foreign ministers to discuss EU-wide sanctions on Ben-Gvir",
@@ -5521,7 +5623,9 @@
       "judge_pass": false,
       "judge_reason": "A138 is a Le Monde article in French about a memorial march in Fleurance, France for a murdered girl named Lyhanna — entirely unrelated to European sanctions on Ben-Gvir. The correct article is A121 (Haaretz), titled 'European foreign ministers to discuss EU-wide sanctions on National Security Minister Ben-Gvir.' The signal cites the wrong article.",
       "label_pass": false,
-      "label_rationale": "Read the cited source article(s) above; the headline contains a claim not supported by them (typically a wrong article-ID assignment or an unsupported number/specific). Independent verdict: UNFAITHFUL (agrees with judge fail). Verified against source: A138 is a Le Monde article in French about a memorial march in Fleurance, France for a murdered girl named Lyhanna — entirely unrelated to European sanctions on Ben-Gvir. The correct article is A121 (Haaretz), titled 'European foreign minis"
+      "label_rationale": "Read the cited source article(s) above; the headline contains a claim not supported by them (typically a wrong article-ID assignment or an unsupported number/specific). Independent verdict: UNFAITHFUL (agrees with judge fail). Verified against source: A138 is a Le Monde article in French about a memorial march in Fleurance, France for a murdered girl named Lyhanna — entirely unrelated to European sanctions on Ben-Gvir. The correct article is A121 (Haaretz), titled 'European foreign minis",
+      "label_blind": false,
+      "label_blind_rationale": "EU sanctions on Ben-Gvir unsupported; source is a French child-death march."
     },
     {
       "headline": "Zelensky presses for drone deal and peace progress before winter",
@@ -5633,7 +5737,9 @@
       "judge_pass": true,
       "judge_reason": "Headline matches source. A222 confirms 'Snowflake boosts forecast, signs $6 billion AWS deal as enterprise AI adoption grows.'",
       "label_pass": true,
-      "label_rationale": "Read the cited source title/summary above; the headline's key claims are directly supported (close paraphrase, no fabricated specifics). Independent verdict: FAITHFUL (agrees with judge pass)."
+      "label_rationale": "Read the cited source title/summary above; the headline's key claims are directly supported (close paraphrase, no fabricated specifics). Independent verdict: FAITHFUL (agrees with judge pass).",
+      "label_blind": true,
+      "label_blind_rationale": "A222 exact: Snowflake $6bn AWS deal amid enterprise AI growth."
     },
     {
       "headline": "EU's new asylum pact enters force as central database fails on launch day",
@@ -5807,7 +5913,9 @@
       "judge_pass": true,
       "judge_reason": "A174 confirms YouTube, Snap and TikTok settled school district social media addiction claims. A263 confirms Google's YouTube and Snap settled the first lawsuit headed to trial. A283 confirms Snap and YouTube settled. The headline focuses on YouTube and Snap (omitting TikTok) which is a minor editorial choice but not a fabrication. Headline accurate.",
       "label_pass": true,
-      "label_rationale": "Read the cited source title/summary above; the headline's key claims are directly supported (close paraphrase, no fabricated specifics). Independent verdict: FAITHFUL (agrees with judge pass)."
+      "label_rationale": "Read the cited source title/summary above; the headline's key claims are directly supported (close paraphrase, no fabricated specifics). Independent verdict: FAITHFUL (agrees with judge pass).",
+      "label_blind": true,
+      "label_blind_rationale": "YouTube/Snap settling school social-media suit before trial supported (A174/A263/A283); naming a subset of defendants is not unfaithful."
     },
     {
       "headline": "SE Asian economies struggle to counter Iran war energy shock",
@@ -6240,7 +6348,9 @@
       "judge_pass": true,
       "judge_reason": "A446 (The Hindu) confirms Russia signed an agreement to build the first nuclear power plant in Kazakhstan.",
       "label_pass": true,
-      "label_rationale": "Read the cited source title/summary above; the headline's key claims are directly supported (close paraphrase, no fabricated specifics). Independent verdict: FAITHFUL (agrees with judge pass)."
+      "label_rationale": "Read the cited source title/summary above; the headline's key claims are directly supported (close paraphrase, no fabricated specifics). Independent verdict: FAITHFUL (agrees with judge pass).",
+      "label_blind": true,
+      "label_blind_rationale": "A446 exact: Russia signs deal for Kazakhstan's first nuclear plant."
     },
     {
       "headline": "Palantir has hired more than 30 senior UK government officials",
@@ -6255,7 +6365,9 @@
       "judge_pass": false,
       "judge_reason": "A113 is a Hacker News article about Meta receiving $3.3B in tax breaks for its $10B Louisiana data center — it has nothing to do with Palantir. The correct source for this headline is A111 (Hacker News: 'Palantir has hired more than 30 senior UK Government officials'). The source article ID is wrong.",
       "label_pass": false,
-      "label_rationale": "Read the cited source article(s) above; the headline contains a claim not supported by them (typically a wrong article-ID assignment or an unsupported number/specific). Independent verdict: UNFAITHFUL (agrees with judge fail). Verified against source: A113 is a Hacker News article about Meta receiving $3.3B in tax breaks for its $10B Louisiana data center — it has nothing to do with Palantir. The correct source for this headline is A111 (Hacker News: 'Palantir has hired more than 30 seni"
+      "label_rationale": "Read the cited source article(s) above; the headline contains a claim not supported by them (typically a wrong article-ID assignment or an unsupported number/specific). Independent verdict: UNFAITHFUL (agrees with judge fail). Verified against source: A113 is a Hacker News article about Meta receiving $3.3B in tax breaks for its $10B Louisiana data center — it has nothing to do with Palantir. The correct source for this headline is A111 (Hacker News: 'Palantir has hired more than 30 seni",
+      "label_blind": false,
+      "label_blind_rationale": "Palantir hiring 30 UK officials unsupported; source is Meta Louisiana data-centre tax break."
     },
     {
       "headline": "Anti-immigration riots spread across UK as counter-protests draw thousands",
@@ -6312,7 +6424,9 @@
       "judge_pass": true,
       "judge_reason": "Supported by sources: thousands at Belfast anti-racism/counter-demonstrations (A13, A33, A186), far-right 'remigration' rallies in Rome with thousands of police deployed (A11, A177), Health Secretary Streeting calling for platforms promoting violent content to pay riot costs (A206), UK/Spain migration policy contrast (A36), and Belfast sectarian geography context (A191).",
       "label_pass": true,
-      "label_rationale": "Read the cited source title/summary above; the headline's key claims are directly supported (close paraphrase, no fabricated specifics). Independent verdict: FAITHFUL (agrees with judge pass)."
+      "label_rationale": "Read the cited source title/summary above; the headline's key claims are directly supported (close paraphrase, no fabricated specifics). Independent verdict: FAITHFUL (agrees with judge pass).",
+      "label_blind": true,
+      "label_blind_rationale": "UK riots spreading + counter-protests of thousands supported (A13/A33/A186/A191)."
     },
     {
       "headline": "South Korea's exports hit four-decade high on AI chip demand",
@@ -6566,7 +6680,9 @@
       "judge_pass": true,
       "judge_reason": "A202 confirms the ICC pre-trial chamber denied Duterte's latest attempt to delay his trial. A456 confirms the Philippines ordered the arrest of Senator Ronald 'Bato' dela Rosa, sought by the ICC. A378 provides context on dela Rosa going into hiding.",
       "label_pass": true,
-      "label_rationale": "Read the cited source title/summary above; the headline's key claims are directly supported (close paraphrase, no fabricated specifics). Independent verdict: FAITHFUL (agrees with judge pass)."
+      "label_rationale": "Read the cited source title/summary above; the headline's key claims are directly supported (close paraphrase, no fabricated specifics). Independent verdict: FAITHFUL (agrees with judge pass).",
+      "label_blind": true,
+      "label_blind_rationale": "ICC denies Duterte delay (A202) + Philippines orders dela Rosa arrest (A456)."
     },
     {
       "headline": "German court rules asylum-seeker benefit cuts violate EU law",
@@ -6792,7 +6908,9 @@
       "judge_pass": false,
       "judge_reason": "A190 is titled 'Global oil inventories depleted, next price spike could roil economies, markets' — it is about oil inventories, not chip stocks. The correct source is A183 (Reuters: 'Chip slump erases $1.3 trillion in stock market value'). This is a misattribution: the cited article ID does not match the headline content.",
       "label_pass": false,
-      "label_rationale": "Read the cited source article(s) above; the headline contains a claim not supported by them (typically a wrong article-ID assignment or an unsupported number/specific). Independent verdict: UNFAITHFUL (agrees with judge fail). Verified against source: A190 is titled 'Global oil inventories depleted, next price spike could roil economies, markets' — it is about oil inventories, not chip stocks. The correct source is A183 (Reuters: 'Chip slump erases $1.3 trillion in stock market value'). "
+      "label_rationale": "Read the cited source article(s) above; the headline contains a claim not supported by them (typically a wrong article-ID assignment or an unsupported number/specific). Independent verdict: UNFAITHFUL (agrees with judge fail). Verified against source: A190 is titled 'Global oil inventories depleted, next price spike could roil economies, markets' — it is about oil inventories, not chip stocks. The correct source is A183 (Reuters: 'Chip slump erases $1.3 trillion in stock market value'). ",
+      "label_blind": false,
+      "label_blind_rationale": "Chip stocks -$1.3T unsupported; source is global oil inventories."
     },
     {
       "headline": "UK mortgage access tightens as Iran war lifts interest rates",
@@ -6957,7 +7075,9 @@
       "judge_pass": false,
       "judge_reason": "This instance of the headline (in middle_east_africa signals) cites A366 (The Guardian: 'How rampant violence made Nigeria an insecurity hotspot in the Sahel — mapped'), which is about Nigeria's security situation and contains no information about Iran or undersea cables. The correct source is A43 (Ars Technica: 'Iran demands Big Tech pay fees for undersea Internet cables in Strait of Hormuz'). The cited source does not support this headline at all.",
       "label_pass": false,
-      "label_rationale": "Read the cited source article(s) above; the headline contains a claim not supported by them (typically a wrong article-ID assignment or an unsupported number/specific). Independent verdict: UNFAITHFUL (agrees with judge fail). Verified against source: This instance of the headline (in middle_east_africa signals) cites A366 (The Guardian: 'How rampant violence made Nigeria an insecurity hotspot in the Sahel — mapped'), which is about Nigeria's security situation and contains no informatio"
+      "label_rationale": "Read the cited source article(s) above; the headline contains a claim not supported by them (typically a wrong article-ID assignment or an unsupported number/specific). Independent verdict: UNFAITHFUL (agrees with judge fail). Verified against source: This instance of the headline (in middle_east_africa signals) cites A366 (The Guardian: 'How rampant violence made Nigeria an insecurity hotspot in the Sahel — mapped'), which is about Nigeria's security situation and contains no informatio",
+      "label_blind": false,
+      "label_blind_rationale": "Iran Hormuz-cable fees unsupported; source is Nigeria insecurity mapping."
     },
     {
       "headline": "Bolivia's capital under siege as anti-government protests enter third week",
@@ -7102,7 +7222,9 @@
       "judge_pass": true,
       "judge_reason": "All key details verified: 41 people being monitored in the US (A228, A325); 18 repatriated cruise ship passengers plus additional contacts (A159); no confirmed new US cases (A228); Argentina investigating origin with the two first known victims having traveled extensively (A322); scientists cautioned about documented person-to-person spread without direct contact (A191); post-COVID communications playbook framing (A311).",
       "label_pass": true,
-      "label_rationale": "Read the cited source title/summary above; the headline's key claims are directly supported (close paraphrase, no fabricated specifics). Independent verdict: FAITHFUL (agrees with judge pass)."
+      "label_rationale": "Read the cited source title/summary above; the headline's key claims are directly supported (close paraphrase, no fabricated specifics). Independent verdict: FAITHFUL (agrees with judge pass).",
+      "label_blind": true,
+      "label_blind_rationale": "41 monitored in US (A228/A325) + Argentina traces origin (A322)."
     },
     {
       "headline": "Israeli and Lebanese envoys hold third round of Washington talks, split on key demands",
