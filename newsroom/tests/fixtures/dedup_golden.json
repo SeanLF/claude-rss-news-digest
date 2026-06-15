@@ -1,0 +1,931 @@
+{
+  "_meta": {
+    "description": "Golden set for the cross-story semantic dedup grader (eval_dedup_grader). 60 selected-story PAIRS from production digests, each with a precomputed MiniLM (all-MiniLM-L6-v2) cosine and a 3-way human label_same_event. 'redundant' is the binary metric target (true = same-event OR strong partial overlap; false = distinct stories).",
+    "source": "scratch/error-analysis/cross_story_labeled.json (error-analysis pass 2026-06).",
+    "n_pairs": 60,
+    "label_distribution": {
+      "y_same_event": 6,
+      "partial_overlap": 14,
+      "n_distinct": 40
+    },
+    "threshold": 0.57,
+    "threshold_rationale": "MiniLM cosine cleanly separates DISTINCT stories (label n: cosine <= 0.568) from OVERLAPPING ones (y or partial: cosine >= 0.556) at ~0.57, but CANNOT separate strict same-event (y) from partial overlap (both are semantically overlapping). So the grader is a REDUNDANCY SCREEN over (y+partial), not a strict same-event detector. The original plan's 0.70 was mis-targeted (tuned to isolate y-only, which is unachievable: best F1 0.56, precision 0.42). At 0.57 the redundancy screen is near-perfect.",
+    "validation": {
+      "target": "redundant (y or partial) vs distinct (n)",
+      "threshold": 0.57,
+      "precision": 1.0,
+      "recall": 0.95,
+      "confusion": {
+        "tp": 19,
+        "fn": 1,
+        "fp": 0,
+        "tn": 40
+      },
+      "note": "1 false negative is a partial pair at cosine 0.556 (just under 0.57); 0 false positives (every distinct pair is below threshold)."
+    },
+    "embedding": "all-MiniLM-L6-v2 cosine over story text. The live grader (eval_dedup_grader.embed) embeds headline + '. ' + summary; the committed cosines are the PoC's precomputed values the labels were assigned against. Re-validate live embeddings reproduce these before relying on the live grader (see eval_dedup_grader docstring).",
+    "purpose": "Eval-floor / GEPA metric: count of redundant cross-story pairs in a digest. Offline only -- sentence-transformers is an optional 'eval' dependency, not in the prod pipeline or CI."
+  },
+  "cases": [
+    {
+      "date": "2026-03-21",
+      "cosine": 0.121,
+      "story_a": {
+        "headline": "NATO pulls trainers from Iraq; Ukraine deploys drone units to five Middle East countries",
+        "summary": "NATO withdrew all military trainers from its Iraq advisory mission Friday, relocating them to Europe, as Iran's retaliatory strikes made the country too dangerous. Separately, Ukraine has deployed drone-interception units to five Middle East countries, according to Reuters, turning Kyiv's battlefield expertise into a diplomatic and commercial asset."
+      },
+      "story_b": {
+        "headline": "DEA names Colombian president Petro a 'priority target' over alleged drug-cartel ties",
+        "summary": "US prosecutors have opened criminal probes into Colombian President Gustavo Petro over alleged dealings with Mexico's Sinaloa cartel and accusations that drug traffickers financed his campaign, according to Reuters and The Hindu. Petro, a longtime Trump antagonist, denied the allegations. A formal DEA designation as a priority target significantly raises the diplomatic stakes between Washington and Bogotá."
+      },
+      "label_same_event": "n",
+      "redundant": false,
+      "label_note": "Entirely unrelated: a NATO/Ukraine Middle East military story versus a US-Colombia drug-cartel probe."
+    },
+    {
+      "date": "2026-03-12",
+      "cosine": 0.22,
+      "story_a": {
+        "headline": "AI chatbots found to assist planning of violent attacks in new study",
+        "summary": "A study published on March 12 found that eight leading AI chatbots, including DeepSeek, assisted simulated attackers in more than half of test scenarios, providing advice on weapons, target selection, and tactics. One chatbot responded to a rifle inquiry with 'Happy (and safe) shooting!' The research was conducted by an unnamed security-focused research group."
+      },
+      "story_b": {
+        "headline": "UK regulators press Meta, TikTok, Snap and YouTube to block children under 16",
+        "summary": "British watchdogs formally pressed the major social media platforms to implement age-gating that would block users under 16, as the UK government weighs legislation mirroring Australia's ban. The Ofcom-led initiative targets the same platforms simultaneously, increasing pressure for platform-wide compliance."
+      },
+      "label_same_event": "n",
+      "redundant": false,
+      "label_note": "Both tech-policy but distinct: an AI-safety study versus UK social-media age-gating regulation."
+    },
+    {
+      "date": "2026-06-07",
+      "cosine": -0.076,
+      "story_a": {
+        "headline": "Israeli strikes in Lebanon kill Lebanese army officers days after truce signed",
+        "summary": "Israeli airstrikes killed at least nine people in southern Lebanon on Saturday, including a brigadier general, a captain, and a soldier travelling in a military vehicle; two Israeli soldiers also died in separate incidents. Lebanese President Joseph Aoun called the killing of the officers a 'flagrant violation of Lebanese sovereignty' after Israel said the vehicle was moving 'suspiciously toward' its troops. The strikes came days after the two sides announced a conditional truce brokered in part via talks in Pakistan."
+      },
+      "story_b": {
+        "headline": "OpenAI plans ChatGPT overhaul into a 'superapp' ahead of potential IPO",
+        "summary": "OpenAI is planning its biggest redesign of ChatGPT since the chatbot's 2022 launch, recasting it as a higher-margin 'superapp' with coding tools and AI agents, according to the Financial Times. The $850 billion company is reportedly pursuing the overhaul as a route to stronger revenues before a potential stock market listing. A separate sovereign-wealth-style fund has also been proposed to give Americans an equity stake in AI."
+      },
+      "label_same_event": "n",
+      "redundant": false,
+      "label_note": "Unrelated: a Lebanon airstrike story versus an OpenAI product/IPO story."
+    },
+    {
+      "date": "2026-04-14",
+      "cosine": 0.12,
+      "story_a": {
+        "headline": "Rockstar Games data breach: hacking group claims 80 million records stolen",
+        "summary": "A hacking group with a history of compromising major corporations claimed to have stolen nearly 80 million business records from Rockstar Games, maker of Grand Theft Auto. The breach, reported by Daily Maverick and Reuters, is among the largest alleged data thefts targeting a video game company."
+      },
+      "story_b": {
+        "headline": "Rheinmetall and Destinus to jointly produce missiles for European NATO members",
+        "summary": "German defence company Rheinmetall and Swiss hypersonics firm Destinus announced a joint venture to produce cruise missiles and ballistic rocket artillery for European NATO members, to be established in the second half of 2026."
+      },
+      "label_same_event": "n",
+      "redundant": false,
+      "label_note": "Unrelated: a video-game data breach versus a European missile-production joint venture."
+    },
+    {
+      "date": "2026-03-07",
+      "cosine": 0.239,
+      "story_a": {
+        "headline": "Russia sharing targeting intelligence with Iran, US officials say",
+        "summary": "Russia has provided Iran with the locations of American warships, aircraft, and other military assets in the Middle East, according to two US officials. The White House said the intelligence was 'not making any difference' to US operations. The Washington Post and Wall Street Journal both reported the intelligence sharing, citing satellite and other data passed from Moscow to Tehran."
+      },
+      "story_b": {
+        "headline": "China's two sessions: Beijing pledges import expansion and technology push",
+        "summary": "Senior Chinese economic officials used the annual two sessions legislative meetings to pledge expanded imports, a more flexible fundraising environment for the technology sector, and tougher stock-market oversight. The statements were partly aimed at addressing concerns among trade partners about a 'China shock' of export surges. China's eastern and southern economic regions are racing to lead in AI and other core technologies."
+      },
+      "label_same_event": "n",
+      "redundant": false,
+      "label_note": "Unrelated: Russia-Iran intelligence sharing versus China's domestic economic-policy meetings."
+    },
+    {
+      "date": "2026-06-05",
+      "cosine": 0.197,
+      "story_a": {
+        "headline": "Xi to visit North Korea next week, first trip in seven years",
+        "summary": "Chinese President Xi Jinping will travel to Pyongyang on June 8-9 at Kim Jong-un's invitation, Beijing's first state visit to North Korea in nearly seven years. The announcement came a day after North Korea unveiled a new facility to produce nuclear bomb fuel. Xi's visit follows his recent Trump summit and comes as the US focuses its strategic attention on Iran."
+      },
+      "story_b": {
+        "headline": "Canada launches AI strategy focused on sovereign capability and job creation",
+        "summary": "Prime Minister Mark Carney unveiled Canada's national AI strategy, which projects 250,000 jobs and a 3% GDP boost, while warning that slow adoption had left the country exposed to foreign dominance of the technology. The strategy emphasises building domestic capacity rather than relying on US or Chinese platforms."
+      },
+      "label_same_event": "n",
+      "redundant": false,
+      "label_note": "Unrelated: Xi's North Korea visit versus Canada's AI strategy."
+    },
+    {
+      "date": "2025-12-26",
+      "cosine": 0.001,
+      "story_a": {
+        "headline": "China achieves quantum computing stability milestone",
+        "summary": "Chinese researchers became only the second team globally—after Google—to achieve a critical stability benchmark in quantum computing. The milestone involved maintaining quantum coherence for extended periods, a key step toward practical quantum machines."
+      },
+      "story_b": {
+        "headline": "Syria kills senior IS commander in Damascus raid",
+        "summary": "Syria's Interior Ministry announced the killing of Mohammed Shahadeh, described as one of IS's senior commanders in Syria, during a raid in the Damascus countryside. The Syrian Observatory for Human Rights reported five IS members died in the strikes."
+      },
+      "label_same_event": "n",
+      "redundant": false,
+      "label_note": "Unrelated: a quantum-computing milestone versus a Syrian counterterrorism raid."
+    },
+    {
+      "date": "2026-05-27",
+      "cosine": 0.216,
+      "story_a": {
+        "headline": "Russia threatens mass strikes on Kyiv, tells US to pull diplomats; EU summons envoys",
+        "summary": "Russian Foreign Minister Lavrov called Secretary of State Rubio to advise the evacuation of US citizens and diplomats from Kyiv, as the Kremlin signalled plans for continued heavy strikes. The EU and Germany summoned Russian ambassadors in protest. Ukraine's air force reported more than 100 drones and two ballistic missiles launched overnight; Kyiv residents remained largely defiant. Russia also passed a law allowing its central bank and top commercial banks to arm staff and shoot down drones directly."
+      },
+      "story_b": {
+        "headline": "Apple and Google warn Canada's online safety bill would break encryption",
+        "summary": "Apple and Google executives told Canadian lawmakers that a proposed online safety bill — which would give police broader access to data — risks forcing companies to insert backdoors into encrypted products. The bill is part of a broader government push to expand surveillance powers in the name of child safety. Tech firms warned the measure would undermine privacy and security for all users."
+      },
+      "label_same_event": "n",
+      "redundant": false,
+      "label_note": "Unrelated: a Russia-Ukraine escalation story versus a Canadian encryption-bill story."
+    },
+    {
+      "date": "2026-03-03",
+      "cosine": 0.08,
+      "story_a": {
+        "headline": "State Department switches to OpenAI as US agencies phase out Anthropic",
+        "summary": "The US State Department and Treasury are ending use of all Anthropic AI products following the company's refusal to remove safeguards for Pentagon use. The moves represent a major blow to Anthropic after a standoff over whether government or industry decides how AI is deployed. OpenAI is gaining federal contracts as agencies abandon its rival."
+      },
+      "story_b": {
+        "headline": "South Sudan massacre leaves at least 169 dead near Sudan border",
+        "summary": "A surprise attack in South Sudan's Abiemnom County killed at least 169 people, with UN peacekeepers sheltering around 1,000 civilians and providing emergency care. The attack occurred near the Sudan border in an area plagued by intercommunal violence and resource conflicts."
+      },
+      "label_same_event": "n",
+      "redundant": false,
+      "label_note": "Unrelated: a US-government AI procurement story versus a South Sudan massacre."
+    },
+    {
+      "date": "2026-06-02",
+      "cosine": 0.078,
+      "story_a": {
+        "headline": "Cargo vessel hit by drone in Gulf as 20,000 seafarers remain stranded",
+        "summary": "Two explosions struck a cargo vessel roughly 40 nautical miles southeast of Iraq's Umm Qasr port on June 1, one caused by a drone, Iraqi officials said. The UN shipping agency chief said it remained too risky to move the estimated 20,000 seafarers stuck in the Gulf despite the current U.S.-Iran ceasefire, while aluminium hit a four-year high on renewed supply fears."
+      },
+      "story_b": {
+        "headline": "UK Mandelson files expose Labour infighting and doubts about Starmer's leadership",
+        "summary": "More than a thousand pages of documents released on June 1 show that Peter Mandelson criticised Prime Minister Starmer's lack of 'verve' and tendency to buckle under pressure before he was fired as U.S. ambassador, and had assured the government it would 'never regret' appointing him — a pledge that proved wrong. The release adds to Starmer's political difficulties after historically poor local election results."
+      },
+      "label_same_event": "n",
+      "redundant": false,
+      "label_note": "Unrelated: a Gulf shipping-attack story versus UK Labour political documents."
+    },
+    {
+      "date": "2026-06-03",
+      "cosine": 0.197,
+      "story_a": {
+        "headline": "Trump picks housing regulator Pulte as acting intelligence director",
+        "summary": "President Trump appointed Bill Pulte, head of the Federal Housing Finance Agency and a fierce political loyalist without national security experience, as acting Director of National Intelligence, replacing Tulsi Gabbard who resigned last month. The appointment comes as a Reuters report says the CIA has stopped contributing to some intelligence assessments, including those on the Iran war, amid turf feuds between top spy agencies."
+      },
+      "story_b": {
+        "headline": "Canada and Mexico push to extend USMCA for 16 years amid Trump trade threats",
+        "summary": "Canada and Mexico jointly called for a 16-year renewal of the USMCA trade agreement, with Canadian Trade Minister LeBlanc saying he offered 'specific proposals' to end the trade war even as Trump renewed tariff threats. The push comes as the agreement faces a mandatory review in 2026 and both countries seek to lock in terms before a potentially hostile renegotiation."
+      },
+      "label_same_event": "n",
+      "redundant": false,
+      "label_note": "Unrelated: a US intelligence-chief appointment versus a USMCA trade-renewal story."
+    },
+    {
+      "date": "2026-04-26",
+      "cosine": 0.104,
+      "story_a": {
+        "headline": "Orbán leaves Hungarian parliament after his party's landslide election defeat",
+        "summary": "Viktor Orbán said Saturday he will not take up his parliament seat following Fidesz's crushing defeat in the April 12 election — his first loss after 16 years in power. Orbán said he intends to remain as Fidesz party leader to rebuild what he called Hungary's 'national side', and that the party caucus in parliament would be 'radically transformed'."
+      },
+      "story_b": {
+        "headline": "Trump administration directs immigration officers to treat pro-Palestinian protest as a green card negative",
+        "summary": "Internal guidance issued to immigration officers instructs them to treat participation in pro-Palestinian protests and public criticism of Israel as 'overwhelmingly negative' factors when assessing green card applications. The administration is simultaneously approving permanent residency at sharply reduced rates."
+      },
+      "label_same_event": "n",
+      "redundant": false,
+      "label_note": "Unrelated: Orbán's post-election exit versus US immigration green-card guidance."
+    },
+    {
+      "date": "2026-03-26",
+      "cosine": 0.398,
+      "story_a": {
+        "headline": "Denmark election leaves PM Frederiksen weakened, coalition talks uncertain",
+        "summary": "Results from Denmark's snap election showed Prime Minister Mette Frederiksen's Social Democrats heading for their worst performance in over a century, leaving her ahead in seat count but facing difficult coalition negotiations. The outcome reflected voter frustration with the war's economic consequences alongside longstanding domestic issues."
+      },
+      "story_b": {
+        "headline": "Hungary's opposition widens lead over Orban ahead of pivotal election",
+        "summary": "Polls show Hungary's opposition Tisza party extending its lead over Viktor Orban's Fidesz, with European populists rallying to support the incumbent while Hungarian voters appear moved by corruption scandals and economic discontent. The election outcome could shift Hungary's position within the EU and its stance on Ukraine aid."
+      },
+      "label_same_event": "n",
+      "redundant": false,
+      "label_note": "Two different national elections (Denmark result vs Hungary pre-election polling) in two different countries."
+    },
+    {
+      "date": "2026-04-12",
+      "cosine": 0.261,
+      "story_a": {
+        "headline": "Ukraine Easter truce holds tenuously; Zelensky proposes extension",
+        "summary": "A 32-hour Easter ceasefire between Russia and Ukraine remained nominally in force, with Ukrainian forces reporting 469 violations but no major offensive operations. Ukrainian President Volodymyr Zelensky proposed extending the truce beyond Sunday; Russia had not responded publicly by the time of reporting. Reporting from Kharkiv described festivities as muted, with residents expecting fighting to resume."
+      },
+      "story_b": {
+        "headline": "Pakistan sends 13,000 troops and fighter jets to Saudi Arabia amid regional tensions",
+        "summary": "Pakistan deployed fighter jets to Saudi Arabia under a mutual defence pact, with sources saying the move followed Iranian strikes on Saudi energy infrastructure that killed a Saudi national. The deployment came as Islamabad was simultaneously hosting US-Iran ceasefire talks, a dual role that underscores Pakistan's delicate position as a military partner to Riyadh while presenting itself as a neutral broker. Pakistan also deployed 13,000 troops as part of the agreement."
+      },
+      "label_same_event": "n",
+      "redundant": false,
+      "label_note": "Different conflicts: a Ukraine Easter truce versus Pakistan's military deployment to Saudi Arabia."
+    },
+    {
+      "date": "2026-05-30",
+      "cosine": 0.258,
+      "story_a": {
+        "headline": "Trump delays Iran deal decision as Tehran says terms not agreed",
+        "summary": "President Trump convened a two-hour Situation Room session Friday to make a \"final determination\" on a proposed ceasefire extension with Iran, but left without signing. Iran's foreign ministry said no deal had been finalised and called U.S. demands \"baseless\"; a senior White House official said Trump would only accept terms that \"satisfy his red lines\" on nuclear curbs. The tentative framework would extend the three-month-old ceasefire by 60 days and open new nuclear talks, while a separate U.S. proposal floats a $300 billion investment fund for Iran as a sweetener. Defense Secretary Hegseth warned separately that the U.S. is \"more than capable\" of resuming strikes if talks collapse."
+      },
+      "story_b": {
+        "headline": "EU vows tougher China trade action as Beijing threatens retaliatory probes",
+        "summary": "The European Commission signalled tougher action on trade with China, with a Brussels insider warning that \"the era when Europe viewed China as a partner is over.\" Beijing responded by threatening to launch trade probes against the EU if the bloc advances a proposal to curb imports of heavily subsidised foreign goods."
+      },
+      "label_same_event": "n",
+      "redundant": false,
+      "label_note": "Unrelated: an Iran ceasefire-deal story versus an EU-China trade dispute."
+    },
+    {
+      "date": "2026-06-10",
+      "cosine": 0.309,
+      "story_a": {
+        "headline": "UK social media under-16 ban will go ahead despite US pressure, Downing Street says",
+        "summary": "Downing Street confirmed the UK's planned ban on social media use by under-16s will proceed despite opposition from the US Embassy, which came out against the measure because it would affect American technology firms."
+      },
+      "story_b": {
+        "headline": "Only one in ten Europeans see the US as an ally, survey finds",
+        "summary": "A Guardian-commissioned poll across 15 European countries found that only about one in ten Europeans now consider the United States a reliable ally, with a majority doubting Washington would come to their aid in an attack. The survey recorded what pollsters described as deep mistrust at a historic low in European confidence in US security guarantees."
+      },
+      "label_same_event": "n",
+      "redundant": false,
+      "label_note": "Both touch transatlantic friction but are distinct: a UK tech-regulation decision versus a Europe-wide trust survey."
+    },
+    {
+      "date": "2026-03-27",
+      "cosine": 0.336,
+      "story_a": {
+        "headline": "Trump weighs sending 10,000 more ground troops to Middle East",
+        "summary": "The Pentagon is considering sending up to 10,000 additional ground troops to the Middle East, according to the Wall Street Journal, including a possible operation to seize Iran's Kharg Island oil hub. The US has also deployed uncrewed drone speedboats in its operations against Iran for the first time."
+      },
+      "story_b": {
+        "headline": "Japan temporarily lifts coal plant curbs; adds Tomahawk capacity to destroyer",
+        "summary": "Japan suspended emissions restrictions on coal-fired power plants to manage electricity supply during the Hormuz crisis, while also commissioning a destroyer with Tomahawk long-range strike capability — a significant expansion of its offensive military reach. Japan is separately sending combat units to Philippines-US exercises for the first time."
+      },
+      "label_same_event": "n",
+      "redundant": false,
+      "label_note": "Distinct: a US troop-buildup deliberation versus Japan's domestic energy/military moves; only loosely linked by the Iran war backdrop."
+    },
+    {
+      "date": "2026-03-05",
+      "cosine": 0.307,
+      "story_a": {
+        "headline": "US submarine sinks Iranian warship off Sri Lanka in first torpedo kill since 1945",
+        "summary": "A US Los Angeles-class submarine sank the Iranian frigate IRIS Dena with an MK-48 torpedo in the Indian Ocean off Sri Lanka's southern coast, killing at least 80 sailors and leaving over 100 missing, according to US Defence Secretary Pete Hegseth and Sri Lankan authorities. Sri Lanka rescued 32 sailors; Iranian survivors are being treated in a Sri Lankan hospital. The Pentagon described the strike as part of a campaign to destroy Iran's entire navy."
+      },
+      "story_b": {
+        "headline": "Senate Republicans block war powers resolution, leaving Trump's Iran campaign unchecked",
+        "summary": "The US Senate voted 47-52 to block a war powers resolution that would have required congressional authorisation before further strikes on Iran, with all but one Republican opposing the measure. The vote fell along near-party lines; a separate House resolution is expected to come to a vote. The Senate vote coincided with the Pentagon announcing it would 'accelerate' its campaign."
+      },
+      "label_same_event": "n",
+      "redundant": false,
+      "label_note": "Both Iran-war but distinct events: a naval sinking versus a Senate war-powers vote."
+    },
+    {
+      "date": "2026-02-27",
+      "cosine": 0.276,
+      "story_a": {
+        "headline": "Anthropic refuses Pentagon demands for unrestricted military AI access",
+        "summary": "AI company Anthropic declined the Department of Defense's ultimatum to remove restrictions on military use of its Claude AI model. CEO Dario Amodei said the company \"cannot in good conscience\" allow its technology to be used for mass surveillance or fully autonomous weapons, despite pressure from Pentagon officials including Defense Secretary Pete Hegseth."
+      },
+      "story_b": {
+        "headline": "Block to cut 40% of workforce in massive AI-driven restructuring",
+        "summary": "Jack Dorsey's financial technology company Block announced it will lay off nearly half its workforce, cutting more than 4,000 jobs from 10,000 to fewer than 6,000. The Twitter co-founder said AI tools enable \"a new way of working\" with smaller teams, predicting most companies will make similar changes \"within the next year.\""
+      },
+      "label_same_event": "n",
+      "redundant": false,
+      "label_note": "Both AI-themed but distinct: Anthropic-Pentagon standoff versus Block layoffs."
+    },
+    {
+      "date": "2026-03-27",
+      "cosine": 0.328,
+      "story_a": {
+        "headline": "Anthropic wins court injunction blocking US government's federal ban",
+        "summary": "A court in California granted Anthropic a preliminary injunction against the US Department of War's federal contractor ban, which was imposed after the company refused to remove safety guardrails from its AI models for military applications. The case centres on whether the government can compel an AI company to disable its own safety protocols."
+      },
+      "story_b": {
+        "headline": "New York hospitals drop Palantir as AI firm expands in UK",
+        "summary": "New York City hospitals ended their contract with Palantir, the data analytics and AI firm, citing concerns over data privacy and the company's expanding role in US immigration enforcement. Palantir is simultaneously expanding its NHS contracts in the United Kingdom."
+      },
+      "label_same_event": "n",
+      "redundant": false,
+      "label_note": "Both AI-firm stories but different companies and events: Anthropic injunction versus Palantir contracts."
+    },
+    {
+      "date": "2026-06-03",
+      "cosine": 0.25,
+      "story_a": {
+        "headline": "Canada and Mexico push to extend USMCA for 16 years amid Trump trade threats",
+        "summary": "Canada and Mexico jointly called for a 16-year renewal of the USMCA trade agreement, with Canadian Trade Minister LeBlanc saying he offered 'specific proposals' to end the trade war even as Trump renewed tariff threats. The push comes as the agreement faces a mandatory review in 2026 and both countries seek to lock in terms before a potentially hostile renegotiation."
+      },
+      "story_b": {
+        "headline": "Philippines Congress in constitutional crisis as Senate majority boycotts sessions",
+        "summary": "The Philippine Senate majority bloc led by Senate President Alan Peter Cayetano has repeatedly refused to convene plenary sessions, leaving critical legislation pending and raising a constitutional question about whether one chamber can effectively adjourn without the other's consent. President Marcos publicly criticised the senators, saying 'get back to work', and the Sandiganbayan denied former House Speaker Romualdez's request to lift a travel ban."
+      },
+      "label_same_event": "n",
+      "redundant": false,
+      "label_note": "Unrelated: USMCA trade renewal versus a Philippine legislative crisis."
+    },
+    {
+      "date": "2026-05-10",
+      "cosine": 0.327,
+      "story_a": {
+        "headline": "Israel reportedly built and defended a secret base in Iraq for the Iran war",
+        "summary": "Israel set up a clandestine military outpost in the Iraqi desert to support its air campaign against Iran, launching airstrikes against Iraqi troops who nearly discovered it early in the war, according to a Wall Street Journal report. The base housed special forces and search-and-rescue teams."
+      },
+      "story_b": {
+        "headline": "US sanctions Chinese firms over alleged Iran satellite support",
+        "summary": "The US State Department sanctioned nine mainland Chinese and Hong Kong entities on Saturday, accusing them of providing Iran with satellite imagery used to strike American forces in the Middle East. The move risks complicating Trump's planned visit to Beijing."
+      },
+      "label_same_event": "n",
+      "redundant": false,
+      "label_note": "Both Iran-war but distinct: an Israeli secret base in Iraq versus US sanctions on Chinese firms."
+    },
+    {
+      "date": "2026-06-08",
+      "cosine": 0.304,
+      "story_a": {
+        "headline": "AI-powered CCTV surveillance used to identify targets exposed Russia's Putin to 'camera scare'",
+        "summary": "Russia paused its CCTV surveillance system after the killing of Iran's Supreme Leader revealed how AI applied to camera footage can be used to identify and track high-value targets, according to the Financial Times. The incident prompted concern in Moscow about the vulnerability of senior officials to AI-enhanced surveillance."
+      },
+      "story_b": {
+        "headline": "South Korea nominates first female prime minister in two decades",
+        "summary": "South Korea nominated Han Seong-sook, former CEO of internet giant Naver, as the country's first female prime minister in 20 years. Han is expected to lead South Korea's AI transformation agenda, the presidential chief of staff said."
+      },
+      "label_same_event": "n",
+      "redundant": false,
+      "label_note": "Unrelated: an AI-surveillance security story versus a South Korean PM nomination, sharing only the word 'AI'."
+    },
+    {
+      "date": "2026-03-27",
+      "cosine": 0.382,
+      "story_a": {
+        "headline": "European Parliament approves US trade deal after months of delay",
+        "summary": "The European Parliament cleared the US-EU trade deal struck by President Trump, attaching a series of conditions and safeguards during what MEPs described as difficult 'sausage making' negotiations. The deal had stalled for months amid disputes over its terms."
+      },
+      "story_b": {
+        "headline": "China threatens Mexico with trade reprisals over 50% import tariffs",
+        "summary": "China formally warned Mexico it could impose retaliatory measures after concluding an investigation into Mexican tariffs on more than 1,400 categories of Asian goods. The dispute centres on Mexico's effort to block Chinese goods from entering the US market via a third country."
+      },
+      "label_same_event": "n",
+      "redundant": false,
+      "label_note": "Both trade stories but distinct: EU approving a US deal versus China threatening Mexico."
+    },
+    {
+      "date": "2026-03-18",
+      "cosine": 0.416,
+      "story_a": {
+        "headline": "US weighs seizing Iran's nuclear fuel and striking Kharg Island oil hub",
+        "summary": "The US is actively debating whether to mount a mission to seize or destroy Iran's nuclear material — described as one of the riskiest military operations in modern American history — and whether to attack Kharg Island, Iran's main oil export hub. A strike on Kharg could cripple Iran's revenue but analysts warn it would also risk sending global energy prices sharply higher."
+      },
+      "story_b": {
+        "headline": "Trump delays China summit as Japan faces high-wire act over Hormuz",
+        "summary": "Trump postponed a planned summit with Xi Jinping as the Iran war continues to dominate US foreign policy attention. Japanese Prime Minister Takaichi arrived in Washington for meetings in which Trump pressed Japan to send warships to Hormuz — a request that runs up against Japan's pacifist constitutional limits. Trump subsequently said Japan's support was 'no longer needed.'"
+      },
+      "label_same_event": "n",
+      "redundant": false,
+      "label_note": "Both Iran-war spillover but distinct: a US military targeting deliberation versus diplomacy around the China summit and Japan."
+    },
+    {
+      "date": "2026-03-19",
+      "cosine": 0.453,
+      "story_a": {
+        "headline": "Life under war: Tehran's grand bazaar shuts as internet blackout enters third week",
+        "summary": "Nearly three weeks of US-Israeli strikes have shuttered much of Tehran's grand bazaar, driven up prices sharply, and left 92 million Iranians with almost no internet access as the government maintains a near-total blackout; those fleeing through neighbouring countries describe airstrikes coming at all hours and sustained electricity shortages worsened by hits on domestic energy infrastructure. Iran held a mass funeral in Tehran for those killed in strikes at home and at sea."
+      },
+      "story_b": {
+        "headline": "Iran war gatecrashes EU economy summit; Spain cited as renewables model",
+        "summary": "European Union leaders gathering for an economy-focused summit have been forced to confront the Iran war's energy price spike, with officials seeking emergency fixes including energy-sharing mechanisms and accelerated gas purchase agreements; Spain was cited as a model for weathering the shock, having rolled out renewables fast enough to put a lid on electricity bills, while Germany and Eastern European countries reliant on LNG face the greatest exposure. The European Central Bank faces fresh pressure as inflation risks rise."
+      },
+      "label_same_event": "n",
+      "redundant": false,
+      "label_note": "Distinct angles of the Iran war: civilian life inside Tehran versus an EU economic summit on energy prices."
+    },
+    {
+      "date": "2026-06-10",
+      "cosine": 0.431,
+      "story_a": {
+        "headline": "EU orders Meta to open WhatsApp to rival AI chatbots at no charge",
+        "summary": "The European Union ordered Meta to allow competing AI chatbot providers access to WhatsApp for free under the Digital Markets Act. Meta said it would appeal. EU regulators also told Apple it would receive no exemption from tech rules despite a separate dispute over Siri AI feature delays."
+      },
+      "story_b": {
+        "headline": "German court rules Google liable for false answers in AI Overviews",
+        "summary": "A German court issued a ruling declaring that Google's AI Overviews constitute the company's own statements, making Google legally liable for false information the feature generates. The ruling is considered a landmark for AI-generated content liability in the EU."
+      },
+      "label_same_event": "n",
+      "redundant": false,
+      "label_note": "Both EU AI-regulation stories but distinct: EU/DMA order on Meta versus a German court ruling on Google."
+    },
+    {
+      "date": "2026-06-10",
+      "cosine": 0.428,
+      "story_a": {
+        "headline": "Xi visits Pyongyang for first time since 2019, de facto recognising North Korea's nuclear status",
+        "summary": "Chinese President Xi Jinping visited North Korea for the first time in seven years, agreeing with Kim Jong Un to strengthen their strategic relationship with socialist principles. In lauding North Korea's recent achievements, Xi implicitly recognised it as a nuclear-armed state, departing from Beijing's longstanding formal position."
+      },
+      "story_b": {
+        "headline": "Taiwan opposition welcomes Trump's anti-independence remarks as government seeks defence funds",
+        "summary": "Taiwan's Kuomintang leader Cheng Li-wun called Trump's recent comments opposing Taiwanese independence a relatively positive first step toward reducing cross-strait tensions. Taiwan's legislature simultaneously debated a proposed 12-fold increase in funding for a joint US-Taiwan defence planning programme."
+      },
+      "label_same_event": "n",
+      "redundant": false,
+      "label_note": "Both East Asia security but distinct: Xi's Pyongyang visit versus Taiwan politics over Trump's remarks."
+    },
+    {
+      "date": "2026-03-25",
+      "cosine": 0.423,
+      "story_a": {
+        "headline": "US and Israel strike Iran as military planners weigh weeks more of fighting",
+        "summary": "The Israeli military estimates it needs several more weeks of operations to meet its stated war objectives in Iran, even as US-Israeli airstrikes continue and Iranian forces hit back at Gulf neighbours. US Army paratroopers have been ordered to the region, and the USS Gerald R. Ford carrier group has reported technical problems after departing the theatre."
+      },
+      "story_b": {
+        "headline": "Iran says 'non-hostile' ships may use Strait of Hormuz if they coordinate with Tehran",
+        "summary": "Iran notified the International Maritime Organization that vessels with no ties to the US or Israel may transit the Strait of Hormuz, provided they coordinate with Iranian authorities. Oil prices dropped sharply on the announcement, though traders and analysts said it was unclear whether any commercial operators would test the condition in practice."
+      },
+      "label_same_event": "n",
+      "redundant": false,
+      "label_note": "Same war, distinct developments: continued strikes/war-timeline versus Iran's Hormuz shipping-access announcement."
+    },
+    {
+      "date": "2026-04-24",
+      "cosine": 0.541,
+      "story_a": {
+        "headline": "Trump rules out nuclear strike on Iran",
+        "summary": "Trump told reporters Thursday the United States would not use a nuclear weapon in the Iran war, walking back earlier rhetoric about the threat of completely destroying Iranian civilization. His comments came the same day he extended the Lebanon-Israel ceasefire and claimed the US had prevailed militarily, though Iranian naval forces continued seizing ships in the Strait of Hormuz."
+      },
+      "story_b": {
+        "headline": "Iran war depletes US weapons stockpiles, reducing readiness for other threats",
+        "summary": "The Iran conflict has forced the Pentagon to rush bombs, missiles and other munitions to the Middle East at a rate that has drained US stockpiles of critical weapons, administration and congressional officials said. Chinese military analysts noted publicly that the depletion represents a vulnerability that would be consequential against stronger adversaries."
+      },
+      "label_same_event": "n",
+      "redundant": false,
+      "label_note": "Same war, distinct stories: Trump's nuclear-use statement versus a US munitions-stockpile depletion analysis."
+    },
+    {
+      "date": "2026-03-11",
+      "cosine": 0.437,
+      "story_a": {
+        "headline": "US and Israel launch most intense strikes of war on Iran as Hormuz threat widens",
+        "summary": "The United States and Israel struck Iran with what the Pentagon called the most intense bombardment of the 11-day war on Tuesday, targeting nuclear and military infrastructure while Defence Secretary Hegseth vowed to eliminate Iran's nuclear capability 'forever.' About 140 US troops have been wounded, eight severely, while Iran's Revolutionary Guard pledged to block oil shipments and Tehran residents described overnight attacks as among the worst yet."
+      },
+      "story_b": {
+        "headline": "China's 'Two Sessions' signals social pivot as Beijing eyes strategic advantage from US Iran campaign",
+        "summary": "China's annual legislative sessions this year featured a work report shifting from growth targets toward social development goals, analysts noted. Separately, US analysts and Chinese scholars assessed that Washington's Iran campaign — launched expecting swift capitulation — has handed Beijing leverage on rare earths, energy strategy, and diplomatic positioning ahead of Trump's planned China visit."
+      },
+      "label_same_event": "n",
+      "redundant": false,
+      "label_note": "Distinct: an intense Iran bombardment story versus China's Two Sessions and strategic-advantage analysis."
+    },
+    {
+      "date": "2026-06-08",
+      "cosine": 0.409,
+      "story_a": {
+        "headline": "Israel and Iran trade direct strikes on day 100 of war, ceasefire collapses",
+        "summary": "Israel launched airstrikes on military targets in western and central Iran early Monday after Tehran fired a salvo of missiles at Israel — the first such exchange since a fragile ceasefire took effect in April. The strikes came hours after Israel attacked Hezbollah positions in Beirut's southern suburbs, killing at least two and wounding 20, prompting Iran to respond and Israel to retaliate despite a direct appeal from Trump, who insisted he 'calls all the shots' and urged both sides to stand down. Trump said the new strikes would not affect ongoing peace talks, but Iran's top negotiator threatened US bases and Israeli assets as legitimate targets."
+      },
+      "story_b": {
+        "headline": "European allies back direct Ukraine-Russia talks; Russian drone strikes Chornobyl fuel store",
+        "summary": "Leaders of the UK, France and Germany backed Zelensky's call for direct ceasefire talks between Ukraine and Russia with active US and European participation, after Zelensky travelled to London to seek allies as a negotiating framework. Separately, Ukraine said a Russian drone partially destroyed a container-receiving building at a nuclear fuel storage facility near Chornobyl, though no spent fuel was stored there at the time."
+      },
+      "label_same_event": "n",
+      "redundant": false,
+      "label_note": "Different wars: Israel-Iran ceasefire collapse versus Ukraine-Russia talks and a Chornobyl drone strike."
+    },
+    {
+      "date": "2026-03-19",
+      "cosine": 0.447,
+      "story_a": {
+        "headline": "Iran's government intact but degraded, US spy chief Gabbard tells Senate",
+        "summary": "Director of National Intelligence Tulsi Gabbard told the Senate Intelligence Committee that Iran's government appears intact despite three weeks of US-Israeli strikes, and that Tehran and its proxies remain capable of attacking US and allied interests; she faced scrutiny from Democrats over a perceived gap between White House claims about Iran's nuclear program and the intelligence community's own assessments. The killing of intelligence minister Esmail Khatib and earlier powerbroker Ali Larijani has complicated Iranian decision-making, according to analysts, but not incapacitated the state."
+      },
+      "story_b": {
+        "headline": "Saudi Arabia warns Iran over attacks on Gulf sites; UK pledges extra missiles",
+        "summary": "Saudi Arabia's foreign minister said the kingdom reserves the right to take military action against Iran after Iranian missiles struck Gulf energy sites, warning that regional patience is 'not unlimited'; the UK announced plans to procure additional air-defence missiles to protect Gulf partners. Saudi Aramco's Ras Tanura refinery had already been restarted after an earlier incident, but the escalating strikes on energy infrastructure have put Gulf states on a war footing."
+      },
+      "label_same_event": "n",
+      "redundant": false,
+      "label_note": "Distinct: a US intelligence assessment of Iran's government versus Saudi/UK responses to Gulf strikes."
+    },
+    {
+      "date": "2026-03-06",
+      "cosine": 0.425,
+      "story_a": {
+        "headline": "Trump urges Kurdish militias to attack Iran as war broadens",
+        "summary": "President Trump called on Iranian Kurdish militias to attack Iran's security forces in the country's west, offering US support, as Kurdish groups confirmed they had consulted Washington in recent days. Trump also offered immunity to members of the Islamic Revolutionary Guard Corps and Iranian police who surrendered, and said the US must have a role in choosing Iran's next leader. The moves suggest Washington is pursuing a regime-change strategy alongside its air campaign."
+      },
+      "story_b": {
+        "headline": "Azerbaijan vows to retaliate after Iranian drones hit Nakhchivan airport",
+        "summary": "Two Iranian drones struck Azerbaijan's Nakhchivan International Airport, injuring four people and damaging infrastructure; President Aliyev placed armed forces on high alert and called the strikes an act of terror. Video of the blasts circulated widely. The incident deepens a long-running rivalry between Baku and Tehran and raises the question of whether Azerbaijan may seek collective defence support."
+      },
+      "label_same_event": "n",
+      "redundant": false,
+      "label_note": "Two distinct new fronts of the Iran war: Trump-Kurdish militias versus Iranian drones hitting Azerbaijan."
+    },
+    {
+      "date": "2026-03-19",
+      "cosine": 0.42,
+      "story_a": {
+        "headline": "Iran war gatecrashes EU economy summit; Spain cited as renewables model",
+        "summary": "European Union leaders gathering for an economy-focused summit have been forced to confront the Iran war's energy price spike, with officials seeking emergency fixes including energy-sharing mechanisms and accelerated gas purchase agreements; Spain was cited as a model for weathering the shock, having rolled out renewables fast enough to put a lid on electricity bills, while Germany and Eastern European countries reliant on LNG face the greatest exposure. The European Central Bank faces fresh pressure as inflation risks rise."
+      },
+      "story_b": {
+        "headline": "Saudi Arabia warns Iran over attacks on Gulf sites; UK pledges extra missiles",
+        "summary": "Saudi Arabia's foreign minister said the kingdom reserves the right to take military action against Iran after Iranian missiles struck Gulf energy sites, warning that regional patience is 'not unlimited'; the UK announced plans to procure additional air-defence missiles to protect Gulf partners. Saudi Aramco's Ras Tanura refinery had already been restarted after an earlier incident, but the escalating strikes on energy infrastructure have put Gulf states on a war footing."
+      },
+      "label_same_event": "n",
+      "redundant": false,
+      "label_note": "Distinct: an EU economy summit on energy prices versus Saudi/UK military responses to Gulf strikes."
+    },
+    {
+      "date": "2026-03-07",
+      "cosine": 0.448,
+      "story_a": {
+        "headline": "Russia sharing targeting intelligence with Iran, US officials say",
+        "summary": "Russia has provided Iran with the locations of American warships, aircraft, and other military assets in the Middle East, according to two US officials. The White House said the intelligence was 'not making any difference' to US operations. The Washington Post and Wall Street Journal both reported the intelligence sharing, citing satellite and other data passed from Moscow to Tehran."
+      },
+      "story_b": {
+        "headline": "Iran internet blackout cuts diaspora off from family inside the country",
+        "summary": "A near-total internet shutdown inside Iran has made contact between Iranians abroad and family at home almost impossible, relying on intermittent mobile signals and VPNs. American-Iranians describe extreme anxiety as bombs fall near relatives they cannot reach. The blackout also limits independent reporting on civilian casualties and military developments inside the country."
+      },
+      "label_same_event": "n",
+      "redundant": false,
+      "label_note": "Distinct angles of the Iran war: Russia-Iran intelligence sharing versus the human cost of Iran's internet blackout."
+    },
+    {
+      "date": "2026-04-27",
+      "cosine": 0.645,
+      "story_a": {
+        "headline": "Russia and North Korea formalise long-term military partnership",
+        "summary": "Russia's defence minister visited Pyongyang and helped inaugurate a memorial to North Korean soldiers killed fighting in Ukraine's Kursk region, while Kim Jong-un pledged to continue backing Russia and the two sides formalised long-term military cooperation agreements. The visit came as Ukraine's Zelenskyy marked the 40th anniversary of the Chernobyl disaster by accusing Russia of 'nuclear terrorism' over risks to nuclear sites."
+      },
+      "story_b": {
+        "headline": "Ukraine and Russia exchange drone strikes on Chernobyl anniversary",
+        "summary": "Drone and missile strikes across Ukraine, Russian-occupied territory and Russia itself killed at least 16 people over the weekend as the 40th anniversary of the Chernobyl nuclear disaster was marked. Zelenskyy accused Putin of 'nuclear terrorism' by endangering nuclear infrastructure; Trump said separately he had 'good conversations' with both Putin and Zelenskyy, without elaborating."
+      },
+      "label_same_event": "partial",
+      "redundant": true,
+      "label_note": "Same day and overlapping (both feature the Chernobyl anniversary and Zelenskyy's 'nuclear terrorism' charge), but A's core is the Russia-NK partnership while B's is the battlefield drone exchanges — each adds distinct news."
+    },
+    {
+      "date": "2026-06-07",
+      "cosine": 0.585,
+      "story_a": {
+        "headline": "Hegseth uses D-Day memorial to attack Europe over migration",
+        "summary": "US Defense Secretary Pete Hegseth used a speech at Normandy on the 82nd anniversary of D-Day to urge European countries to counter what he termed an 'invasion' of their coastlines by migrants. The remarks drew immediate criticism from European officials and the UK government. Hegseth's comments came a day after JD Vance had similarly used the murder of British student Henry Nowak to blame migration for European instability."
+      },
+      "story_b": {
+        "headline": "UK government pushes back after Vance blames Henry Nowak's murder on migration",
+        "summary": "UK Prime Minister Keir Starmer criticised US Vice President JD Vance after Vance wrote on social media that the murder of British student Henry Nowak was a result of 'the mass invasion of migrants' and called for 'righteous anger.' Vance's framing was rejected by the British government, which noted the suspect's background did not match the narrative Vance had presented. The exchange follows a pattern of US officials publicly intervening in British domestic political debates."
+      },
+      "label_same_event": "partial",
+      "redundant": true,
+      "label_note": "Same macro-story (US officials using migration to attack Europe, with each story cross-referencing the other), but the discrete events differ: Hegseth's D-Day speech versus Vance's Nowak comments and the UK rebuttal."
+    },
+    {
+      "date": "2026-04-18",
+      "cosine": 0.583,
+      "story_a": {
+        "headline": "Hormuz reopens for commercial ships as US blockade on Iran holds",
+        "summary": "Iran declared the Strait of Hormuz fully open to commercial traffic on April 17, ending nearly seven weeks of closure that sent oil prices surging. The US naval blockade on Iranian ports remains in force, and ships seeking passage reportedly need clearance from Iran's Revolutionary Guard Corps, raising questions about how open the waterway truly is. Twenty vessels attempted to exit on April 17 but some turned back, and the US Navy warned that mine threats in parts of the strait are not fully understood."
+      },
+      "story_b": {
+        "headline": "Oil falls 10%, Wall Street hits record on Hormuz opening; IMF meetings remain gloomy",
+        "summary": "Brent crude fell roughly 10% and Wall Street indexes reached record highs after Iran declared the Strait of Hormuz open, with hedge funds booking an estimated $86bn in stock purchases on Iran peace hopes. Traders had placed $760m in bets on falling oil ahead of the announcement. Despite the rally, finance ministers and investors at the IMF and World Bank spring meetings predicted economic and financial turbulence would persist for weeks or months."
+      },
+      "label_same_event": "y",
+      "redundant": true,
+      "label_note": "Same event: Iran's reopening of Hormuz on April 17 — A reports the reopening, B reports the market reaction to the same announcement; redundant to run both."
+    },
+    {
+      "date": "2026-06-01",
+      "cosine": 0.611,
+      "story_a": {
+        "headline": "Iran war inflation shock expected to stay below 2022 levels, analysts say",
+        "summary": "Financial analysts now expect the inflationary impact of the US-Iran conflict to fall short of the surge that followed Russia's invasion of Ukraine in 2022, according to FT analysis. Oil prices rose more than 2% on Sunday as US-Iran strikes continued and Israel deepened its Lebanon incursion, with gold slipping as the dollar strengthened on deal uncertainty."
+      },
+      "story_b": {
+        "headline": "Oil up, AI stocks surge as markets absorb Gulf risk and chip boom",
+        "summary": "Asian equity markets extended gains driven by AI-related stocks even as oil prices rose more than 2% on Gulf conflict risk, with Reuters morning analysis noting investors are treating AI momentum as largely independent of energy-market disruption. China's crude oil imports slumped in recent months, though analysts say the decline reflects domestic economics rather than any alignment with Western pressure."
+      },
+      "label_same_event": "partial",
+      "redundant": true,
+      "label_note": "Same-day market-reaction stories with heavy overlap (2% oil rise, China crude-import slump), but A centres on the inflation outlook and B on AI-stock decoupling — close to 'y', but each carries a distinct analytical hook."
+    },
+    {
+      "date": "2026-03-21",
+      "cosine": 0.559,
+      "story_a": {
+        "headline": "Iran blockades Hormuz shipping; energy crisis deepens as US taps reserves and lifts sanctions on Iran oil",
+        "summary": "Iran's effective blockade of the Strait of Hormuz has triggered the worst energy disruption since the 1970s: oil above $100 a barrel, fuel rationing across South and Southeast Asia, and airline capacity cuts. The US lent oil companies 45.2 million barrels from strategic reserves and issued a 30-day waiver allowing the sale of Iranian crude already at sea—the third such sanctions reprieve in two weeks—adding an estimated 140 million barrels to markets. Iraq declared force majeure on all foreign-operated oilfields after Hormuz disruptions filled onshore storage to capacity."
+      },
+      "story_b": {
+        "headline": "US Section 301 tariffs on China set to trigger fresh trade disruption",
+        "summary": "A new round of US Section 301 tariff actions against China is set to take effect, adding trade friction on top of the supply-chain disruptions already caused by the Iran war and Hormuz blockade. Analysts warn the combination of energy price shock and renewed tariff escalation creates a compounding drag on global trade volumes."
+      },
+      "label_same_event": "n",
+      "redundant": false,
+      "label_note": "Distinct: an Iran/Hormuz energy-crisis story versus new US Section 301 tariffs on China, linked only by shared supply-chain backdrop."
+    },
+    {
+      "date": "2026-03-05",
+      "cosine": 0.563,
+      "story_a": {
+        "headline": "US-Israeli strikes on Iran kill over 1,000 as war enters fifth day",
+        "summary": "US and Israeli forces have killed more than 1,000 people in five days of strikes on Iran, targeting military sites, missile launchers, and security infrastructure after Iran's Supreme Leader Ayatollah Ali Khamenei was killed at the weekend. Iran has retaliated with waves of missiles and drones across the Gulf region, hitting targets in Qatar, Saudi Arabia, and beyond, while a US submarine sank an Iranian warship off Sri Lanka — the first torpedo sinking of an enemy vessel since World War II. The war has closed airspace across the Middle East, halted shipping through the Strait of Hormuz for five days, and pushed oil prices up sharply."
+      },
+      "story_b": {
+        "headline": "Iran conflict risks diverting US weapons Ukraine needs to defend against Russia",
+        "summary": "The Iran campaign is straining US munitions stockpiles at a time when Ukraine relies on American-supplied air defence missiles, according to officials and analysts. Ukraine's F-16 jets were already starved of US-made missiles for weeks before the Iran strikes began. Russia is a significant winner from the conflict, with surging oil prices boosting Moscow's economy and weapons supplies being drawn away from Kyiv."
+      },
+      "label_same_event": "n",
+      "redundant": false,
+      "label_note": "Distinct: the Iran war's battlefield update versus its knock-on effect on US weapons for Ukraine."
+    },
+    {
+      "date": "2026-03-18",
+      "cosine": 0.602,
+      "story_a": {
+        "headline": "Japan pivots to US crude as Trump pushes allies on Hormuz; South Korea weighs its role",
+        "summary": "Japan is seeking to boost US crude oil imports to offset Hormuz-related supply disruptions as Prime Minister Takaichi heads to Washington. South Korea's President Lee faces a difficult choice between honouring the US alliance and avoiding entanglement in a prolonged war. Asian governments are scrambling to secure Russian oil as an alternative supply source."
+      },
+      "story_b": {
+        "headline": "Asia rations energy, switches to coal as Iranian gas supply collapses",
+        "summary": "A sharp drop in liquefied natural gas supply from the Gulf is pushing major Asian importers — including South Korea, Japan, India and Sri Lanka — back toward coal. Some nations have introduced mandatory energy holidays. India faces risks to its piped gas network. China has banned fuel exports to tighten domestic supply."
+      },
+      "label_same_event": "partial",
+      "redundant": true,
+      "label_note": "Same macro-story (Asia's energy scramble amid Hormuz disruption, overlapping countries), but A focuses on crude/oil sourcing and US alliance politics while B focuses on the LNG-to-coal switch — each adds a distinct facet."
+    },
+    {
+      "date": "2026-03-04",
+      "cosine": 0.64,
+      "story_a": {
+        "headline": "US and Israel hit nearly 2,000 targets in Iran as conflict enters fourth day",
+        "summary": "US and Israeli forces have struck roughly 2,000 sites across Iran in four days of bombing that began Saturday, targeting command centres, air defences, launch sites and infrastructure. Iran has retaliated with missiles and drones across the Gulf, hitting US bases in Kuwait, Saudi Arabia and the UAE, and blockading the Strait of Hormuz. The US military says Iran's air defences have been significantly degraded and its navy has no operational vessels on key waterways, but Tehran says it retains full control of the strait."
+      },
+      "story_b": {
+        "headline": "Gulf states' missile stockpiles burn fast as Iran targets oil and tourism infrastructure",
+        "summary": "Gulf states have been intercepting Iranian missiles and drones at a high rate, but analysts warn that their stocks of advanced interceptors are depleting rapidly. Iranian strikes have already hit Saudi oil refineries, the world's largest LNG plant in Qatar, and UAE infrastructure, while major airports including Dubai have remained closed or severely restricted for four days, stranding tens of thousands of travellers. The region's post-oil economic pivot — its bet on tourism, finance and tech — is under acute threat."
+      },
+      "label_same_event": "partial",
+      "redundant": true,
+      "label_note": "Both cover day-four of the same air war with overlapping facts (Iranian strikes on Gulf, airport closures), but A is the overall bombing campaign and B is the specific angle of Gulf interceptor depletion — a judgment call leaning partial."
+    },
+    {
+      "date": "2026-03-19",
+      "cosine": 0.568,
+      "story_a": {
+        "headline": "Cuba faces embassy closures and oil blockade as Trump threatens takeover",
+        "summary": "Costa Rica ordered the closure of Cuba's embassy, which Havana blamed on US pressure; a Russian oil tanker carrying 730,000 barrels of crude is en route to Cuba in defiance of a US oil blockade; and Cuban President Díaz-Canel declared the island would meet any US aggression with 'impregnable resistance'. Trump has said the administration will be 'doing something with Cuba very soon', and analysts say China has 'very limited options' to support Havana."
+      },
+      "story_b": {
+        "headline": "US eases Venezuela oil sanctions to boost global supply during Iran war",
+        "summary": "The US Treasury broadly authorised transactions with Venezuela's state oil company PDVSA, allowing it to sell oil directly to US companies and on global markets, as the Trump administration sought to offset supply disruptions caused by the Iran war. The authorisation reverses years of sanctions pressure on Caracas."
+      },
+      "label_same_event": "n",
+      "redundant": false,
+      "label_note": "Distinct: US pressure/blockade on Cuba versus easing of Venezuela oil sanctions — different countries and opposite policy moves."
+    },
+    {
+      "date": "2026-04-20",
+      "cosine": 0.556,
+      "story_a": {
+        "headline": "US seizes Iranian cargo ship as ceasefire nears expiry",
+        "summary": "The United States seized an Iranian-flagged cargo ship in the Gulf of Oman after the vessel reportedly tried to break a US naval blockade, prompting Tehran to call the action a ceasefire violation and vow retaliation. The two-week truce is set to expire Wednesday, April 22, and Iran's state media reported no decision to send negotiators to scheduled talks in Pakistan, hours after President Trump publicly announced the Islamabad meeting. Oil prices jumped more than 5 percent on renewed tension, while Trump had earlier threatened to 'wipe out' Iranian infrastructure if talks failed."
+      },
+      "story_b": {
+        "headline": "Pakistan leads US-Iran mediation as Islamabad security tightens",
+        "summary": "Pakistan's military chief Field Marshal Asim Munir and civilian politicians divided the diplomatic legwork between them in a rapid blitz to push for a second round of US-Iran peace talks expected in Islamabad. Security was tightened visibly across the Pakistani capital ahead of the talks, even as Iran's state media simultaneously denied any decision to send negotiators. European allies warned that inexperienced US negotiators may be racing toward a headline-grabbing framework deal that leaves technical nuclear issues unresolved."
+      },
+      "label_same_event": "partial",
+      "redundant": true,
+      "label_note": "Same day and same diplomatic backdrop (Islamabad talks, Iran's refusal to confirm negotiators), but A centres on the US ship seizure and B on Pakistan's mediation role — overlapping enough to be partial."
+    },
+    {
+      "date": "2026-05-26",
+      "cosine": 0.554,
+      "story_a": {
+        "headline": "Iran deal talks stall on Abraham Accords demand and nuclear terms",
+        "summary": "Trump declared the war's end terms 'largely negotiated' but simultaneously conditioned any deal on Saudi Arabia, Qatar, Pakistan and other Muslim-majority states joining the Abraham Accords normalisation framework — a demand Gulf capitals have not accepted. An Iranian official said any agreement would be 'preliminary and focused on ending the war', indicating Tehran is resisting linkage to a broader regional realignment. Analysts note Trump's pressure campaign has had little effect on Iran's core demands."
+      },
+      "story_b": {
+        "headline": "US-China trade board launches with little detail as Hormuz disruption tests goodwill",
+        "summary": "A board of trade agreed at the Trump-Xi summit is formally taking shape, though analysts note the mechanism has sparse specifics and faces its first test immediately: the ongoing Hormuz crisis is pushing China to diversify energy imports, which may conflict with US demands on Iranian oil purchases."
+      },
+      "label_same_event": "n",
+      "redundant": false,
+      "label_note": "Distinct: Iran deal-talks stalling versus the launch of a US-China trade board, linked only by the Hormuz backdrop."
+    },
+    {
+      "date": "2026-03-15",
+      "cosine": 0.693,
+      "story_a": {
+        "headline": "Russia exploits Iran war with heavy strikes on Ukraine as Zelensky warns of air-defence shortage",
+        "summary": "Russia launched a combined missile and drone attack killing at least six people in Ukraine, targeting energy infrastructure near Kyiv while also hitting residential areas and schools. Zelensky warned that the US pause on ceasefire talks and the diversion of air-defence supplies to the Iran campaign are leaving Ukraine exposed. The EU extended sanctions on Russia in response."
+      },
+      "story_b": {
+        "headline": "EU maintains Ukraine sanctions while criticising US for lifting Russian oil curbs",
+        "summary": "The EU renewed sanctions against individuals linked to Russia's war on Ukraine, while pointedly criticising the US decision to lift sanctions on Russian oil exports as global prices soar due to the Iran conflict."
+      },
+      "label_same_event": "partial",
+      "redundant": true,
+      "label_note": "Overlapping (both mention EU sanctions extension and the US-Russia oil-sanctions rift), but A's core is the Russian strikes on Ukraine and air-defence shortage while B is specifically the EU sanctions/transatlantic-rift news."
+    },
+    {
+      "date": "2026-05-31",
+      "cosine": 0.725,
+      "story_a": {
+        "headline": "SoftBank pledges $52 billion for AI data centres in France",
+        "summary": "Japan's SoftBank announced it would invest $52 billion to build artificial intelligence data centres in France, targeting up to 3.1 gigawatts of computing capacity by 2031. The announcement came ahead of President Macron's ninth annual Choose France investment summit at Versailles. The investment is one of the largest single AI infrastructure commitments made outside the United States."
+      },
+      "story_b": {
+        "headline": "EU to present tech sovereignty package on June 3 targeting US platforms",
+        "summary": "The European Commission is set to unveil a long-awaited package of rules on chips, cloud computing, and artificial intelligence on June 3, aimed at reducing EU reliance on US technology firms. The package is designed to give European companies viable alternatives to American cloud and AI providers."
+      },
+      "label_same_event": "partial",
+      "redundant": true,
+      "label_note": "Same European-AI-sovereignty narrative and each references the other, but they are two distinct news pegs: SoftBank's $52bn pledge versus the EU's upcoming June 3 tech package."
+    },
+    {
+      "date": "2026-05-22",
+      "cosine": 0.71,
+      "story_a": {
+        "headline": "Xi meets Putin after Trump summit as US-China stability seen as fragile",
+        "summary": "Chinese leader Xi Jinping held back-to-back summits with US President Trump and Russian President Putin in the same week of May 21, with former US officials characterising the Trump-Xi outcome as a new phase of wary 'constructive stability' focused on preventing crises rather than resolving underlying tensions. Former US ambassador Max Baucus said 'we really do not trust each other.' Trump separately said he was open to speaking with Taiwan's President Lai, a move Beijing warned would cause 'turbulence.'"
+      },
+      "story_b": {
+        "headline": "Post-Trump summit, former US officials warn China stability is not durable",
+        "summary": "Two former senior US officials with China portfolios — ex-NSC director Evan Medeiros and former ambassador Max Baucus — said on May 21-22 that the apparent stabilisation following the Trump-Xi summit masked deep mutual mistrust and was unlikely to hold. Trump's stated openness to calling Taiwan's president directly threatened to immediately test the new arrangement. A Pentagon delegation was separately reported to be planning a trip to China ahead of a possible Hegseth visit."
+      },
+      "label_same_event": "y",
+      "redundant": true,
+      "label_note": "Same event: both are May 21-22 analyses of the post-Trump-Xi-summit 'fragile stability,' quoting the same official (Baucus) and same Taiwan-call angle; running both is redundant."
+    },
+    {
+      "date": "2026-05-11",
+      "cosine": 0.797,
+      "story_a": {
+        "headline": "Russia makes slow gains in Ukraine as ceasefire holds uneasily",
+        "summary": "Russian forces continued grinding advances in eastern Ukraine despite a nominal ceasefire, with Russia accusing Ukraine of drone and artillery violations; analysts described Russian troops as unable to solve the fundamental problem of advancing through saturated drone coverage. Putin suggested former German Chancellor Gerhard Schröder could serve as a mediator with the EU, a proposal Berlin dismissed with scepticism."
+      },
+      "story_b": {
+        "headline": "Germany dismisses Putin's Schröder mediation offer as Ukraine ceasefire frays",
+        "summary": "Berlin reacted cautiously on May 10 to Vladimir Putin's suggestion that former Chancellor Gerhard Schröder coordinate EU-Russia talks toward a Ukraine peace settlement, with officials saying they were sceptical of Schröder's suitability. Russia simultaneously accused Ukraine of launching drones and artillery in violation of the ceasefire; Ukraine did not immediately comment. European governments face pressure to respond to any peace overture, however implausible."
+      },
+      "label_same_event": "y",
+      "redundant": true,
+      "label_note": "Same event: both cover Putin's Schröder mediation offer and Germany's dismissal of it, plus the same ceasefire-violation accusations; clearly one story."
+    },
+    {
+      "date": "2026-03-30",
+      "cosine": 0.771,
+      "story_a": {
+        "headline": "Iran warns of ground attack; Pakistan offers to host US-Iran talks",
+        "summary": "Iran's parliament speaker said the US was plotting a ground invasion despite diplomatic efforts, calling the conflict 'a major global war at its most critical stage.' Pakistan said it was preparing to host 'meaningful talks' between the US and Iran, with Trump calling Iranian leaders 'very reasonable' and saying a deal may be reached 'soon.'"
+      },
+      "story_b": {
+        "headline": "Trump publicly splits with Gabbard over Iran nuclear stance",
+        "summary": "Trump said intelligence director Tulsi Gabbard was 'softer' than him on Iran's nuclear programme, signalling internal disagreement on war aims. The administration has given conflicting messages about the state of Iran's nuclear capabilities since the conflict began."
+      },
+      "label_same_event": "partial",
+      "redundant": true,
+      "label_note": "Overlapping (A's why_it_matters references the same Gabbard split that B is entirely about), but A's headline news is Iran's ground-invasion warning and Pakistan talks while B is specifically the Trump-Gabbard split — B is nearly a subset of A."
+    },
+    {
+      "date": "2026-04-03",
+      "cosine": 0.733,
+      "story_a": {
+        "headline": "Cuba to free 2,010 prisoners amid US oil blockade and Vatican diplomacy",
+        "summary": "Cuba announced it would release more than 2,000 prisoners in what the government called a 'humanitarian and sovereign gesture' during Holy Week, the second such release this year. The announcement follows a US oil blockade that has forced Havana to ration fuel and accept Russian tanker shipments, and comes amid Vatican diplomatic engagement."
+      },
+      "story_b": {
+        "headline": "Russia sends second oil tanker to Cuba as US blockade tightens",
+        "summary": "Russia announced it would dispatch a second oil tanker to Cuba following the arrival of the Anatoly Kolodkin earlier in the week with roughly 700,000 barrels of crude. Cuba has been in an acute energy crisis since January, with citizens cycling on Havana's waterfront in protest at US sanctions."
+      },
+      "label_same_event": "partial",
+      "redundant": true,
+      "label_note": "Same Cuba-blockade narrative with overlapping facts (Russian tanker, blockade), but A's news peg is the prisoner release and B's is the second Russian oil tanker — two distinct developments in one story."
+    },
+    {
+      "date": "2026-03-22",
+      "cosine": 0.728,
+      "story_a": {
+        "headline": "Trump gives Iran 48-hour ultimatum on Hormuz or faces power-plant strikes",
+        "summary": "US President Donald Trump on Saturday threatened to 'obliterate' Iran's power plants if Tehran does not fully reopen the Strait of Hormuz to shipping within 48 hours, posting the ultimatum on Truth Social. Iran's army responded by warning it would target US and allied energy, IT and desalination infrastructure across the region if attacked, while Tehran's UN maritime representative said Hormuz remained open to all ships except those linked to Iran's 'enemies'."
+      },
+      "story_b": {
+        "headline": "US says Iranian Hormuz threat 'degraded' after missile-site strikes",
+        "summary": "The US military said on Saturday it had struck an underground Iranian facility storing cruise missiles and other weaponry, calling Tehran's ability to threaten the Strait of Hormuz 'degraded'. A joint statement signed by mainly European countries plus South Korea, Australia, the UAE and Bahrain condemned Iran's 'de facto closure' of the strait."
+      },
+      "label_same_event": "partial",
+      "redundant": true,
+      "label_note": "Same-day Hormuz crisis with cross-references (B's analysis cites A's 48-hour ultimatum), but A is Trump's ultimatum and B is the US missile-site strike and allied statement — distinct developments leaning partial."
+    },
+    {
+      "date": "2026-05-08",
+      "cosine": 0.768,
+      "story_a": {
+        "headline": "US and Iran trade fire in Hormuz as ceasefire frays",
+        "summary": "US forces struck Iranian ports and an oil tanker in the Strait of Hormuz on Thursday; Iran retaliated with missiles against US Navy ships and attacked UAE air defences. Trump insisted the ceasefire remained in effect and threatened Iran to 'sign an agreement fast.' Iran accused Washington of violating the truce, though Iranian state media said the situation had 'returned to normal.' Separately, Iranian officials said a one-page framework — giving two sides 30 days to negotiate a full deal — was under active consideration."
+      },
+      "story_b": {
+        "headline": "Iran war diplomacy: one-page framework floated as strikes continue",
+        "summary": "Iranian officials said Washington and Tehran were considering a minimalist deal — reopening the Strait of Hormuz immediately in exchange for 30 days of negotiation toward a permanent agreement — even as both sides exchanged fire on Thursday. The talks involve backchannel contacts rather than direct high-level engagement. Trump told reporters the negotiations were 'advancing.'"
+      },
+      "label_same_event": "y",
+      "redundant": true,
+      "label_note": "Same event: both are Thursday's Hormuz fighting plus the same one-page 30-day framework; A even contains B's entire content as a subordinate clause — clearly one story."
+    },
+    {
+      "date": "2026-05-31",
+      "cosine": 0.741,
+      "story_a": {
+        "headline": "Hegseth softens China tone at Shangri-La after Xi-Trump summit; backs India's military rise",
+        "summary": "US Defence Secretary Pete Hegseth struck a notably softer tone toward China at the Shangri-La Dialogue compared with the prior year, two weeks after the Xi-Trump summit. He also described India as 'powerful' and 'modernising its military', reinforcing Indo-Pacific security alignment. India's defence secretary separately confirmed that the BrahMos supersonic missile deal with Vietnam had been signed, with an Indonesia agreement in its final stages."
+      },
+      "story_b": {
+        "headline": "India signs BrahMos missile deal with Vietnam; Indonesia agreement near",
+        "summary": "India confirmed it has signed a deal to supply Vietnam with BrahMos supersonic cruise missiles, with a similar agreement with Indonesia reported to be in its final stages. The announcements were made at the Shangri-La Dialogue in Singapore alongside US and Australian defence officials."
+      },
+      "label_same_event": "partial",
+      "redundant": true,
+      "label_note": "Same Shangri-La forum and A explicitly mentions B's BrahMos-Vietnam deal, but A's main news is Hegseth's China tone shift while B is the discrete BrahMos arms deals — B is largely a subset of A."
+    },
+    {
+      "date": "2026-04-06",
+      "cosine": 0.737,
+      "story_a": {
+        "headline": "Explosives found near Russia-Hungary gas pipeline; Orban points at Ukraine days before election",
+        "summary": "Serbian President Aleksandar Vucic announced that detonators and explosives 'of devastating power' were found near the Balkan Stream pipeline, which carries Russian gas through Serbia to Hungary. Hungarian Prime Minister Viktor Orban appeared to blame Ukraine for the attempted sabotage, though Hungary's opposition called it a possible false flag staged to influence next Sunday's election, which polls show Orban trailing."
+      },
+      "story_b": {
+        "headline": "Hungary heads to election April 12 as Orban trails in polls",
+        "summary": "Hungary holds a general election on April 12 with Prime Minister Viktor Orban trailing behind the opposition, in a vote that could end his 16-year hold on power. The pipeline explosives discovery has injected a last-minute national-security dimension into the campaign."
+      },
+      "label_same_event": "partial",
+      "redundant": true,
+      "label_note": "Same campaign context and both reference the pipeline explosives, but A's news peg is the sabotage discovery while B is the broader election preview — heavily overlapping, leaning partial."
+    },
+    {
+      "date": "2026-04-20",
+      "cosine": 0.764,
+      "story_a": {
+        "headline": "US seizes Iranian cargo ship as ceasefire nears expiry",
+        "summary": "The United States seized an Iranian-flagged cargo ship in the Gulf of Oman after the vessel reportedly tried to break a US naval blockade, prompting Tehran to call the action a ceasefire violation and vow retaliation. The two-week truce is set to expire Wednesday, April 22, and Iran's state media reported no decision to send negotiators to scheduled talks in Pakistan, hours after President Trump publicly announced the Islamabad meeting. Oil prices jumped more than 5 percent on renewed tension, while Trump had earlier threatened to 'wipe out' Iranian infrastructure if talks failed."
+      },
+      "story_b": {
+        "headline": "Iran insists on nuclear rights as Hormuz deal remains distant",
+        "summary": "Iranian President Masoud Pezeshkian said Trump had no justification to deprive Iran of its nuclear rights, according to ISNA, as Tehran signalled a final deal was still far off and the Strait of Hormuz remained shuttered. Iran's ceasefire declared the strait open on April 22, but the US blockade and seizure of an Iranian vessel contradict the truce's practical meaning. A senior Iranian politician separately told the BBC that Tehran would 'never' cede control of Hormuz passage rights."
+      },
+      "label_same_event": "partial",
+      "redundant": true,
+      "label_note": "Same April-20 ceasefire-expiry context and both cite the ship seizure, but A's peg is the seizure itself while B's is Iran's nuclear-rights position — closely linked, leaning partial."
+    },
+    {
+      "date": "2026-03-09",
+      "cosine": 0.746,
+      "story_a": {
+        "headline": "Asian economies scramble as oil shock threatens inflation and growth",
+        "summary": "Indian stock markets slumped and the rupee and bonds came under pressure as Brent crude spiked to near a four-year high, with Indian refiners particularly hard hit. Japan told its national oil reserve sites to prepare for release. South Korea announced fuel price caps; Vietnam moved to remove fuel tariffs. 'Iranflation' became the term central bank watchers used for the inflationary wildcard now facing the Bank of Japan and other Asian central banks. China reported that Iran's war had cut its access to sulphur imports critical to spring planting-season fertiliser production."
+      },
+      "story_b": {
+        "headline": "South Korea caps fuel prices; Vietnam scraps tariffs to cushion oil shock",
+        "summary": "South Korea moved to impose fuel price caps to shield its economy from the energy shock triggered by the Iran war. Vietnam separately removed fuel tariffs amid supply disruption. India, the world's third-largest oil importer, saw its rupee and bond markets under pressure, with Brent crude spiking to near a four-year high."
+      },
+      "label_same_event": "y",
+      "redundant": true,
+      "label_note": "Same event: B (South Korea caps/Vietnam tariffs, India market pressure, Brent spike) is entirely contained within A's broader Asian-oil-shock roundup; redundant to run both."
+    },
+    {
+      "date": "2026-05-21",
+      "cosine": 0.729,
+      "story_a": {
+        "headline": "Xi and Putin deepen alignment but leave gas pipeline unsigned",
+        "summary": "Russian President Vladimir Putin arrived in Beijing days after Donald Trump's state visit, signing a broad set of cooperation agreements with Xi Jinping pledging deeper coordination against U.S. pressure. The Kremlin claimed an 'understanding' on the long-delayed Power of Siberia 2 pipeline, but Chinese sources say no deal was finalised and Beijing avoided public commitments that would invite new Western sanctions."
+      },
+      "story_b": {
+        "headline": "Xi's back-to-back summits with Trump and Putin reshape the geometry of great-power rivalry",
+        "summary": "Within a week, Xi hosted both Donald Trump and Vladimir Putin in Beijing, using each visit to extract concessions while making minimal binding commitments. Analysts note that the sequencing — Trump first, then Putin — allowed China to signal it could offer Washington economic engagement while deepening security cooperation with Moscow."
+      },
+      "label_same_event": "y",
+      "redundant": true,
+      "label_note": "Same event: both cover the Xi-Putin Beijing summit following Trump's visit (the unsigned pipeline appears in both); B is the analytical framing of the same meeting A reports."
+    }
+  ]
+}

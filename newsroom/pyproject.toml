@@ -20,6 +20,13 @@ dev = [
     "bandit",
     "pytest",
 ]
+# Offline-only eval extras: MiniLM embeddings for the cross-story dedup grader's
+# LIVE path (eval_dedup_grader.embed). NOT in the prod pipeline (never runs on the
+# Hetzner box) and NOT in CI -- the regression tests score off precomputed cosines.
+# Install locally for GEPA scoring with: uv sync --extra eval
+eval = [
+    "sentence-transformers",
+]
 
 [tool.ruff]
 line-length = 120
