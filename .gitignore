@@ -24,3 +24,4 @@ __pycache__/
 .ruff_cache/
 uv.lock
 digest-cloud.db
+scratch/

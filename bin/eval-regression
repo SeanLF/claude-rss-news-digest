@@ -1,0 +1,145 @@
+#!/bin/bash
+# Eval-floor regression gate: recompute the L1/L2 eval metrics offline and FAIL
+# if they regress against the committed baseline.
+#
+# No model calls, no credit -- pure code + fixtures, safe in CI and on every
+# change. Watches three things:
+#   * L1 pass-rate     -- any code-assertion check flipping PASS -> FAIL
+#   * L2 fail-precision -- the COHERENCE judge's fail accuracy dropping
+#   * L2 leak count     -- false passes (unfaithful headlines the judge let through) rising
+#
+# Runs under `uv` because the host python lacks the project's deps / version
+# (mirrors bin/eval-judge / bin/trace's "no bare python3" convention).
+#
+# Usage:
+#   bin/eval-regression            Compare current metrics vs baseline; exit 1 on regression
+#   bin/eval-regression --update   Rewrite the baseline from current metrics (after an intended change)
+#
+# Fixtures (committed):
+#   baseline    newsroom/tests/fixtures/eval_baseline.json
+#   golden set  newsroom/tests/fixtures/coherence_golden.json
+#   selections  newsroom/tests/fixtures/prod_baseline_selections.json
+
+set -e
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
+
+MODE="${1:-check}"
+
+cd "$PROJECT_DIR/newsroom"
+
+PROJECT_DIR="$PROJECT_DIR" MODE="$MODE" uv run python - <<'PY'
+import json
+import os
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path.cwd() / "src"))
+
+from eval_regression import compare, compute_metrics_from_paths, load_json  # noqa: E402
+
+proj = Path(os.environ["PROJECT_DIR"])
+mode = os.environ["MODE"]
+
+baseline_path = proj / "newsroom" / "tests" / "fixtures" / "eval_baseline.json"
+golden_path = proj / "newsroom" / "tests" / "fixtures" / "coherence_golden.json"
+selections_path = proj / "newsroom" / "tests" / "fixtures" / "prod_baseline_selections.json"
+
+GREEN, RED, YELLOW, DIM, BOLD, RESET = (
+    "\033[32m", "\033[31m", "\033[33m", "\033[2m", "\033[1m", "\033[0m"
+)
+
+
+def color(s, code):
+    return f"{code}{s}{RESET}" if sys.stdout.isatty() else s
+
+
+def status_label(passed):
+    # Tri-state: True -> PASS, False -> FAIL, None -> absent ("----").
+    if passed is None:
+        return "----"
+    return "PASS" if passed else "FAIL"
+
+
+for label, path in (("golden set", golden_path), ("selections fixture", selections_path)):
+    if not path.exists():
+        print(color(f"{label} fixture missing: {path}", RED), file=sys.stderr)
+        print("the gate needs its committed fixtures; check the path or restore the file", file=sys.stderr)
+        sys.exit(2)
+
+current = compute_metrics_from_paths(golden_path, selections_path)
+
+if mode == "--update":
+    baseline = load_json(baseline_path) if baseline_path.exists() else {}
+    meta = baseline.get("_meta", {})
+    out = {"_meta": meta, **current}
+    baseline_path.write_text(json.dumps(out, indent=2) + "\n", encoding="utf-8")
+    print(color(f"baseline updated: {baseline_path.relative_to(proj)}", BOLD))
+    sys.exit(0)
+
+if not baseline_path.exists():
+    print(color(f"baseline missing: {baseline_path}", RED), file=sys.stderr)
+    print("run: bin/eval-regression --update", file=sys.stderr)
+    sys.exit(2)
+
+baseline = load_json(baseline_path)
+result = compare(baseline, current)
+
+print(color("Eval-floor regression gate", BOLD))
+print()
+
+# L1 diff (per check, both fixtures).
+for fixture in ("l1_golden_headlines", "l1_selections_fixture"):
+    print(color(fixture, BOLD))
+    base = baseline[fixture]
+    cur = current[fixture]
+    for check in sorted(set(base) | set(cur)):
+        b = base.get(check)
+        c = cur.get(check)
+        regressed = b and not c
+        if regressed:
+            mark_color = RED
+        elif c:
+            mark_color = GREEN
+        else:
+            mark_color = DIM
+        mark = color(status_label(c), mark_color)
+        arrow = "" if b == c else color(f"  (was {status_label(b)})", YELLOW)
+        print(f"  {check:<26} {mark}{arrow}")
+    print()
+
+# L2 diff.
+print(color("l2_judge_agreement", BOLD))
+bl = baseline["l2_judge_agreement"]
+cl = current["l2_judge_agreement"]
+
+
+def fmt(v):
+    return "n/a" if v is None else (f"{v:.4f}" if isinstance(v, float) else str(v))
+
+
+for key in ("labeled_cases", "agreement_rate", "fail_precision", "leak_count"):
+    b, c = bl.get(key), cl.get(key)
+    same = b == c
+    line = f"  {key:<16} {fmt(c)}"
+    if not same:
+        line += color(f"  (baseline {fmt(b)})", YELLOW)
+    print(line)
+print()
+
+if result.notes:
+    print(color("notes (non-fatal):", DIM))
+    for n in result.notes:
+        print(color(f"  - {n}", DIM))
+    print()
+
+if result.passed:
+    print(color("PASS -- no regressions vs baseline", GREEN))
+    sys.exit(0)
+
+print(color("FAIL -- regressions detected:", RED))
+for r in result.regressions:
+    print(color(f"  - {r}", RED))
+sys.exit(1)
+PY

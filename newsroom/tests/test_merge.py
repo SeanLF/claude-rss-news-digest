@@ -189,6 +189,66 @@ class TestClusterIdMapping:
         assert "cluster_id" not in assembled["must_know"][0]
 
 
+class TestNonFatalGraderHook:
+    """The L1 graders run after schema validation as a NON-FATAL assertion:
+    failures are logged but must never abort assembly."""
+
+    def test_grader_failure_logs_warning_but_does_not_raise(self, tmp_path, caplog):
+        # 90-word summary blows the 80-word cap -> summary_length check fails.
+        long_summary = "word " * 90
+        item = _article("h")
+        item["summary"] = long_summary.strip()
+        draft = _draft(must_know=[item])
+        _write(tmp_path, draft, _coherence({"headline": "h", "pass": True}))
+
+        with caplog.at_level("WARNING", logger="merge"):
+            out = assemble_selections(tmp_path)  # must NOT raise
+
+        assert out.exists()
+        assembled = json.loads(out.read_text())
+        assert len(assembled["must_know"]) == 1  # output still written
+        # The failing check surfaced as a warning.
+        assert any("summary_length" in r.message or "summary_length" in str(r.args) for r in caplog.records)
+        assert any("non-fatal" in r.getMessage() for r in caplog.records)
+
+    def test_clean_output_logs_all_checks_passed(self, tmp_path, caplog):
+        draft = _draft(
+            must_know=[_article("h")], should_know=[_article("s", "A2"), _article("t", "A3"), _article("u", "A4")]
+        )
+        _write(
+            tmp_path,
+            draft,
+            _coherence(
+                {"headline": "h", "pass": True},
+                {"headline": "s", "pass": True},
+                {"headline": "t", "pass": True},
+                {"headline": "u", "pass": True},
+            ),
+        )
+
+        with caplog.at_level("INFO", logger="merge"):
+            assemble_selections(tmp_path)
+
+        assert any("all" in r.getMessage() and "checks passed" in r.getMessage() for r in caplog.records)
+
+    def test_grader_exception_is_swallowed(self, tmp_path, caplog, monkeypatch):
+        # If the graders themselves raise, instrumentation must not break the run.
+        import merge
+
+        def _boom(*_a, **_kw):
+            raise ValueError("grader exploded")
+
+        monkeypatch.setattr(merge, "grade_selections", _boom)
+        draft = _draft(must_know=[_article("h")])
+        _write(tmp_path, draft, _coherence({"headline": "h", "pass": True}))
+
+        with caplog.at_level("WARNING", logger="merge"):
+            out = assemble_selections(tmp_path)  # must NOT raise
+
+        assert out.exists()
+        assert any("graders errored" in r.getMessage() for r in caplog.records)
+
+
 class TestValidateSelections:
     def _valid(self):
         return _draft(must_know=[_article("h")])

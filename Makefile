@@ -2,7 +2,7 @@
 # Run `make` or `make help` to see available targets
 
 .DEFAULT_GOAL := help
-.PHONY: ci ci-fix ci-full test deploy deploy-dry migrate migrate-status \
+.PHONY: ci ci-fix ci-full test eval deploy deploy-dry migrate migrate-status \
         ssh db-clone usage usage-daily versions circulation prompt help
 
 ## CI
@@ -16,6 +16,8 @@ ci-full: ## Full CI including cargo audit
 ## Test
 test: ## Run Python tests only (in Docker)
 	docker compose run --rm --build ci pytest -v newsroom/tests/
+eval: ## Run the offline eval-floor regression gate (no model calls)
+	bin/eval-regression
 
 ## Deploy
 deploy: ## Deploy to production (build, push, terraform, migrate)

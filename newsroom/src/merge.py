@@ -10,9 +10,33 @@ import json
 import logging
 from pathlib import Path
 
+from eval_graders import grade_selections
 from schema import validate_selections
 
 logger = logging.getLogger(__name__)
+
+
+def _grade_assembled(selections: dict) -> None:
+    """Run the L1 code-assertion graders as a NON-FATAL production assertion.
+
+    The graders are an observability floor, not a gate: a failed check (length
+    over cap, count out of range, etc.) is logged as a warning so it shows up in
+    run logs, but it NEVER raises -- the run must not abort on a soft-quality
+    signal after schema validation has already passed. Any unexpected grader
+    error is itself swallowed (warned), since this is best-effort instrumentation.
+    """
+    try:
+        report = grade_selections(selections)
+    except Exception as e:  # broad by design: instrumentation must never break the run
+        logger.warning("L1 graders errored (non-fatal, skipping): %s", e)
+        return
+    failures = report.failures
+    if not failures:
+        logger.info("L1 graders: all %d checks passed", len(report.checks))
+        return
+    logger.warning("L1 graders flagged %d check(s) (non-fatal):", len(failures))
+    for check in failures:
+        logger.warning("  [%s] %s", check.name, check.detail)
 
 
 def _load_cluster_map(claude_input_dir: Path) -> dict[str, str]:
@@ -106,6 +130,8 @@ def assemble_selections(claude_input_dir: Path) -> Path:
     errors = validate_selections(draft)
     if errors:
         raise RuntimeError("Assembled selections failed schema validation:\n  - " + "\n  - ".join(errors[:10]))
+
+    _grade_assembled(draft)
 
     output_path = claude_input_dir / "selections.json"
     output_path.write_text(json.dumps(draft, indent=2))

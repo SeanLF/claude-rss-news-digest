@@ -1,0 +1,489 @@
+{
+  "must_know": [
+    {
+      "headline": "Saif al-Islam Gaddafi killed in armed attack at his Zintan home",
+      "summary": "Saif al-Islam Gaddafi, the 53-year-old son of Libya's former dictator Muammar Gaddafi, was killed by gunmen who stormed his home in western Libya. He was once widely seen as the second most powerful person in Libya and had been attempting a political comeback. The circumstances and perpetrators remain unclear.",
+      "why_it_matters": "The assassination of Gaddafi's most prominent surviving son removes a major political figure from Libya's fragmented landscape and could further destabilize the country's already volatile power dynamics.",
+      "sources": [
+        {
+          "name": "Al Jazeera",
+          "url": "https://www.aljazeera.com/news/2026/2/3/saif-al-islam-gaddafi-son-of-former-leader-killed-in-libya?traffic_source=rss",
+          "bias": "center"
+        },
+        {
+          "name": "Financial Times",
+          "url": "https://www.ft.com/content/8b707c0e-ad69-41df-bda9-ea3b8efcac93",
+          "bias": "center-right"
+        },
+        {
+          "name": "BBC World",
+          "url": "https://www.bbc.com/news/articles/cp37g4xgkxdo?at_medium=RSS&at_campaign=rss",
+          "bias": "center"
+        }
+      ]
+    },
+    {
+      "headline": "US shoots down Iranian drone approaching aircraft carrier in Arabian Sea",
+      "summary": "A US Navy fighter jet shot down an Iranian Shahed-139 drone that was aggressively approaching the USS Abraham Lincoln aircraft carrier with unclear intent. The incident comes just days before planned nuclear negotiations between Washington and Tehran, raising tensions despite diplomatic efforts.",
+      "why_it_matters": "The confrontation threatens to derail fragile diplomatic progress between the US and Iran, occurring at a critical juncture as both nations prepare for talks on Iran's nuclear program.",
+      "sources": [
+        {
+          "name": "BBC World",
+          "url": "https://www.bbc.com/news/articles/c3dmjn7n985o?at_medium=RSS&at_campaign=rss",
+          "bias": "center"
+        },
+        {
+          "name": "Financial Times",
+          "url": "https://www.ft.com/content/81c72320-dab7-4429-8859-c2bd551ec5a1",
+          "bias": "center-right"
+        },
+        {
+          "name": "The Guardian",
+          "url": "https://www.theguardian.com/us-news/2026/feb/03/us-shoots-down-iranian-drone-arabian-sea-navy-says",
+          "bias": "center-left"
+        }
+      ]
+    },
+    {
+      "headline": "Russia launches massive energy infrastructure attack on Ukraine as Trump-brokered truce expires",
+      "summary": "Russia launched what Ukrainian officials called its most powerful attack of 2026, firing over 70 missiles and 450 drones at Ukraine's energy grid, leaving hundreds of thousands without heating in -20C temperatures. The assault came after a so-called energy truce expired and hours after President Trump said he had persuaded Putin to stop such attacks.",
+      "why_it_matters": "The attack exposes the fragility of Trump's diplomatic efforts and demonstrates Russia's willingness to weaponize winter weather against Ukrainian civilians despite international pressure.",
+      "sources": [
+        {
+          "name": "BBC World",
+          "url": "https://www.bbc.com/news/articles/cpwng25114ro?at_medium=RSS&at_campaign=rss",
+          "bias": "center"
+        },
+        {
+          "name": "The Guardian",
+          "url": "https://www.theguardian.com/world/2026/feb/03/thousands-without-heating-ukraine-russia-winter-attacks-before-talks",
+          "bias": "center-left"
+        },
+        {
+          "name": "Washington Post",
+          "url": "https://www.washingtonpost.com/world/2026/02/03/trump-war-russia-ukraine-attacks-power-sector/",
+          "bias": "center-left"
+        }
+      ],
+      "reporting_varies": [
+        {
+          "source": "BBC World",
+          "angle": "Frames attack as violation of informal truce during freezing weather",
+          "bias": "center"
+        },
+        {
+          "source": "Washington Post",
+          "angle": "Emphasizes Trump's failed claim to have secured Putin's agreement to halt energy strikes",
+          "bias": "center-left"
+        }
+      ]
+    },
+    {
+      "headline": "UK police launch criminal investigation into Peter Mandelson over Epstein leaks",
+      "summary": "British authorities are investigating allegations that Peter Mandelson, the UK's former ambassador to the US, leaked market-sensitive government information to convicted sex offender Jeffrey Epstein. Mandelson resigned from the House of Lords as the investigation was announced. Newly released documents appear to show the then-business secretary passing official information to Epstein.",
+      "why_it_matters": "The investigation implicates a senior British political figure in potentially serious breaches of official secrecy, adding a new dimension to the ongoing Epstein scandal.",
+      "sources": [
+        {
+          "name": "Al Jazeera",
+          "url": "https://www.aljazeera.com/news/2026/2/3/uks-mandelson-to-resign-from-house-of-lords-over-epstein-ties?traffic_source=rss",
+          "bias": "center"
+        },
+        {
+          "name": "Financial Times",
+          "url": "https://www.ft.com/content/d6438f3b-e37f-442e-bb3d-03c5272aa616",
+          "bias": "center-right"
+        },
+        {
+          "name": "The Guardian",
+          "url": "https://www.theguardian.com/uk-news/2026/feb/03/met-police-to-launch-investigation-into-alleged-mandelson-epstein-email-leaks",
+          "bias": "center-left"
+        }
+      ]
+    },
+    {
+      "headline": "French police raid X offices and summon Elon Musk over child abuse imagery probe",
+      "summary": "French prosecutors raided the Paris offices of social media platform X as part of a preliminary investigation into allegations including spreading child sexual abuse images and deepfakes. Paris prosecutors summoned owner Elon Musk for questioning on April 20, escalating European regulatory action against American tech platforms.",
+      "why_it_matters": "The raid represents Europe's most aggressive enforcement action yet against Musk's platform, testing the limits of European jurisdiction over US tech companies.",
+      "sources": [
+        {
+          "name": "Ars Technica",
+          "url": "https://arstechnica.com/tech-policy/2026/02/x-office-raided-in-frances-grok-probe-elon-musk-summoned-for-questioning/",
+          "bias": "center"
+        },
+        {
+          "name": "BBC World",
+          "url": "https://www.bbc.com/news/articles/ce3ex92557jo?at_medium=RSS&at_campaign=rss",
+          "bias": "center"
+        },
+        {
+          "name": "NPR World",
+          "url": "https://www.npr.org/2026/02/03/g-s1-108490/paris-x-raid-investigation-elon-musk",
+          "bias": "center-left"
+        }
+      ]
+    }
+  ],
+  "should_know": [
+    {
+      "headline": "At least 14 migrants killed in collision between boat and Greek coastguard vessel",
+      "summary": "A speedboat carrying migrants collided with a Greek coastguard patrol vessel near the island of Chios in the Aegean Sea, killing at least 14 people. The coastguard said a pursuit was underway at the time. Twenty-six people were rescued, with search-and-rescue operations continuing.",
+      "why_it_matters": "The incident highlights the ongoing deadly risks facing migrants attempting to reach Europe and raises questions about coastguard pursuit tactics.",
+      "sources": [
+        {
+          "name": "Al Jazeera",
+          "url": "https://www.aljazeera.com/news/2026/2/3/collision-between-greek-coast-guard-vessel-migrant-boat-kills-at-least-14?traffic_source=rss",
+          "bias": "center"
+        },
+        {
+          "name": "BBC World",
+          "url": "https://www.bbc.com/news/articles/cdre825p110o?at_medium=RSS&at_campaign=rss",
+          "bias": "center"
+        }
+      ]
+    },
+    {
+      "headline": "Iran's president authorizes nuclear talks with US amid heightened tensions",
+      "summary": "Iranian President Masoud Pezeshkian instructed his foreign minister to pursue fair and equitable negotiations with the United States over Iran's nuclear program. The announcement marks a major reversal for the reformist president, who had warned for weeks that turmoil had gone beyond his control. Talks are expected Friday in Turkey.",
+      "why_it_matters": "Tehran's willingness to negotiate despite recent military confrontations offers a diplomatic opening on Iran's nuclear program at a critical moment.",
+      "sources": [
+        {
+          "name": "Al Jazeera",
+          "url": "https://www.aljazeera.com/news/2026/2/3/us-military-says-it-shot-down-an-iranian-drone-in-arabian-sea?traffic_source=rss",
+          "bias": "center"
+        },
+        {
+          "name": "CBC News",
+          "url": "https://www.cbc.ca/news/world/iran-president-united-states-9.7071880?cmp=rss",
+          "bias": "center"
+        },
+        {
+          "name": "NYT World",
+          "url": "https://www.nytimes.com/2026/02/03/world/middleeast/iran-president-talks-istanbul-witkoff-kushner.html",
+          "bias": "center-left"
+        }
+      ]
+    },
+    {
+      "headline": "China's memory chip manufacturers plan massive output expansion amid global shortage",
+      "summary": "Chinese memory chip firms CXMT and YMTC are planning significant production increases to capitalize on a global memory chip shortage. The move signals China's determination to achieve self-sufficiency in semiconductor manufacturing despite Western export controls.",
+      "why_it_matters": "China's push to dominate memory chip production could reshape global semiconductor supply chains and reduce dependence on South Korean and US manufacturers.",
+      "sources": [
+        {
+          "name": "Nikkei Asia",
+          "url": "https://news.google.com/rss/articles/CBMixgFBVV95cUxPMlZ5RFRQaHRFQU9XX25uY040b2ZKdW5jVWVPZGpyOUJ3LVNsMG9oZnZ2MWItRkFmYV91dDV2ZEdfODZZTWhkb0VvdjFvbE5VemxMM2dtbm1VQWMxOHdTT2xqdzlMSU1Ka1F0SFUzN3VnRjNlT2o4YWQ2VjYxTWZ6dHFXS0RoS2dQaWItcV8tRXhSc1JTSFVDQ18zbWR4ckVYdVV1V3EzalJpdmFkMmJxcHU3eVBuZHFSUXZJTGRfYklaXzJLZXc?oc=5",
+          "bias": "center-right"
+        }
+      ]
+    },
+    {
+      "headline": "France bans Zoom and Teams in push for digital sovereignty from US tech",
+      "summary": "France announced it will no longer use Zoom and Microsoft Teams for government communications as part of Europe's broader effort to establish digital autonomy from American technology companies. The move reflects growing European concern about dependence on US platforms.",
+      "why_it_matters": "France's decision could trigger a broader European shift away from US tech platforms, potentially fragmenting the global digital economy along geopolitical lines.",
+      "sources": [
+        {
+          "name": "Hacker News",
+          "url": "https://apnews.com/article/europe-digital-sovereignty-big-tech-9f5388b68a0648514cebc8d92f682060",
+          "bias": "center"
+        }
+      ]
+    },
+    {
+      "headline": "Senior OpenAI staff depart as company prioritizes ChatGPT over long-term research",
+      "summary": "Multiple senior staff members are leaving OpenAI as the company redirects resources away from long-term research toward improving its flagship ChatGPT product. The shift reflects mounting commercial pressures on the AI lab.",
+      "why_it_matters": "The brain drain and strategic pivot suggest OpenAI is moving away from its original research mission toward more immediate commercial objectives.",
+      "sources": [
+        {
+          "name": "Ars Technica",
+          "url": "https://arstechnica.com/ai/2026/02/senior-staff-departing-openai-as-firm-prioritizes-chatgpt-development/",
+          "bias": "center"
+        }
+      ]
+    },
+    {
+      "headline": "Apple adds Claude and OpenAI coding agents directly into Xcode",
+      "summary": "Apple released Xcode 26.3 with native support for AI coding agents from Anthropic (Claude) and OpenAI (Codex) via the Model Context Protocol. Developers can now leverage agentic coding tools directly within Apple's development environment.",
+      "why_it_matters": "Apple's integration legitimizes AI coding agents and could accelerate their adoption among the millions of developers using Xcode.",
+      "sources": [
+        {
+          "name": "Ars Technica",
+          "url": "https://arstechnica.com/apple/2026/02/xcode-26-3-adds-support-for-claude-codex-and-other-agentic-tools-via-mcp/",
+          "bias": "center"
+        },
+        {
+          "name": "Hacker News",
+          "url": "https://www.apple.com/newsroom/2026/02/xcode-26-point-3-unlocks-the-power-of-agentic-coding/",
+          "bias": "center"
+        }
+      ]
+    },
+    {
+      "headline": "China bans retractable car door handles over safety concerns",
+      "summary": "China will ban all retractable car door handles starting in 2027 for new vehicles and 2029 for existing models, citing safety concerns. The pop-out handles, popularized by Tesla and other electric vehicles, have been linked to difficulties in emergency exits.",
+      "why_it_matters": "China's safety-driven regulation could force global automakers to redesign vehicles for the world's largest car market.",
+      "sources": [
+        {
+          "name": "Ars Technica",
+          "url": "https://arstechnica.com/cars/2026/02/china-bans-all-retractable-car-door-handles-starting-next-year/",
+          "bias": "center"
+        },
+        {
+          "name": "Reuters",
+          "url": "https://news.google.com/rss/articles/CBMirgFBVV95cUxObEtuX2x5UUhJaU10OWo1RW1fQmwxSWJMSkZsQ2RrS0Y5M2x6ODZtU1V1MmxZYUJzUk5FUThCSEZlbTZiT2xMR1ZzdmpyXzE3bmU2VEN0Mjdad2F4VHBlSkZEZDFXaXJjdVZNOFlmT0tGNmVrWWxsWEpZUkRtR0dfcWc1dVJuYl94Ykd5X2hYSGtqY1NrZm50N2Jhd0NIMjRSX0JBTHpOUThmWWxBQ3c?oc=5",
+          "bias": "center"
+        }
+      ]
+    },
+    {
+      "headline": "Walmart joins trillion-dollar club on India trade deal and new CEO appointment",
+      "summary": "Walmart's market capitalization hit $1 trillion for the first time, driven by news of a US-India trade deal that benefits the retail giant's suppliers and the appointment of a new CEO. The company joins an exclusive club previously dominated by Big Tech firms.",
+      "why_it_matters": "Walmart's valuation milestone demonstrates how traditional retail can compete with tech giants through global supply chain advantages.",
+      "sources": [
+        {
+          "name": "Al Jazeera",
+          "url": "https://www.aljazeera.com/economy/2026/2/3/walmart-hits-trillion-dollar-market-cap-for-the-first-time?traffic_source=rss",
+          "bias": "center"
+        },
+        {
+          "name": "Reuters",
+          "url": "https://news.google.com/rss/articles/CBMirAFBVV95cUxQYzJ1SlFXUHAzWUctVi11eUwtc1ZxemZRc29NTmpCd1VSMWlBV0lKdnptcE9tSk1icW9nRXZ5WHk2Mm82WFcySlhPZzJOYmhPa3BwenRsR2h1SUVudzZmQllrb0ZYakFPb1Q2enBqNmVEMmJ1WEl4TVdJZ0J0YlVEbFVsTVljT0FqZGVfN21QbmdfUXh3LWtJSF9aZEZfRzJvdHhwRlFRTzlZaU5r?oc=5",
+          "bias": "center"
+        }
+      ]
+    }
+  ],
+  "signals": {
+    "americas": [
+      {
+        "headline": "Brazil bus crash kills at least 16 pilgrims in Alagoas state",
+        "source": {
+          "name": "Al Jazeera",
+          "url": "https://www.aljazeera.com/news/2026/2/4/bus-crashes-in-brazils-alagoas-state-killing-at-least-16-people?traffic_source=rss",
+          "bias": "center"
+        }
+      },
+      {
+        "headline": "Jill Biden's ex-husband charged with murdering his current wife in Delaware",
+        "source": {
+          "name": "Straits Times",
+          "url": "https://www.straitstimes.com/world/united-states/jill-bidens-ex-husband-is-accused-of-killing-his-current-wife",
+          "bias": "center"
+        }
+      },
+      {
+        "headline": "Disney names theme parks chief Josh D'Amaro as new CEO to succeed Bob Iger",
+        "source": {
+          "name": "CBC News",
+          "url": "https://www.cbc.ca/news/entertainment/disney-ceo-josh-damaro-9.7072551?cmp=rss",
+          "bias": "center"
+        }
+      },
+      {
+        "headline": "Santander to buy US bank Webster Financial for $12.2 billion",
+        "source": {
+          "name": "Financial Times",
+          "url": "https://www.ft.com/content/cc68c782-cf03-4126-b5b1-c7d733e1ccc9",
+          "bias": "center-right"
+        }
+      },
+      {
+        "headline": "US government shutdown ends as Trump signs spending bill",
+        "source": {
+          "name": "Reuters",
+          "url": "https://news.google.com/rss/articles/CBMiqgFBVV95cUxNVW1HOVNGdElPQ2lGclhoRjlodDRkVDBBTG96STVQQ2MyV04zaWI2aDZLRkc0bXBFQm9tS3pFYjFUcE9oSXB1UTZVX0RkYWNzZkRnU01reU5laTZhU2pxTnh6OW5EQklDZ0dTbXFpTXJUbmI5bjBDbE5PWDJlM0NkcF9kTjZtdnhtTEdGeUhDUFZ1Tzl6aEdCRF9fUEMzZjZGTzBnSWp2dm9sdw?oc=5",
+          "bias": "center"
+        }
+      },
+      {
+        "headline": "US military says forces dispatched to Nigeria amid security concerns",
+        "source": {
+          "name": "Reuters",
+          "url": "https://news.google.com/rss/articles/CBMiqgFBVV95cUxNU2FYS09ray1LTlltUFZ0R0RkeVg3a2R3QUpaZDdCQVZPdjRGM1NHZUZLV0ZGdDlVUzVxQjgwelAtMm1PUmxFRkFrdDhfMlJwMGtXYzJKTExXc2dUSVJoSUw5Mjk0NGJ0cWVmRjlDb3FJM1psYmZPUG1KUkx2ay1IMEFwd3oyUlRqbWdYalVLWWkwclUycFdvbVJkUzF5S3lGYXliNEZqZzMtQQ?oc=5",
+          "bias": "center"
+        }
+      }
+    ],
+    "europe": [
+      {
+        "headline": "France teacher fighting for life after knife attack by 14-year-old student",
+        "source": {
+          "name": "BBC World",
+          "url": "https://www.bbc.com/news/articles/c7v0p818g91o?at_medium=RSS&at_campaign=rss",
+          "bias": "center"
+        }
+      },
+      {
+        "headline": "French prosecutors seek to maintain five-year election ban for Marine Le Pen",
+        "source": {
+          "name": "Globe and Mail",
+          "url": "https://www.theglobeandmail.com/world/article-marine-le-pen-presidential-bid-french-prosecutors/",
+          "bias": "center"
+        }
+      },
+      {
+        "headline": "Two arrested in Germany for attempted sabotage of naval vessels",
+        "source": {
+          "name": "BBC World",
+          "url": "https://www.bbc.com/news/articles/crkryz35246o?at_medium=RSS&at_campaign=rss",
+          "bias": "center"
+        }
+      },
+      {
+        "headline": "NATO begins planning for new Arctic mission amid Greenland tensions",
+        "source": {
+          "name": "Reuters",
+          "url": "https://news.google.com/rss/articles/CBMimgFBVV95cUxNTVhCVUtENTJCd1dkMWx3Zm92RTRVU0VxSWZyYmFDZ2VILV9LYU5hN1JjOXhJdjRwbEVnZzRjckhfYWp4WlpQVjgyNjdNekJtaGU2Y1hrLW5fV2dMZTRUYVVLdWpmX3ZKNm9ZNG9uUlBaVXhiTUx0Ym1HYmp1eHNMLS1RYnJHdWhFRjJ3Q1hmZWtQWHdFTWRmUXpn?oc=5",
+          "bias": "center"
+        }
+      },
+      {
+        "headline": "Poland arrests alleged spy working for Russia in defense ministry",
+        "source": {
+          "name": "WSJ World",
+          "url": "https://www.wsj.com/world/europe/poland-arrests-alleged-spy-working-for-russia-in-defense-ministry-468b8c53",
+          "bias": "center-right"
+        }
+      },
+      {
+        "headline": "EU launches subsidy probe into Chinese wind turbine maker Goldwind",
+        "source": {
+          "name": "SCMP China",
+          "url": "https://www.scmp.com/economy/china-economy/article/3342259/eu-launches-subsidy-probe-chinese-wind-turbine-maker-goldwind?utm_source=rss_feed",
+          "bias": "center"
+        }
+      }
+    ],
+    "asia_pacific": [
+      {
+        "headline": "Australian boy, 13, swims four hours to save family swept out to sea",
+        "source": {
+          "name": "CBC News",
+          "url": "https://www.cbc.ca/news/world/australia-boy-rescues-family-9.7071962?cmp=rss",
+          "bias": "center"
+        }
+      },
+      {
+        "headline": "Japan snow deaths reach 30 as heavy snowfall continues",
+        "source": {
+          "name": "NYT World",
+          "url": "https://www.nytimes.com/2026/02/03/world/asia/japan-snow-deaths.html",
+          "bias": "center-left"
+        }
+      },
+      {
+        "headline": "Nepal arrests six officials over fraudulent Everest helicopter rescues worth $20 million",
+        "source": {
+          "name": "NYT World",
+          "url": "https://www.nytimes.com/2026/02/03/world/asia/mount-everest-helicopter-insurance-fraud.html",
+          "bias": "center-left"
+        }
+      },
+      {
+        "headline": "Vietnam elevates EU partnership to match ties with China and US",
+        "source": {
+          "name": "Deutsche Welle",
+          "url": "https://www.dw.com/en/vietnam-boosts-eu-partnership-to-match-ties-to-china-us/a-75782882?maca=en-rss-en-world-4025-rdf",
+          "bias": "center"
+        }
+      },
+      {
+        "headline": "Qantas exits Jetstar Japan to focus on high-margin long-haul routes",
+        "source": {
+          "name": "Nikkei Asia",
+          "url": "https://news.google.com/rss/articles/CBMitgFBVV95cUxPU291S0ZRNEZOLV92Vm9NVmUtV21DQXJyTXlnZzNBZWFpZTk5YnItS3hsb2dNbmRoMng5LTdzTUYtbkJJQVlUM1hZZmFROTUyOTlNNlRyMF9kVTctN09mY3FNeFpVR0E4S3Ftclk2NElhY1VIVnRkbHRZTUdJakdBLVdxdmlHa29sU01uTlhKcC16Vy16SnVsSWFpbUVfcWVnSURPbV9waVhndEFQQWU4eGJabmlndw?oc=5",
+          "bias": "center-right"
+        }
+      }
+    ],
+    "middle_east_africa": [
+      {
+        "headline": "Israel blocks most medical evacuees at Rafah crossing despite reopening",
+        "source": {
+          "name": "Al Jazeera",
+          "url": "https://www.aljazeera.com/news/2026/2/3/un-chief-urges-gaza-aid-as-israel-blocks-most-medical-evacuees-at-rafah?traffic_source=rss",
+          "bias": "center"
+        }
+      },
+      {
+        "headline": "UAE pledges $500 million for Sudan humanitarian aid",
+        "source": {
+          "name": "Straits Times",
+          "url": "https://www.straitstimes.com/world/middle-east/uae-pledges-500-million-forsudan-aid-as-washington-gathers-donors",
+          "bias": "center"
+        }
+      },
+      {
+        "headline": "Somaliland expects Israel trade deal with minerals on offer",
+        "source": {
+          "name": "Reuters",
+          "url": "https://news.google.com/rss/articles/CBMivgFBVV95cUxOaEYwV3N3Q1dkRkNkWGlZUDc4alByb01NX3p4NDZoaFZ0bkR1ZnVENGRCUjNNUW1CYXFkNmh0SGpuaDJPdkpXUGhQRGxzemREUW9hYkhDbF9tTDUwV204bm0zd0E1ZzVBQ0o0TEE3RFNpemltaUU4N091WnF1RVc2MmNHSWVyN0ltd2VFS2Jzdk1ZbU45eUUyWnRTQmRvR2IwRU0yMDlFQUdkLVE5SnRxVXozMlRsRzdTal9fSDFn?oc=5",
+          "bias": "center"
+        }
+      },
+      {
+        "headline": "South Africa expels Israeli diplomat, drawing US condemnation",
+        "source": {
+          "name": "Daily Maverick",
+          "url": "https://www.dailymaverick.co.za/article/us-condemns-south-africas-expulsion-of-israeli-diplomat",
+          "bias": "center-left"
+        }
+      },
+      {
+        "headline": "Fire breaks out at Tehran shopping center with no injuries reported",
+        "source": {
+          "name": "Al Jazeera",
+          "url": "https://www.aljazeera.com/gallery/2026/2/3/extensive-fire-breaks-out-at-tehran-shopping-centre?traffic_source=rss",
+          "bias": "center"
+        }
+      }
+    ],
+    "tech": [
+      {
+        "headline": "Google court filings suggest ChromeOS has an expiration date",
+        "source": {
+          "name": "Ars Technica",
+          "url": "https://arstechnica.com/google/2026/02/google-court-filings-suggest-googles-chromeos-has-an-expiration-date/",
+          "bias": "center"
+        }
+      },
+      {
+        "headline": "Nintendo Switch becomes second-bestselling game console ever, trailing only PS2",
+        "source": {
+          "name": "Ars Technica",
+          "url": "https://arstechnica.com/gadgets/2026/02/original-nintendo-switch-passes-the-ds-to-become-nintendos-bestselling-console/",
+          "bias": "center"
+        }
+      },
+      {
+        "headline": "PayPal names HP CEO Enrique Lores as new chief executive",
+        "source": {
+          "name": "Reuters",
+          "url": "https://news.google.com/rss/articles/CBMiqgFBVV95cUxPRVpuZFJOaDFaMW5fMlhkOTF1b0dnLVR5eFNrQU5mRTZqYkR2MTVIM0RQMHFKMTRqYVNETzRsa2JXa3ZxdmU1V25uMFRxeWwxdG1HN3RDRDdubDVjUUVxM3FZVFkwM0lWQlhqVUpwMllzTGZXakdhTDZpWWo3dkYwU1Z1VzMxMDcxQTU5bjBMNzM5cVZBUDh1cHdSRF9td0JkdC05anlYaUVQdw?oc=5",
+          "bias": "center"
+        }
+      },
+      {
+        "headline": "Deno launches cloud-based sandbox environment for secure code execution",
+        "source": {
+          "name": "Hacker News",
+          "url": "https://deno.com/blog/introducing-deno-sandbox",
+          "bias": "center"
+        }
+      },
+      {
+        "headline": "Anthropic's Claude legal tools trigger selloff in analytics and software stocks",
+        "source": {
+          "name": "Financial Times",
+          "url": "https://www.ft.com/content/48ec5657-c2e7-4111-a236-24a96a8d49e7",
+          "bias": "center-right"
+        }
+      }
+    ]
+  },
+  "regional_summary": {
+    "americas": "Nicaragua [released prisoners](https://www.aljazeera.com/news/longform/2026/2/4/these-exiled-venezuelans-dream-of-returning-home-whats-stopping-them?traffic_source=rss) under US pressure, though Venezuelan exiles say it remains too dangerous to return home. Trump [signed a spending bill](https://news.google.com/rss/articles/CBMiqgFBVV95cUxNVW1HOVNGdElPQ2lGclhoRjlodDRkVDBBTG96STVQQ2MyV04zaWI2aDZLRkc0bXBFQm9tS3pFYjFUcE9oSXB1UTZVX0RkYWNzZkRnU01reU5laTZhU2pxTnh6OW5EQklDZ0dTbXFpTXJUbmI5bjBDbE5PWDJlM0NkcF9kTjZtdnhtTEdGeUhDUFZ1Tzl6aEdCRF9fUEMzZjZGTzBnSWp2dm9sdw?oc=5) ending the four-day government shutdown, setting the stage for an intense immigration enforcement debate. Disney [named theme parks chief](https://www.cbc.ca/news/entertainment/disney-ceo-josh-damaro-9.7072551?cmp=rss) Josh D'Amaro as the new CEO to succeed Bob Iger. Spanish bank Santander [agreed to buy](https://www.ft.com/content/cc68c782-cf03-4126-b5b1-c7d733e1ccc9) US regional bank Webster Financial for $12.2 billion.",
+    "europe": "French police [raided X's Paris offices](https://www.npr.org/2026/02/03/g-s1-108490/paris-x-raid-investigation-elon-musk) and summoned Elon Musk for questioning over child abuse imagery. UK authorities [launched a criminal investigation](https://www.theguardian.com/uk-news/2026/feb/03/met-police-to-launch-investigation-into-alleged-mandelson-epstein-email-leaks) into Peter Mandelson over alleged leaks to Jeffrey Epstein, prompting his resignation from the House of Lords. A 14-year-old student [critically wounded a teacher](https://www.bbc.com/news/articles/c7v0p818g91o?at_medium=RSS&at_campaign=rss) in a knife attack at a French school. Prosecutors [asked appeal judges](https://www.theguardian.com/world/2026/feb/03/french-prosecutors-ask-appeal-court-to-keep-ban-on-marine-le-pen-running-for-office) to maintain Marine Le Pen's five-year election ban. NATO [began military planning](https://news.google.com/rss/articles/CBMimgFBVV95cUxNTVhCVUtENTJCd1dkMWx3Zm92RTRVU0VxSWZyYmFDZ2VILV9LYU5hN1JjOXhJdjRwbEVnZzRjckhfYWp4WlpQVjgyNjdNekJtaGU2Y1hrLW5fV2dMZTRUYVVLdWpmX3ZKNm9ZNG9uUlBaVXhiTUx0Ym1HYmp1eHNMLS1RYnJHdWhFRjJ3Q1hmZWtQWHdFTWRmUXpn?oc=5) for a new Arctic mission amid tensions over Greenland.",
+    "asia_pacific": "A 13-year-old Australian boy [swam for four hours](https://www.cbc.ca/news/world/australia-boy-rescues-family-9.7071962?cmp=rss) to save his family after they were swept out to sea. Heavy snowfall in Japan has [killed at least 30 people](https://www.nytimes.com/2026/02/03/world/asia/japan-snow-deaths.html), with one city recording 72 inches. Nepal [arrested six officials](https://www.nytimes.com/2026/02/03/world/asia/mount-everest-helicopter-insurance-fraud.html) accused of fraudulent Everest helicopter rescues worth nearly $20 million. Vietnam [elevated its EU partnership](https://www.dw.com/en/vietnam-boosts-eu-partnership-to-match-ties-to-china-us/a-75782882?maca=en-rss-en-world-4025-rdf) to the same level as its relationships with China and the US. Chinese memory chip firms CXMT and YMTC are [planning massive output expansion](https://news.google.com/rss/articles/CBMixgFBVV95cUxPMlZ5RFRQaHRFQU9XX25uY040b2ZKdW5jVWVPZGpyOUJ3LVNsMG9oZnZ2MWItRkFmYV91dDV2ZEdfODZZTWhkb0VvdjFvbE5VemxMM2dtbm1VQWMxOHdTT2xqdzlMSU1Ka1F0SFUzN3VnRjNlT2o4YWQ2VjYxTWZ6dHFXS0RoS2dQaWItcV8tRXhSc1JTSFVDQ18zbWR4ckVYdVV1V3EzalJpdmFkMmJxcHU3eVBuZHFSUXZJTGRfYklaXzJLZXc?oc=5) amid global memory shortage.",
+    "middle_east_africa": "Saif al-Islam Gaddafi, son of Libya's former dictator, was [killed by gunmen](https://www.aljazeera.com/news/2026/2/3/saif-al-islam-gaddafi-son-of-former-leader-killed-in-libya?traffic_source=rss) who stormed his home in Zintan. The US [shot down an Iranian drone](https://www.bbc.com/news/articles/c3dmjn7n985o?at_medium=RSS&at_campaign=rss) that aggressively approached the USS Abraham Lincoln aircraft carrier, just days before planned nuclear talks. Iran's president [authorized negotiations](https://www.cbc.ca/news/world/iran-president-united-states-9.7071880?cmp=rss) with the US over Tehran's nuclear program. Israel reportedly [blocked most medical evacuees](https://www.aljazeera.com/news/2026/2/3/un-chief-urges-gaza-aid-as-israel-blocks-most-medical-evacuees-at-rafah?traffic_source=rss) at the Rafah crossing despite its reopening. The UAE [pledged $500 million](https://www.straitstimes.com/world/middle-east/uae-pledges-500-million-forsudan-aid-as-washington-gathers-donors) for Sudan humanitarian aid.",
+    "tech": "Apple [added Claude and OpenAI coding agents](https://arstechnica.com/apple/2026/02/xcode-26-3-adds-support-for-claude-codex-and-other-agentic-tools-via-mcp/) directly into Xcode 26.3 via Model Context Protocol. Senior staff are [departing OpenAI](https://arstechnica.com/ai/2026/02/senior-staff-departing-openai-as-firm-prioritizes-chatgpt-development/) as the company redirects resources toward ChatGPT development. France [announced it will ban](https://apnews.com/article/europe-digital-sovereignty-big-tech-9f5388b68a0648514cebc8d92f682060) Zoom and Microsoft Teams in a push for digital sovereignty. Google court filings [suggest ChromeOS may be discontinued](https://arstechnica.com/google/2026/02/google-court-filings-suggest-googles-chromeos-has-an-expiration-date/) once current support guarantees expire. Anthropic's new Claude legal tools [triggered a selloff](https://www.ft.com/content/48ec5657-c2e7-4111-a236-24a96a8d49e7) in data analytics and software stocks."
+  }
+}
