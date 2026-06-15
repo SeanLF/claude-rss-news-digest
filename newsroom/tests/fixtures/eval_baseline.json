@@ -3,7 +3,8 @@
     "description": "Known-good eval-floor baseline for the regression gate (bin/eval-regression). L1 = code-assertion graders; L2 = COHERENCE judge agreement vs independent labels. Generated offline from coherence_golden.json + the prod_baseline_selections fixture; no model calls. Regenerate with bin/eval-regression --update after an intended change.",
     "golden_fixture": "newsroom/tests/fixtures/coherence_golden.json",
     "selections_fixture": "newsroom/tests/fixtures/prod_baseline_selections.json",
-    "gate": "fail if any L1 check flips PASS->FAIL, L2 fail-precision drops, or L2 leak_count rises."
+    "gate": "fail if any L1 check flips PASS->FAIL, L2 fail-precision drops, or L2 leak_count rises.",
+    "known_leaks_note": "leak_count=2 reflects the historical production judge against corrected labels: 2 cases (Gemini 3.5 Flash version, Boeing -4%) where a true specific was sourced only from a non-cited cluster article. The WRITE + COHERENCE prompts have been fixed (cite all backing articles; verify cited-sources-only) and validated to catch these; regenerate judge verdicts over the full golden set with the fixed judge to certify leak_count back to 0."
   },
   "l1_golden_headlines": {
     "schema_valid": true,
@@ -31,8 +32,8 @@
   },
   "l2_judge_agreement": {
     "labeled_cases": 386,
-    "agreement_rate": 1.0,
+    "agreement_rate": 0.994819,
     "fail_precision": 1.0,
-    "leak_count": 0
+    "leak_count": 2
   }
 }

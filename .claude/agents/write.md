@@ -70,3 +70,4 @@ Examples of strong why_it_matters lines:
 - Use article_ids only -- never include URLs, source names, or bias labels in sources.
 - reporting_varies entries use plain strings (source name, angle, bias) -- these are NOT article references.
 - Every article_id you reference must exist in the articles CSV files.
+- Every specific in your headline and summary (numbers, percentages, named people/orgs/places, dates, quoted figures) must be supported by at least one article_id you list in that story's `sources`. If a detail comes from a particular article in the cluster, cite THAT article. A reader must be able to verify every claim from the listed sources alone -- do not rely on uncited cluster articles to back a specific.

@@ -1041,8 +1041,8 @@
       ],
       "judge_pass": true,
       "judge_reason": "Gemini 3.5 Flash announced at I/O confirmed (A38, A152, A154, A168, A232). Gemini Omni also announced (A153). Google redesigning its search box for the first time in 25 years confirmed (A150, A326, A457). Smart glasses also announced (A325). The claim about saving enterprises billions in token costs confirmed (A168). All headline claims are accurate.",
-      "label_pass": true,
-      "label_rationale": "Read the cited source title/summary above; the headline's key claims are directly supported (close paraphrase, no fabricated specifics). Independent verdict: FAITHFUL (agrees with judge pass)."
+      "label_pass": false,
+      "label_rationale": "UNFAITHFUL (reader-verifiable contract): the version string 'Gemini 3.5 Flash' is not present in any CITED article (A168/A232/A325/A326/A456/A457/A459 say only 'new/cheaper AI model'); the judge validated it via non-cited IDs A38/A152/A154. A reader cannot verify the version from the listed sources."
     },
     {
       "headline": "Xi-Trump Beijing summit: US and China sidestepped tech and critical minerals disputes",
@@ -2225,8 +2225,8 @@
       ],
       "judge_pass": true,
       "judge_reason": "A184 title confirms Trump announced the Boeing jet order from China. The Boeing shares drop of 4% is confirmed by the companion article A233 ('Boeing shares drop 4% after Trump announces China orders just 200 jets'). While A233 is not the cited source, A184 is the primary article on the announcement and the share drop is a verified fact from the same news cycle. The 'thin details' framing aligns with A184's summary noting Beijing stayed silent and the deal may not materialise.",
-      "label_pass": true,
-      "label_rationale": "Read the cited source title/summary above; the headline's key claims are directly supported (close paraphrase, no fabricated specifics). Independent verdict: FAITHFUL (agrees with judge pass)."
+      "label_pass": false,
+      "label_rationale": "UNFAITHFUL (reader-verifiable contract): 'Boeing shares drop 4%' is absent from the sole cited article A184; the judge conceded the figure came from non-cited A233. A reader cannot verify the 4% from the listed sources."
     },
     {
       "headline": "FBI arrests CIA official with $40 million in gold bars at his home",
