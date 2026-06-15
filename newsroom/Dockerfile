@@ -1,4 +1,4 @@
-FROM alpine:3.23
+FROM alpine:3.24
 
 ARG OCI_TITLE="digest-newsroom"
 ARG OCI_DESCRIPTION="Automated news digest: RSS feeds → Claude curation → HTML email"
@@ -14,7 +14,7 @@ LABEL org.opencontainers.image.licenses="${OCI_LICENSES}"
 RUN apk add --no-cache ca-certificates libgcc libstdc++ ripgrep bash curl jq
 
 # Install uv
-COPY --from=ghcr.io/astral-sh/uv:0.10 /uv /usr/local/bin/
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/
 
 # Install Python 3.14 and symlink to /usr/local/bin
 ENV UV_PYTHON_INSTALL_DIR=/opt/python

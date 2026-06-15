@@ -18,7 +18,7 @@ COPY newsroom/sources.json ./sources.json
 RUN touch src/main.rs && cargo build --release
 
 # Runtime stage - Alpine for musl compatibility
-FROM alpine:3.23
+FROM alpine:3.24
 
 ARG OCI_TITLE="digest-circulation"
 ARG OCI_DESCRIPTION="Minimal HTTP server for serving news digest HTML from SQLite"
