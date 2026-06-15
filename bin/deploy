@@ -340,6 +340,8 @@ TF_TARGETS=(
   -target=null_resource.news_digest_env
   -target=null_resource.news_digest_service
   -target=null_resource.news_digest_timer
+  -target=null_resource.news_digest_alert
+  -target=null_resource.news_digest_deadman
   -target=null_resource.digest_server
 )
 
@@ -440,7 +442,7 @@ main() {
     echo ""
     echo "About to:"
     [[ $SKIP_BUILD == false ]] && echo "  - Build and push Docker images"
-    echo "  - Apply Terraform (news_digest_env, news_digest_service, digest_server)"
+    echo "  - Apply Terraform (news_digest_env, news_digest_service, news_digest_alert, news_digest_deadman, digest_server)"
     echo "  - Run database migrations"
     echo ""
     read -p "Continue? [y/N] " -n 1 -r
