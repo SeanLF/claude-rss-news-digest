@@ -1,0 +1,76 @@
+{
+  "results": [
+    {
+      "headline": "Trump says US-Iran deal to be signed within days as Tehran withholds confirmation",
+      "article_ids": ["A511", "A1127", "A41", "A206"],
+      "pass": true,
+      "reason": "A511 confirms Trump announced the Strait of Hormuz blockade removal and a signing date (Friday). A1127 confirms Tehran has not confirmed and an Iranian official denied the Sunday signing timeline. A41 provides analytical context on risks. The headline is an accurate editorial synthesis of the cited sources."
+    },
+    {
+      "headline": "Israelis broadly oppose emerging Iran deal, fearing unresolved security threats",
+      "article_ids": ["A534", "A330"],
+      "pass": true,
+      "reason": "A534 (NYT) directly supports 'broad discontent' across Israel's political spectrum over unaddressed security threats. A330 (Haaretz) supports Netanyahu facing election pressure and potential unilateral escalation. All headline claims are grounded in the cited sources."
+    },
+    {
+      "headline": "UK bans social media for children under 16",
+      "article_ids": ["A403", "A1114"],
+      "pass": true,
+      "reason": "A403 (Le Monde) confirms PM Keir Starmer announced the ban, citing platforms making children unhappy, facilitating harassment and abuse. A1114 (The Verge) confirms the ban for under-16s following Australia's model. The headline uses present tense for a policy announcement, which is standard editorial convention; the underlying facts are accurately represented."
+    },
+    {
+      "headline": "Six killed as two helicopters collide over Rio de Janeiro",
+      "article_ids": ["A1088", "A236"],
+      "pass": true,
+      "reason": "A1088 (The Hindu) and A236 (Globe and Mail) both confirm two helicopters collided over Rio de Janeiro, killing all six people aboard. A1088 additionally confirms the crash into an electric car dealership parking lot with fire engulfing at least 20 vehicles, as described in the summary. The headline is an exact match to both sources."
+    },
+    {
+      "headline": "Swiss police use water cannon on anti-G7 protesters near summit",
+      "article_ids": ["A93"],
+      "pass": true,
+      "reason": "A93 (BBC) confirms Swiss police deployed a water cannon and fired tear gas to disperse anti-G7 protesters ahead of the G7 summit in France. The headline accurately reflects the article's content."
+    },
+    {
+      "headline": "EU-China trade war now appears inevitable, The Economist argues",
+      "article_ids": ["A187"],
+      "pass": true,
+      "reason": "A187 (The Economist) title states 'A trade war between the EU and China seems inevitable' with the framing of European concerns about Chinese subsidies versus China's view of European weakness. The headline is a direct and accurate representation of the cited article."
+    },
+    {
+      "headline": "Google sues Chinese network that used Gemini AI to automate fraud at scale",
+      "article_ids": ["A58"],
+      "pass": true,
+      "reason": "A58 (Ars Technica) confirms Google sued a Chinese cybercrime network that used Gemini to automate scams targeting hundreds of thousands of people. All specifics in the headline are supported by the cited source."
+    },
+    {
+      "headline": "China-backed satellite firm signs partners that Starlink has spurned, days before SpaceX IPO",
+      "article_ids": ["A581"],
+      "pass": true,
+      "reason": "A581 (Rest of World) confirms a Chinese state-backed satellite company is signing partners and governments Starlink has pushed aside, days before SpaceX's record listing. 'Spurned' is an acceptable editorial synonym for 'pushed aside,' and 'IPO' accurately describes SpaceX's record public listing. All facts check out."
+    },
+    {
+      "headline": "Yohei Kono, author of Japan's wartime sex-slavery apology, dies at 89",
+      "article_ids": ["A778"],
+      "pass": true,
+      "reason": "A778 (SCMP) confirms Yohei Kono died at 89 and identifies him as the 'wartime apology author' and a Japan-China backchannel figure whose death came days before a planned trip to ease bilateral tensions. The headline accurately reflects the cited source."
+    },
+    {
+      "headline": "Eritrea's Isaias Afwerki moves to reconcile with Washington",
+      "article_ids": ["A197"],
+      "pass": true,
+      "reason": "A197 (The Economist) explicitly states 'Isaias Afwerki, its reclusive dictator, has spotted an opening to reconcile with America.' The headline is a faithful representation of the cited article."
+    },
+    {
+      "headline": "Afghanistan's Taliban faces no action despite terrorism support and internal repression, The Diplomat notes",
+      "article_ids": ["A900"],
+      "pass": true,
+      "reason": "A900 (The Diplomat) asks 'How long must the Taliban continue internal repression and support for terrorist groups before the international community recognizes the real scale of the threat?' The headline accurately captures the article's core argument that no meaningful threshold or action has been established."
+    },
+    {
+      "headline": "France hosts Israeli and Palestinian civil society in Paris to revive two-state talks",
+      "article_ids": ["A364"],
+      "pass": true,
+      "reason": "A364 (Haaretz) confirms a conference in Paris attended by Israeli and Palestinian civil society representatives where France used soft power and diplomatic outreach to revive the two-state solution. The headline accurately reflects all key claims in the cited source."
+    }
+  ]
+}

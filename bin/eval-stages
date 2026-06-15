@@ -1,0 +1,91 @@
+#!/bin/bash
+# Per-stage L1 eval: grade EACH subagent's recorded output individually
+# (CLUSTER, RECAP, SELECT, WRITE, COHERENCE). Pure code + fixtures, no model
+# calls -- complements bin/eval (final selections) and bin/eval-judge (L2).
+#
+# By default grades the committed run-195 stage fixtures and exits non-zero if
+# any stage grader fails (regression gate, safe in CI). Pass a run id + DB to
+# grade a recorded production run instead.
+#
+# Runs under `uv` because the host python lacks the project's deps / version
+# (mirrors bin/eval-judge / bin/eval-regression's "no bare python3" convention).
+#
+# Usage:
+#   bin/eval-stages                  Grade committed fixtures (newsroom/tests/fixtures/stages)
+#   bin/eval-stages --run N          Grade recorded run N from the DB
+#   bin/eval-stages --run N --db P   ...with a specific DB (default: data/digest.db)
+
+set -e
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
+
+RUN_ID=""
+DB_PATH="$PROJECT_DIR/data/digest.db"
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --run) RUN_ID="$2"; shift 2 ;;
+    --db) DB_PATH="$2"; shift 2 ;;
+    *) echo "unknown arg: $1" >&2; exit 2 ;;
+  esac
+done
+
+cd "$PROJECT_DIR/newsroom"
+
+PROJECT_DIR="$PROJECT_DIR" RUN_ID="$RUN_ID" DB_PATH="$DB_PATH" uv run python - <<'PY'
+import os
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path.cwd() / "src"))
+
+from eval_stages import (  # noqa: E402
+    grade_all_stages,
+    load_stage_artifacts_from_db,
+    load_stage_artifacts_from_dir,
+)
+
+proj = Path(os.environ["PROJECT_DIR"])
+run_id = os.environ.get("RUN_ID") or ""
+db_path = os.environ["DB_PATH"]
+
+GREEN, RED, DIM, BOLD, RESET = "\033[32m", "\033[31m", "\033[2m", "\033[1m", "\033[0m"
+
+
+def color(s, code):
+    return f"{code}{s}{RESET}" if sys.stdout.isatty() else s
+
+
+if run_id:
+    source = f"run {run_id} ({db_path})"
+    stages = load_stage_artifacts_from_db(int(run_id), db_path)
+else:
+    fixtures = proj / "newsroom" / "tests" / "fixtures" / "stages"
+    source = f"fixtures ({fixtures.relative_to(proj)})"
+    stages = load_stage_artifacts_from_dir(fixtures)
+
+reports = grade_all_stages(stages)
+
+print(color(f"Per-stage L1 eval -- {source}", BOLD))
+print()
+
+all_passed = True
+for stage, report in reports.items():
+    stage_ok = report.passed
+    all_passed = all_passed and stage_ok
+    label = color("PASS", GREEN) if stage_ok else color("FAIL", RED)
+    n_pass = sum(1 for c in report.checks if c.passed)
+    print(f"{color(stage, BOLD)}  [{label}]  {n_pass}/{len(report.checks)} checks")
+    for c in report.checks:
+        mark = color("PASS", GREEN) if c.passed else color("FAIL", RED)
+        print(f"    [{mark}] {c.name:<32} {color(c.detail, DIM)}")
+    print()
+
+if all_passed:
+    print(color("PASS -- all stage graders green", GREEN))
+    sys.exit(0)
+
+print(color("FAIL -- one or more stage graders failed", RED))
+sys.exit(1)
+PY

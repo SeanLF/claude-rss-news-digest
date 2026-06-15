@@ -2,7 +2,7 @@
 # Run `make` or `make help` to see available targets
 
 .DEFAULT_GOAL := help
-.PHONY: ci ci-fix ci-full test eval deploy deploy-dry migrate migrate-status \
+.PHONY: ci ci-fix ci-full test eval eval-stages deploy deploy-dry migrate migrate-status \
         ssh db-clone usage usage-daily versions circulation prompt help
 
 ## CI
@@ -18,6 +18,8 @@ test: ## Run Python tests only (in Docker)
 	docker compose run --rm --build ci pytest -v newsroom/tests/
 eval: ## Run the offline eval-floor regression gate (no model calls)
 	bin/eval-regression
+eval-stages: ## Grade each subagent's recorded output (per-stage L1, no model calls)
+	bin/eval-stages
 
 ## Deploy
 deploy: ## Deploy to production (build, push, terraform, migrate)

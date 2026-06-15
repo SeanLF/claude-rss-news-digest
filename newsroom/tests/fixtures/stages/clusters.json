@@ -1,0 +1,100 @@
+{
+  "clusters": [
+    {
+      "story": "US-Iran War Peace Deal Negotiations",
+      "article_ids": ["A206", "A511", "A1127", "A41"]
+    },
+    {
+      "story": "Israel's Response to US-Iran Deal and Netanyahu's Political Pressure",
+      "article_ids": ["A534", "A330"]
+    },
+    {
+      "story": "Rio de Janeiro Helicopter Collision Kills Six",
+      "article_ids": ["A1088", "A236"]
+    },
+    {
+      "story": "UK Government Bans Social Media for Under-16s",
+      "article_ids": ["A403", "A1114"]
+    },
+    {
+      "story": "Anti-G7 Protests and Clashes Ahead of France Summit",
+      "article_ids": ["A93"]
+    },
+    {
+      "story": "World Cup 2026 Iran Arrival Amid Protests",
+      "article_ids": ["A955"]
+    },
+    {
+      "story": "EU-China Trade War Over Subsidies",
+      "article_ids": ["A187"]
+    },
+    {
+      "story": "Chinese Electric Cars Surge Globally but Lag in Domestic Market",
+      "article_ids": ["A1164"]
+    },
+    {
+      "story": "Nvidia Jensen Huang Secures AI Factory Deal with SK in South Korea",
+      "article_ids": ["A496"]
+    },
+    {
+      "story": "Google Lawsuit Against Chinese Cybercrime Network Using Gemini AI",
+      "article_ids": ["A58"]
+    },
+    {
+      "story": "China's State-Backed Satellite Constellation Rivals SpaceX Starlink",
+      "article_ids": ["A581"]
+    },
+    {
+      "story": "Death of Yohei Kono, Japan-China Diplomatic Bridge Figure",
+      "article_ids": ["A778"]
+    },
+    {
+      "story": "South Africa Farming Sector Outlook 2026",
+      "article_ids": ["A155"]
+    },
+    {
+      "story": "Eritrea Diplomatic Opening with the United States",
+      "article_ids": ["A197"]
+    },
+    {
+      "story": "Taliban Repression and International Community's Threshold for Action in Afghanistan",
+      "article_ids": ["A900"]
+    },
+    {
+      "story": "South Korea President Lee Jae Myung Interview on National Challenges",
+      "article_ids": ["A185"]
+    },
+    {
+      "story": "Starbucks Korea Store Closures for History Training After 'Tank Day' Ad Backlash",
+      "article_ids": ["A13"]
+    },
+    {
+      "story": "Hong Kong Developer Lai Sun Debt Exchange Offer to Ease Liquidity",
+      "article_ids": ["A690"]
+    },
+    {
+      "story": "SCMP Weekly Highlights: Xi on North Korea and US Blacklists Chinese Tech Firms",
+      "article_ids": ["A830"]
+    },
+    {
+      "story": "Trump's Investment in TKO Group Holdings and UFC Conflict of Interest",
+      "article_ids": ["A850"]
+    },
+    {
+      "story": "UK Banks Report Fraud Cases Spike After Refund Rule Changes",
+      "article_ids": ["A636"]
+    },
+    {
+      "story": "France Hosts Israeli-Palestinian Civil Society Talks to Revive Two-State Solution",
+      "article_ids": ["A364"]
+    },
+    {
+      "story": "Philippines Phivolcs Warns of Unstable Ground in General Santos City",
+      "article_ids": ["A575"]
+    },
+    {
+      "story": "Local ML Indexing of GoPro Videos on M1 Max",
+      "article_ids": ["A388"]
+    }
+  ]
+}

@@ -1,0 +1,19 @@
+{
+  "must_know": [
+    {"cluster_index": 0, "article_ids": ["A206", "A511", "A1127", "A41"]},
+    {"cluster_index": 1, "article_ids": ["A534", "A330"]},
+    {"cluster_index": 3, "article_ids": ["A403", "A1114"]}
+  ],
+  "should_know": [
+    {"cluster_index": 2, "article_ids": ["A1088", "A236"]},
+    {"cluster_index": 4, "article_ids": ["A93"]},
+    {"cluster_index": 6, "article_ids": ["A187"]},
+    {"cluster_index": 9, "article_ids": ["A58"]},
+    {"cluster_index": 10, "article_ids": ["A581"]},
+    {"cluster_index": 11, "article_ids": ["A778"]},
+    {"cluster_index": 13, "article_ids": ["A197"]},
+    {"cluster_index": 14, "article_ids": ["A900"]},
+    {"cluster_index": 21, "article_ids": ["A364"]}
+  ],
+  "not_covered_blurb": "Skipped: World Cup 2026/Iran arrival (A955, sports/lifestyle); Chinese electric cars global surge (A1164, no new policy shift); Nvidia/SK AI factory deal (A496, already covered in yesterday's should_know and article is from June 8); South Korea president interview (A185, dated June 10, lower signal given yesterday's South Korea coverage); Starbucks Korea store closures (A13, corporate/lifestyle); Hong Kong developer Lai Sun debt exchange (A690, niche finance); SCMP weekly highlights roundup (A830, aggregated weekly summary with stale content); Trump/TKO Group UFC investment (A850, US domestic conflict-of-interest without international policy impact); UK banks fraud spike (A636, niche UK financial regulatory story); Philippines unstable ground warning (A575, narrow follow-up to yesterday's must_know earthquake already covered); Local ML GoPro video indexing (A388, personal hobby/tech project, not news). South Africa farming outlook (A155, positive sector note from June 11, low geopolitical urgency)."
+}

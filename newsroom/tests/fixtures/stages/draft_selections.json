@@ -1,0 +1,138 @@
+{
+  "must_know": [
+    {
+      "headline": "Trump says US-Iran deal to be signed within days as Tehran withholds confirmation",
+      "summary": "President Trump announced a framework agreement to end the US-Iran war, saying Washington will lift its blockade of the Strait of Hormuz and that a formal deal will be signed Friday. Iran has not confirmed the timeline, with at least one Iranian official denying a signing will occur Sunday, leaving the ceasefire's durability uncertain.",
+      "why_it_matters": "Lifting the Strait of Hormuz blockade would immediately ease oil supply pressure, but Trump's unilateral announcement without Iranian confirmation risks a public repudiation from Tehran that could collapse the framework before it is signed — repeating a pattern of premature deal declarations that have previously hardened negotiating positions.",
+      "sources": [
+        {"article_id": "A511"},
+        {"article_id": "A1127"},
+        {"article_id": "A41"},
+        {"article_id": "A206"}
+      ],
+      "reporting_varies": [
+        {
+          "source": "NPR",
+          "angle": "Leads with the deal as a fait accompli, framing Trump's Hormuz blockade removal as a concrete deliverable.",
+          "bias": "Center-left; emphasizes US initiative and relief for global markets."
+        },
+        {
+          "source": "Washington Post",
+          "angle": "Stresses that Tehran has not confirmed and that an Iranian official denied the Sunday signing timeline, casting doubt on the schedule.",
+          "bias": "Center-left; more skeptical framing, foregrounding Iranian ambiguity."
+        },
+        {
+          "source": "Al-Monitor / Reuters",
+          "angle": "Analytical: notes Trump is seeking an exit but that domestic political risks and Israeli opposition could still derail a final agreement.",
+          "bias": "Centrist wire analysis; focuses on second-order political risks."
+        }
+      ]
+    },
+    {
+      "headline": "Israelis broadly oppose emerging Iran deal, fearing unresolved security threats",
+      "summary": "Across Israel's political spectrum, citizens and officials have expressed discontent with the US-Iran framework before its details are even public, saying it leaves Iran's core military capabilities intact. Haaretz reports that Prime Minister Netanyahu, under rising domestic election pressure, may act unilaterally to undermine or escalate beyond any US-brokered agreement.",
+      "why_it_matters": "If Netanyahu calculates that defying the deal carries less political cost than accepting a settlement that contradicts his stated war aims, the US faces an ally with the capability and motive to restart the conflict Washington is trying to close — putting American credibility on the line for an agreement Israel has not endorsed.",
+      "sources": [
+        {"article_id": "A534"},
+        {"article_id": "A330"}
+      ],
+      "reporting_varies": [
+        {
+          "source": "New York Times",
+          "angle": "Frames Israeli discontent as broad and cross-partisan, with focus on public anxiety about a deal leaving threats unaddressed.",
+          "bias": "Center-left; emphasizes Israeli civilian mood."
+        },
+        {
+          "source": "Haaretz",
+          "angle": "More pointed: argues Netanyahu has been humiliated by Trump and is likely to escalate to preserve his political standing, raising regional risk.",
+          "bias": "Center-left Israeli; critical of Netanyahu, more alarmist about deliberate destabilization."
+        }
+      ]
+    },
+    {
+      "headline": "UK bans social media for children under 16",
+      "summary": "Prime Minister Keir Starmer announced that the UK will ban social media access for children under 16, calling the platforms a source of unhappiness, bullying, and abuse. The ban, modelled on Australia's 2025 legislation, could take effect from early 2027 pending parliamentary approval.",
+      "why_it_matters": "The UK's adoption of Australia's age-ban model transforms what was an outlier policy into a potential template for other large democracies, increasing pressure on platforms whose business models depend on early user acquisition — particularly at a time when governments across Europe are already tightening digital regulation.",
+      "sources": [
+        {"article_id": "A403"},
+        {"article_id": "A1114"}
+      ]
+    }
+  ],
+  "should_know": [
+    {
+      "headline": "Six killed as two helicopters collide over Rio de Janeiro",
+      "summary": "Two helicopters collided over Rio de Janeiro on Sunday morning and crashed into the parking lot of an electric car dealership in the city's western zone, killing all six people aboard and igniting a fire that engulfed at least 20 vehicles. Brazilian firefighters confirmed the death toll.",
+      "why_it_matters": "Rio's airspace is among the busiest in Latin America for private and air-taxi helicopters, and a collision killing everyone aboard both aircraft will renew scrutiny of low-altitude traffic management rules that Brazilian authorities have repeatedly flagged but not overhauled.",
+      "sources": [
+        {"article_id": "A1088"},
+        {"article_id": "A236"}
+      ]
+    },
+    {
+      "headline": "Swiss police use water cannon on anti-G7 protesters near summit",
+      "summary": "Swiss police deployed water cannon and tear gas against protesters who clashed with officers ahead of the G7 summit in France. The demonstrations reflect broader opposition to the group of industrialised nations at a moment when the summit's agenda is dominated by the Iran conflict and global economic disruption.",
+      "why_it_matters": "Sustained protest pressure on G7 host governments complicates leaders' ability to project cohesion on Iran-related energy policy, since any appearance of disunity between summit allies risks emboldening spoilers in the US-Iran negotiations.",
+      "sources": [
+        {"article_id": "A93"}
+      ]
+    },
+    {
+      "headline": "EU-China trade war now appears inevitable, The Economist argues",
+      "summary": "The Economist reports that Europe and China are on a collision course over Chinese subsidies, with Brussels viewing them as market-distorting and Beijing interpreting EU countermeasures as protectionist weakness-exploitation. Neither side sees a face-saving offramp.",
+      "why_it_matters": "A formal EU-China trade conflict would force third-country governments — particularly in Southeast Asia and Africa — to choose sides in a bifurcating trade system, accelerating the fragmentation of global supply chains already strained by the Iran war and US tariff policy.",
+      "sources": [
+        {"article_id": "A187"}
+      ]
+    },
+    {
+      "headline": "Google sues Chinese network that used Gemini AI to automate fraud at scale",
+      "summary": "Google filed suit against a Chinese cybercrime network it says used its Gemini AI model to build and automate scam websites that targeted hundreds of thousands of people. The lawsuit is one of the first major legal actions targeting the weaponisation of a named AI product by an organised criminal network.",
+      "why_it_matters": "The case exposes a direct liability gap: AI developers publish capable models that bad actors can access through public interfaces, yet current law provides no clear deterrent against that misuse — Google's civil suit is an attempt to fill that gap through contract and tort law in the absence of specific AI-crime legislation.",
+      "sources": [
+        {"article_id": "A58"}
+      ]
+    },
+    {
+      "headline": "China-backed satellite firm signs partners that Starlink has spurned, days before SpaceX IPO",
+      "summary": "A Chinese state-backed satellite company has been signing agreements with governments and partners that SpaceX's Starlink has declined or sidelined, according to Rest of World, positioning itself as an alternative low-earth-orbit broadband provider. The move comes just ahead of SpaceX's anticipated record public listing.",
+      "why_it_matters": "By targeting governments Starlink has excluded — often on political or security grounds — China is converting SpaceX's commercial gatekeeping into a geopolitical foothold, giving Beijing broadband infrastructure leverage in regions where the US has historically dominated connectivity.",
+      "sources": [
+        {"article_id": "A581"}
+      ]
+    },
+    {
+      "headline": "Yohei Kono, author of Japan's wartime sex-slavery apology, dies at 89",
+      "summary": "Yohei Kono, the Japanese politician whose 1993 statement acknowledging Imperial Japan's use of wartime sex slaves became a cornerstone of bilateral reconciliation efforts, has died at 89. His death came days before a planned trip intended to ease deep Japan-China tensions.",
+      "why_it_matters": "Kono's passing removes a rare backchannel figure trusted by both Tokyo and Beijing at a moment when the two governments lack official dialogue mechanisms, making the planned tension-easing mission he was to lead harder to replicate through formal diplomatic channels.",
+      "sources": [
+        {"article_id": "A778"}
+      ]
+    },
+    {
+      "headline": "Eritrea's Isaias Afwerki moves to reconcile with Washington",
+      "summary": "The Economist reports that Eritrean President Isaias Afwerki, long isolated under US sanctions and accused of widespread human rights abuses, has identified an opening to normalise relations with the Trump administration. The approach reflects shifting US priorities in the Horn of Africa.",
+      "why_it_matters": "A US-Eritrea rapprochement would reward one of Africa's most repressive governments with diplomatic rehabilitation, potentially signalling to other authoritarian states that alignment with US strategic interests in a moment of great-power competition can override longstanding human rights conditions.",
+      "sources": [
+        {"article_id": "A197"}
+      ]
+    },
+    {
+      "headline": "Afghanistan's Taliban faces no action despite terrorism support and internal repression, The Diplomat notes",
+      "summary": "The Diplomat asks what threshold of Taliban conduct — continued support for terrorist groups, total suppression of women's rights, ongoing internal repression — would prompt meaningful international response, arguing no clear red line has been established or enforced since the 2021 withdrawal.",
+      "why_it_matters": "The absence of a defined threshold effectively communicates to the Taliban that the current level of harm is acceptable, removing any incentive to moderate behaviour and making future escalation easier to absorb incrementally rather than triggering decisive outside pressure.",
+      "sources": [
+        {"article_id": "A900"}
+      ]
+    },
+    {
+      "headline": "France hosts Israeli and Palestinian civil society in Paris to revive two-state talks",
+      "summary": "France convened a conference in Paris bringing together Israeli and Palestinian civil society representatives as part of a push to revive the two-state solution, according to Haaretz. The effort pairs diplomatic outreach with soft-power signalling as formal peace frameworks remain stalled.",
+      "why_it_matters": "Holding a civil-society dialogue while Israeli military operations continue and a US-Iran deal remains unsigned creates a credibility problem for France: the forum can generate goodwill but cannot substitute for the security arrangements that any viable two-state outcome would require.",
+      "sources": [
+        {"article_id": "A364"}
+      ]
+    }
+  ],
+  "preheader": "US-Iran deal announced but unconfirmed by Tehran; Israel objects; UK bans social media for under-16s."
+}
