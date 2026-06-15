@@ -31,7 +31,16 @@ def crates_ver(c):
     d = fetch(f"https://crates.io/api/v1/crates/{c}")
     return d["crate"]["max_stable_version"] if d else None
 
-def compare(name, cur, lat): return (name, "ok" if cur.lstrip("v") == (lat or "").lstrip("v") else "update", cur, lat, None)
+def alpine_latest_minor():
+    """Newest Alpine release cycle (e.g. '3.24') per endoflife.date -- complete cycle list, no Docker Hub tag-churn/pagination ambiguity."""
+    d = fetch("https://endoflife.date/api/alpine.json")
+    if not isinstance(d, list): return None
+    cycles = [c for c in (str(x.get("cycle", "")) for x in d) if re.match(r"^\d+\.\d+$", c)]
+    return max(cycles, key=lambda v: [int(x) for x in v.split(".")], default=None)
+
+def compare(name, cur, lat):
+    if lat is None: return err(name, f"couldn't determine latest (have {cur})")  # don't render a fetch failure as a phantom update
+    return (name, "ok" if cur.lstrip("v") == lat.lstrip("v") else "update", cur, lat, None)
 def ok(name, cur): return (name, "ok", cur, None, None)
 def err(name, msg): return (name, "error", msg, None, None)
 
@@ -47,8 +56,20 @@ def check_python():
     return compare("python", cur, gh_tag("python/cpython")) if cur else err("python", "not found")
 
 def check_uv():
+    # Check the Dockerfile pin (what the deployed image builds with), not the host
+    dockerfile = Path(__file__).parent.parent / "newsroom" / "Dockerfile"
+    if not dockerfile.exists(): return ok("uv", "(no Dockerfile)")
+    m = re.search(r"ghcr\.io/astral-sh/uv:(\S+?)[\s@]", dockerfile.read_text())
+    if not m: return err("uv", "can't parse Dockerfile pin")
+    pin, lat = m.group(1), gh_release("astral-sh/uv")
+    # The image floats on latest by design (build-time tool); show what it resolves to
+    if pin == "latest": return ok("uv", f"latest → {lat}" if lat else "latest")
+    return compare("uv", pin, lat)
+
+def check_uv_host():
+    if not has("uv"): return ok("uv-host", "(not installed)")
     cur = mise_or_cmd("uv", "uv --version").replace("uv ", "").split()[0]
-    return compare("uv", cur, gh_release("astral-sh/uv")) if cur else err("uv", "not installed")
+    return compare("uv-host", cur, gh_release("astral-sh/uv")) if cur else err("uv-host", "can't parse")
 
 def check_rust():
     # Check Dockerfile pin (what gets deployed)
@@ -73,6 +94,19 @@ def check_rust_host():
     if pinned and cur_minor != pinned:
         return ("rust-host", "update", cur, pinned, [f"Dockerfile pins {pinned}, host has {cur}"])
     return ok("rust-host", cur)
+
+def check_alpine():
+    # Check the alpine base-image pin across all Dockerfiles (what gets deployed); flag drift
+    root = Path(__file__).parent.parent
+    pins = {}  # version -> [relative Dockerfile paths]
+    for df in sorted(root.glob("*/Dockerfile*")):
+        for m in re.finditer(r"FROM alpine:(\d+\.\d+)", df.read_text()):
+            pins.setdefault(m.group(1), []).append(str(df.relative_to(root)))
+    if not pins: return ok("alpine", "(no pin)")
+    if len(pins) > 1:
+        detail = [f"{v} in {', '.join(sorted(set(f)))}" for v, f in sorted(pins.items())]
+        return ("alpine", "update", "pin drift across Dockerfiles", None, detail)
+    return compare("alpine", next(iter(pins)), alpine_latest_minor())
 
 def check_docker():
     if not has("docker"): return err("docker", "not installed")
@@ -135,7 +169,7 @@ def check_rust_deps():
     if not outdated: return ok("rust-deps", "checked")
     return ("rust-deps", "update", f"{len(outdated)} outdated", None, [f"{n}: {c} → {l}" for n, c, l in outdated])
 
-CHECKS = [check_python, check_uv, check_rust, check_rust_host, check_docker, check_orbstack, check_tailscale, check_python_deps, check_python_deps_host, check_rust_deps]
+CHECKS = [check_python, check_uv, check_uv_host, check_rust, check_rust_host, check_alpine, check_docker, check_orbstack, check_tailscale, check_python_deps, check_python_deps_host, check_rust_deps]
 
 def main():
     if not QUIET: print(f"\n{BOLD}Checking dependency versions...{RESET}\n")
