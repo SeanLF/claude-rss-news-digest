@@ -132,8 +132,10 @@ def _message_to_event(message: Any) -> dict[str, Any] | None:
     if isinstance(message, SystemMessage):
         return {"type": "system", "subtype": message.subtype, **(message.data or {})}
     if isinstance(message, StreamEvent):
-        # Only emitted when include_partial_messages=True (we don't enable it);
-        # no legacy equivalent, so skip.
+        # Emitted when include_partial_messages=True (we enable it in
+        # _build_options). No legacy equivalent, so skip -- but the raw message
+        # still resets the event-idle timer in _stream_events before this filter,
+        # which is exactly why we enable partial messages.
         return None
     return None
 
@@ -148,6 +150,7 @@ def _build_options(
     max_turns: int | None,
     max_budget_usd: float | None,
     cwd: str | Path | None,
+    load_timeout_ms: int | None = None,
 ) -> ClaudeAgentOptions:
     """Build ClaudeAgentOptions from the wrapper's keyword arguments.
 
@@ -157,7 +160,16 @@ def _build_options(
     subagents under `.claude/` to resolve. If a future SDK release changes the
     None default to "load nothing", set setting_sources=["user","project","local"].
     """
-    kwargs: dict[str, Any] = {"model": model}
+    # include_partial_messages makes the SDK emit partial-token StreamEvents -- a
+    # denser event stream. _message_to_event filters StreamEvents to None so
+    # callers are unaffected; the ONLY beneficiary is the event-idle timer in
+    # _stream_events, which resets on every message and so catches a mid-
+    # generation stall (a model that goes silent between turns) much sooner.
+    kwargs: dict[str, Any] = {"model": model, "include_partial_messages": True}
+    if load_timeout_ms is not None:
+        # Startup-hang detection: cap how long the SDK waits for the subprocess
+        # to come up before failing (None -> SDK default).
+        kwargs["load_timeout_ms"] = load_timeout_ms
     if system_prompt is not None:
         kwargs["system_prompt"] = system_prompt
     if permission_mode is not None:
@@ -233,8 +245,20 @@ async def _stream_events(
     max_turns: int | None,
     max_budget_usd: float | None,
     cwd: str | Path | None,
+    idle_timeout: float = 120.0,
+    load_timeout_ms: int | None = None,
 ) -> AsyncGenerator[dict[str, Any]]:
-    """Drive the SDK query() and yield adapted legacy-shaped event dicts."""
+    """Drive the SDK query() and yield adapted legacy-shaped event dicts.
+
+    In-process hang detection: each pull from the SDK iterator is bounded by
+    ``idle_timeout`` seconds via ``asyncio.wait_for``. The timer resets on EVERY
+    message -- including partial StreamEvents and any other message
+    ``_message_to_event`` filters to None -- so a mid-generation stall (the
+    subprocess goes silent) is caught, not just a never-started run. On idle we
+    raise a RuntimeError whose message contains "idle timeout" (so retry.py
+    treats it as retryable) and close the SDK generator to tear down the
+    subprocess (no leak).
+    """
     options = _build_options(
         model=model,
         system_prompt=system_prompt,
@@ -244,11 +268,24 @@ async def _stream_events(
         max_turns=max_turns,
         max_budget_usd=max_budget_usd,
         cwd=cwd,
+        load_timeout_ms=load_timeout_ms,
     )
-    async for message in query(prompt=prompt, options=options):
-        event = _message_to_event(message)
-        if event is not None:
-            yield event
+    agen = query(prompt=prompt, options=options).__aiter__()
+    try:
+        while True:
+            try:
+                message = await asyncio.wait_for(agen.__anext__(), timeout=idle_timeout)
+            except StopAsyncIteration:
+                break
+            except TimeoutError as e:
+                raise RuntimeError(f"SDK idle timeout: no event in {idle_timeout}s") from e
+            event = _message_to_event(message)
+            if event is not None:
+                yield event
+    finally:
+        aclose = getattr(agen, "aclose", None)
+        if aclose is not None:
+            await aclose()
 
 
 def _drain_sync(agen: AsyncGenerator[dict[str, Any]]) -> Generator[dict[str, Any]]:
@@ -289,6 +326,8 @@ def run_sync(
     max_budget_usd: float | None = None,
     timeout: int = 30,
     cwd: str | Path | None = None,
+    idle_timeout: float = 120.0,
+    load_timeout_ms: int | None = None,
 ) -> str:
     """Run a prompt synchronously and return the full text output.
 
@@ -310,6 +349,8 @@ def run_sync(
             max_turns=max_turns,
             max_budget_usd=max_budget_usd,
             cwd=cwd,
+            idle_timeout=idle_timeout,
+            load_timeout_ms=load_timeout_ms,
         )
         async for event in agen:
             events.append(event)
@@ -330,12 +371,18 @@ def stream_sync(
     max_turns: int | None = None,
     max_budget_usd: float | None = None,
     cwd: str | Path | None = None,
+    idle_timeout: float = 120.0,
+    load_timeout_ms: int | None = None,
 ) -> Generator[dict[str, Any]]:
     """Stream a prompt synchronously, yielding legacy-shaped event dicts.
 
     The ResultMessage with subtype="success" is the authoritative completion
     signal; callers (claude.py) inspect it for cost/duration and to detect
     non-success endings (including the max_budget_usd guardrail tripping).
+
+    ``idle_timeout`` bounds the gap between SDK events (in-process hang
+    detection); an idle stall raises a retryable RuntimeError. ``load_timeout_ms``
+    bounds subprocess startup (None -> SDK default).
     """
     agen = _stream_events(
         prompt,
@@ -347,6 +394,8 @@ def stream_sync(
         max_turns=max_turns,
         max_budget_usd=max_budget_usd,
         cwd=cwd,
+        idle_timeout=idle_timeout,
+        load_timeout_ms=load_timeout_ms,
     )
     yield from _drain_sync(agen)
 
@@ -370,6 +419,8 @@ async def run(
     max_budget_usd: float | None = None,
     timeout: int = 600,
     cwd: str | Path | None = None,
+    idle_timeout: float = 120.0,
+    load_timeout_ms: int | None = None,
 ) -> str:
     """Run a prompt asynchronously and return the full text output."""
     del output_format, json_schema  # accepted for compat; not used by SDK path
@@ -386,6 +437,8 @@ async def run(
             max_turns=max_turns,
             max_budget_usd=max_budget_usd,
             cwd=cwd,
+            idle_timeout=idle_timeout,
+            load_timeout_ms=load_timeout_ms,
         ):
             events.append(event)
         _check_result(events)
@@ -405,6 +458,8 @@ async def stream(
     max_turns: int | None = None,
     max_budget_usd: float | None = None,
     cwd: str | Path | None = None,
+    idle_timeout: float = 120.0,
+    load_timeout_ms: int | None = None,
 ) -> AsyncGenerator[dict[str, Any]]:
     """Stream a prompt asynchronously, yielding legacy-shaped event dicts."""
     async for event in _stream_events(
@@ -417,5 +472,7 @@ async def stream(
         max_turns=max_turns,
         max_budget_usd=max_budget_usd,
         cwd=cwd,
+        idle_timeout=idle_timeout,
+        load_timeout_ms=load_timeout_ms,
     ):
         yield event

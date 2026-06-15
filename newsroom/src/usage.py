@@ -28,6 +28,11 @@ get_subagent_messages(), but they do NOT replace this parser:
 
 The SDK drives the same `claude` CLI, which still writes these JSONL transcripts,
 so this parser stays valid after the SDK migration.
+
+Note: the selection pipeline no longer uses this JSONL parser. Per-stage usage
+is now captured directly from each subagent's result event by orchestrate.py
+(via `_usage_row`/`_compute_cost` below). `parse_session_usage`/
+`_extract_dispatches`/`_match_subagents` are retained for other tooling/tests.
 """
 
 import json

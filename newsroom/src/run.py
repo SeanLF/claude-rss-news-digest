@@ -16,9 +16,9 @@ from datetime import UTC, datetime
 import db
 from broadcast import send_broadcast, send_health_alert, send_test_email
 from claude import generate_selections, generate_weekly_recap, health_check
+from claude_agent_sdk import ClaudeSDKError
 from config import (
     CLAUDE_INPUT_DIR,
-    CLAUDE_PROJECTS_DIR,
     DATA_DIR,
     DB_PATH,
     FETCHED_DIR,
@@ -41,7 +41,6 @@ from feeds_cli import validate_feeds_cli
 from merge import assemble_selections
 from prepare import prepare_claude_input
 from render import extract_preheader, prepare_for_email, replace_placeholders
-from usage import parse_session_usage
 from utils import check_internet, setup_logging, validate_env
 
 logger = logging.getLogger(__name__)
@@ -85,7 +84,7 @@ def maybe_update_weekly_recap():
     today = datetime.now(UTC).strftime("%Y-%m-%d")
     try:
         summary = generate_weekly_recap(title_lines)
-    except (RuntimeError, subprocess.SubprocessError, OSError) as e:
+    except (RuntimeError, ClaudeSDKError, subprocess.SubprocessError, OSError) as e:
         logger.warning("Weekly recap generation failed (non-fatal): %s", e)
         return
 
@@ -273,9 +272,8 @@ Examples:
 
         prepare_claude_input(sources, dry_run=args.dry_run, article_limit=args.limit)
         maybe_update_weekly_recap()
-        generate_selections(model=args.model)
+        usage_rows = generate_selections(model=args.model)
         try:
-            usage_rows = parse_session_usage(CLAUDE_PROJECTS_DIR)
             db.record_usage(usage_rows)
         except Exception:
             logger.warning("Usage tracking failed (non-fatal)", exc_info=True)

@@ -6,6 +6,7 @@ dict shape claude.py consumes (event["type"], event["message"]["content"],
 event.get("parent_tool_use_id"), event.get("total_cost_usd"), ...).
 """
 
+import asyncio
 import sys
 from pathlib import Path
 
@@ -17,6 +18,7 @@ import claude_cli
 from claude_agent_sdk import (
     AssistantMessage,
     ResultMessage,
+    StreamEvent,
     SystemMessage,
     TextBlock,
     ToolResultBlock,
@@ -300,3 +302,118 @@ class TestStreamSyncIntegration:
 
         with pytest.raises(RuntimeError, match="error_during_execution"):
             claude_cli.run_sync("x", model="haiku")
+
+
+# ---------------------------------------------------------------------------
+# In-process hang detection: event-idle timeout
+# ---------------------------------------------------------------------------
+
+
+class TestPartialMessagesEnabled:
+    def test_build_options_enables_partial_messages(self):
+        # Partial StreamEvents densify the stream so the idle timer resets
+        # mid-generation. _message_to_event filters them to None, so callers
+        # never see them -- only the idle timer benefits.
+        opts = claude_cli._build_options(
+            model="sonnet",
+            system_prompt=None,
+            permission_mode=None,
+            allowed_tools=None,
+            mcp_config=None,
+            max_turns=None,
+            max_budget_usd=None,
+            cwd=None,
+        )
+        assert opts.include_partial_messages is True
+
+    def test_build_options_passes_load_timeout(self):
+        opts = claude_cli._build_options(
+            model="sonnet",
+            system_prompt=None,
+            permission_mode=None,
+            allowed_tools=None,
+            mcp_config=None,
+            max_turns=None,
+            max_budget_usd=None,
+            cwd=None,
+            load_timeout_ms=5000,
+        )
+        assert opts.load_timeout_ms == 5000
+
+
+def _stalling_query(closed_flag):
+    """A query() stand-in whose async iterator never yields (hangs forever).
+
+    Records aclose() so the test can prove the SDK generator is torn down on
+    idle-timeout (no leaked subprocess).
+    """
+
+    async def _gen(*, prompt, options, transport=None):
+        # Await an event that is never set -> __anext__ blocks indefinitely,
+        # which is exactly what asyncio.wait_for must interrupt.
+        never = asyncio.Event()
+        try:
+            await never.wait()
+            yield  # pragma: no cover -- unreachable, makes this an async generator
+        finally:
+            closed_flag["closed"] = True
+
+    return _gen
+
+
+class TestIdleTimeout:
+    def test_idle_timeout_fires_when_stream_stalls(self, monkeypatch):
+        closed = {"closed": False}
+        monkeypatch.setattr(claude_cli, "query", _stalling_query(closed))
+
+        with pytest.raises(RuntimeError, match="idle timeout"):
+            list(claude_cli.stream_sync("/x", model="sonnet", idle_timeout=0.05))
+
+        # The SDK generator was closed -> subprocess torn down, no leak.
+        assert closed["closed"] is True
+
+    def test_healthy_stream_completes_within_idle_timeout(self, monkeypatch):
+        # Events arrive promptly (well under the idle window) -> normal completion.
+        messages = [
+            AssistantMessage(content=[TextBlock(text="hi")], model="m", parent_tool_use_id=None),
+            ResultMessage(
+                subtype="success",
+                duration_ms=10,
+                duration_api_ms=5,
+                is_error=False,
+                num_turns=1,
+                session_id="s1",
+                total_cost_usd=0.0,
+            ),
+        ]
+        monkeypatch.setattr(claude_cli, "query", _fake_query(messages))
+
+        events = list(claude_cli.stream_sync("/x", model="sonnet", idle_timeout=5.0))
+        assert [e["type"] for e in events] == ["assistant", "result"]
+
+    def test_idle_timer_resets_on_filtered_messages(self, monkeypatch):
+        # StreamEvents are filtered to None by _message_to_event, but each one
+        # must still RESET the idle timer. We emit several partial events with a
+        # gap shorter than idle_timeout, then a result. If filtered messages did
+        # not reset the timer this would time out; it must complete cleanly.
+        async def _gen(*, prompt, options, transport=None):
+            for _ in range(5):
+                await asyncio.sleep(0.02)
+                yield StreamEvent(uuid="u", session_id="s", event={"type": "partial"})
+            await asyncio.sleep(0.02)
+            yield ResultMessage(
+                subtype="success",
+                duration_ms=10,
+                duration_api_ms=5,
+                is_error=False,
+                num_turns=1,
+                session_id="s1",
+                total_cost_usd=0.0,
+            )
+
+        monkeypatch.setattr(claude_cli, "query", _gen)
+
+        # idle_timeout (0.1) > per-event gap (0.02) but < total stream time (0.12),
+        # so this only passes if the timer resets on each filtered StreamEvent.
+        events = list(claude_cli.stream_sync("/x", model="sonnet", idle_timeout=0.1))
+        assert [e["type"] for e in events] == ["result"]
