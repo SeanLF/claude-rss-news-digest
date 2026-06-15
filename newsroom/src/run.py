@@ -139,6 +139,11 @@ Examples:
     parser.add_argument("--json", action="store_true", help="Output in JSON format (with --validate)")
     parser.add_argument("--health-check", action="store_true", help="Verify Claude auth is working")
     parser.add_argument(
+        "--verify-today",
+        action="store_true",
+        help="Dead-man's switch: exit non-zero if no completed digest run exists for today (UTC)",
+    )
+    parser.add_argument(
         "--limit", type=int, metavar="N", help="Limit articles for testing (like dry-run truncation but with recording)"
     )
     parser.add_argument("--model", metavar="MODEL", help="Override Claude model (e.g. haiku for cheap test runs)")
@@ -163,6 +168,16 @@ Examples:
     # Health check mode
     if args.health_check:
         return health_check()
+
+    # Verify-today mode (dead-man's switch): exit non-zero if today's digest didn't complete.
+    # Read-only: skip migrations so this probe never writes to the production DB.
+    if args.verify_today:
+        db.init(DB_PATH, MIGRATIONS_DIR, apply_migrations=False)
+        if db.has_completed_run_today(on_error=False):
+            logger.info("Verified: a completed digest run exists for today.")
+            return 0
+        logger.error("No completed digest run for today -- the morning run may have failed to go out.")
+        return 1
 
     # Preview mode
     if args.preview:

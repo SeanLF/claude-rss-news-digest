@@ -30,10 +30,16 @@ def _db_path() -> Path:
     return _state.db_path
 
 
-def init(db_path: Path, migrations_dir: Path):
-    """Initialize database, auto-applying any pending migrations."""
+def init(db_path: Path, migrations_dir: Path, *, apply_migrations: bool = True):
+    """Initialize database, auto-applying any pending migrations.
+
+    ``apply_migrations=False`` skips the migration step and only records the
+    path -- used by the read-only dead-man's-switch (--verify-today) so a
+    verification probe never writes to (migrates) the production database.
+    """
     db_path.parent.mkdir(exist_ok=True)
-    _apply_pending_migrations(db_path, migrations_dir)
+    if apply_migrations:
+        _apply_pending_migrations(db_path, migrations_dir)
     _state.db_path = db_path
 
 
@@ -115,8 +121,15 @@ def abort_run():
     _state.alerting = False
 
 
-def has_completed_run_today() -> bool:
-    """Check if a completed run exists for today (UTC)."""
+def has_completed_run_today(*, on_error: bool = True) -> bool:
+    """Check if a completed run exists for today (UTC).
+
+    ``on_error`` is the value returned when the DB can't be read. The
+    duplicate-run guard fails closed (default True -> assume a run exists, do
+    not double-run). The dead-man's-switch check (--verify-today) passes
+    ``on_error=False`` so an unreadable DB surfaces as "no run" and triggers an
+    alert rather than being silently masked.
+    """
     if not _state.db_path or not _state.db_path.exists():
         return False
     try:
@@ -127,7 +140,7 @@ def has_completed_run_today() -> bool:
             return cursor.fetchone()[0] > 0
     except sqlite3.Error as e:
         logger.error("DB error checking today's runs: %s", e)
-        return True  # Fail closed: assume run exists when we can't verify
+        return on_error
 
 
 def should_broadcast() -> bool:

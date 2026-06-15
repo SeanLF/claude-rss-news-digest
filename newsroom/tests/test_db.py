@@ -156,3 +156,26 @@ def test_delete_run_removes_run_artifacts(fresh_db, tmp_path):
     with sqlite3.connect(fresh_db) as conn:
         count = conn.execute("SELECT COUNT(*) FROM run_artifacts WHERE run_id = ?", (run_id,)).fetchone()[0]
     assert count == 0
+
+
+def test_has_completed_run_today_false_before_complete(fresh_db):
+    # fresh_db starts a run but does not complete it.
+    assert db.has_completed_run_today() is False
+
+
+def test_has_completed_run_today_true_after_complete(fresh_db):
+    db.complete_run(articles_fetched=30, articles_emailed=0)
+    assert db.has_completed_run_today() is True
+
+
+def test_has_completed_run_today_on_error_controls_failopen(tmp_path, monkeypatch):
+    # Point at a file that exists but is not a valid SQLite DB so the query raises.
+    db._state = db._State()
+    bad = tmp_path / "not-a-db.sqlite"
+    bad.write_bytes(b"this is not a sqlite database")
+    db._state.db_path = bad
+    # Duplicate-run guard fails closed (assume a run exists -> do not double-run).
+    assert db.has_completed_run_today() is True
+    assert db.has_completed_run_today(on_error=True) is True
+    # Dead-man's switch fails open (assume no run -> alert).
+    assert db.has_completed_run_today(on_error=False) is False
