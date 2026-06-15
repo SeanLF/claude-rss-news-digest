@@ -1,0 +1,475 @@
+{
+  "_meta": {
+    "description": "Golden set for the within-story 'why_it_matters earns its slot' judge (eval_why_judge). label_adds_dimension is an independent human verdict on whether why_it_matters adds a substantive NEW dimension beyond the summary (true) or is filler (false). judge_adds_dimension is the cached verdict of the validated judge (eval_why_judge.WHY_JUDGE_PROMPT, sonnet-4-6) used for offline regression testing.",
+    "source": "scratch/error-analysis/within_story_labeled.json (45 cases from production digests, error-analysis pass 2026-06).",
+    "n_cases": 45,
+    "n_filler": 17,
+    "judge_prompt_version": "v2",
+    "prompt_evolution": "v1 (mechanism-strict) over-flagged new-fact lines wrapped in significance language: agreement 0.756, filler precision 0.615 / recall 0.941. v2 adds the strip-significance-verbs method (credit any surviving new fact/frame/implication): agreement 0.867, filler precision 0.867 / recall 0.765 -- bias removed.",
+    "validation": {
+      "agreement_rate": 0.8667,
+      "filler_precision": 0.8667,
+      "filler_recall": 0.7647,
+      "confusion_filler_positive": {
+        "tp": 13,
+        "tn": 26,
+        "fp": 2,
+        "fn": 4
+      },
+      "note": "Remaining 6 disagreements are genuine borderline editorial calls (split symmetrically; the labeler hedged 'thin'/'mostly' on several) -- near the inter-annotator ceiling for a subjective binary."
+    },
+    "purpose": "GEPA target metric to measure why_it_matters filler rate when optimizing the WRITE prompt. NOT the WRITE fix itself."
+  },
+  "cases": [
+    {
+      "date": "2025-12-22",
+      "headline": "Another Bangladesh student leader shot in head amid ongoing unrest",
+      "summary": "Motaleb Shikder, a student leader, was shot in the head in Khulna city, days after the killing of prominent youth leader Sharif Osman Hadi sparked nationwide protests. The violence has strained Bangladesh-India relations, with Sheikh Hasina blaming the Yunus government.",
+      "why_it_matters": "The continued violence threatens Bangladesh's political stability as it prepares for 2026 elections and complicates regional dynamics with India.",
+      "label_adds_dimension": true,
+      "label_note": "Adds the concrete stake of upcoming 2026 elections, a contextual fact not present in the summary.",
+      "judge_adds_dimension": true,
+      "judge_reason": "After stripping \"threatens\" and \"complicates\", the concrete new element \"2026 elections\" survives -- a named upcoming political event not mentioned in the summary that provides a specific forward-looking stakes context beyond the existing India-relations strain already described."
+    },
+    {
+      "date": "2026-04-14",
+      "headline": "Microsoft raises Surface prices by $500 amid global RAM shortage",
+      "summary": "Microsoft increased prices on the Surface Pro 11 and Surface Laptop 7 by $500, citing the global RAM shortage. The company's new Xbox chief also separately acknowledged in a leaked internal memo that Game Pass \"has become too expensive.\"",
+      "why_it_matters": "The RAM shortage — compounded by Iran-war supply-chain disruptions — is moving from a component-level constraint to a consumer-facing price shock, which will slow enterprise and consumer hardware refresh cycles and may delay AI infrastructure scaling that depends on memory-intensive chips.",
+      "label_adds_dimension": true,
+      "label_note": "Adds causal chain (Iran-war supply disruption, slowed refresh cycles, AI infra delays) absent from the summary.",
+      "judge_adds_dimension": true,
+      "judge_reason": "After stripping significance language, three concrete new elements survive: (1) \"Iran-war supply-chain disruptions\" names a specific cause compounding the shortage that the summary does not mention; (2) \"slow enterprise and consumer hardware refresh cycles\" identifies a specific downstream mechanism not in the summary; (3) \"may delay AI infrastructure scaling that depends on memory-intensive chips\" adds a spillover implication -- AI buildout as a casualty of the RAM crunch -- entirely absent from the summary. Any one of these would be sufficient; together they clearly earn the slot."
+    },
+    {
+      "date": "2026-02-19",
+      "headline": "North Korea unveils 50 new rocket launchers ahead of rare party congress",
+      "summary": "Kim Jong Un showcased 50 nuclear-capable multiple rocket launchers, praising them as 'wonderful' and 'attractive,' ahead of a once-in-five-years Workers' Party congress. The display comes as North Korea maintains troops deployed in Russia.",
+      "why_it_matters": "Public weapons displays timed to a leadership congress signal both domestic consolidation and external deterrence messaging.",
+      "label_adds_dimension": false,
+      "label_note": "Restates the summary's framing (display timed to congress) as generic 'domestic + external messaging' significance without new information.",
+      "judge_adds_dimension": false,
+      "judge_reason": "After stripping the significance verb \"signal,\" nothing new remains. \"Domestic consolidation\" is a direct restatement of the congress context already in the summary, and \"external deterrence messaging\" is the trivially inferable meaning of displaying nuclear-capable launchers. The line adds no new fact, actor, mechanism, named prior event, or reframe -- it only relabels the summary's own facts in vaguer importance language."
+    },
+    {
+      "date": "2026-02-14",
+      "headline": "China's Wang Yi tells US cooperation should be win-win at first Rubio meeting",
+      "summary": "Chinese and US foreign ministers met in Munich as Beijing prepares for Trump-Xi summit in April. Wang urged reducing disputes and expanding cooperation. Business leaders say several positive outcomes likely but no 'grand bargain' expected.",
+      "why_it_matters": "Sets tone for critical US-China relationship as both powers navigate trade tensions, Taiwan issues, and efforts to manage competition without conflict.",
+      "label_adds_dimension": false,
+      "label_note": "Generic 'sets the tone' significance language; Taiwan/trade tensions are background a reader already infers from a foreign-minister meeting.",
+      "judge_adds_dimension": false,
+      "judge_reason": "After stripping \"sets the tone\" and \"manage competition without conflict,\" nothing new remains. \"Trade tensions, Taiwan issues\" are the standing backdrop trivially inferable from any US-China diplomatic meeting, not new facts introduced by this story. The line re-labels the summary's own framing (\"reducing disputes, expanding cooperation\") in vaguer significance language without adding any new fact, actor, mechanism, contradiction, or reframe."
+    },
+    {
+      "date": "2026-03-02",
+      "headline": "Polymarket trader 'Magamyman' made $553,000 betting on Khamenei's death",
+      "summary": "A Polymarket account identified as 'Magamyman' profited over half a million dollars betting on the killing of Iran's supreme leader, sparking scrutiny over potential insider trading. OpenAI separately fired an employee for prediction market insider trading days earlier. The trades raise questions about whether military secrets are leaking to betting markets.",
+      "why_it_matters": "If classified military intelligence is reaching prediction markets, it represents a serious national security breach and potential war profiteering.",
+      "label_adds_dimension": false,
+      "label_note": "The summary already says the trades raise questions about leaking military secrets; the why just labels that 'a national security breach' without new substance.",
+      "judge_adds_dimension": false,
+      "judge_reason": "After stripping \"represents a serious,\" nothing new remains. \"National security breach\" restates the summary's own phrase \"military secrets are leaking to betting markets,\" and \"war profiteering\" is a label for the $553,000 profit already stated in the summary. The line repackages the summary's framing in vaguer importance language without adding any new fact, actor, mechanism, or reframe."
+    },
+    {
+      "date": "2026-01-14",
+      "headline": "At least 32 killed after crane collapses on passenger train in Thailand",
+      "summary": "A construction crane working on a China-backed high-speed rail project collapsed onto a moving train in northeastern Thailand, killing at least 32 people and injuring 64. The train was carrying nearly 200 passengers when the accident occurred, causing it to derail and briefly catch fire.",
+      "why_it_matters": "The accident spotlights safety concerns around China's ambitious Belt and Road infrastructure projects across Southeast Asia.",
+      "label_adds_dimension": true,
+      "label_note": "Reframes a local accident as a Belt-and-Road / regional infrastructure-safety story, a broader context not stated in the summary.",
+      "judge_adds_dimension": false,
+      "judge_reason": "After stripping \"spotlights,\" nothing new remains. The BRI/China-backed framing is already stated in the summary (\"China-backed high-speed rail project\"). \"Safety concerns around Belt and Road infrastructure projects across Southeast Asia\" merely relabels the crane-kills-32 fact at a vaguer level -- no new actor, no named prior incidents, no mechanism, no specific country spillover, no reframe. Pure restatement."
+    },
+    {
+      "date": "2026-01-30",
+      "headline": "EU designates Iran's IRGC as terrorist organization as Tehran faces pressure",
+      "summary": "The European Union blacklisted Iran's Revolutionary Guard Corps amid mass arrests and deadly protests. The designation brings the EU in line with the US and Canada. Iran condemned the move as 'illogical and irresponsible' while rounding up thousands in a mass arrest campaign to deter further unrest.",
+      "why_it_matters": "The designation signals hardening Western stance as Trump threatens military strikes and Iran faces its most severe domestic unrest in years, raising stakes for regional conflict.",
+      "label_adds_dimension": true,
+      "label_note": "Adds the Trump-military-strike threat and 'most severe unrest in years' context, raising the escalation stake beyond the summary's facts.",
+      "judge_adds_dimension": true,
+      "judge_reason": "After stripping \"signals hardening Western stance\" and \"raising stakes for regional conflict\", two concrete new elements remain: (1) Trump threatens military strikes -- a named action by a new actor not mentioned in the summary; (2) \"most severe domestic unrest in years\" -- a historical severity framing that goes beyond the summary's description of protests and mass arrests, adding comparative context not inferable from the summary alone."
+    },
+    {
+      "date": "2026-03-10",
+      "headline": "Mojtaba Khamenei assumes power as regime uses martyrdom narrative to consolidate authority",
+      "summary": "Mojtaba Khamenei, 56-year-old son of the assassinated supreme leader, has been installed as Iran's new supreme leader. The regime is invoking Shia martyrdom history to legitimise the succession and rally support from IRGC-aligned factions and regional Shia groups. Critics fear his strong IRGC connections will harden policy.",
+      "why_it_matters": "A supreme leader whose authority rests on a martyrdom narrative rather than clerical consensus has strong incentives to sustain the war — backing down would undercut the very story that legitimises his rule.",
+      "label_adds_dimension": true,
+      "label_note": "Adds a non-obvious causal mechanism: the martyrdom-based legitimacy structurally incentivises continuing the war.",
+      "judge_adds_dimension": true,
+      "judge_reason": "After stripping significance language (there is none of the listed phrases here), a concrete mechanism survives: the martyrdom narrative creates a structural constraint on Mojtaba Khamenei's strategic choices -- de-escalating or ending the war would delegitimize the very story that justifies his succession. The summary says the narrative is being used to consolidate authority, but the why_it_matters adds a specific cause-and-effect chain not in the summary and not trivially inferable from it: the source of legitimacy (martyrdom) is also a trap that creates strong incentives to sustain the conflict."
+    },
+    {
+      "date": "2026-03-04",
+      "headline": "Iran-linked drone hits RAF base in Cyprus; Britain, France and Greece rush reinforcements",
+      "summary": "An Iranian-made Shahed drone, likely launched by Hezbollah, struck the runway of the UK's RAF Akrotiri base in Cyprus on March 2. Britain has deployed HMS Dragon, an air-defence destroyer, to the island, while France and Greece have also sent air-defence assets. The Cypriot government suspects Hezbollah carried out the attack.",
+      "why_it_matters": "A strike on a NATO member's sovereign military base — even one outside the alliance's treaty area — raises the question of whether Article 5 collective defence obligations could be triggered as the conflict spreads westward.",
+      "label_adds_dimension": true,
+      "label_note": "Introduces the Article 5 collective-defence legal question, a specific non-obvious implication absent from the summary.",
+      "judge_adds_dimension": true,
+      "judge_reason": "After stripping \"raises the question,\" a concrete legal mechanism survives: RAF Akrotiri is a UK Sovereign Base Area outside NATO's treaty area, so Article 5 collective-defence obligations are ambiguous even though a NATO member's military base was hit. That treaty-area wrinkle is not stated or trivially inferable from the summary, which only reports the strike and the reinforcements sent. The line reframes the event at the level of alliance law, not just military response."
+    },
+    {
+      "date": "2025-12-17",
+      "headline": "Trump expands travel ban to 39 countries, adds Syria and Palestinian territories",
+      "summary": "The administration doubled the number of nations facing full or partial travel restrictions. The expansion follows the arrest of an Afghan national suspected in shooting two National Guard troops.",
+      "why_it_matters": "The sweeping expansion affects millions and signals continued hardline immigration policy, with Syria notably added despite regime change.",
+      "label_adds_dimension": false,
+      "label_note": "Mostly 'affects millions / hardline policy' restatement; the one fresh angle (Syria added despite regime change) is thin and partly in the headline already.",
+      "judge_adds_dimension": true,
+      "judge_reason": "After stripping \"sweeping\", \"signals\", and \"affects millions\" (pure scale restatement), the clause \"Syria notably added despite regime change\" survives. It introduces a genuine tension/irony not present in the summary: Syria underwent a government change that would normally prompt a policy reassessment, yet was added to the ban anyway. That contradiction is a concrete new element -- the summary names only the Afghan-national arrest as the trigger and does not mention Syria at all. The line is thin and leans on filler, but this one tension-clause is enough to earn the slot under the method."
+    },
+    {
+      "date": "2026-02-16",
+      "headline": "US conducts first air transport of nuclear microreactor in military viability test",
+      "summary": "The US Defense Department successfully transported a nuclear microreactor by air for the first time, demonstrating the technology's potential for rapid deployment to support military operations. The Trump administration sees small reactors as critical to expanding energy production and military capabilities in remote locations.",
+      "why_it_matters": "Mobile nuclear power could fundamentally alter military logistics and strategic positioning, giving forces energy independence in contested regions while raising proliferation concerns.",
+      "label_adds_dimension": true,
+      "label_note": "Adds the proliferation-risk dimension and the logistics/energy-independence stake beyond the summary's 'rapid deployment' framing.",
+      "judge_adds_dimension": true,
+      "judge_reason": "After stripping \"fundamentally alter\" and \"energy independence,\" the line introduces \"proliferation concerns\" -- a concrete new risk dimension (nuclear material in transit, technology spread) not mentioned in the summary, which focuses only on capability upside (rapid deployment, remote energy). The summary frames this as a pure logistics achievement; the why_it_matters adds the tension of an attendant downside risk, which is a genuine new element that survives the strip."
+    },
+    {
+      "date": "2026-02-08",
+      "headline": "Syria and Saudi Arabia sign multibillion-dollar investment deals as sanctions lift",
+      "summary": "Saudi Arabia and Syria's new government signed major investment agreements covering telecommunications, aviation, and a joint airline, with deals valued at multiple billion dollars. The Saudi telecommunications investment alone is worth $1 billion. This follows $6.4 billion in agreements signed in July 2025, marking Riyadh's deepening engagement with Damascus after years of civil war.",
+      "why_it_matters": "Saudi Arabia is positioning itself as Syria's primary economic patron, potentially reshaping regional power dynamics and accelerating Syria's rehabilitation after 14 years of isolation and conflict.",
+      "label_adds_dimension": false,
+      "label_note": "The summary already states 'Riyadh's deepening engagement'; the why rephrases that as 'primary economic patron / reshaping power dynamics' with little new.",
+      "judge_adds_dimension": false,
+      "judge_reason": "After stripping \"positioning itself as\" and \"potentially reshaping regional power dynamics,\" nothing new remains. \"Primary economic patron\" is a label for deepening engagement already described in the summary (current multibillion deals + the prior $6.4B round). \"Accelerating Syria's rehabilitation after 14 years of isolation\" restates the summary's own framing. No new actor, rival patron, mechanism, tension, or concrete implication survives the strip."
+    },
+    {
+      "date": "2026-01-05",
+      "headline": "UK and France conduct joint airstrike on ISIS arms cache in Syria",
+      "summary": "British and French air forces bombed a suspected underground Islamic State weapons stockpile near Palmyra, Syria. The strike targeted an area 'devoid of civilian habitation' in the first major joint Western military action in Syria since the fall of Assad.",
+      "why_it_matters": "The operation signals Western powers are committed to preventing an ISIS resurgence in Syria's post-Assad power vacuum.",
+      "label_adds_dimension": false,
+      "label_note": "Restates the obvious intent of an anti-ISIS strike; 'post-Assad power vacuum' is already implied by the summary's 'since the fall of Assad.'",
+      "judge_adds_dimension": false,
+      "judge_reason": "After stripping \"signals\" and \"committed to preventing,\" nothing new remains. \"ISIS resurgence\" and \"post-Assad power vacuum\" are already stated or directly inferable from the summary, which identifies the target as an ISIS arms cache and notes this is the first joint Western action since Assad's fall. The line is pure restatement in importance language with no new fact, mechanism, reframe, or implication."
+    },
+    {
+      "date": "2026-02-07",
+      "headline": "Waymo unveils world model using Google's Genie 3 for self-driving simulation",
+      "summary": "Waymo announced it's leveraging Google's Genie 3 AI to create a world model that can simulate rare and impossible driving conditions for testing autonomous vehicles. The technology allows the company to explore edge cases without real-world risk.",
+      "why_it_matters": "Generative AI is now being used to create synthetic training data for safety-critical systems, potentially accelerating autonomous vehicle deployment.",
+      "label_adds_dimension": false,
+      "label_note": "Generalises the summary (simulate edge cases, no real-world risk) into 'synthetic data for safety-critical systems / accelerate deployment' without adding facts.",
+      "judge_adds_dimension": false,
+      "judge_reason": "After stripping \"potentially accelerating,\" nothing new remains. The line restates the summary in vaguer terms: \"generative AI used to create synthetic training data for safety-critical systems\" is a relabelling of what the summary already says (Genie 3 AI simulates rare driving conditions for AV testing). No new fact, actor, mechanism, spillover implication, or interpretive reframe is introduced."
+    },
+    {
+      "date": "2026-02-13",
+      "headline": "EU leaders agree to accelerate single market reforms amid US and China pressure",
+      "summary": "European Union leaders concluded a two-day informal retreat in Belgium pledging to speed up economic integration through reformed electricity markets, relaxed competition rules, and potential \"Buy European\" procurement preferences. The push comes as Europe faces pressure from Trump's tariffs and Chinese industrial competition.",
+      "why_it_matters": "Europe's economic reform agenda tests whether the bloc can compete with superpower rivals without fragmenting internally or abandoning its traditional commitment to open markets.",
+      "label_adds_dimension": false,
+      "label_note": "Abstract 'tests whether the bloc can compete' framing that mostly re-expresses the summary's pressure context rather than adding a stake or mechanism.",
+      "judge_adds_dimension": true,
+      "judge_reason": "After stripping \"tests whether\", two concrete elements remain that are not in the summary: (1) the internal fragmentation risk -- the possibility that EU member states may not hold together around these reforms -- which the summary does not mention; and (2) an explicit contradiction/irony, that the EU's proposed \"Buy European\" procurement preferences directly conflict with its historically defining commitment to open markets. The second is a genuine tension/reframe that recasts the story from a straightforward geopolitical response into an ideological dilemma for the bloc. Either element alone is enough to earn the slot."
+    },
+    {
+      "date": "2026-01-26",
+      "headline": "Venezuela releases 104 political prisoners under US pressure",
+      "summary": "Interim President Delcy Rodriguez has overseen the release of over 100 detainees from jails nationwide, including a human rights lawyer and communications student. However, opposition groups and NGOs criticize the slow pace and note at least 66 forcibly disappeared remain missing.",
+      "why_it_matters": "The releases follow the US seizure of former leader Nicolás Maduro and demonstrate Washington's leverage, though the partial nature suggests Rodriguez's regime remains authoritarian.",
+      "label_adds_dimension": true,
+      "label_note": "Adds the concrete cause (US seizure of Maduro) explaining why the releases happened, a fact not in the summary.",
+      "judge_adds_dimension": true,
+      "judge_reason": "After stripping \"demonstrate Washington's leverage\" and \"remains authoritarian,\" the specific prior event \"the US seizure of former leader Nicolas Maduro\" survives. The summary says only that releases occurred \"under US pressure\" -- it does not name Maduro's seizure as the concrete mechanism behind that pressure. That one new fact (Maduro captured by the US, explaining why Rodriguez's government is now releasing prisoners) is a genuine new element: a named prior action that provides the causal chain the summary omits."
+    },
+    {
+      "date": "2026-04-02",
+      "headline": "AI disinformation about the Iran war outpaces fact-checkers' capacity",
+      "summary": "AI-generated fakes about the Iran conflict — including manipulated videos of political leaders — are circulating faster than professional fact-checkers can verify them, according to reporting from Al-Monitor and the Straits Times. The volume and speed of synthetic content is eroding the ability of audiences to distinguish real events from fabrication at a critical moment in the conflict.",
+      "why_it_matters": "When synthetic media saturates an active war, states and non-state actors gain the ability to manufacture consent for escalation or de-escalation by fabricating events — meaning the information environment itself becomes a battlefield with no clear rules of engagement.",
+      "label_adds_dimension": true,
+      "label_note": "Adds the mechanism of weaponised consent-manufacturing and the 'information environment as battlefield' implication beyond the summary's 'erodes trust.'",
+      "judge_adds_dimension": true,
+      "judge_reason": "After stripping \"becomes a battlefield,\" a concrete new dimension survives: the specific mechanism by which states and non-state actors can manufacture consent for either escalation or de-escalation by fabricating events. The summary frames the problem as information-quality erosion (fakes spreading faster than fact-checkers). The why_it_matters reframes it at a strategic level -- the synthetic media volume hands actors a tool to steer war outcomes in either direction -- and introduces the bidirectional manipulation angle (escalation or de-escalation) plus the absence of rules of engagement for this information environment. Neither element is stated in nor trivially inferable from the summary."
+    },
+    {
+      "date": "2026-03-18",
+      "headline": "Europe keeps Ukraine in focus while refusing to join Hormuz mission",
+      "summary": "UK Prime Minister Starmer met Zelensky in London and announced a new UK-Ukraine defence partnership, including support for an AI centre in Kyiv, while explicitly calling on allies to keep Ukraine from being overshadowed by the Iran war. EU foreign policy chief Kallas separately called on the US and Israel to end the Iran war and sought a diplomatic solution for Hormuz. France's Macron said Paris would 'never' join Hormuz operations while hostilities continue.",
+      "why_it_matters": "European leaders are walking a narrow path: refusing to legitimise the Iran war while simultaneously trying to use the moment to extract more concrete commitments on Ukraine, betting that Washington's need for allied credibility gives them leverage they did not have before the conflict started.",
+      "label_adds_dimension": true,
+      "label_note": "Adds the non-obvious strategic logic (leveraging US need for allied credibility to extract Ukraine commitments) tying the disparate summary facts together.",
+      "judge_adds_dimension": true,
+      "judge_reason": "After stripping \"walking a narrow path,\" a concrete new dimension survives: the why_it_matters reframes three separate European statements as a coordinated bargaining strategy, adding the causal mechanism that Washington's need for allied credibility gives Europe leverage it did not possess before the Iran conflict began. Neither the strategic bargaining frame nor the leverage mechanism is stated or trivially inferable from the summary, which simply reports each statement in isolation."
+    },
+    {
+      "date": "2026-05-31",
+      "headline": "US military strikes two blockade-running vessels; kills three, fires on Gambia-flagged ship",
+      "summary": "The US military struck a vessel in the eastern Pacific on May 30, killing three, the second such strike in two days. A day earlier, US Central Command fired a missile into the engine room of the M/V Lian Star — a Gambia-flagged ship — after it ignored more than 20 warnings and attempted to breach the US blockade of Iran. The US Treasury separately stated that American persons are prohibited from receiving services from the Iranian government, effectively barring any private Hormuz toll arrangements.",
+      "why_it_matters": "Firing on a third-country-flagged vessel to enforce a unilateral blockade sets a precedent that could expose the US to legal challenges under international maritime law and push non-aligned shipping nations to seek alternative routes or political cover from China.",
+      "label_adds_dimension": true,
+      "label_note": "Adds the maritime-law precedent and second-order consequence (shipping nations turning to China) not present in the summary.",
+      "judge_adds_dimension": true,
+      "judge_reason": "After stripping \"sets a precedent,\" two concrete new elements survive. First, a specific legal mechanism: firing on a Gambia-flagged vessel to enforce a unilateral blockade creates exposure under international maritime law -- a framework not mentioned in the summary. Second, a geopolitical spillover: non-aligned shipping nations may seek alternative routes or political cover from China, a consequence entirely absent from the summary's account of the strikes and the Treasury statement."
+    },
+    {
+      "date": "2026-05-24",
+      "headline": "Gunman shot dead by Secret Service at White House checkpoint",
+      "summary": "A 21-year-old man opened fire on Secret Service agents at a White House checkpoint on Saturday evening and was killed in the exchange; a bystander was also wounded. President Trump, who was inside the building, said the suspect had a \"violent history and possible obsession\" with the White House — and noted it was the third firearms incident near him in the past month.",
+      "why_it_matters": "Three shooting incidents near the president in a single month, now acknowledged by Trump himself, point to a pattern of threat that goes beyond isolated incidents and raises questions about whether current security perimeters are adequate.",
+      "label_adds_dimension": false,
+      "label_note": "The 'third incident in a month' fact is already in the summary; the why merely restates it as 'a pattern' and questions perimeter adequacy without new substance.",
+      "judge_adds_dimension": false,
+      "judge_reason": "After stripping significance language (\"point to a pattern that goes beyond isolated incidents\", \"raises questions about whether\"), nothing concrete remains that is not already in the summary. The summary already states Trump himself identified this as the third firearms incident near him in the past month. The security-perimeter-adequacy implication is trivially inferable from any violent breach at a checkpoint and adds no new fact, actor, mechanism, or reframe."
+    },
+    {
+      "date": "2026-02-10",
+      "headline": "Trump opposes Israeli West Bank annexation despite cabinet approval of measures deepening control",
+      "summary": "Israel's security cabinet approved measures expanding control over the occupied West Bank in terms of property law, planning, licensing and enforcement. The White House said Trump sees stability in the Palestinian territory as aligned with his goal to achieve peace in the region, opposing formal annexation. The EU called the measures illegal under international law and Palestinian President Abbas described them as dangerous attempts to legalize settlement expansion.",
+      "why_it_matters": "The divergence between Israel's actions and US opposition marks a rare public split that could reshape Middle East diplomacy, even as the practical effect of Israel's measures amounts to de facto annexation.",
+      "label_adds_dimension": true,
+      "label_note": "Adds the analytic point that the measures amount to de facto annexation regardless of the formal split, an interpretation not stated in the summary.",
+      "judge_adds_dimension": true,
+      "judge_reason": "After stripping \"could reshape Middle East diplomacy,\" the line introduces a concrete reframe: that the practical effect of Israel's measures amounts to de facto annexation even as Trump opposes formal annexation. The summary describes the measures only as \"expanding control\" and notes Abbas's characterisation as legalising settlement expansion, but stops short of the de facto/formal annexation distinction. The why_it_matters line reframes the story at a different analytical level -- formal opposition vs. functional outcome -- which is a genuine interpretive reframe not present in the summary."
+    },
+    {
+      "date": "2026-05-28",
+      "headline": "Zelensky asks Trump for air defences as Iran war leaves Ukraine short of interceptors",
+      "summary": "Ukrainian President Volodymyr Zelensky asked Trump for additional air defence systems, warning that resources are increasingly scarce as the Iran war absorbs Western interceptor supplies. Zelensky sent letters to both Trump and Congress calling for rapid action.",
+      "why_it_matters": "The Iran war's consumption of precision interceptors creates a direct linkage between two separate theatres: every US munition expended against Iranian drones is one fewer available for Ukraine's air defence, giving Moscow a strategic windfall from a conflict in which it is not a direct party.",
+      "label_adds_dimension": true,
+      "label_note": "Adds the explicit zero-sum mechanism and the non-obvious 'Moscow strategic windfall' implication beyond the summary's bare scarcity statement.",
+      "judge_adds_dimension": true,
+      "judge_reason": "After stripping \"creates a direct linkage,\" two concrete new elements remain that are absent from the summary: (1) an explicit zero-sum mechanism -- every interceptor used against Iranian drones is unavailable for Ukraine -- and (2) a named third-party beneficiary, Russia, gaining a strategic windfall from a war in which it is not a direct party. The summary mentions only that supplies are scarce and Zelensky is asking for help; it says nothing about Russia's indirect gain or the cross-theatre munition trade-off."
+    },
+    {
+      "date": "2026-02-12",
+      "headline": "Epstein files trigger resignations and investigations across Europe as scandal spreads globally",
+      "summary": "The Trump administration's release of documents related to Jeffrey Epstein has led to resignations and investigations far beyond US borders, roiling governments in Norway, the UK, and across Europe. Norway's foreign ministry official resigned over Epstein ties, the Council of Europe stripped its former head of immunity, and UK Prime Minister Keir Starmer faces growing pressure as the scandal engulfs top aides.",
+      "why_it_matters": "The global fallout demonstrates how Epstein's network extended into Europe's political elite and shows the Trump administration's willingness to use the files as a weapon with international reach.",
+      "label_adds_dimension": false,
+      "label_note": "Largely restates the summary (network reached Europe's elite); the only added angle is the unsupported 'used as a weapon' characterisation.",
+      "judge_adds_dimension": false,
+      "judge_reason": "After stripping \"demonstrates\" and \"shows,\" nothing new remains. \"Epstein's network extended into Europe's political elite\" restates what the summary already proves with specific examples (Norway foreign ministry, Council of Europe head, UK PM's aides). \"Use the files as a weapon with international reach\" is a mild framing but adds no new fact, mechanism, actor, or contagion implication beyond what the headline and summary already establish -- the international reach is already shown by the summary's enumerated examples across Norway, the Council of Europe, and the UK."
+    },
+    {
+      "date": "2026-03-24",
+      "headline": "Denmark votes with Greenland dispute overshadowing election",
+      "summary": "Danes began casting ballots in a general election on Tuesday with Prime Minister Mette Frederiksen's Social Democrats expected to retain power, boosted by her hard line against US President Trump's threats to seize Greenland. The vote is taking place as the centre-right bloc remains fragmented. Polls showed the far-right Danish People's Party at relatively low levels, partly because its anti-immigration agenda has been absorbed by the Social Democrats.",
+      "why_it_matters": "If Frederiksen wins on a platform explicitly defined by resisting Trump over Greenland, the result will hand her a mandate that makes any future Danish concessions to Washington politically toxic, deepening the structural rift between a core NATO member and the United States.",
+      "label_adds_dimension": true,
+      "label_note": "Adds the forward consequence (an anti-Trump mandate locking out future concessions) and the NATO-rift stake not in the summary.",
+      "judge_adds_dimension": true,
+      "judge_reason": "The summary says Frederiksen is expected to win, boosted by her hard line against Trump on Greenland. The why_it_matters adds a specific mechanism not in the summary: a democratic mandate won explicitly on resisting Trump makes any future Danish concession politically toxic -- she would be betraying the very platform voters endorsed. This is a concrete cause-and-effect chain (mandate-as-structural-constraint) that reframes the election result from a current-snapshot into a lock-in that deepens and entrenches the NATO rift going forward. That mechanism survives the strip of \"deepening the structural rift.\""
+    },
+    {
+      "date": "2026-03-26",
+      "headline": "Sudan's El Fasher massacre: up to 10,000 killed in October 2025, 40,000 still missing",
+      "summary": "A detailed investigation reveals that over two days in October 2025, up to 10,000 people were killed in El Fasher, Sudan's last major city in Darfur not under RSF control, in what survivors describe as systematic slaughter. A further 40,000 civilians remain unaccounted for. The killings have received minimal international coverage compared with the Middle East war.",
+      "why_it_matters": "The near-total absence of international response to a potential mass atrocity on the scale of El Fasher — occurring while global attention was fixed on Iran — illustrates how simultaneous crises create a coverage and diplomatic vacuum that can allow large-scale killing to proceed unimpeded.",
+      "label_adds_dimension": false,
+      "label_note": "The summary already notes 'minimal international coverage compared with the Middle East war'; the why generalises that same point into a 'coverage vacuum' thesis.",
+      "judge_adds_dimension": true,
+      "judge_reason": "After stripping \"illustrates,\" the line introduces a specific structural mechanism not in the summary: simultaneous crises create a coverage and diplomatic vacuum that actively enables large-scale killing to proceed unimpeded. The summary states only that coverage was minimal compared to the Iran war; the why_it_matters reframes this as a causal dynamic -- the Iran war's absorption of global attention is the mechanism that removes the deterrent effect of international scrutiny, making the atrocity possible at scale. That mechanism-and-consequence chain is a genuine new dimension."
+    },
+    {
+      "date": "2026-06-07",
+      "headline": "OpenAI plans ChatGPT overhaul into a 'superapp' ahead of potential IPO",
+      "summary": "OpenAI is planning its biggest redesign of ChatGPT since the chatbot's 2022 launch, recasting it as a higher-margin 'superapp' with coding tools and AI agents, according to the Financial Times. The $850 billion company is reportedly pursuing the overhaul as a route to stronger revenues before a potential stock market listing. A separate sovereign-wealth-style fund has also been proposed to give Americans an equity stake in AI.",
+      "why_it_matters": "Bundling coding tools and AI agents into a consumer app shifts OpenAI's business model from per-query API pricing toward platform lock-in, which would raise the stakes for rivals — including Google and Microsoft — trying to maintain distribution through their own products.",
+      "label_adds_dimension": true,
+      "label_note": "Adds the business-model mechanism (API pricing to platform lock-in) and competitive implication for named rivals beyond the summary.",
+      "judge_adds_dimension": true,
+      "judge_reason": "After stripping \"raise the stakes\" and \"shifts,\" two concrete new elements survive: (1) a specific business-model mechanism -- the move from per-query API pricing to platform lock-in -- which is not stated in the summary (which only says \"higher-margin superapp\"); and (2) a named competitive consequence -- Google and Microsoft specifically threatened in their ability to maintain distribution through their own products -- which introduces a new actor dynamic absent from the summary. Together these reframe the story from an internal OpenAI redesign into a distribution-war between AI platforms."
+    },
+    {
+      "date": "2026-02-09",
+      "headline": "SpaceX to prioritize building 'self-growing' lunar city over Mars plans",
+      "summary": "Elon Musk announced SpaceX will prioritize building a self-expanding city on the Moon over its Mars ambitions, according to a Reuters report. The shift comes as SpaceX delays Mars plans to focus on the 2027 moon landing contract. Musk has previously described plans for a lunar base that could autonomously expand using in-situ resources.",
+      "why_it_matters": "The pivot from Mars to Moon signals a strategic shift toward achievable near-term goals that could reshape humanity's space expansion trajectory.",
+      "label_adds_dimension": false,
+      "label_note": "Pure restatement of the summary's pivot as a vague 'strategic shift that could reshape humanity's trajectory' with no new fact or stake.",
+      "judge_adds_dimension": false,
+      "judge_reason": "After stripping \"signals\" and \"could reshape\", nothing new remains. \"A strategic shift toward achievable near-term goals\" is a restatement of the summary's own content (SpaceX delays Mars to focus on the 2027 moon landing contract). \"Humanity's space expansion trajectory\" is generic importance language with no new fact, mechanism, contradiction, spillover implication, or reframe. Pure filler."
+    },
+    {
+      "date": "2026-01-20",
+      "headline": "Trump's 'Board of Peace' meets tepid response as allies question $1 billion membership fee",
+      "summary": "President Trump invited dozens of nations to join his 'Board of Peace' for resolving global conflicts, requiring a $1 billion contribution for permanent membership with Trump holding ultimate decision-making power. France declined, Canada said it won't pay, and Putin accepted an invitation. Singapore and Israel confirmed invitations while assessing participation.",
+      "why_it_matters": "The initiative reveals Trump's vision to create an alternative to UN-led multilateralism while monetizing American diplomatic leadership—a model that could fundamentally reshape how global conflicts are mediated.",
+      "label_adds_dimension": true,
+      "label_note": "Adds the interpretive frame of an alternative to UN multilateralism, a context that explains the significance beyond the summary's facts.",
+      "judge_adds_dimension": false,
+      "judge_reason": "After stripping \"reveals\" and \"could fundamentally reshape,\" nothing new remains. \"An alternative to UN-led multilateralism\" and \"monetizing American diplomatic leadership\" are restatements of what the summary already makes explicit: a $1 billion membership fee, Trump holding sole decision-making power, and major allies declining while Putin accepts. No new fact, actor, mechanism, contradiction, spillover, or genuine reframe survives the strip -- the line is pure relabeling of the summary's own content in vaguer importance language."
+    },
+    {
+      "date": "2026-03-11",
+      "headline": "UN finds Russia's deportation of Ukrainian children amounts to crimes against humanity",
+      "summary": "A UN inquiry concluded that Russia's forcible deportation of Ukrainian children constitutes crimes against humanity, with Vladimir Putin's direct involvement visible from the outset. Eighty percent of the deported children have yet to return to Ukraine.",
+      "why_it_matters": "The finding creates a formal legal record tying Putin personally to the crime, complicating any future peace settlement that would require Western governments to normalise relations with Moscow while 80 percent of the children remain unreturned.",
+      "label_adds_dimension": true,
+      "label_note": "Adds the non-obvious implication that the legal record complicates future peace-settlement normalisation, beyond the summary's findings.",
+      "judge_adds_dimension": true,
+      "judge_reason": "After stripping \"complicating,\" a concrete mechanism survives: the formal legal record tying Putin personally to the crime creates a specific structural obstacle to any future peace settlement, because Western governments would have to normalise relations with a named war-crimes perpetrator while 80% of the children remain unreturned. Neither the peace-settlement constraint nor the normalisation barrier is stated or trivially inferable from the summary, which only reports the UN finding and the return rate. This is a genuine cause-and-effect reframe -- a legal record recast as a diplomatic deadlock mechanism."
+    },
+    {
+      "date": "2026-03-13",
+      "headline": "Trump administration launches forced-labour trade probes against 60 countries",
+      "summary": "The US Trade Representative opened Section 301 investigations into alleged unfair trade practices linked to forced labour across roughly 60 countries. The probes could allow the administration to reimpose higher tariffs. Analysts warn the investigation signals further tariff escalation with China, though Beijing called it a pretext.",
+      "why_it_matters": "Launching sixty simultaneous trade investigations — each of which can legally trigger tariffs — gives the administration a procedurally legitimate mechanism to impose new duties without needing Congressional approval, effectively building a permanent tariff architecture outside the normal rulemaking process.",
+      "label_adds_dimension": true,
+      "label_note": "Adds the mechanism (Section 301 as a route to bypass Congress / build permanent tariff architecture) not spelled out in the summary.",
+      "judge_adds_dimension": true,
+      "judge_reason": "After stripping significance-verbs, a concrete new mechanism remains: the line introduces the specific institutional bypass -- Section 301 investigations can each legally trigger tariffs without Congressional approval, and sixty simultaneous probes effectively construct a permanent tariff architecture outside normal rulemaking. The summary only says the probes \"could allow higher tariffs\" and \"signals further tariff escalation\"; it says nothing about bypassing Congress or creating a structural workaround to the normal legislative/rulemaking process. That procedural-architecture reframe is a genuine new dimension."
+    },
+    {
+      "date": "2026-01-13",
+      "headline": "Anthropic launches 'Cowork' agentic AI feature for general computing tasks",
+      "summary": "Anthropic released Cowork, a new feature that extends Claude Code's AI agent capabilities to general computing tasks. Users can give Claude access to a folder and have it autonomously perform complex, multi-step operations on their behalf.",
+      "why_it_matters": "The release intensifies competition in the AI agent space, where autonomous systems that can take actions beyond conversation represent the next frontier. It follows rapid adoption of Anthropic's Claude Code among developers.",
+      "label_adds_dimension": false,
+      "label_note": "Generic 'intensifies competition / next frontier' framing that restates the summary's autonomous-agent description without new information.",
+      "judge_adds_dimension": false,
+      "judge_reason": "After stripping \"intensifies competition\" and \"next frontier,\" nothing concrete remains. The claim that it follows \"rapid adoption of Claude Code among developers\" is a vague descriptor with no number, named actor, or mechanism -- it does not reframe the story or introduce a new fact beyond restating that Anthropic's developer tool is popular. The line is pure significance-language: it relabels the summary (new agentic product launched) in vaguer importance terms without adding any new dimension."
+    },
+    {
+      "date": "2026-04-22",
+      "headline": "UK parliament passes lifetime tobacco ban for anyone born after 2008",
+      "summary": "Both chambers of Britain's parliament approved the Tobacco and Vapes Bill, which will permanently ban the sale of cigarettes and tobacco products to anyone born on or after January 1, 2009. Health Minister Wes Streeting called it 'a historic moment for the nation's health.' The law creates a rolling generational prohibition rather than a fixed age limit.",
+      "why_it_matters": "A lifetime ban on tobacco sales creates a legal cohort of permanent non-buyers, which over decades strips the tobacco industry of its entire future domestic customer base — a regulatory model that, if sustained through successive governments, is more durable than tax or marketing restrictions and may be watched closely by other countries considering similar legislation.",
+      "label_adds_dimension": true,
+      "label_note": "Adds the long-run mechanism (eliminating the industry's future customer base) and comparative durability versus tax/marketing rules, beyond the summary.",
+      "judge_adds_dimension": true,
+      "judge_reason": "After stripping generic significance language (\"may be watched closely by other countries\"), two concrete new elements remain. First, a mechanism reframe: the why_it_matters articulates that the rolling cohort ban eliminates the tobacco industry's entire future domestic customer base -- an economic destruction argument not stated in the summary, which only describes the legal structure. Second, a comparative claim not in the summary: the model is \"more durable than tax or marketing restrictions,\" which introduces a specific contrast against alternative regulatory tools and explains why this mechanism is structurally different, not merely symbolically important."
+    },
+    {
+      "date": "2026-06-01",
+      "headline": "Nicaraguan indigenous leader Brooklyn Rivera dies in state custody at 73",
+      "summary": "Brooklyn Rivera, one of the most prominent Miskito political leaders in recent history and a former lawmaker, died in Nicaraguan state custody after more than three years of arbitrary detention. Rights groups condemned the death; his family and advocacy organisations dispute the official account of the circumstances.",
+      "why_it_matters": "Rivera's death — with the cause disputed and access to the body controlled by the government that detained him — follows the pattern of high-profile deaths in custody that international bodies have documented in Nicaragua, each one testing whether regional and US pressure on the Ortega government produces any response.",
+      "label_adds_dimension": true,
+      "label_note": "Adds the pattern context (documented custodial deaths under Ortega) and the test-of-international-pressure stake not in the summary.",
+      "judge_adds_dimension": true,
+      "judge_reason": "After stripping significance-verbs, two concrete new elements remain: (1) the specific detail that access to the body is controlled by the detaining government -- a new fact not stated in the summary, which only notes a disputed official account; and (2) an explicit reference to a prior documented pattern of high-profile deaths in custody that international bodies have recorded in Nicaragua -- new contextual history absent from the summary. Together these reframe the death from an isolated event into an entry in a documented sequence, with the US/regional pressure on the Ortega government named as a specific accountability lever being tested."
+    },
+    {
+      "date": "2026-05-16",
+      "headline": "Mexico's Sinaloa officials detained in US on drug and cartel charges",
+      "summary": "US authorities arrested two former senior officials from Mexico's Sinaloa state — including a retired army general who served as public security secretary — on allegations of cartel ties, in a case that has rattled diplomatic relations with Mexico. The Justice Department separately instructed federal prosecutors to use terrorism statutes to build criminal cases against Mexican officials over drug trafficking.",
+      "why_it_matters": "Applying terrorism statutes to Mexican state officials transforms a law enforcement matter into a political confrontation, giving Washington extraterritorial legal reach over foreign government employees and setting a precedent that Mexico's government — and other US partners — will find difficult to accept without a formal response.",
+      "label_adds_dimension": true,
+      "label_note": "Adds the extraterritorial-reach mechanism and precedent implication beyond the summary's bare mention of terrorism statutes.",
+      "judge_adds_dimension": true,
+      "judge_reason": "After stripping significance-verbs (\"transforms\", \"setting a precedent\"), two concrete new elements remain: (1) the specific legal mechanism of extraterritorial jurisdiction -- using terrorism statutes to assert legal reach over foreign government employees -- which the summary mentions as a fact but does not identify as a jurisdictional-reach mechanism; and (2) a spillover implication that the precedent threatens not just Mexico but \"other US partners,\" broadening the diplomatic stakes beyond the bilateral relationship named in the summary. Both survive the strip and are not trivially inferable from the summary alone."
+    },
+    {
+      "date": "2026-06-07",
+      "headline": "Peru's Keiko Fujimori reaches presidential run-off for fourth time",
+      "summary": "Keiko Fujimori, daughter of former autocrat Alberto Fujimori, advanced to the second round of Peru's presidential election on Sunday for the fourth time, facing left-wing candidate Roberto Sanchez. Sanchez faces a potential trial over a financial disclosure case, a judge ruled, complicating his candidacy. Keiko Fujimori has built her campaign on her father's populist and authoritarian legacy despite his conviction for human rights abuses.",
+      "why_it_matters": "A fourth run-off for Fujimori, despite her family's record of convicted abuses, points to structural fragility in Peru's left-wing parties: when the centre-left repeatedly produces tainted candidates it effectively rehabilitates the authoritarian alternative by comparison.",
+      "label_adds_dimension": true,
+      "label_note": "Adds a non-obvious structural analysis (the left's tainted candidates rehabilitating the authoritarian option) absent from the summary.",
+      "judge_adds_dimension": true,
+      "judge_reason": "After stripping \"points to\", a concrete structural reframe survives: Fujimori's repeated run-offs are explained not by her own strength but by the left's recurring failure to field untainted candidates, which rehabilitates the authoritarian alternative by comparison. This cause-and-effect mechanism -- centrist-left structural fragility as the engine of Fujimori's persistence -- is not stated or trivially inferable from the summary's facts about her fourth run-off, Sanchez's legal trouble, and her father's legacy."
+    },
+    {
+      "date": "2026-05-09",
+      "headline": "Trump brokers three-day Russia-Ukraine ceasefire with prisoner exchange",
+      "summary": "US President Donald Trump announced on Friday that Russia and Ukraine have agreed to a three-day ceasefire running from May 9 to May 11, accompanied by a swap of 1,000 prisoners of war from each side. The truce was US-mediated; Trump said he hoped it could be extended into a longer peace process, though Ukraine had not committed to a broader halt and continued to accuse Moscow of seeking only a pause to stage Victory Day celebrations.",
+      "why_it_matters": "A ceasefire tethered to a three-day holiday window rather than to any agreed political framework sets up an almost automatic breakdown: once the parade ends, neither side faces a structural incentive to hold, leaving Trump exposed to a visible diplomatic failure while Ukraine burns through scarce air-defence missiles.",
+      "label_adds_dimension": true,
+      "label_note": "Adds the structural-fragility analysis and the specific downside risks (Trump's exposure, Ukraine's missile attrition) beyond the summary's skepticism.",
+      "judge_adds_dimension": true,
+      "judge_reason": "After stripping significance language, three concrete new elements remain: (1) a causal mechanism -- a ceasefire anchored only to a holiday window creates no structural incentive for either party to hold once the parade ends, extending Ukraine's own Victory Day accusation into an automatic-breakdown logic; (2) a new political consequence specific to Trump -- exposure to a visible diplomatic failure not mentioned in the summary; (3) a new operational cost -- Ukraine continuing to expend scarce air-defence missiles during a ceasefire period that carries no durable framework."
+    },
+    {
+      "date": "2026-01-21",
+      "headline": "UN report warns of global 'water bankruptcy' putting billions at risk",
+      "summary": "The world is facing irreversible water 'bankruptcy' with billions struggling to cope with decades of overuse and shrinking supplies from lakes, rivers and aquifers, according to a UN report. Nearly three-quarters of the global population live in countries with a water deficit. The report from the UN University for Water, Environment and Health warns that current water systems are unsustainable and require urgent policy changes.",
+      "why_it_matters": "The UN's stark warning of 'water bankruptcy' signals that freshwater scarcity is no longer a future threat but a present crisis requiring immediate action, with potential to trigger food shortages, mass migration and conflict.",
+      "label_adds_dimension": false,
+      "label_note": "Mostly restates the report's 'present crisis / urgent action' message; the appended food/migration/conflict cascade is generic boilerplate consequence.",
+      "judge_adds_dimension": false,
+      "judge_reason": "After stripping \"signals\" and \"requiring immediate action,\" what remains is: freshwater scarcity is a present crisis (already stated in the summary as \"irreversible water bankruptcy\" and \"decades of overuse\"), plus \"potential to trigger food shortages, mass migration and conflict.\" Those downstream effects are trivially inferable from any water-scarcity story and are not named in the report or the summary as specific findings -- they are generic boilerplate that any reader would assume without being told. No new fact, actor, mechanism, named cause-and-effect, specific number, or genuine reframe survives the strip; the line just relabels the summary's severity in vaguer importance language."
+    },
+    {
+      "date": "2026-02-04",
+      "headline": "Apple adds Claude and OpenAI coding agents directly into Xcode",
+      "summary": "Apple released Xcode 26.3 with native support for AI coding agents from Anthropic (Claude) and OpenAI (Codex) via the Model Context Protocol. Developers can now leverage agentic coding tools directly within Apple's development environment.",
+      "why_it_matters": "Apple's integration legitimizes AI coding agents and could accelerate their adoption among the millions of developers using Xcode.",
+      "label_adds_dimension": false,
+      "label_note": "Restates the summary (native Xcode integration) as 'legitimizes / accelerates adoption' boilerplate with no new fact or mechanism.",
+      "judge_adds_dimension": false,
+      "judge_reason": "After stripping \"legitimizes\" and \"accelerate their adoption,\" nothing new remains. The phrase \"millions of developers using Xcode\" is trivially inferable from the summary itself (which is entirely about Xcode integration) and adds no new fact, mechanism, actor, or reframe. The line simply restates the summary's own point -- Apple put coding agents in Xcode, so Xcode developers will use them -- in vaguer significance language."
+    },
+    {
+      "date": "2026-04-08",
+      "headline": "World leaders welcome ceasefire but warn Iran's causes remain 'unresolved'",
+      "summary": "The EU, GCC states, Russia, and Ukraine all welcomed the two-week truce, with Russia expressing hope that Washington would now have bandwidth to resume Ukraine peace talks. Zelenskyy said Kyiv was ready to 'respond in kind' if Moscow agreed to a ceasefire. The EU warned that the underlying causes of the Iran war 'remain unresolved' and urged continued mediation.",
+      "why_it_matters": "Russia's public welcome for the Iran ceasefire is functionally a bid to redirect US diplomatic attention toward Ukraine on Moscow's preferred timeline — using the Middle East pause as leverage to pressure Washington before any Iran deal is finalised.",
+      "label_adds_dimension": true,
+      "label_note": "Adds the interpretive mechanism (Russia weaponising the pause as timing leverage), going beyond the summary's neutral 'Russia expressed hope.'",
+      "judge_adds_dimension": true,
+      "judge_reason": "The summary presents Russia's welcome at face value (\"expressing hope that Washington would now have bandwidth to resume Ukraine peace talks\"). The why_it_matters reframes this as a deliberate strategic maneuver: Russia is using the ceasefire as leverage to redirect US diplomatic attention toward Ukraine specifically before any Iran deal is finalised -- meaning Moscow wants to lock in US engagement on its preferred terms during the window when Washington is most eager for regional stability. The timing pressure (\"before any Iran deal is finalised\") is a new concrete element not in the summary, and the reframe from neutral diplomatic response to calculated leverage play is a genuine interpretive shift, not a restatement."
+    },
+    {
+      "date": "2026-03-27",
+      "headline": "Anthropic wins court injunction blocking US government's federal ban",
+      "summary": "A court in California granted Anthropic a preliminary injunction against the US Department of War's federal contractor ban, which was imposed after the company refused to remove safety guardrails from its AI models for military applications. The case centres on whether the government can compel an AI company to disable its own safety protocols.",
+      "why_it_matters": "The injunction preserves the principle that AI safety constraints are a legitimate private interest that can resist government coercion, but the underlying dispute — whether safety-focused AI companies can participate in defence procurement on their own terms — remains unresolved and will likely reach appellate courts.",
+      "label_adds_dimension": false,
+      "label_note": "Largely re-expresses the summary's framing (can the government compel disabling safety) and adds only the generic 'likely to reach appellate courts.'",
+      "judge_adds_dimension": true,
+      "judge_reason": "After stripping significance language, two new elements remain. First, the appellate trajectory (\"will likely reach appellate courts\") is a concrete procedural fact not stated in the summary, which only describes the preliminary injunction. Second, the why_it_matters reframes the story: the summary frames it as \"can the government compel an AI company to disable safety protocols,\" while why_it_matters reframes it at a broader level as \"whether safety-focused AI companies can participate in defence procurement on their own terms\" -- a market-access and procurement-terms question that recasts the injunction as the opening move in a structural conflict between safety-focused AI firms and the defence procurement system, rather than a one-off legal dispute."
+    },
+    {
+      "date": "2026-06-10",
+      "headline": "EU orders Meta to open WhatsApp to rival AI chatbots at no charge",
+      "summary": "The European Union ordered Meta to allow competing AI chatbot providers access to WhatsApp for free under the Digital Markets Act. Meta said it would appeal. EU regulators also told Apple it would receive no exemption from tech rules despite a separate dispute over Siri AI feature delays.",
+      "why_it_matters": "Forcing WhatsApp interoperability for rival AI agents at zero cost creates an asymmetric obligation — smaller AI firms gain access to Meta's distribution without paying for it, while Meta bears integration costs — an intervention likely to accelerate Meta's efforts to geofence its most valuable AI features away from European users entirely.",
+      "label_adds_dimension": true,
+      "label_note": "Adds the asymmetric-cost analysis and the non-obvious prediction (Meta geofencing features from EU users) beyond the summary.",
+      "judge_adds_dimension": true,
+      "judge_reason": "After stripping, two concrete new elements survive: (1) a specific mechanism -- the asymmetric cost structure where smaller AI firms gain Meta's distribution for free while Meta absorbs integration costs, which is a concrete economic framing absent from the summary's plain \"free access\" description; (2) a predicted behavioral spillover -- that this asymmetry will accelerate Meta geofencing its most valuable AI features away from European users, a consequence not stated or trivially inferable from the summary's \"Meta will appeal.\""
+    },
+    {
+      "date": "2026-03-06",
+      "headline": "Finland announces plan to lift ban on hosting nuclear weapons",
+      "summary": "Finland's government said it would lift a decades-old prohibition on hosting nuclear weapons on its territory, citing a significantly changed defence environment since Russia's invasion of Ukraine. The move follows Finland's 2023 accession to NATO and aligns it with Baltic and Nordic partners who have been expanding military cooperation.",
+      "why_it_matters": "A Finland decision to permit nuclear weapons hosting would mark a fundamental shift in Nordic nuclear posture and could prompt parallel decisions from Sweden and the Baltic states, reshaping the deterrence landscape on NATO's eastern flank.",
+      "label_adds_dimension": true,
+      "label_note": "Adds the contagion implication (parallel Sweden/Baltic decisions reshaping eastern-flank deterrence) not stated in the summary.",
+      "judge_adds_dimension": true,
+      "judge_reason": "After stripping \"mark a fundamental shift\" and \"reshaping the deterrence landscape,\" a concrete spillover implication survives: that Sweden and the Baltic states could make parallel nuclear-hosting decisions. The summary mentions Baltic and Nordic partners only as background for why Finland is acting; it does not suggest those partners might themselves now shift on nuclear hosting. Naming Sweden and the Baltics as potential follow-on adopters is a genuine contagion/spillover dimension not stated or trivially inferable from the summary."
+    },
+    {
+      "date": "2026-04-09",
+      "headline": "Meta launches first AI model from its superintelligence division",
+      "summary": "Meta Superintelligence Labs launched Muse Spark, its first model since Mark Zuckerberg overhauled the company's AI division at substantial cost. The model now powers the Meta AI app; Ars Technica noted Meta acknowledged performance gaps in agentic and coding tasks despite strong benchmark scores.",
+      "why_it_matters": "Meta's self-reported performance gaps in agentic tasks — the category where AI models take autonomous actions in the world — suggest Muse Spark is a benchmark-optimised release rather than a capability leap, leaving real-world deployment advantages open for competitors to claim.",
+      "label_adds_dimension": true,
+      "label_note": "Adds the interpretation (benchmark-optimised vs capability leap) and competitive implication beyond the summary's bare 'acknowledged gaps.'",
+      "judge_adds_dimension": true,
+      "judge_reason": "After stripping significance language, a concrete interpretive reframe survives: the combination of strong benchmark scores and self-reported agentic/coding gaps is recast as a \"benchmark-optimised release rather than a capability leap.\" The summary states the two facts separately; the why_it_matters synthesises them into a specific analytical claim -- that Muse Spark was tuned for benchmarks at the expense of real-world agentic performance -- and draws the forward implication that competitors can claim the deployment-capability gap. That reframe is not trivially inferable from the summary alone and constitutes a new dimension."
+    },
+    {
+      "date": "2026-03-28",
+      "headline": "Indonesia bans social media for under-16s, deactivating 70 million accounts",
+      "summary": "Indonesia's ban on social media access for children under 16 came into force Saturday, requiring platforms including YouTube, TikTok, Facebook, Instagram, and Threads to begin deactivating accounts. Austria separately proposed a ban for under-14s, following similar steps in France and Spain.",
+      "why_it_matters": "Indonesia's enforcement at scale — 70 million affected accounts — moves children's social media regulation from legislative aspiration to operational reality for the first time in a major democracy, and will test whether platforms comply or resist in a market of 280 million people.",
+      "label_adds_dimension": true,
+      "label_note": "Adds the 'first operational test in a major democracy' framing and the platform compliance-vs-resistance stake in a 280M market, beyond the summary.",
+      "judge_adds_dimension": true,
+      "judge_reason": "After stripping significance language, two concrete new elements survive. First, the reframe that this is \"the first time in a major democracy\" to move children's social media regulation from law to operational enforcement -- the summary describes the ban coming into force alongside other countries' proposals but does not make this first-mover framing explicit. Second, the \"280 million people\" population figure (new fact absent from the summary) contextualises the stakes for platform compliance in a way the summary does not. Together these support a genuine new dimension: the why_it_matters recasts Indonesia not as another country passing a ban but as the first large-democracy enforcement test that will reveal whether platforms comply or resist at scale."
+    },
+    {
+      "date": "2026-02-13",
+      "headline": "Trump administration repeals EPA endangerment finding, gutting US climate regulations",
+      "summary": "The Trump administration rescinded the 2009 scientific finding that greenhouse gas emissions endanger human health, eliminating the legal foundation for federal climate regulations including vehicle emission standards. The move represents the most extensive rollback of climate policy in US history, targeting regulations on power plants and transportation.",
+      "why_it_matters": "This repeal dismantles nearly two decades of US climate policy infrastructure and signals America's withdrawal from global climate leadership, with implications for international cooperation and emissions targets worldwide.",
+      "label_adds_dimension": false,
+      "label_note": "Restates the summary's 'most extensive rollback / removes legal foundation' as 'dismantles two decades of infrastructure' plus generic global-leadership boilerplate.",
+      "judge_adds_dimension": false,
+      "judge_reason": "After stripping significance-verbs (\"dismantles\", \"signals\", \"withdrawal from global climate leadership\", \"implications\"), nothing new remains. The line restates the summary's own facts in vaguer importance language: \"nearly two decades of US climate policy infrastructure\" echoes the summary's \"most extensive rollback in US history\"; \"withdrawal from global climate leadership\" and \"implications for international cooperation and emissions targets worldwide\" are pure significance framing with no named treaty, specific country, mechanism, or named consequence added."
+    }
+  ]
+}
