@@ -93,3 +93,51 @@ def test_require_article_index_raises_when_missing(tmp_path):
 def test_require_article_index_ok_when_present(tmp_path):
     (tmp_path / "article_index.json").write_text("{}")
     run._require_article_index(tmp_path)  # must not raise
+
+
+# --- Sending requires recording (idempotency + dedup live in the DB) ----------
+
+
+def test_broadcast_without_record_is_refused():
+    """--no-record while still emailing has no double-send / dedup protection
+    (both are DB-backed), so it must be refused unless explicitly forced."""
+    import pytest as _pytest
+
+    with _pytest.raises(SystemExit):
+        run._require_recording_to_broadcast(skip_email=False, skip_record=True, force=False)
+
+
+def test_broadcast_with_record_is_allowed():
+    run._require_recording_to_broadcast(skip_email=False, skip_record=False, force=False)
+
+
+def test_no_record_allowed_when_not_emailing():
+    run._require_recording_to_broadcast(skip_email=True, skip_record=True, force=False)
+
+
+def test_force_overrides_broadcast_without_record():
+    run._require_recording_to_broadcast(skip_email=False, skip_record=True, force=True)
+
+
+# --- Resume refuses stale (prior-day) artifacts ------------------------------
+
+
+def test_require_fresh_artifacts_raises_when_stale(tmp_path):
+    """Resume must not ship a prior day's curation under today's date."""
+    import os
+    import time
+
+    import pytest as _pytest
+
+    idx = tmp_path / "article_index.json"
+    idx.write_text("{}")
+    old = time.time() - 10 * 86400  # 10 days ago
+    os.utime(idx, (old, old))
+    with _pytest.raises(RuntimeError):
+        run._require_fresh_artifacts(tmp_path)
+
+
+def test_require_fresh_artifacts_ok_when_today(tmp_path):
+    idx = tmp_path / "article_index.json"
+    idx.write_text("{}")  # mtime defaults to now -> today UTC
+    run._require_fresh_artifacts(tmp_path)  # must not raise

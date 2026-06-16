@@ -61,6 +61,21 @@ def _digest_date(digest_path) -> str:
     return match.group(1) if match else datetime.now(UTC).strftime("%Y-%m-%d")
 
 
+def _require_recording_to_broadcast(*, skip_email: bool, skip_record: bool, force: bool) -> None:
+    """Refuse to email subscribers without recording to the DB.
+
+    The duplicate-run guard and broadcast idempotency both live in the DB, so
+    "send but don't record" (--no-record while still emailing) has no protection
+    against a double-send and leaves no shown_narratives for dedup. Refuse unless
+    explicitly forced. See the 2026-06-16 incident.
+    """
+    if not skip_email and skip_record and not force:
+        raise SystemExit(
+            "Refusing to broadcast without recording: no double-send/dedup protection. "
+            "Use --no-email to skip sending, or --force to override."
+        )
+
+
 def _require_article_index(claude_input_dir) -> None:
     """Fail loud if the article index is gone before a resume renders/sends.
 
@@ -71,6 +86,23 @@ def _require_article_index(claude_input_dir) -> None:
     if not (claude_input_dir / "article_index.json").exists():
         raise FileNotFoundError(
             f"Cannot resume: {claude_input_dir / 'article_index.json'} is missing. Run the full pipeline instead."
+        )
+
+
+def _require_fresh_artifacts(claude_input_dir) -> None:
+    """Refuse to resume from a prior day's artifacts.
+
+    Resume reuses on-disk curation artifacts and does not re-fetch, so artifacts
+    left from an earlier day would ship yesterday's stories under today's date.
+    article_index.json is rewritten on every full run, so its mtime dates the
+    artifacts; require it to be today (UTC).
+    """
+    index = claude_input_dir / "article_index.json"
+    built = datetime.fromtimestamp(index.stat().st_mtime, UTC).strftime("%Y-%m-%d")
+    today = datetime.now(UTC).strftime("%Y-%m-%d")
+    if built != today:
+        raise RuntimeError(
+            f"Cannot resume: curation artifacts are from {built}, not today ({today}). Run the full pipeline instead."
         )
 
 
@@ -218,6 +250,7 @@ Examples:
     skip_email = args.dry_run or args.no_email or args.select_only
     skip_record = args.dry_run or args.no_record or args.select_only
     skip_alert = args.dry_run or args.select_only
+    _require_recording_to_broadcast(skip_email=skip_email, skip_record=skip_record, force=args.force)
 
     # Test email mode
     if args.test_email:
@@ -316,6 +349,7 @@ Examples:
             logger.info("A completed digest already exists for today; nothing to resume.")
             return 0
         _require_article_index(CLAUDE_INPUT_DIR)
+        _require_fresh_artifacts(CLAUDE_INPUT_DIR)
         usage_rows = generate_selections(model=args.model, resume=True)
         selections = load_selections(assemble_selections(CLAUDE_INPUT_DIR))
         selections = resolve_article_ids(selections)

@@ -317,3 +317,13 @@ def test_abort_run_noop_when_no_active_run(tmp_path):
     db.start_run(recording=False)  # returns None, writes no run row
     db.abort_run("must not crash")  # the guard is `run_id is not None`
     assert db._state.run_id is None
+
+
+def test_record_broadcast_logs_loud_when_no_digest_row(fresh_db, caplog):
+    """A 0-row UPDATE means broadcast/idempotency state was silently lost --
+    that must be loud, since it feeds straight back into a double-send risk."""
+    import logging
+
+    with caplog.at_level(logging.ERROR):
+        db.record_broadcast("2099-01-01", "bc_missing", "sent")  # no digests row for that date
+    assert any("2099-01-01" in r.getMessage() for r in caplog.records)

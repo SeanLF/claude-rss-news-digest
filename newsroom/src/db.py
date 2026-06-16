@@ -585,9 +585,18 @@ def record_broadcast(date_str: str, broadcast_id: str | None, status: str | None
         return
     try:
         with sqlite3.connect(_db_path()) as conn:
-            conn.execute(
+            cursor = conn.execute(
                 "UPDATE digests SET broadcast_id = ?, broadcast_status = ? WHERE date = ?",
                 (broadcast_id, status, date_str),
+            )
+        if cursor.rowcount == 0:
+            # No digest row to attach to -> the idempotency state was NOT persisted.
+            # That silently reopens the double-send risk, so make it loud.
+            logger.error(
+                "record_broadcast: no digest row for %s; broadcast %s (%s) state NOT persisted",
+                date_str,
+                broadcast_id,
+                status,
             )
     except sqlite3.Error as e:
         logger.error("DB error recording broadcast for %s: %s", date_str, e)
