@@ -104,21 +104,39 @@ def complete_run(articles_fetched: int, articles_emailed: int = 0):
     try:
         with sqlite3.connect(_db_path()) as conn:
             conn.execute(
-                "UPDATE digest_runs SET articles_fetched = ?, articles_emailed = ?, completed_at = datetime('now', 'utc') WHERE id = ?",
+                "UPDATE digest_runs SET articles_fetched = ?, articles_emailed = ?, completed_at = datetime('now', 'utc'), status = 'completed' WHERE id = ?",
                 (articles_fetched, articles_emailed, _state.run_id),
             )
     except sqlite3.Error as e:
         logger.error("DB error completing run %d: %s", _state.run_id, e)
 
 
-def abort_run():
-    """Clean up the current run on failure."""
-    if _state.run_id:
-        delete_run(_state.run_id)
+def abort_run(error: str | None = None):
+    """Mark the current run failed (kept for forensics) and reset run state.
+
+    Marks 'failed' rather than deleting so an already-delivered digest's record
+    survives a post-send failure. See migration 20260616190000 for the dedup
+    rationale.
+    """
+    if _state.run_id is not None:
+        _fail_run(_state.run_id, error)
     _state.run_id = None
     _state.recording = False
     _state.broadcasting = False
     _state.alerting = False
+
+
+def _fail_run(run_id: int, error: str | None):
+    """Mark a run failed, preserving its rows. Best-effort: never raises."""
+    try:
+        with sqlite3.connect(_db_path()) as conn:
+            conn.execute(
+                "UPDATE digest_runs SET status = 'failed', error = ? WHERE id = ?",
+                (error, run_id),
+            )
+        logger.info("Marked run %d failed", run_id)
+    except sqlite3.Error as e:
+        logger.error("DB error marking run %d failed: %s", run_id, e)
 
 
 def has_completed_run_today(*, on_error: bool = True) -> bool:
@@ -536,6 +554,43 @@ def save_digest(digest_path: Path, preheader: str = ""):
         logger.info("Saved digest to database: %s", date_str)
     except sqlite3.Error as e:
         logger.error("DB error saving digest: %s", e)
+
+
+def get_broadcast(date_str: str) -> tuple[str | None, str | None] | None:
+    """Return (broadcast_id, broadcast_status) for a date's digest, or None.
+
+    None means there is no digest row for that date yet (so nothing was sent).
+    A row with NULL broadcast_id means the digest was saved but never broadcast.
+    Used to make delivery idempotent: a retry checks this before sending again.
+
+    Deliberately does NOT swallow DB errors: "I can't read the broadcast state"
+    must not look like "nothing was sent" (that would invite a double-send), so a
+    read failure raises and the caller fails closed.
+    """
+    with sqlite3.connect(_db_path()) as conn:
+        row = conn.execute(
+            "SELECT broadcast_id, broadcast_status FROM digests WHERE date = ?",
+            (date_str,),
+        ).fetchone()
+    return (row[0], row[1]) if row else None
+
+
+def record_broadcast(date_str: str, broadcast_id: str | None, status: str | None):
+    """Persist the Resend broadcast id + status against a date's digest row.
+
+    The digest row (save_digest) must already exist -- broadcast always follows
+    save in every pipeline path. No-op when not recording (dry runs).
+    """
+    if not _state.recording:
+        return
+    try:
+        with sqlite3.connect(_db_path()) as conn:
+            conn.execute(
+                "UPDATE digests SET broadcast_id = ?, broadcast_status = ? WHERE date = ?",
+                (broadcast_id, status, date_str),
+            )
+    except sqlite3.Error as e:
+        logger.error("DB error recording broadcast for %s: %s", date_str, e)
 
 
 def delete_run(run_id: int):

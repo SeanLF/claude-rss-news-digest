@@ -195,3 +195,125 @@ def test_has_completed_run_today_on_error_controls_failopen(tmp_path, monkeypatc
     assert db.has_completed_run_today(on_error=True) is True
     # Dead-man's switch fails open (assume no run -> alert).
     assert db.has_completed_run_today(on_error=False) is False
+
+
+# --- Failed runs are marked, not deleted (2026-06-16 data-loss regression) ---
+
+
+def _headline(i: int) -> dict:
+    return {
+        "headline": f"Headline {i}",
+        "tier": "must_know",
+        "source_id": "al_jazeera",
+        "original_title": f"RSS title {i}",
+        "cluster_id": f"cluster-{i}",
+    }
+
+
+def test_abort_run_marks_failed_not_deleted(fresh_db):
+    run_id = db._state.run_id
+    db.abort_run("RuntimeError('broadcast read timeout')")
+    with sqlite3.connect(fresh_db) as conn:
+        row = conn.execute("SELECT status, error FROM digest_runs WHERE id = ?", (run_id,)).fetchone()
+    assert row is not None, "a failed run must be kept for forensics, not deleted"
+    assert row[0] == "failed"
+    assert "read timeout" in row[1]
+
+
+def test_abort_run_resets_state(fresh_db):
+    db.abort_run("boom")
+    assert db._state.run_id is None
+    assert db._state.recording is False
+
+
+def test_failed_run_is_not_counted_as_completed(fresh_db):
+    """The duplicate-run guard / dead-man's switch ignore failed runs."""
+    db.abort_run("boom")
+    assert db.has_completed_run_today() is False
+    assert db.has_completed_run_today(on_error=False) is False
+
+
+def test_complete_run_sets_status_completed(fresh_db):
+    db.complete_run(articles_fetched=10, articles_emailed=5)
+    with sqlite3.connect(fresh_db) as conn:
+        status, completed = conn.execute(
+            "SELECT status, completed_at FROM digest_runs WHERE id = ?", (db._state.run_id,)
+        ).fetchone()
+    assert status == "completed"
+    assert completed is not None
+
+
+@pytest.mark.parametrize("narratives_recorded", [0, 1, 5])
+def test_chaos_abort_preserves_run_at_any_progress(fresh_db, narratives_recorded):
+    """Invariant: however far a run got before failing, its row survives as
+    'failed' and any recorded narratives are kept -- never cascade-deleted.
+
+    This is the exact shape of 2026-06-16: a digest had already recorded
+    narratives / been delivered when a later step raised, and the old abort_run
+    deleted everything.
+    """
+    run_id = db._state.run_id
+    for i in range(narratives_recorded):
+        db.record_shown_headlines([_headline(i)])
+    db.abort_run(f"chaos failure after {narratives_recorded} narratives")
+    with sqlite3.connect(fresh_db) as conn:
+        status = conn.execute("SELECT status FROM digest_runs WHERE id = ?", (run_id,)).fetchone()
+        kept = conn.execute("SELECT COUNT(*) FROM shown_narratives WHERE run_id = ?", (run_id,)).fetchone()[0]
+    assert status is not None and status[0] == "failed"
+    assert kept == narratives_recorded
+
+
+# --- Broadcast idempotency + delivery state (2026-06-16 double-send guard) ----
+
+
+def _save_digest(tmp_path, date="2026-06-16"):
+    p = tmp_path / f"digest-{date}-1200Z.html"
+    p.write_text("<html><body>digest</body></html>")
+    db.save_digest(p)
+    return date
+
+
+def test_get_broadcast_none_when_no_digest_row(fresh_db):
+    assert db.get_broadcast("2026-06-16") is None
+
+
+def test_get_broadcast_raises_on_unreadable_db(tmp_path):
+    """A DB read error must NOT masquerade as 'nothing sent' (which would invite a
+    double-send). It raises so the caller fails closed."""
+    db._state = db._State()
+    bad = tmp_path / "not-a-db.sqlite"
+    bad.write_bytes(b"this is not a sqlite database")
+    db._state.db_path = bad
+    with pytest.raises(sqlite3.Error):
+        db.get_broadcast("2026-06-16")
+
+
+def test_record_and_get_broadcast(fresh_db, tmp_path):
+    date = _save_digest(tmp_path)
+    assert db.get_broadcast(date) == (None, None)  # saved but not yet broadcast
+    db.record_broadcast(date, "bc_1", "sent")
+    assert db.get_broadcast(date) == ("bc_1", "sent")
+
+
+def test_save_digest_is_idempotent_upsert_by_date(fresh_db, tmp_path):
+    """Re-saving the same date overwrites in place -- recovery/resume relies on it."""
+    p1 = tmp_path / "digest-2026-06-16-1200Z.html"
+    p1.write_text("<html><body>v1</body></html>")
+    p2 = tmp_path / "digest-2026-06-16-1300Z.html"
+    p2.write_text("<html><body>v2</body></html>")
+    db.save_digest(p1)
+    db.save_digest(p2)
+    with sqlite3.connect(fresh_db) as conn:
+        count = conn.execute("SELECT COUNT(*) FROM digests WHERE date = '2026-06-16'").fetchone()[0]
+        html = conn.execute("SELECT html FROM digests WHERE date = '2026-06-16'").fetchone()[0]
+    assert count == 1
+    assert "v2" in html
+
+
+def test_abort_run_noop_when_no_active_run(tmp_path):
+    """abort_run with no started run (dry run / --no-record) is a safe no-op."""
+    db._state = db._State()
+    db.init(tmp_path / "test.db", MIGRATIONS_DIR)
+    db.start_run(recording=False)  # returns None, writes no run row
+    db.abort_run("must not crash")  # the guard is `run_id is not None`
+    assert db._state.run_id is None

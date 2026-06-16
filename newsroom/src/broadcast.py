@@ -8,10 +8,20 @@ import os
 import time
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import NamedTuple
 
 import resend
 
 logger = logging.getLogger(__name__)
+
+
+class BroadcastResult(NamedTuple):
+    """Outcome of a broadcast send: recipients plus the Resend id/status so the
+    caller can persist them for idempotent retries."""
+
+    recipients: int
+    broadcast_id: str | None
+    status: str | None
 
 
 def resend_with_retry(fn, *args, max_retries: int = 3, **kwargs):
@@ -28,6 +38,58 @@ def resend_with_retry(fn, *args, max_retries: int = 3, **kwargs):
                 raise
 
 
+# A broadcast in any of these states has been accepted by Resend for delivery,
+# so a send call that raised (e.g. a read timeout on the HTTP response) actually
+# succeeded server-side and must NOT be treated as a failure. "sent" is only safe
+# here because send_broadcast always creates a fresh draft before sending, so a
+# broadcast can never already be "sent" when its first (and only) send is made --
+# a future resend/retry path must not rely on this set without revisiting that.
+ACCEPTED_BROADCAST_STATES = {"queued", "sending", "sent"}
+
+
+def probe_status(broadcast_id: str) -> str | None:
+    """Best-effort fetch of a broadcast's status; None if it can't be read.
+
+    Catches everything: callers use this to decide whether a send was actually
+    accepted. A probe failure must degrade to None (the caller then fails loud /
+    does not assume delivery), never mask the real outcome with its own error.
+    """
+    try:
+        broadcast = resend.Broadcasts.get(broadcast_id)
+    except Exception as e:
+        logger.warning("Could not read status for broadcast %s: %s", broadcast_id, e)
+        return None
+    if isinstance(broadcast, dict):
+        return broadcast.get("status")
+    return getattr(broadcast, "status", None)
+
+
+def resend_existing(broadcast_id: str) -> str:
+    """Send an already-created broadcast; return its delivery status.
+
+    Never creates a new broadcast -- used both for the first send and to recover
+    a prior attempt's draft on resume, so a retry can't duplicate. On a send
+    response failure, verify the broadcast was accepted server-side (an accepted
+    status means the send landed despite the slow/failed response) and return
+    that; otherwise re-raise the original error. See incident 2026-06-16.
+    """
+    resend.api_key = os.environ["RESEND_API_KEY"]
+    try:
+        resend_with_retry(resend.Broadcasts.send, {"broadcast_id": broadcast_id})
+        return "sent"
+    except resend.exceptions.ResendError as e:
+        status = probe_status(broadcast_id)
+        if status not in ACCEPTED_BROADCAST_STATES:
+            raise
+        logger.warning(
+            "Broadcasts.send raised (%s) but broadcast %s is %r; treating as delivered",
+            e,
+            broadcast_id,
+            status,
+        )
+        return status
+
+
 def get_audience_contact_count(audience_id: str) -> int:
     """Get number of contacts in an audience."""
     try:
@@ -39,11 +101,15 @@ def get_audience_contact_count(audience_id: str) -> int:
         return 0
 
 
-def send_broadcast(digest_path: Path, prepare_for_email_fn) -> int:
-    """Send digest via Resend Broadcasts API.
+def send_broadcast(digest_path: Path, prepare_for_email_fn, on_created=None) -> BroadcastResult:
+    """Create and send a digest broadcast via Resend.
 
-    Returns:
-        Number of recipients
+    Returns a BroadcastResult (recipients, broadcast_id, status) so the caller can
+    persist the id/status and make a later retry idempotent. ``on_created`` (if
+    given) is called with the broadcast id the instant the draft is created --
+    BEFORE the send is attempted -- so a send that fails still leaves the id
+    persisted for a resume to recover (the 2026-06-16 gap where the id lived only
+    in the logs and a manual retry risked a double-send).
     """
     resend.api_key = os.environ["RESEND_API_KEY"]
     from_email = os.environ["RESEND_FROM"]
@@ -69,11 +135,13 @@ def send_broadcast(digest_path: Path, prepare_for_email_fn) -> int:
         )
         broadcast_id = broadcast["id"]
         logger.info("Created broadcast: %s", broadcast_id)
+        if on_created is not None:
+            on_created(broadcast_id)
 
-        resend_with_retry(resend.Broadcasts.send, {"broadcast_id": broadcast_id})
+        delivery_status = resend_existing(broadcast_id)
         logger.info("Sent broadcast to %d contacts in audience %s", contact_count, audience_id)
 
-        return contact_count
+        return BroadcastResult(contact_count, broadcast_id, delivery_status)
     except resend.exceptions.ResendError as e:
         logger.error("Broadcast error: %s", e)
         raise

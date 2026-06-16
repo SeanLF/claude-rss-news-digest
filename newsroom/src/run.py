@@ -14,7 +14,14 @@ import sys
 from datetime import UTC, datetime
 
 import db
-from broadcast import send_broadcast, send_health_alert, send_test_email
+from broadcast import (
+    ACCEPTED_BROADCAST_STATES,
+    probe_status,
+    resend_existing,
+    send_broadcast,
+    send_health_alert,
+    send_test_email,
+)
 from claude import generate_selections, generate_weekly_recap, health_check
 from claude_agent_sdk import ClaudeSDKError
 from config import (
@@ -46,6 +53,57 @@ from utils import check_internet, setup_logging, validate_env
 logger = logging.getLogger(__name__)
 
 WEEKLY_RECAP_MAX_WEEKS = 6
+
+
+def _digest_date(digest_path) -> str:
+    """The YYYY-MM-DD a digest is keyed by (from its filename, else today UTC)."""
+    match = re.search(r"(\d{4}-\d{2}-\d{2})", digest_path.stem)
+    return match.group(1) if match else datetime.now(UTC).strftime("%Y-%m-%d")
+
+
+def _require_article_index(claude_input_dir) -> None:
+    """Fail loud if the article index is gone before a resume renders/sends.
+
+    Resume does not re-fetch, so it cannot rebuild article_index.json. Without it
+    resolve_article_ids silently leaves unresolved {article_id} placeholders and a
+    broken digest would be broadcast -- so refuse rather than degrade.
+    """
+    if not (claude_input_dir / "article_index.json").exists():
+        raise FileNotFoundError(
+            f"Cannot resume: {claude_input_dir / 'article_index.json'} is missing. Run the full pipeline instead."
+        )
+
+
+def _deliver(digest) -> int:
+    """Broadcast the digest idempotently; return recipients (0 if skipped).
+
+    If this date's digest already has an accepted broadcast (a prior run or a
+    resumed attempt recorded one), skip the send so a retry never double-mails
+    subscribers. Otherwise send and persist the broadcast id/status. See the
+    2026-06-16 incident: a timed-out send was retried by hand and only a manual
+    Resend status check prevented a double-send.
+    """
+    date_str = _digest_date(digest)
+    existing_id, existing_status = db.get_broadcast(date_str) or (None, None)
+    if existing_status in ACCEPTED_BROADCAST_STATES:
+        logger.info("Digest %s already broadcast (status=%s); skipping send", date_str, existing_status)
+        return 0
+    if existing_id:
+        # A prior attempt created this broadcast but never confirmed delivery in
+        # the DB. Re-probe Resend rather than blind-sending a duplicate; resend
+        # the SAME draft only if it genuinely never went out.
+        status = probe_status(existing_id)
+        if status in ACCEPTED_BROADCAST_STATES:
+            db.record_broadcast(date_str, existing_id, status)
+            logger.warning("Digest %s broadcast %s already %s; recovered, not resending", date_str, existing_id, status)
+            return 0
+        db.record_broadcast(date_str, existing_id, resend_existing(existing_id))
+        return 0
+    result = send_broadcast(
+        digest, prepare_for_email, on_created=lambda bid: db.record_broadcast(date_str, bid, "created")
+    )
+    db.record_broadcast(date_str, result.broadcast_id, result.status)
+    return result.recipients
 
 
 def maybe_update_weekly_recap():
@@ -131,6 +189,13 @@ Examples:
     parser.add_argument("--select-only", action="store_true", help="Run selection only (create selections.json)")
     parser.add_argument("--write-only", action="store_true", help="Run rendering only (use existing selections.json)")
     parser.add_argument("--send-only", action="store_true", help="Send latest digest without fetching/generating")
+    parser.add_argument(
+        "--resume",
+        action="store_true",
+        help="Resume today's failed run from its surviving artifacts: re-run only "
+        "curation stages whose valid output is missing, and never re-send an "
+        "already-delivered digest",
+    )
     parser.add_argument("--force", action="store_true", help="Override duplicate run guard")
     parser.add_argument("--preview", action="store_true", help="Open latest digest in browser")
     parser.add_argument("--test-email", metavar="EMAIL", help="Send test email and exit")
@@ -203,13 +268,13 @@ Examples:
         db.start_run(recording=True, broadcasting=True, alerting=False)
         try:
             db.save_digest(digest)
-            recipients = send_broadcast(digest, prepare_for_email)
+            recipients = _deliver(digest)
             shown_headlines = read_shown_headlines()
             if shown_headlines:
                 db.record_shown_headlines(shown_headlines)
             db.complete_run(articles_fetched=0, articles_emailed=recipients)
-        except Exception:
-            db.abort_run()
+        except Exception as e:
+            db.abort_run(repr(e))
             raise
         cleanup_shown_headlines()
         return 0
@@ -228,13 +293,48 @@ Examples:
             db.save_digest(digest, preheader=preheader)
             recipients = 0
             if db.should_broadcast():
-                recipients = send_broadcast(digest, prepare_for_email)
+                recipients = _deliver(digest)
             shown_headlines = read_shown_headlines()
             if shown_headlines:
                 db.record_shown_headlines(shown_headlines)
             db.complete_run(articles_fetched=0, articles_emailed=recipients)
-        except Exception:
-            db.abort_run()
+        except Exception as e:
+            db.abort_run(repr(e))
+            raise
+        cleanup_shown_headlines()
+        return 0
+
+    # Resume mode: finish today's failed run from whatever survived on disk.
+    # Reuses the existing claude_input (article index + fetched articles), so it
+    # does NOT re-fetch -- article ids stay stable against the existing index --
+    # and re-runs only the curation stages whose valid output is missing. The
+    # broadcast is idempotent (_deliver), so this is safe to run repeatedly.
+    if args.resume:
+        validate_env(dry_run=skip_email)
+        db.init(DB_PATH, MIGRATIONS_DIR)
+        if db.has_completed_run_today() and not args.force:
+            logger.info("A completed digest already exists for today; nothing to resume.")
+            return 0
+        _require_article_index(CLAUDE_INPUT_DIR)
+        usage_rows = generate_selections(model=args.model, resume=True)
+        selections = load_selections(assemble_selections(CLAUDE_INPUT_DIR))
+        selections = resolve_article_ids(selections)
+        preheader = extract_preheader(selections)
+        digest = write_digest(selections, TEMPLATE_FILE)
+        replace_placeholders(digest, selections, STYLES_FILE, preheader)
+        db.start_run(recording=not skip_record, broadcasting=not skip_email, alerting=False)
+        try:
+            db.record_usage(usage_rows)
+            db.save_digest(digest, preheader=preheader)
+            recipients = 0
+            if db.should_broadcast():
+                recipients = _deliver(digest)
+            shown_headlines = read_shown_headlines()
+            if shown_headlines:
+                db.record_shown_headlines(shown_headlines)
+            db.complete_run(articles_fetched=0, articles_emailed=recipients)
+        except Exception as e:
+            db.abort_run(repr(e))
             raise
         cleanup_shown_headlines()
         return 0
@@ -296,7 +396,7 @@ Examples:
         db.save_digest(digest, preheader=preheader)
 
         if db.should_broadcast():
-            recipients = send_broadcast(digest, prepare_for_email)
+            recipients = _deliver(digest)
         else:
             recipients = 0
             logger.info("Skipping broadcast: %s", digest.name)
@@ -306,8 +406,8 @@ Examples:
             logger.warning("No headlines recorded - Claude may not have generated shown_headlines.json")
         db.record_shown_headlines(shown_headlines)
         db.complete_run(articles_fetched=fetch_result.total_kept, articles_emailed=recipients)
-    except Exception:
-        db.abort_run()
+    except Exception as e:
+        db.abort_run(repr(e))
         raise
 
     cleanup_shown_headlines()
