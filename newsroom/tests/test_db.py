@@ -125,6 +125,22 @@ def test_archive_run_artifacts_persists_existing_files(fresh_db, tmp_path):
     assert json.loads(arts["clusters.json"]) == {"clusters": [{"story": "A"}]}
 
 
+def test_archive_run_artifacts_includes_article_csvs(fresh_db, tmp_path):
+    # The post-dedup article text (titles + summaries) Claude curated from lives
+    # in dynamically-numbered articles_*.csv -- archive every one so the full
+    # input, not just the ID index, persists.
+    d = tmp_path / "claude_input"
+    d.mkdir()
+    (d / "articles_1.csv").write_text(
+        "article_id,source_id,title,published,summary\nA1,src,Title,2026-06-16,A summary\n"
+    )
+    (d / "articles_2.csv").write_text("article_id,source_id,title,published,summary\nA2,src,Other,2026-06-16,More\n")
+    db.archive_run_artifacts(d)
+    arts = db.get_run_artifacts(db._state.run_id)
+    assert {"articles_1.csv", "articles_2.csv"} <= set(arts)
+    assert "A summary" in arts["articles_1.csv"]
+
+
 def test_archive_run_artifacts_stores_models(fresh_db, tmp_path):
     d = _write_claude_input(tmp_path)
     db.archive_run_artifacts(d, models={"select": "claude-sonnet-4-6"})

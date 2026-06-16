@@ -406,14 +406,19 @@ def archive_run_artifacts(claude_input_dir: Path, models: dict[str, str] | None 
         return
     try:
         rows: list[tuple[int, str, str]] = []
-        for name in _TRACE_ARTIFACTS:
-            path = claude_input_dir / name
+        # Fixed intermediates plus the dynamically-numbered articles_*.csv -- the
+        # post-dedup article text (titles + summaries) Claude actually curated
+        # from. Without the CSVs the archive has the ID index (article_index.json)
+        # but not what Claude read, so a run couldn't be reproduced or re-graded.
+        paths = [claude_input_dir / name for name in _TRACE_ARTIFACTS]
+        paths += sorted(claude_input_dir.glob("articles_*.csv"))
+        for path in paths:
             if not path.exists():
                 continue
             try:
-                rows.append((_state.run_id, name, path.read_text()))
+                rows.append((_state.run_id, path.name, path.read_text()))
             except OSError as e:
-                logger.warning("Could not read trace artifact %s: %s", name, e)
+                logger.warning("Could not read trace artifact %s: %s", path.name, e)
         if models:
             import json
 
