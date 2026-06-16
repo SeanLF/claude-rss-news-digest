@@ -60,8 +60,8 @@ SQLite at `data/digest.db`. Schema managed by migrations in `migrations/`.
 
 - `newsroom/src/run.py` - CLI + pipeline orchestration (delegates to focused modules)
 - `newsroom/src/` - modules: config, feeds, prepare, claude, digest, render, broadcast, db, usage, utils
-- `.claude/commands/news-digest-select.md` - Thin dispatcher prompt (4 subagents; assembly is in Python)
-- `newsroom/src/merge.py` - post-dispatcher assembly (drop coherence-failed entries, validate, write selections.json)
+- `newsroom/src/orchestrate.py` - Python orchestration of the 5 curation stages (replaced the old `/news-digest-select` LLM dispatcher); reads `.claude/agents/*.md`
+- `newsroom/src/merge.py` - post-orchestration assembly (drop coherence-failed entries, validate, write selections.json)
 - `newsroom/src/schema.py` - SELECTIONS_SCHEMA used to validate the assembled output
 - `newsroom/templates/digest-template.html` - HTML template for digest output
 - `newsroom/templates/digest.css` - CSS styles (minified and injected at runtime)

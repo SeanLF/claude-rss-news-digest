@@ -183,9 +183,9 @@ class TestBuildOptions:
         assert opts.max_turns == 1
         assert opts.max_budget_usd == 2.5
 
-    def test_setting_sources_left_default_for_slash_command_loading(self):
-        # None == load user+project+local (same as CLI) so /news-digest-select
-        # and project subagents resolve. Guard against accidental change.
+    def test_setting_sources_left_default(self):
+        # None == load user+project+local (same as CLI). Guard against accidental
+        # change to the default in _build_options.
         opts = claude_cli._build_options(
             model="sonnet",
             system_prompt=None,
@@ -251,7 +251,7 @@ class TestStreamSyncIntegration:
         ]
         monkeypatch.setattr(claude_cli, "query", _fake_query(messages))
 
-        events = list(claude_cli.stream_sync("/news-digest-select", model="sonnet", permission_mode="acceptEdits"))
+        events = list(claude_cli.stream_sync("Begin.", model="sonnet", permission_mode="acceptEdits"))
 
         assert [e["type"] for e in events] == ["assistant", "user", "result"]
         # Agent dispatch surfaces exactly as claude.py expects.

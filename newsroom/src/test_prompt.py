@@ -371,9 +371,7 @@ def limit_articles_in_csv(csv_path: Path, limit: int) -> int:
 
 
 def resolve_prompt_file(prompt: str) -> Path:
-    """Resolve prompt name to file path."""
-    if prompt == "baseline":
-        return ROOT_DIR / ".claude" / "commands" / "news-digest-select.md"
+    """Resolve prompt name to a file in prompts/."""
     return PROMPTS_DIR / f"{prompt}.md"
 
 
@@ -447,16 +445,12 @@ def run_prompt(
     # Add context if requested
     prepare_context(context, CLAUDE_INPUT_DIR)
 
-    # Determine slash command to use
-    if prompt == "baseline":
-        slash_cmd = "/news-digest-select"
-    else:
-        # For experiments, copy prompt to temp command location
-        test_cmd_dir = Path.home() / ".claude" / "commands"
-        test_cmd_dir.mkdir(parents=True, exist_ok=True)
-        test_cmd_path = test_cmd_dir / "_test-select.md"
-        shutil.copy2(prompt_file, test_cmd_path)
-        slash_cmd = "/_test-select"
+    # Copy the prompt to a temp slash-command location and run it.
+    test_cmd_dir = Path.home() / ".claude" / "commands"
+    test_cmd_dir.mkdir(parents=True, exist_ok=True)
+    test_cmd_path = test_cmd_dir / "_test-select.md"
+    shutil.copy2(prompt_file, test_cmd_path)
+    slash_cmd = "/_test-select"
 
     # Run Claude (streaming like production)
     print("  Running Claude...")
@@ -484,11 +478,10 @@ def run_prompt(
         if process.poll() is None:
             process.terminate()
             process.wait(timeout=5)
-        # Clean up temp command if created
-        if prompt != "baseline":
-            test_cmd_path = Path.home() / ".claude" / "commands" / "_test-select.md"
-            if test_cmd_path.exists():
-                test_cmd_path.unlink()
+        # Clean up temp command.
+        test_cmd_path = Path.home() / ".claude" / "commands" / "_test-select.md"
+        if test_cmd_path.exists():
+            test_cmd_path.unlink()
     duration_seconds = time.monotonic() - start_time
 
     # Assemble selections.json from draft + coherence (matches production flow)
@@ -1139,7 +1132,7 @@ def main():
 
     # run
     p_run = subparsers.add_parser("run", help="Execute a run")
-    p_run.add_argument("prompt", help="Prompt name (e.g., 'baseline')")
+    p_run.add_argument("prompt", help="Prompt name (a file in prompts/, without .md)")
     p_run.add_argument("--model", default="sonnet", choices=["sonnet", "opus", "haiku"])
     p_run.add_argument("--date", help="Snapshot date (default: latest)")
     p_run.add_argument("--context", help="Context flags, comma-separated (e.g., 'headlines')")

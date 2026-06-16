@@ -17,12 +17,11 @@ same dict shape the old `--output-format stream-json` NDJSON produced, because
 claude.py inspects events as dicts (event["type"], event["message"]["content"],
 event.get("parent_tool_use_id"), event.get("total_cost_usd"), ...).
 
-Slash commands: the Agent SDK has no dedicated slash-command API. The CLI it
-drives interprets a prompt that begins with "/" as a slash command (exactly as
-`claude --print "/news-digest-select"` does), so we pass the slash command
-straight through as the prompt. setting_sources is left as None, which makes the
-SDK load the same user+project+local settings as the CLI -- required so the
-`.claude/commands/*.md` slash commands and `.claude/agents` subagents resolve.
+Prompts pass straight through to the CLI. The digest stages drive agents by
+passing a plain prompt ("Begin.") plus the agent body as the system_prompt (see
+orchestrate.py); a prompt beginning with "/" is still interpreted as a slash
+command by the CLI if a caller wants that. setting_sources is left as None, so
+the SDK loads the same user+project+local settings as the CLI.
 """
 
 import asyncio
@@ -158,10 +157,9 @@ def _build_options(
     """Build ClaudeAgentOptions from the wrapper's keyword arguments.
 
     setting_sources is intentionally left at its default (None), which makes the
-    SDK load the same user+project+local filesystem settings as the CLI -- this
-    is what allows the `/news-digest-select` slash command and the project
-    subagents under `.claude/` to resolve. If a future SDK release changes the
-    None default to "load nothing", set setting_sources=["user","project","local"].
+    SDK load the same user+project+local filesystem settings as the CLI. If a
+    future SDK release changes the None default to "load nothing", set
+    setting_sources=["user","project","local"].
     """
     # include_partial_messages makes the SDK emit partial-token StreamEvents -- a
     # denser event stream. _message_to_event filters StreamEvents to None so

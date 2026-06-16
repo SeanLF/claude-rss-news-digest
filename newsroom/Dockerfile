@@ -49,7 +49,6 @@ COPY newsroom/templates/ ./templates/
 # Copy shared resources from repo root
 COPY migrations/ ./migrations/
 COPY bin/ ./bin/
-COPY .claude/commands/ /app/.claude/commands/
 COPY .claude/agents/ /app/.claude/agents/
 COPY --chmod=755 newsroom/entrypoint.sh /app/entrypoint.sh
 
