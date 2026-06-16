@@ -1,120 +1,148 @@
 # Post-mortem: 2026-06-16 digest outage
 
-**Status:** resolved (digest delivered same day)
+**Status:** resolved — fixed, deployed, and verified live (2026-06-16)
 **Severity:** high — one daily digest missed its scheduled send; silent for ~11h
-**Author:** Sean (with Claude)
 
 ## Summary
 
-The 2026-06-16 07:00 digest failed to send. The failure was silent: the
-dedicated dead-man's switch *and* its alert path both also failed, so nothing
-paged. The outage surfaced only when the missing digest was noticed by hand. A
-manual re-run on a fixed image delivered the digest the same day (~18:15 UTC).
+The 2026-06-16 07:00 digest failed to send, and stayed silent for ~11 hours
+because the dedicated dead-man's switch *and* its alert both also failed. It
+surfaced only when the missing digest was noticed by hand.
 
-This was **four independent failures**, not one — and three of them lived in the
-failure-handling and observability code, which is exactly the code that normal
-runs never exercise.
+There were really **two nested incidents**, and the second is the more useful
+lesson:
+
+1. **The outage** — four independent failures in the curation, detection, and
+   delivery paths.
+2. **The remediation** — the fix itself shipped two bugs that passed every check
+   I had (tests green, code committed, "deployed") and were caught only by
+   inspecting live production behaviour.
+
+The thread connecting both: **at every layer, a green light lied.** "Tests pass,"
+"committed," "applied," "deployed," "syntax OK" each stood in for "it works," and
+each was wrong. The only thing that ever told the truth was running the real
+thing and observing it.
 
 ## Impact
 
 - One daily digest delayed ~11 hours (scheduled 06:15 UTC, delivered 18:15 UTC).
-- No data loss after recovery: the run was rebuilt and dedup state restored.
-- During the incident, two runs (201, 207-era 202) were *deleted* by the old
-  failure path, destroying their forensic record (since fixed).
+- No data loss after recovery.
+- During the incident the old failure path *deleted* two runs' records,
+  destroying their forensics (since fixed — runs are now marked, not deleted).
 
 ## Timeline (UTC, 2026-06-16)
 
-- **06:15:27** — scheduled run starts CLUSTER over 460 articles (June-15 image).
-- **06:54:20** — run fails at the output-token ceiling; `abort_run` deletes run 201.
-- **09:00:14** — dead-man's switch fires, but crashes (`OSError: read-only file
+- **06:15:27** — scheduled run starts CLUSTER over 460 articles.
+- **06:54:20** — fails at the output-token ceiling; `abort_run` deletes the run.
+- **09:00:14** — dead-man's switch fires but crashes (`OSError: read-only file
   system: /app/data/digest.log`) before checking. Its `OnFailure` alert fires
-  and *also* crashes (`/opt/news-digest/.env: line 4: unexpected EOF`). No alert
-  sent. **Outage now fully silent.**
-- **~09:47–11:07** — root cause found; fixes committed (thinking, tools, deadman).
-- **17:21** — fixed image (`8cbc421`) deployed.
-- **17:47:32** — manual re-trigger; CLUSTER over 598 articles (heavier than the
-  failing run).
+  and *also* crashes (`/opt/news-digest/.env: line 4: unexpected EOF`). **No
+  alert sent — the outage is now fully silent.**
+- **~09:47–11:07** — root cause found; curation + detector fixes committed.
+- **17:21** — fixed image deployed; **17:47** manual re-trigger (598 articles,
+  heavier than the failing run).
 - **18:02:41** — CLUSTER completes in 905s — the fix holds.
-- **18:11:20** — broadcast `c094abc5` created; **18:11:50** the send response
-  read-times-out → `ResendError` → `abort_run` deletes run 202 — **even though
-  Resend had accepted the send** (queued 18:11 → sent 18:15:10).
-- **18:21** — `--write-only --no-email` backfill rebuilds the run record + dedup
-  without re-sending. Digest confirmed delivered.
+- **18:11:50** — broadcast send response read-times-out → `abort_run` deletes the
+  run **even though Resend had accepted the send** (delivered 18:15:10).
+- **18:21** — manual backfill rebuilds the run record + dedup without re-sending.
+  Digest confirmed delivered.
+- **(later same day)** — remediation deployed; the alert fix required two further
+  corrections (see Incident 2) before it actually worked on the server.
 
-## Root causes (four independent failures)
+## Incident 1 — root causes (four independent failures)
 
 1. **Digest — extended-thinking budget.** The Agent-SDK migration runs each
-   curation stage as a top-level `query()` instead of a Task subagent. Top-level
+   curation stage as a top-level `query()` rather than a Task subagent. Top-level
    Sonnet defaults extended thinking **on**; subagents had it **off**. On CLUSTER
-   that burned the 32k output budget reasoning over ~460 articles and tripped the
-   ceiling. *Fix: `2deced3` — pass `{"type": "disabled"}`.* (Sibling: `831ff68`
-   restricted each stage to its declared tools.)
-
+   that burned the 32k output budget over ~460 articles and tripped the ceiling.
+   *Fix: disable thinking; restrict each stage to its declared tools.*
 2. **Detector — read-only mount.** The dead-man's switch ran with the data volume
-   mounted read-only (correct) but its logging setup tried to write
-   `/app/data/digest.log` and crashed before performing its check. *Fix: `4ca5f50`.*
-
-3. **Alerting — `.env` apostrophe.** `bin/digest-alert` sourced `/opt/news-digest/.env`,
-   which is written for `docker --env-file` (bare, unquoted values). `DIGEST_NAME`
-   / `RESEND_FROM` contain an apostrophe, which aborts `. .env`. *Fix: `d58d698` —
-   extract only the needed keys via `sed`, never source.*
-
+   read-only (correct) but its logging setup tried to write `digest.log` and
+   crashed before checking. *Fix: survive a read-only data mount.*
+3. **Alerting — `.env` apostrophe.** `bin/digest-alert` sourced `.env`, which is
+   written for `docker --env-file` (bare, unquoted). `DIGEST_NAME` contains an
+   apostrophe, which aborts `. .env` — even though the alert never reads
+   `DIGEST_NAME`. *Fix: extract only the needed keys via `sed`, never source.*
 4. **Broadcast — non-idempotent send + abort-deletes-everything.** A read-timeout
-   on an already-accepted Resend send raised `ResendError`; the run's
-   `except: abort_run()` then **deleted** the run (and its `shown_narratives`)
-   even though the email had gone out. *Fix: `a0599b8` + follow-ups — verify the
-   broadcast's real status before failing; mark runs failed instead of deleting;
-   persist the broadcast id and make delivery idempotent.*
+   on an already-accepted send raised; the run's `except: abort_run()` then
+   *deleted* the run and its `shown_narratives` even though the email had gone
+   out. *Fix: verify the broadcast's real status before failing; mark runs failed
+   instead of deleting; persist the broadcast id and make delivery idempotent.*
 
-## Why it was silent (the real lesson)
+## Incident 2 — the fix had the same disease
 
-The observability layer — dead-man's switch **and** alert — was first deployed
-the day before (`7635ced`, 2026-06-15). 2026-06-16 09:00 was its **first real
-activation, and every layer of it failed.** A safety net that has never been
-watched succeed is not a safety net. Defense-in-depth gave a false sense of
-security because no layer had ever actually run under failure conditions.
+The alert fix (#3) was correct in the repo, reviewed, and "deployed" — yet the
+broken script stayed on the server. Two bugs, each hidden behind a green light:
 
-All four bugs share a shape: they live on the **unhappy path** at integration
-seams (SDK defaults, filesystem mode, shell parsing, network timeout). Dry runs
-and happy-path tests sail straight past them.
+- **Terraform never re-ran it.** The `null_resource` trigger was a static
+  `version = "2"`. I changed the script's content but not the trigger, so
+  Terraform saw no change and skipped the provisioner. Even a full deploy would
+  not have updated it. *Caught by reading the live file.*
+- **The shell was broken on the server.** I wrote `$$1` / `$$(...)` for shell
+  vars, but Terraform only escapes `$${` (a literal `${`); a bare `$$` passes
+  through literally. The server got `$$1` (= shell PID), so the vars came out
+  empty. `bash -n` reported "syntax OK" because `$$1` *is* valid syntax — just
+  wrong behaviour. *Caught by running the extraction and checking the values.*
+
+Both were fixed and then **verified by observing live behaviour**: the deployed
+script now extracts a non-empty API key, from-address, and alert email, and no
+longer crashes on the apostrophe.
+
+## Why it was silent (the deeper root cause)
+
+The observability layer — dead-man's switch *and* alert — was first deployed the
+day before. 2026-06-16 09:00 was its **first real activation, and every layer
+failed.** A safety net that has never been watched succeed is not a safety net;
+defense-in-depth gave false confidence because no layer had run under failure.
+
+All six bugs (four in Incident 1, two in Incident 2) share a shape: they live on
+the **unhappy path** or in **infra/deploy glue** — exactly the code that the
+happy path, unit tests, and dry runs never exercise.
 
 ## What went well
 
-- The digest pipeline rolled back cleanly (no corrupt half-state).
-- Once found, root-causing was fast and fixes were validated end-to-end locally.
-- The manual `--write-only --no-email` recovery worked and avoided a double-send.
+- The curation pipeline rolled back cleanly (no corrupt half-state).
+- Root-causing was fast once the logs were read.
+- The manual recovery delivered the digest without a double-send.
+- Live verification caught the remediation's own bugs before they were trusted.
 
 ## What went wrong
 
 - A migration silently changed runtime defaults with no test asserting them.
-- The entire alerting layer shipped without one successful end-to-end run.
+- The observability layer shipped without one successful end-to-end run.
 - The failure path *deleted* forensic data, making diagnosis log-only.
-- Broadcast send was non-idempotent; recovery required a manual Resend status check.
+- The remediation trusted "tests pass / deployed" instead of observed behaviour.
 
 ## Action items
 
 **Done (this incident):**
-- [x] All four root-cause fixes (above).
+- [x] All six root-cause fixes, each driven by a failing test where applicable.
 - [x] Runs marked `failed`, never deleted (forensics preserved).
-- [x] Idempotent delivery: broadcast id/status persisted per date; retry
-      re-probes Resend instead of blind-sending; `--resume` finishes a failed run
-      from surviving artifacts; refuses stale (prior-day) or missing artifacts;
-      refuses to send without recording.
+- [x] Idempotent delivery: broadcast id/status/recipients persisted per date; a
+      retry re-probes Resend instead of blind-sending; `--resume` finishes a
+      failed run from surviving artifacts, refusing stale/missing ones and
+      refusing to send without recording.
 - [x] Curation stage checkpointing so a re-run skips completed (expensive) stages.
-- [x] Fault-injection tests for the delivery/idempotency/abort paths (TDD).
+- [x] Alert fix deployed and **verified live** (extraction yields non-empty vars).
 
-**Recommended (follow-up):**
-- [ ] Deploy the fixes (the alert fix `d58d698` is unverified until applied).
+**Recommended (open):**
+- [ ] Make the alert's Terraform trigger a content hash (`sha1(script)`) so any
+      script edit forces re-provision — removes the "forgot to bump the trigger"
+      footgun that caused Incident 2.
 - [ ] Deploy-time self-test of the deadman + alert path (deliberately trip it,
-      assert a real alert email arrives). This is the gap that hid the outage.
+      confirm a real alert email arrives). This single check would have caught
+      both the original silent failure (#3) and the remediation's bugs.
 - [ ] Pre-deploy smoke run on a realistic article volume (~500+) against the real
-      SDK / mount / `.env` — would have caught failures #1 and #2 before prod.
-- [ ] Reconcile `queued` broadcasts (the one delivery status we assume-but-don't-verify).
-- [ ] Minor: distinguish "skipped send" from `articles_emailed=0` in run metrics.
+      SDK / mount / `.env`.
 
 ## Lessons
 
-- Test the failure-handling and the detectors, not just the happy path.
+- **"X passed" is not "X works."** Verify at the level that matters — run the real
+  thing and observe it — for anything outward-facing or deployed.
+- Test the failure-handling and the detectors, not the happy path. That's where
+  all six bugs lived.
 - A safety net is unproven until you've watched it fire successfully once.
-- Migrations that change implicit defaults need a test that asserts the default.
 - On the unhappy path, never destroy the evidence (mark, don't delete).
+- Migrations that change an implicit default need a test that asserts the default.
+- The remediation deserves the same rigor as the original system — it can fail the
+  same way.
