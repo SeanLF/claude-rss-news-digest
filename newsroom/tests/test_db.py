@@ -327,3 +327,12 @@ def test_record_broadcast_logs_loud_when_no_digest_row(fresh_db, caplog):
     with caplog.at_level(logging.ERROR):
         db.record_broadcast("2099-01-01", "bc_missing", "sent")  # no digests row for that date
     assert any("2099-01-01" in r.getMessage() for r in caplog.records)
+
+
+def test_digest_date_from_filename_and_fallback():
+    from pathlib import Path as _P
+
+    assert db.digest_date(_P("digest-2026-06-16-1200Z.html")) == "2026-06-16"
+    # No date in the name -> falls back to today (UTC), never crashes.
+    today = __import__("datetime").datetime.now(__import__("datetime").UTC).strftime("%Y-%m-%d")
+    assert db.digest_date(_P("digest.html")) == today

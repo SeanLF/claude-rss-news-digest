@@ -55,12 +55,6 @@ logger = logging.getLogger(__name__)
 WEEKLY_RECAP_MAX_WEEKS = 6
 
 
-def _digest_date(digest_path) -> str:
-    """The YYYY-MM-DD a digest is keyed by (from its filename, else today UTC)."""
-    match = re.search(r"(\d{4}-\d{2}-\d{2})", digest_path.stem)
-    return match.group(1) if match else datetime.now(UTC).strftime("%Y-%m-%d")
-
-
 def _require_recording_to_broadcast(*, skip_email: bool, skip_record: bool, force: bool) -> None:
     """Refuse to email subscribers without recording to the DB.
 
@@ -115,7 +109,7 @@ def _deliver(digest) -> int:
     2026-06-16 incident: a timed-out send was retried by hand and only a manual
     Resend status check prevented a double-send.
     """
-    date_str = _digest_date(digest)
+    date_str = db.digest_date(digest)
     existing_id, existing_status = db.get_broadcast(date_str) or (None, None)
     if existing_status in ACCEPTED_BROADCAST_STATES:
         logger.info("Digest %s already broadcast (status=%s); skipping send", date_str, existing_status)

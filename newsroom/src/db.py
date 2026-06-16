@@ -527,15 +527,22 @@ def prepare_for_web(html_str: str) -> str:
     return str(soup)
 
 
+def digest_date(digest_path: Path) -> str:
+    """The YYYY-MM-DD a digest is keyed by, from its filename (else today UTC).
+
+    Single source of truth for the digests.date key, so save_digest and the
+    delivery-idempotency lookups can never disagree on which row they touch.
+    """
+    match = re.search(r"(\d{4}-\d{2}-\d{2})", digest_path.stem)
+    return match.group(1) if match else datetime.now(UTC).strftime("%Y-%m-%d")
+
+
 def save_digest(digest_path: Path, preheader: str = ""):
     """Save digest HTML to database for web serving."""
     if not _state.recording:
         return
-    match = re.search(r"(\d{4}-\d{2}-\d{2})", digest_path.stem)
-    if match:
-        date_str = match.group(1)
-    else:
-        date_str = datetime.now(UTC).strftime("%Y-%m-%d")
+    date_str = digest_date(digest_path)
+    if not re.search(r"(\d{4}-\d{2}-\d{2})", digest_path.stem):
         logger.warning("Could not extract date from '%s', using %s", digest_path.stem, date_str)
 
     html_content = digest_path.read_text()
