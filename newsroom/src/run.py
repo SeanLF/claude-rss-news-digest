@@ -113,7 +113,7 @@ def _deliver(digest) -> int:
     existing_id, existing_status = db.get_broadcast(date_str) or (None, None)
     if existing_status in ACCEPTED_BROADCAST_STATES:
         logger.info("Digest %s already broadcast (status=%s); skipping send", date_str, existing_status)
-        return 0
+        return db.broadcast_recipients(date_str)
     if existing_id:
         # A prior attempt created this broadcast but never confirmed delivery in
         # the DB. Re-probe Resend rather than blind-sending a duplicate; resend
@@ -122,14 +122,42 @@ def _deliver(digest) -> int:
         if status in ACCEPTED_BROADCAST_STATES:
             db.record_broadcast(date_str, existing_id, status)
             logger.warning("Digest %s broadcast %s already %s; recovered, not resending", date_str, existing_id, status)
-            return 0
+            return db.broadcast_recipients(date_str)
         db.record_broadcast(date_str, existing_id, resend_existing(existing_id))
-        return 0
+        return 0  # re-sent a draft; recipient count not returned by the send API
     result = send_broadcast(
         digest, prepare_for_email, on_created=lambda bid: db.record_broadcast(date_str, bid, "created")
     )
-    db.record_broadcast(date_str, result.broadcast_id, result.status)
+    db.record_broadcast(date_str, result.broadcast_id, result.status, recipients=result.recipients)
     return result.recipients
+
+
+def _render_record_deliver(selections, *, skip_record: bool, skip_email: bool, usage_rows=None) -> int:
+    """Render selections, persist, deliver idempotently, and complete the run.
+
+    The shared tail of --write-only and --resume: starts a run, and on any
+    failure marks it failed (never deletes), so a delivered digest's record
+    survives. ``usage_rows``, when given, are recorded first (resume only).
+    """
+    selections = resolve_article_ids(selections)
+    preheader = extract_preheader(selections)
+    digest = write_digest(selections, TEMPLATE_FILE)
+    replace_placeholders(digest, selections, STYLES_FILE, preheader)
+    db.start_run(recording=not skip_record, broadcasting=not skip_email, alerting=False)
+    try:
+        if usage_rows is not None:
+            db.record_usage(usage_rows)
+        db.save_digest(digest, preheader=preheader)
+        recipients = _deliver(digest) if db.should_broadcast() else 0
+        shown_headlines = read_shown_headlines()
+        if shown_headlines:
+            db.record_shown_headlines(shown_headlines)
+        db.complete_run(articles_fetched=0, articles_emailed=recipients)
+    except Exception as e:
+        db.abort_run(repr(e))
+        raise
+    cleanup_shown_headlines()
+    return 0
 
 
 def maybe_update_weekly_recap():
@@ -311,25 +339,7 @@ Examples:
         validate_env(dry_run=skip_email)
         db.init(DB_PATH, MIGRATIONS_DIR)
         selections = load_selections(CLAUDE_INPUT_DIR / "selections.json")
-        selections = resolve_article_ids(selections)
-        preheader = extract_preheader(selections)
-        digest = write_digest(selections, TEMPLATE_FILE)
-        replace_placeholders(digest, selections, STYLES_FILE, preheader)
-        db.start_run(recording=not skip_record, broadcasting=not skip_email, alerting=False)
-        try:
-            db.save_digest(digest, preheader=preheader)
-            recipients = 0
-            if db.should_broadcast():
-                recipients = _deliver(digest)
-            shown_headlines = read_shown_headlines()
-            if shown_headlines:
-                db.record_shown_headlines(shown_headlines)
-            db.complete_run(articles_fetched=0, articles_emailed=recipients)
-        except Exception as e:
-            db.abort_run(repr(e))
-            raise
-        cleanup_shown_headlines()
-        return 0
+        return _render_record_deliver(selections, skip_record=skip_record, skip_email=skip_email)
 
     # Resume mode: finish today's failed run from whatever survived on disk.
     # Reuses the existing claude_input (article index + fetched articles), so it
@@ -346,26 +356,7 @@ Examples:
         _require_fresh_artifacts(CLAUDE_INPUT_DIR)
         usage_rows = generate_selections(model=args.model, resume=True)
         selections = load_selections(assemble_selections(CLAUDE_INPUT_DIR))
-        selections = resolve_article_ids(selections)
-        preheader = extract_preheader(selections)
-        digest = write_digest(selections, TEMPLATE_FILE)
-        replace_placeholders(digest, selections, STYLES_FILE, preheader)
-        db.start_run(recording=not skip_record, broadcasting=not skip_email, alerting=False)
-        try:
-            db.record_usage(usage_rows)
-            db.save_digest(digest, preheader=preheader)
-            recipients = 0
-            if db.should_broadcast():
-                recipients = _deliver(digest)
-            shown_headlines = read_shown_headlines()
-            if shown_headlines:
-                db.record_shown_headlines(shown_headlines)
-            db.complete_run(articles_fetched=0, articles_emailed=recipients)
-        except Exception as e:
-            db.abort_run(repr(e))
-            raise
-        cleanup_shown_headlines()
-        return 0
+        return _render_record_deliver(selections, skip_record=skip_record, skip_email=skip_email, usage_rows=usage_rows)
 
     # Full pipeline
     validate_env(dry_run=skip_email)

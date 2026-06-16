@@ -44,8 +44,11 @@ def _no_send(monkeypatch):
 
 def test_deliver_skips_when_db_shows_accepted(monkeypatch, tmp_path):
     monkeypatch.setattr(run.db, "get_broadcast", lambda _date: ("bc_old", "sent"))
+    # A skip reports the digest's real recipient count, not 0 (which reads as
+    # "delivered to nobody"). The count lives on the date-keyed digests row.
+    monkeypatch.setattr(run.db, "broadcast_recipients", lambda _date: 42, raising=False)
     sends = _no_send(monkeypatch)
-    assert run._deliver(_digest(tmp_path)) == 0
+    assert run._deliver(_digest(tmp_path)) == 42
     assert sends["n"] == 0
 
 
@@ -56,10 +59,11 @@ def test_deliver_reprobes_uncertain_broadcast_and_skips_if_delivered(monkeypatch
     monkeypatch.setattr(run.db, "get_broadcast", lambda _date: ("bc_old", "created"))
     recorded = {}
     monkeypatch.setattr(run.db, "record_broadcast", lambda _d, bid, s: recorded.update(id=bid, status=s))
+    monkeypatch.setattr(run.db, "broadcast_recipients", lambda _date: 7, raising=False)
     monkeypatch.setattr(run, "probe_status", lambda _bid: "sent", raising=False)
     monkeypatch.setattr(run, "resend_existing", lambda _bid: "sent", raising=False)
     sends = _no_send(monkeypatch)
-    assert run._deliver(_digest(tmp_path)) == 0
+    assert run._deliver(_digest(tmp_path)) == 7  # reports the prior delivery's count, not 0
     assert sends["n"] == 0, "must not create a second broadcast when the old one delivered"
     assert recorded == {"id": "bc_old", "status": "sent"}
 

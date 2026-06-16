@@ -336,3 +336,23 @@ def test_digest_date_from_filename_and_fallback():
     # No date in the name -> falls back to today (UTC), never crashes.
     today = __import__("datetime").datetime.now(__import__("datetime").UTC).strftime("%Y-%m-%d")
     assert db.digest_date(_P("digest.html")) == today
+
+
+def test_record_broadcast_persists_and_reads_recipients(fresh_db, tmp_path):
+    date = _save_digest(tmp_path)
+    db.record_broadcast(date, "bc_1", "sent", recipients=42)
+    assert db.broadcast_recipients(date) == 42
+
+
+def test_record_broadcast_preserves_recipients_when_none(fresh_db, tmp_path):
+    """A later status update (recipients=None) must not wipe the recorded count."""
+    date = _save_digest(tmp_path)
+    db.record_broadcast(date, "bc_1", "created", recipients=10)
+    db.record_broadcast(date, "bc_1", "sent")  # no recipients arg -> preserve
+    assert db.broadcast_recipients(date) == 10
+
+
+def test_broadcast_recipients_zero_when_unknown(fresh_db, tmp_path):
+    date = _save_digest(tmp_path)
+    db.record_broadcast(date, "bc_1", "created")  # never recorded a count
+    assert db.broadcast_recipients(date) == 0

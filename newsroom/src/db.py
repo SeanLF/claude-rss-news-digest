@@ -582,19 +582,22 @@ def get_broadcast(date_str: str) -> tuple[str | None, str | None] | None:
     return (row[0], row[1]) if row else None
 
 
-def record_broadcast(date_str: str, broadcast_id: str | None, status: str | None):
+def record_broadcast(date_str: str, broadcast_id: str | None, status: str | None, recipients: int | None = None):
     """Persist the Resend broadcast id + status against a date's digest row.
 
-    The digest row (save_digest) must already exist -- broadcast always follows
-    save in every pipeline path. No-op when not recording (dry runs).
+    ``recipients`` is preserved when None (COALESCE), so a later status-only
+    update (e.g. 'created' -> 'sent') does not wipe a recorded count. The digest
+    row (save_digest) must already exist -- broadcast always follows save in
+    every pipeline path. No-op when not recording (dry runs).
     """
     if not _state.recording:
         return
     try:
         with sqlite3.connect(_db_path()) as conn:
             cursor = conn.execute(
-                "UPDATE digests SET broadcast_id = ?, broadcast_status = ? WHERE date = ?",
-                (broadcast_id, status, date_str),
+                "UPDATE digests SET broadcast_id = ?, broadcast_status = ?, "
+                "broadcast_recipients = COALESCE(?, broadcast_recipients) WHERE date = ?",
+                (broadcast_id, status, recipients, date_str),
             )
         if cursor.rowcount == 0:
             # No digest row to attach to -> the idempotency state was NOT persisted.
@@ -607,6 +610,17 @@ def record_broadcast(date_str: str, broadcast_id: str | None, status: str | None
             )
     except sqlite3.Error as e:
         logger.error("DB error recording broadcast for %s: %s", date_str, e)
+
+
+def broadcast_recipients(date_str: str) -> int:
+    """Recipient count recorded for a date's broadcast (0 if unknown)."""
+    try:
+        with sqlite3.connect(_db_path()) as conn:
+            row = conn.execute("SELECT broadcast_recipients FROM digests WHERE date = ?", (date_str,)).fetchone()
+        return row[0] if row and row[0] is not None else 0
+    except sqlite3.Error as e:
+        logger.error("DB error reading broadcast_recipients for %s: %s", date_str, e)
+        return 0
 
 
 def delete_run(run_id: int):
