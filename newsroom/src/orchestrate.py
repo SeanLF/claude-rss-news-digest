@@ -316,11 +316,28 @@ def run_stage(
     raise RuntimeError(f"{label} stage failed: {last_err}")
 
 
+def _stage_output_is_valid(claude_input_dir: Path, output_filename: str, validate: Callable[[Path], None]) -> bool:
+    """True if this stage's output already exists on disk and passes its validator.
+
+    Lets a resumed run skip a stage it already completed -- notably CLUSTER, the
+    most expensive (~$6.74/run, ~15 min). A present-but-invalid file (e.g. a crash
+    mid-write) returns False so the stage re-runs from a clean slate.
+    """
+    if not (claude_input_dir / output_filename).exists():
+        return False
+    try:
+        validate(claude_input_dir)
+        return True
+    except ValueError:
+        return False
+
+
 def orchestrate_selections(
     *,
     claude_input_dir: Path,
     model_override: str | None = None,
     cwd: str | Path | None = None,
+    resume: bool = False,
 ) -> list[dict[str, Any]]:
     """Run the five curation stages in order; return their usage rows.
 
@@ -328,11 +345,19 @@ def orchestrate_selections(
     and retries once on failure. Raises RuntimeError if any stage cannot
     produce valid output after its retry -- downstream (merge.assemble_selections)
     cannot run without these input files.
+
+    ``resume=True`` skips any stage whose valid output already survives on disk,
+    so a re-run after a mid-pipeline failure picks up where it stopped instead of
+    re-running (and re-paying for) completed stages. Skipped stages contribute no
+    usage row, since they cost nothing this run.
     """
     logger.info("Selecting stories... (model=%s)", model_override or "per-agent default")
     usage_rows: list[dict[str, Any]] = []
 
     for label, spec_filename, output_filename, validate in _STAGES:
+        if resume and _stage_output_is_valid(claude_input_dir, output_filename, validate):
+            logger.info("[%s] resuming: valid output present, skipping", label.capitalize())
+            continue
         spec = parse_agent_spec(_AGENTS_DIR / spec_filename)
         row = run_stage(
             spec,

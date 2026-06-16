@@ -11,7 +11,7 @@ from retry import with_retry
 logger = logging.getLogger(__name__)
 
 
-def generate_selections(model: str | None = None) -> list[dict]:
+def generate_selections(model: str | None = None, resume: bool = False) -> list[dict]:
     """Run the fixed curation pipeline; return per-stage usage rows.
 
     Python orchestrates the five subagents directly, in order (CLUSTER, RECAP,
@@ -25,7 +25,7 @@ def generate_selections(model: str | None = None) -> list[dict]:
     in Python after this returns (see merge.py). The returned rows are recorded
     into ``run_usage`` by the caller (run.py).
     """
-    return orchestrate_selections(claude_input_dir=CLAUDE_INPUT_DIR, model_override=model)
+    return orchestrate_selections(claude_input_dir=CLAUDE_INPUT_DIR, model_override=model, resume=resume)
 
 
 def generate_weekly_recap(title_lines: str) -> str:

@@ -462,3 +462,21 @@ class TestChaosTransientOutage:
             )
         # No transient backoff: just the outer once-retry -> exactly 2 invocations.
         assert calls["n"] == 2
+
+
+# --- Resume checkpointing: skip a stage whose valid output already exists -----
+
+
+def test_stage_output_is_valid_true_when_present_and_valid(tmp_path):
+    (tmp_path / "clusters.json").write_text('{"clusters": [{"story": "A"}]}')
+    assert orchestrate._stage_output_is_valid(tmp_path, "clusters.json", orchestrate.validate_clusters) is True
+
+
+def test_stage_output_is_valid_false_when_missing(tmp_path):
+    assert orchestrate._stage_output_is_valid(tmp_path, "clusters.json", orchestrate.validate_clusters) is False
+
+
+def test_stage_output_is_valid_false_when_present_but_invalid(tmp_path):
+    # Present but empty -> validator raises -> stage must re-run, not be skipped.
+    (tmp_path / "clusters.json").write_text('{"clusters": []}')
+    assert orchestrate._stage_output_is_valid(tmp_path, "clusters.json", orchestrate.validate_clusters) is False
