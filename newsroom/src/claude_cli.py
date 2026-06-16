@@ -152,6 +152,7 @@ def _build_options(
     max_budget_usd: float | None,
     cwd: str | Path | None,
     load_timeout_ms: int | None = None,
+    tools: list[str] | None = None,
     thinking: ThinkingConfig | None = None,
 ) -> ClaudeAgentOptions:
     """Build ClaudeAgentOptions from the wrapper's keyword arguments.
@@ -179,6 +180,10 @@ def _build_options(
     if allowed_tools is not None:
         # Legacy API took a comma/space-separated string; SDK wants a list.
         kwargs["allowed_tools"] = [t for t in allowed_tools.replace(",", " ").split() if t]
+    if tools is not None:
+        # Availability restriction (which tools EXIST), distinct from allowed_tools
+        # (auto-approval). See orchestrate._tool_list for why the stages need this.
+        kwargs["tools"] = tools
     if mcp_config is not None:
         kwargs["mcp_servers"] = str(mcp_config)
     if max_turns is not None:
@@ -256,6 +261,7 @@ async def _stream_events(
     cwd: str | Path | None,
     idle_timeout: float = 120.0,
     load_timeout_ms: int | None = None,
+    tools: list[str] | None = None,
     thinking: ThinkingConfig | None = None,
 ) -> AsyncGenerator[dict[str, Any]]:
     """Drive the SDK query() and yield adapted legacy-shaped event dicts.
@@ -279,6 +285,7 @@ async def _stream_events(
         max_budget_usd=max_budget_usd,
         cwd=cwd,
         load_timeout_ms=load_timeout_ms,
+        tools=tools,
         thinking=thinking,
     )
     agen = query(prompt=prompt, options=options).__aiter__()
@@ -339,6 +346,7 @@ def run_sync(
     cwd: str | Path | None = None,
     idle_timeout: float = 120.0,
     load_timeout_ms: int | None = None,
+    tools: list[str] | None = None,
     thinking: ThinkingConfig | None = None,
 ) -> str:
     """Run a prompt synchronously and return the full text output.
@@ -363,6 +371,7 @@ def run_sync(
             cwd=cwd,
             idle_timeout=idle_timeout,
             load_timeout_ms=load_timeout_ms,
+            tools=tools,
             thinking=thinking,
         )
         async for event in agen:
@@ -386,6 +395,7 @@ def stream_sync(
     cwd: str | Path | None = None,
     idle_timeout: float = 120.0,
     load_timeout_ms: int | None = None,
+    tools: list[str] | None = None,
     thinking: ThinkingConfig | None = None,
 ) -> Generator[dict[str, Any]]:
     """Stream a prompt synchronously, yielding legacy-shaped event dicts.
@@ -410,6 +420,7 @@ def stream_sync(
         cwd=cwd,
         idle_timeout=idle_timeout,
         load_timeout_ms=load_timeout_ms,
+        tools=tools,
         thinking=thinking,
     )
     yield from _drain_sync(agen)
@@ -436,6 +447,7 @@ async def run(
     cwd: str | Path | None = None,
     idle_timeout: float = 120.0,
     load_timeout_ms: int | None = None,
+    tools: list[str] | None = None,
     thinking: ThinkingConfig | None = None,
 ) -> str:
     """Run a prompt asynchronously and return the full text output."""
@@ -455,6 +467,7 @@ async def run(
             cwd=cwd,
             idle_timeout=idle_timeout,
             load_timeout_ms=load_timeout_ms,
+            tools=tools,
             thinking=thinking,
         ):
             events.append(event)
@@ -477,6 +490,7 @@ async def stream(
     cwd: str | Path | None = None,
     idle_timeout: float = 120.0,
     load_timeout_ms: int | None = None,
+    tools: list[str] | None = None,
     thinking: ThinkingConfig | None = None,
 ) -> AsyncGenerator[dict[str, Any]]:
     """Stream a prompt asynchronously, yielding legacy-shaped event dicts."""
@@ -492,6 +506,7 @@ async def stream(
         cwd=cwd,
         idle_timeout=idle_timeout,
         load_timeout_ms=load_timeout_ms,
+        tools=tools,
         thinking=thinking,
     ):
         yield event

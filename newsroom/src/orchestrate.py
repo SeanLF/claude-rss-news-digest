@@ -54,6 +54,25 @@ _AGENTS_DIR = Path(".claude/agents")
 # thinking budgets are a future tuning knob (e.g. the WRITE/SELECT judgment stages).
 _THINKING: ThinkingConfig = {"type": "disabled"}
 
+
+def _tool_list(spec: AgentSpec) -> list[str]:
+    """The tool set a stage may use, parsed from its ``tools:`` frontmatter.
+
+    Passed to the SDK as BOTH the ``tools`` availability restriction (the stage
+    may only call these, not the full Claude Code set) and -- space-joined -- the
+    ``allowed_tools`` auto-approval list, the two shapes the SDK wants. Without the
+    availability restriction the agents inherit Bash/Edit/Task and improvise,
+    spawning subagents that hang on permission (no handler under acceptEdits) and
+    trip the idle-timeout. Falls back to Read/Write (every stage is file-based)
+    with a warning, since a missing ``tools:`` key is more likely a spec mistake.
+    """
+    tools = [t for t in spec.tools_str.replace(",", " ").split() if t]
+    if not tools:
+        logger.warning("%s: no 'tools' in frontmatter; defaulting to Read/Write", spec.name)
+        return ["Read", "Write"]
+    return tools
+
+
 # Wall-clock retry budget per stage: ride out an upstream outage. status.claude.com
 # shows median ~1h, worst observed ~3h; 4h leaves headroom.
 _STAGE_RETRY_BUDGET_S = 14400
@@ -202,12 +221,16 @@ def _invoke_agent(
     retryable RuntimeError so a hang is recovered, not waited on forever.
     """
     result_event: dict[str, Any] | None = None
+    # Two shapes of the same declared tool set: a space-joined string for the
+    # auto-approval list, and a list for the availability restriction.
+    tool_list = _tool_list(spec)
     for event in claude_cli.stream_sync(
         _PROMPT,
         model=model,
         system_prompt=spec.body,
         permission_mode=_PERMISSION_MODE,
-        allowed_tools=spec.tools_str or "Read Write",
+        allowed_tools=" ".join(tool_list),
+        tools=tool_list,
         cwd=cwd,
         idle_timeout=idle_timeout,
         thinking=_THINKING,
