@@ -23,7 +23,7 @@ Eliminating Pass 2 saved ~50% of runtime.
 
 ## selections.json Schema
 
-Claude outputs this via MCP tool; Python renders it to HTML. Schema enforced with `additionalProperties: false` so Claude retries on validation errors.
+The WRITE subagent emits headlines that reference opaque article IDs only. Python (`merge.py:assemble_selections`) drops coherence-failed entries, validates the assembled payload against `schema.SELECTIONS_SCHEMA` (`additionalProperties: false`), and writes `selections.json`. `resolve_article_ids()` in `digest.py` then maps each `article_id` back to its source name, URL, and bias before rendering.
 
 ```json
 {
@@ -33,7 +33,7 @@ Claude outputs this via MCP tool; Python renders it to HTML. Schema enforced wit
       "summary": "2-3 sentence summary",
       "why_it_matters": "1-2 sentence insight",
       "sources": [
-        {"name": "Source Name", "url": "https://...", "bias": "center"}
+        {"article_id": "A1"}
       ],
       "reporting_varies": [
         {"source": "Source", "angle": "Their take", "bias": "center-left"}
@@ -48,22 +48,14 @@ Claude outputs this via MCP tool; Python renders it to HTML. Schema enforced wit
       "sources": [...]
     }
   ],
-  "signals": {
-    "americas": [{"headline": "One-liner", "source": {...}}],
-    "europe": [],
-    "asia_pacific": [],
-    "middle_east_africa": [],
-    "tech": []
-  },
   "preheader": "One sentence summarizing the 2-3 biggest stories (max 150 chars)"
 }
 ```
 
 **Notes:**
 - `reporting_varies` is optional (only when sources frame story differently)
-- `bias` enum: left, center-left, center, center-right, right
-- Empty `signals` regions are skipped in rendering
-- All four top-level keys required (`must_know`, `should_know`, `signals`, `preheader`)
+- `sources` entries carry `article_id` only; Python resolves the name/url/bias
+- All three top-level keys required (`must_know`, `should_know`, `preheader`)
 
 ## Claude Authentication
 

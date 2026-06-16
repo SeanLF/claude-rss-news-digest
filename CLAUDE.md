@@ -10,9 +10,9 @@ Automated news digest: RSS feeds → Claude curation → HTML email via Resend.
 - `data/` - Runtime data (SQLite database, logs, intermediate files)
 - `migrations/` - Database schema migrations
 
-**Curation pipeline (thin dispatcher + subagents):**
+**Curation pipeline (Python-orchestrated subagents):**
 
-Claude never sees URLs. Python assigns opaque article IDs (A1, A2...) and builds `article_index.json`. A single `claude --print` invocation runs a thin dispatcher that orchestrates 5 file-based subagents:
+Claude never sees URLs. Python assigns opaque article IDs (A1, A2...) and builds `article_index.json`. `orchestrate.py` runs 5 file-based subagents deterministically in a fixed order, invoking each one through the Claude Agent SDK wrapper (`claude_cli.py`):
 
 1. **CLUSTER** -- group articles by story
 2. **RECAP** -- summarise recent RSS titles (Haiku)
@@ -20,7 +20,7 @@ Claude never sees URLs. Python assigns opaque article IDs (A1, A2...) and builds
 4. **WRITE** -- headlines, summaries, why_it_matters (references article IDs only)
 5. **COHERENCE** -- verify headlines vs source articles (Haiku)
 
-After the dispatcher exits, Python (`merge.py:assemble_selections`) reads `draft_selections.json` and `coherence_report.json`, drops headlines whose coherence entry has `pass: false`, validates against `schema.SELECTIONS_SCHEMA`, and writes `selections.json`. Python then resolves article IDs to URLs/source/bias via `resolve_article_ids()` in `digest.py`.
+After the stages complete, Python (`merge.py:assemble_selections`) reads `draft_selections.json` and `coherence_report.json`, drops headlines whose coherence entry has `pass: false`, validates against `schema.SELECTIONS_SCHEMA`, and writes `selections.json`. Python then resolves article IDs to URLs/source/bias via `resolve_article_ids()` in `digest.py`.
 
 **Intermediate files** (in `data/claude_input/`): `clusters.json`, `recap.txt`, `selected.json`, `draft_selections.json`, `coherence_report.json`, `article_index.json`, `selections.json` (assembled by Python).
 
