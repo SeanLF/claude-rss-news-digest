@@ -39,6 +39,7 @@ from claude_agent_sdk import (
     SystemMessage,
     TextBlock,
     ThinkingBlock,
+    ThinkingConfig,
     ToolResultBlock,
     ToolUseBlock,
     UserMessage,
@@ -151,6 +152,7 @@ def _build_options(
     max_budget_usd: float | None,
     cwd: str | Path | None,
     load_timeout_ms: int | None = None,
+    thinking: ThinkingConfig | None = None,
 ) -> ClaudeAgentOptions:
     """Build ClaudeAgentOptions from the wrapper's keyword arguments.
 
@@ -187,6 +189,13 @@ def _build_options(
         kwargs["max_budget_usd"] = max_budget_usd
     if cwd is not None:
         kwargs["cwd"] = str(cwd)
+    if thinking is not None:
+        # Match the old Task-subagent behaviour: subagents ran with extended
+        # thinking OFF, but a top-level SDK query() defaults it ON for Sonnet.
+        # That regression made the CLUSTER stage burn its whole output budget
+        # reasoning over ~460 articles and trip the 32k output-token ceiling.
+        # Callers pass {"type": "disabled"} to restore the proven-good behaviour.
+        kwargs["thinking"] = thinking
     return ClaudeAgentOptions(**kwargs)
 
 
@@ -247,6 +256,7 @@ async def _stream_events(
     cwd: str | Path | None,
     idle_timeout: float = 120.0,
     load_timeout_ms: int | None = None,
+    thinking: ThinkingConfig | None = None,
 ) -> AsyncGenerator[dict[str, Any]]:
     """Drive the SDK query() and yield adapted legacy-shaped event dicts.
 
@@ -269,6 +279,7 @@ async def _stream_events(
         max_budget_usd=max_budget_usd,
         cwd=cwd,
         load_timeout_ms=load_timeout_ms,
+        thinking=thinking,
     )
     agen = query(prompt=prompt, options=options).__aiter__()
     try:
@@ -328,6 +339,7 @@ def run_sync(
     cwd: str | Path | None = None,
     idle_timeout: float = 120.0,
     load_timeout_ms: int | None = None,
+    thinking: ThinkingConfig | None = None,
 ) -> str:
     """Run a prompt synchronously and return the full text output.
 
@@ -351,6 +363,7 @@ def run_sync(
             cwd=cwd,
             idle_timeout=idle_timeout,
             load_timeout_ms=load_timeout_ms,
+            thinking=thinking,
         )
         async for event in agen:
             events.append(event)
@@ -373,6 +386,7 @@ def stream_sync(
     cwd: str | Path | None = None,
     idle_timeout: float = 120.0,
     load_timeout_ms: int | None = None,
+    thinking: ThinkingConfig | None = None,
 ) -> Generator[dict[str, Any]]:
     """Stream a prompt synchronously, yielding legacy-shaped event dicts.
 
@@ -396,6 +410,7 @@ def stream_sync(
         cwd=cwd,
         idle_timeout=idle_timeout,
         load_timeout_ms=load_timeout_ms,
+        thinking=thinking,
     )
     yield from _drain_sync(agen)
 
@@ -421,6 +436,7 @@ async def run(
     cwd: str | Path | None = None,
     idle_timeout: float = 120.0,
     load_timeout_ms: int | None = None,
+    thinking: ThinkingConfig | None = None,
 ) -> str:
     """Run a prompt asynchronously and return the full text output."""
     del output_format, json_schema  # accepted for compat; not used by SDK path
@@ -439,6 +455,7 @@ async def run(
             cwd=cwd,
             idle_timeout=idle_timeout,
             load_timeout_ms=load_timeout_ms,
+            thinking=thinking,
         ):
             events.append(event)
         _check_result(events)
@@ -460,6 +477,7 @@ async def stream(
     cwd: str | Path | None = None,
     idle_timeout: float = 120.0,
     load_timeout_ms: int | None = None,
+    thinking: ThinkingConfig | None = None,
 ) -> AsyncGenerator[dict[str, Any]]:
     """Stream a prompt asynchronously, yielding legacy-shaped event dicts."""
     async for event in _stream_events(
@@ -474,5 +492,6 @@ async def stream(
         cwd=cwd,
         idle_timeout=idle_timeout,
         load_timeout_ms=load_timeout_ms,
+        thinking=thinking,
     ):
         yield event

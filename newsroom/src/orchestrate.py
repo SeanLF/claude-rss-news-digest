@@ -36,6 +36,7 @@ from pathlib import Path
 from typing import Any
 
 import claude_cli
+from claude_agent_sdk import ThinkingConfig
 from retry import with_retry
 from usage import _usage_row
 
@@ -44,6 +45,14 @@ logger = logging.getLogger(__name__)
 _PERMISSION_MODE = "acceptEdits"
 _PROMPT = "Begin."
 _AGENTS_DIR = Path(".claude/agents")
+
+# Extended thinking is OFF for every stage. These agents previously ran as Task
+# subagents (thinking off); the Python orchestrator runs them as top-level SDK
+# queries, where Sonnet defaults thinking ON. On the CLUSTER stage that made the
+# model reason over ~460 articles until it tripped the 32k output-token ceiling
+# and the run aborted. Disabling restores the known-good behaviour. Per-stage
+# thinking budgets are a future tuning knob (e.g. the WRITE/SELECT judgment stages).
+_THINKING: ThinkingConfig = {"type": "disabled"}
 
 # Wall-clock retry budget per stage: ride out an upstream outage. status.claude.com
 # shows median ~1h, worst observed ~3h; 4h leaves headroom.
@@ -201,6 +210,7 @@ def _invoke_agent(
         allowed_tools=spec.tools_str or "Read Write",
         cwd=cwd,
         idle_timeout=idle_timeout,
+        thinking=_THINKING,
     ):
         if event.get("type") == "result":
             result_event = event
