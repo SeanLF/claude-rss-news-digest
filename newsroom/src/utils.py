@@ -14,9 +14,13 @@ logger = logging.getLogger(__name__)
 
 
 def setup_logging():
-    """Configure logging: stdout for terminal/systemd + rotating file."""
-    DATA_DIR.mkdir(exist_ok=True)
+    """Configure logging: stdout for terminal/systemd + rotating file.
 
+    Falls back to stdout-only when the data dir is read-only. The dead-man's
+    switch mounts the data volume ``:ro`` and runs ``--verify-today``; a
+    verify-only run must not crash (and so fail to alert) just because it
+    cannot open the log file on a read-only mount.
+    """
     fmt = logging.Formatter("[%(asctime)s] [%(levelname)s] %(message)s", datefmt="%Y-%m-%d %H:%M:%S")
     fmt.converter = lambda *_: datetime.now(UTC).timetuple()
 
@@ -27,9 +31,15 @@ def setup_logging():
     stdout_handler.setFormatter(fmt)
     root.addHandler(stdout_handler)
 
-    file_handler = RotatingFileHandler(LOG_FILE, maxBytes=100_000, backupCount=1)
-    file_handler.setFormatter(fmt)
-    root.addHandler(file_handler)
+    try:
+        DATA_DIR.mkdir(exist_ok=True)
+        file_handler = RotatingFileHandler(LOG_FILE, maxBytes=100_000, backupCount=1)
+        file_handler.setFormatter(fmt)
+        root.addHandler(file_handler)
+    except OSError as e:
+        # Read-only data volume (deadman :ro mount) or other filesystem error:
+        # keep stdout/journal logging rather than aborting the run.
+        root.warning("File logging disabled (%s): %s", LOG_FILE, e)
 
 
 def check_internet() -> bool:
