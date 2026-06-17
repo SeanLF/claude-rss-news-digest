@@ -1,12 +1,22 @@
-"""Tests for claude_cli.py SDK-message -> legacy-event adaptation.
+"""Tests for claude_cli.py: the plain Agent-SDK wrapper.
 
-These mock the Claude Agent SDK's query() so they never spend credit. They
-assert that the dataclass messages the SDK yields are translated into the exact
-dict shape claude.py consumes (event["type"], event["message"]["content"],
-event.get("parent_tool_use_id"), event.get("total_cost_usd"), ...).
+These mock the Claude Agent SDK's query() so they never spend credit. After the
+NDJSON-adapter removal, the wrapper consumes SDK dataclasses directly (no more
+reshaping into the old subprocess stream-json dict shape) and exposes two entry
+points:
+
+    run_sync(...) -> str            # text callers (recap, health check, eval judge)
+    run_agent(...) -> StageResult   # async core, awaited by the curation orchestrator
+
+Both are driven by an in-process idle watchdog (asyncio.wait_for per SDK pull).
+Two invariants this module MUST preserve, each guarded below:
+  * subscription OAuth -- never set ANTHROPIC_API_KEY (that would move billing
+    off the subscription credit to pay-as-you-go);
+  * the event-idle watchdog that raises on a wedged call.
 """
 
 import asyncio
+import os
 import sys
 from pathlib import Path
 
@@ -19,146 +29,178 @@ from claude_agent_sdk import (
     AssistantMessage,
     ResultMessage,
     StreamEvent,
-    SystemMessage,
     TextBlock,
-    ToolResultBlock,
     ToolUseBlock,
-    UserMessage,
 )
 
+
+def _result(*, subtype="success", usage=None, total_cost_usd=0.0, duration_ms=10, result=None):
+    """Build an SDK ResultMessage like query() yields as the terminal event."""
+    return ResultMessage(
+        subtype=subtype,
+        duration_ms=duration_ms,
+        duration_api_ms=duration_ms,
+        is_error=subtype != "success",
+        num_turns=1,
+        session_id="s1",
+        total_cost_usd=total_cost_usd,
+        usage=usage,
+        result=result,
+    )
+
+
+def _fake_query(messages):
+    """Return an async-generator factory yielding the given SDK messages."""
+
+    async def _gen(*, prompt, options, transport=None):
+        for m in messages:
+            yield m
+
+    return _gen
+
+
+def _run_agent(*a, **k):
+    """Drive the async ``run_agent`` to completion from a sync test body.
+
+    The orchestrator awaits ``run_agent`` under one event loop; the tests pump it
+    with asyncio.run so we don't need pytest-asyncio.
+    """
+    return asyncio.run(claude_cli.run_agent(*a, **k))
+
+
 # ---------------------------------------------------------------------------
-# Block / message adaptation (pure, no SDK invocation)
+# StageResult: the small domain type distilled from the SDK ResultMessage
 # ---------------------------------------------------------------------------
 
 
-class TestBlockToDict:
-    def test_text_block(self):
-        assert claude_cli._block_to_dict(TextBlock(text="hi")) == {"type": "text", "text": "hi"}
+class TestStageResult:
+    def test_ok_true_on_success(self):
+        r = claude_cli.StageResult(subtype="success", text="x", usage={}, total_cost_usd=0.0, duration_ms=1)
+        assert r.ok is True
 
-    def test_tool_use_block_preserves_agent_fields(self):
-        block = ToolUseBlock(id="tu_1", name="Agent", input={"description": "CLUSTER articles"})
-        assert claude_cli._block_to_dict(block) == {
-            "type": "tool_use",
-            "id": "tu_1",
-            "name": "Agent",
-            "input": {"description": "CLUSTER articles"},
+    def test_ok_false_on_budget_cap(self):
+        r = claude_cli.StageResult(subtype="error_max_budget_usd", text="", usage={}, total_cost_usd=0.0, duration_ms=1)
+        assert r.ok is False
+
+    def test_ok_false_on_missing_subtype(self):
+        r = claude_cli.StageResult(subtype=None, text="", usage={}, total_cost_usd=0.0, duration_ms=1)
+        assert r.ok is False
+
+
+# ---------------------------------------------------------------------------
+# run_agent: the orchestrator path -> StageResult (async core)
+# ---------------------------------------------------------------------------
+
+
+class TestRunAgent:
+    def test_distills_result_message(self, monkeypatch):
+        usage = {
+            "input_tokens": 1000,
+            "output_tokens": 200,
+            "cache_creation_input_tokens": 500,
+            "cache_read_input_tokens": 8000,
         }
+        messages = [
+            AssistantMessage(
+                content=[ToolUseBlock(id="tu_1", name="Read", input={"file_path": "x"})],
+                model="claude-sonnet",
+                parent_tool_use_id=None,
+            ),
+            _result(subtype="success", usage=usage, total_cost_usd=1.23, duration_ms=2000),
+        ]
+        monkeypatch.setattr(claude_cli, "query", _fake_query(messages))
 
-    def test_tool_result_block(self):
-        block = ToolResultBlock(tool_use_id="tu_1", content="done", is_error=False)
-        out = claude_cli._block_to_dict(block)
-        assert out["type"] == "tool_result"
-        assert out["tool_use_id"] == "tu_1"
-        assert out["content"] == "done"
-        assert out["is_error"] is False
+        res = _run_agent("Begin.", model="sonnet", permission_mode="acceptEdits")
 
+        assert isinstance(res, claude_cli.StageResult)
+        assert res.ok is True
+        assert res.subtype == "success"
+        assert res.usage == usage
+        assert res.total_cost_usd == 1.23
+        assert res.duration_ms == 2000
 
-class TestMessageToEvent:
-    def test_assistant_with_agent_tool_use(self):
-        msg = AssistantMessage(
-            content=[ToolUseBlock(id="tu_9", name="Agent", input={"description": "SELECT stories"})],
-            model="claude-sonnet",
-            parent_tool_use_id=None,
-        )
-        event = claude_cli._message_to_event(msg)
-        assert event["type"] == "assistant"
-        assert event["parent_tool_use_id"] is None
-        block = event["message"]["content"][0]
-        assert block["type"] == "tool_use"
-        assert block["name"] == "Agent"
-        assert block["id"] == "tu_9"
-        assert block["input"]["description"] == "SELECT stories"
+    def test_non_success_returns_not_ok_without_raising(self, monkeypatch):
+        # The orchestrator inspects .ok and raises its own labelled error, so the
+        # wrapper itself must NOT raise on a non-success subtype (e.g. budget cap).
+        monkeypatch.setattr(claude_cli, "query", _fake_query([_result(subtype="error_max_budget_usd")]))
+        res = _run_agent("Begin.", model="sonnet")
+        assert res.ok is False
+        assert res.subtype == "error_max_budget_usd"
 
-    def test_user_tool_result_at_root_has_no_parent(self):
-        # Root-level tool_result (Agent returning to dispatcher): parent is None,
-        # which is how claude.py distinguishes Agent completions.
-        msg = UserMessage(
-            content=[ToolResultBlock(tool_use_id="tu_9", content="ok", is_error=False)],
-            parent_tool_use_id=None,
-        )
-        event = claude_cli._message_to_event(msg)
-        assert event["type"] == "user"
-        assert event.get("parent_tool_use_id") is None
-        block = event["message"]["content"][0]
-        assert block["type"] == "tool_result"
-        assert block["tool_use_id"] == "tu_9"
+    def test_missing_usage_becomes_empty_dict(self, monkeypatch):
+        monkeypatch.setattr(claude_cli, "query", _fake_query([_result(usage=None)]))
+        res = _run_agent("Begin.", model="sonnet")
+        assert res.usage == {}
 
-    def test_nested_user_tool_result_keeps_parent(self):
-        msg = UserMessage(
-            content=[ToolResultBlock(tool_use_id="x", content="r", is_error=False)],
-            parent_tool_use_id="tu_parent",
-        )
-        event = claude_cli._message_to_event(msg)
-        assert event["parent_tool_use_id"] == "tu_parent"
-
-    def test_result_success_carries_cost_and_duration(self):
-        msg = ResultMessage(
-            subtype="success",
-            duration_ms=1234,
-            duration_api_ms=1000,
-            is_error=False,
-            num_turns=3,
-            session_id="s1",
-            total_cost_usd=0.42,
-        )
-        event = claude_cli._message_to_event(msg)
-        assert event["type"] == "result"
-        assert event["subtype"] == "success"
-        assert event["total_cost_usd"] == 0.42
-        assert event["duration_ms"] == 1234
-
-    def test_result_budget_cap_subtype(self):
-        msg = ResultMessage(
-            subtype="error_max_budget_usd",
-            duration_ms=10,
-            duration_api_ms=5,
-            is_error=True,
-            num_turns=1,
-            session_id="s1",
-        )
-        event = claude_cli._message_to_event(msg)
-        assert event["subtype"] == "error_max_budget_usd"
-
-    def test_system_message_flattens_data(self):
-        msg = SystemMessage(subtype="task_progress", data={"foo": "bar"})
-        event = claude_cli._message_to_event(msg)
-        assert event["type"] == "system"
-        assert event["subtype"] == "task_progress"
-        assert event["foo"] == "bar"
+    def test_no_result_message_raises(self, monkeypatch):
+        msgs = [AssistantMessage(content=[TextBlock(text="hi")], model="m", parent_tool_use_id=None)]
+        monkeypatch.setattr(claude_cli, "query", _fake_query(msgs))
+        with pytest.raises(RuntimeError, match="no result"):
+            _run_agent("Begin.", model="sonnet")
 
 
 # ---------------------------------------------------------------------------
-# Result-event validation helpers
+# run_sync: the text path -> str
 # ---------------------------------------------------------------------------
 
 
-class TestCheckResult:
-    def test_success_passes(self):
-        claude_cli._check_result([{"type": "result", "subtype": "success"}])
-
-    def test_missing_result_raises(self):
-        with pytest.raises(RuntimeError, match="no result event"):
-            claude_cli._check_result([{"type": "assistant", "message": {"content": []}}])
-
-    def test_budget_cap_raises_with_subtype(self):
-        with pytest.raises(RuntimeError, match="error_max_budget_usd"):
-            claude_cli._check_result([{"type": "result", "subtype": "error_max_budget_usd"}])
-
-
-class TestResultText:
-    def test_prefers_result_field(self):
-        events = [
-            {"type": "assistant", "message": {"content": [{"type": "text", "text": "ignored"}]}},
-            {"type": "result", "subtype": "success", "result": "  final answer  "},
+class TestRunSync:
+    def test_returns_result_text(self, monkeypatch):
+        messages = [
+            AssistantMessage(content=[TextBlock(text="ignored")], model="m", parent_tool_use_id=None),
+            _result(result="  recap text  "),
         ]
-        assert claude_cli._result_text(events) == "final answer"
+        monkeypatch.setattr(claude_cli, "query", _fake_query(messages))
+        assert claude_cli.run_sync("summarise", model="haiku", max_turns=1) == "recap text"
 
-    def test_falls_back_to_assistant_text(self):
-        events = [
-            {"type": "assistant", "message": {"content": [{"type": "text", "text": "ok"}]}},
-            {"type": "result", "subtype": "success"},
+    def test_falls_back_to_assistant_text_when_no_result_field(self, monkeypatch):
+        messages = [
+            AssistantMessage(content=[TextBlock(text="ok")], model="m", parent_tool_use_id=None),
+            _result(result=None),
         ]
-        assert claude_cli._result_text(events) == "ok"
+        monkeypatch.setattr(claude_cli, "query", _fake_query(messages))
+        assert claude_cli.run_sync("x", model="haiku") == "ok"
+
+    def test_raises_on_non_success(self, monkeypatch):
+        monkeypatch.setattr(claude_cli, "query", _fake_query([_result(subtype="error_during_execution")]))
+        with pytest.raises(RuntimeError, match="error_during_execution"):
+            claude_cli.run_sync("x", model="haiku")
+
+
+# ---------------------------------------------------------------------------
+# Subscription-auth invariant: never set ANTHROPIC_API_KEY
+# ---------------------------------------------------------------------------
+
+
+class TestSubscriptionAuthPreserved:
+    def test_run_sync_does_not_set_anthropic_api_key(self, monkeypatch):
+        # The SDK drives the `claude` CLI, inheriting subscription OAuth. Setting
+        # ANTHROPIC_API_KEY would silently move billing to pay-as-you-go.
+        monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+        monkeypatch.setattr(claude_cli, "query", _fake_query([_result(result="ok")]))
+        claude_cli.run_sync("x", model="haiku")
+        assert "ANTHROPIC_API_KEY" not in os.environ
+
+    def test_run_agent_does_not_set_anthropic_api_key(self, monkeypatch):
+        monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+        monkeypatch.setattr(claude_cli, "query", _fake_query([_result()]))
+        _run_agent("Begin.", model="sonnet")
+        assert "ANTHROPIC_API_KEY" not in os.environ
+
+    def test_build_options_smuggles_no_api_key_into_sdk_env(self):
+        # Guard the other leak path: an api key injected via ClaudeAgentOptions.env.
+        opts = claude_cli._build_options(
+            model="sonnet",
+            system_prompt=None,
+            permission_mode=None,
+            allowed_tools=None,
+            mcp_config=None,
+            max_turns=None,
+            max_budget_usd=None,
+            cwd=None,
+        )
+        env = opts.env or {}
+        assert "ANTHROPIC_API_KEY" not in env
 
 
 # ---------------------------------------------------------------------------
@@ -211,109 +253,40 @@ class TestBuildOptions:
         )
         assert opts.allowed_tools == ["Read", "Write", "Edit"]
 
+    def test_tools_availability_restriction_passed_through(self):
+        opts = claude_cli._build_options(
+            model="sonnet",
+            system_prompt=None,
+            permission_mode=None,
+            allowed_tools=None,
+            mcp_config=None,
+            max_turns=None,
+            max_budget_usd=None,
+            cwd=None,
+            tools=["Read", "Write"],
+        )
+        assert opts.tools == ["Read", "Write"]
 
-# ---------------------------------------------------------------------------
-# End-to-end stream_sync with a mocked SDK query()
-# ---------------------------------------------------------------------------
-
-
-def _fake_query(messages):
-    """Return an async-generator factory yielding the given SDK messages."""
-
-    async def _gen(*, prompt, options, transport=None):
-        for m in messages:
-            yield m
-
-    return _gen
-
-
-class TestStreamSyncIntegration:
-    def test_streams_dispatcher_events_in_legacy_shape(self, monkeypatch):
-        messages = [
-            AssistantMessage(
-                content=[ToolUseBlock(id="tu_1", name="Agent", input={"description": "CLUSTER"})],
-                model="claude-sonnet",
-                parent_tool_use_id=None,
-            ),
-            UserMessage(
-                content=[ToolResultBlock(tool_use_id="tu_1", content="clustered", is_error=False)],
-                parent_tool_use_id=None,
-            ),
-            ResultMessage(
-                subtype="success",
-                duration_ms=2000,
-                duration_api_ms=1500,
-                is_error=False,
-                num_turns=5,
-                session_id="s1",
-                total_cost_usd=1.23,
-            ),
-        ]
-        monkeypatch.setattr(claude_cli, "query", _fake_query(messages))
-
-        events = list(claude_cli.stream_sync("Begin.", model="sonnet", permission_mode="acceptEdits"))
-
-        assert [e["type"] for e in events] == ["assistant", "user", "result"]
-        # Agent dispatch surfaces exactly as claude.py expects.
-        assert events[0]["message"]["content"][0]["name"] == "Agent"
-        assert events[0]["message"]["content"][0]["id"] == "tu_1"
-        # Root tool_result has no parent -> claude.py marks the Agent complete.
-        assert events[1].get("parent_tool_use_id") is None
-        assert events[1]["message"]["content"][0]["tool_use_id"] == "tu_1"
-        # Result carries cost + subtype for logging / success detection.
-        assert events[2]["subtype"] == "success"
-        assert events[2]["total_cost_usd"] == 1.23
-
-    def test_run_sync_returns_result_text(self, monkeypatch):
-        messages = [
-            AssistantMessage(
-                content=[TextBlock(text="ok")],
-                model="claude-haiku",
-                parent_tool_use_id=None,
-            ),
-            ResultMessage(
-                subtype="success",
-                duration_ms=10,
-                duration_api_ms=5,
-                is_error=False,
-                num_turns=1,
-                session_id="s1",
-                total_cost_usd=0.0,
-                result="recap text",
-            ),
-        ]
-        monkeypatch.setattr(claude_cli, "query", _fake_query(messages))
-
-        out = claude_cli.run_sync("summarise", model="haiku", max_turns=1)
-        assert out == "recap text"
-
-    def test_run_sync_raises_on_non_success(self, monkeypatch):
-        messages = [
-            ResultMessage(
-                subtype="error_during_execution",
-                duration_ms=10,
-                duration_api_ms=5,
-                is_error=True,
-                num_turns=1,
-                session_id="s1",
-            ),
-        ]
-        monkeypatch.setattr(claude_cli, "query", _fake_query(messages))
-
-        with pytest.raises(RuntimeError, match="error_during_execution"):
-            claude_cli.run_sync("x", model="haiku")
-
-
-# ---------------------------------------------------------------------------
-# In-process hang detection: event-idle timeout
-# ---------------------------------------------------------------------------
+    def test_thinking_passed_through(self):
+        opts = claude_cli._build_options(
+            model="sonnet",
+            system_prompt=None,
+            permission_mode=None,
+            allowed_tools=None,
+            mcp_config=None,
+            max_turns=None,
+            max_budget_usd=None,
+            cwd=None,
+            thinking={"type": "disabled"},
+        )
+        assert opts.thinking == {"type": "disabled"}
 
 
 class TestPartialMessagesEnabled:
     def test_build_options_enables_partial_messages(self):
         # Partial StreamEvents densify the stream so the idle timer resets
-        # mid-generation. _message_to_event filters them to None, so callers
-        # never see them -- only the idle timer benefits.
+        # mid-generation. The driver ignores their content, so callers never see
+        # them -- only the idle timer benefits.
         opts = claude_cli._build_options(
             model="sonnet",
             system_prompt=None,
@@ -341,6 +314,11 @@ class TestPartialMessagesEnabled:
         assert opts.load_timeout_ms == 5000
 
 
+# ---------------------------------------------------------------------------
+# In-process hang detection: event-idle watchdog
+# ---------------------------------------------------------------------------
+
+
 def _stalling_query(closed_flag):
     """A query() stand-in whose async iterator never yields (hangs forever).
 
@@ -361,59 +339,50 @@ def _stalling_query(closed_flag):
     return _gen
 
 
-class TestIdleTimeout:
+class TestIdleWatchdog:
     def test_idle_timeout_fires_when_stream_stalls(self, monkeypatch):
         closed = {"closed": False}
         monkeypatch.setattr(claude_cli, "query", _stalling_query(closed))
 
         with pytest.raises(RuntimeError, match="idle timeout"):
-            list(claude_cli.stream_sync("/x", model="sonnet", idle_timeout=0.05))
+            _run_agent("Begin.", model="sonnet", idle_timeout=0.05)
 
         # The SDK generator was closed -> subprocess torn down, no leak.
         assert closed["closed"] is True
 
     def test_healthy_stream_completes_within_idle_timeout(self, monkeypatch):
-        # Events arrive promptly (well under the idle window) -> normal completion.
         messages = [
             AssistantMessage(content=[TextBlock(text="hi")], model="m", parent_tool_use_id=None),
-            ResultMessage(
-                subtype="success",
-                duration_ms=10,
-                duration_api_ms=5,
-                is_error=False,
-                num_turns=1,
-                session_id="s1",
-                total_cost_usd=0.0,
-            ),
+            _result(),
         ]
         monkeypatch.setattr(claude_cli, "query", _fake_query(messages))
 
-        events = list(claude_cli.stream_sync("/x", model="sonnet", idle_timeout=5.0))
-        assert [e["type"] for e in events] == ["assistant", "result"]
+        res = _run_agent("Begin.", model="sonnet", idle_timeout=5.0)
+        assert res.ok is True
 
-    def test_idle_timer_resets_on_filtered_messages(self, monkeypatch):
-        # StreamEvents are filtered to None by _message_to_event, but each one
-        # must still RESET the idle timer. We emit several partial events with a
-        # gap shorter than idle_timeout, then a result. If filtered messages did
-        # not reset the timer this would time out; it must complete cleanly.
+    def test_idle_timer_resets_on_partial_stream_events(self, monkeypatch):
+        # StreamEvents carry no result content, but each one must still RESET the
+        # idle timer. We emit several partial events with a gap shorter than
+        # idle_timeout, then a result. If they did not reset the timer this would
+        # time out; it must complete cleanly.
         async def _gen(*, prompt, options, transport=None):
             for _ in range(5):
                 await asyncio.sleep(0.02)
                 yield StreamEvent(uuid="u", session_id="s", event={"type": "partial"})
             await asyncio.sleep(0.02)
-            yield ResultMessage(
-                subtype="success",
-                duration_ms=10,
-                duration_api_ms=5,
-                is_error=False,
-                num_turns=1,
-                session_id="s1",
-                total_cost_usd=0.0,
-            )
+            yield _result()
 
         monkeypatch.setattr(claude_cli, "query", _gen)
 
         # idle_timeout (0.1) > per-event gap (0.02) but < total stream time (0.12),
         # so this only passes if the timer resets on each filtered StreamEvent.
-        events = list(claude_cli.stream_sync("/x", model="sonnet", idle_timeout=0.1))
-        assert [e["type"] for e in events] == ["result"]
+        res = _run_agent("Begin.", model="sonnet", idle_timeout=0.1)
+        assert res.ok is True
+
+    def test_run_sync_idle_timeout_also_fires(self, monkeypatch):
+        # The text path shares the same watchdog.
+        closed = {"closed": False}
+        monkeypatch.setattr(claude_cli, "query", _stalling_query(closed))
+        with pytest.raises(RuntimeError, match="idle timeout"):
+            claude_cli.run_sync("x", model="haiku", idle_timeout=0.05)
+        assert closed["closed"] is True

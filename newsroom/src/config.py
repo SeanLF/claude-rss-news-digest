@@ -46,3 +46,16 @@ MAX_SUMMARY_LENGTH = 200
 
 DEDUP_WINDOW_DAYS = 7  # Days of headline history for deduplication
 DEDUP_SIMILARITY_THRESHOLD = float(os.environ.get("DEDUP_SIMILARITY_THRESHOLD", "0.35"))
+
+# =============================================================================
+# Models
+# =============================================================================
+# Per-stage curation models live in each agent's .claude/agents/<name>.md
+# frontmatter, and --model overrides every stage at runtime. These two cover the
+# choices that aren't stage-bound: the wrapper default (used by the auth health
+# check and as the artifact-attribution fallback) and the standalone weekly recap
+# (a separate Haiku call, distinct from the per-run RECAP stage). Env-overridable
+# so a deploy can change models without a code change.
+
+DEFAULT_MODEL = os.environ.get("DEFAULT_MODEL", "claude-sonnet-4-6")
+RECAP_MODEL = os.environ.get("RECAP_MODEL", "claude-haiku-4-5")

@@ -6,27 +6,30 @@ subscription OAuth / setup-token auth and stays on the Agent-SDK credit. It does
 NOT require ANTHROPIC_API_KEY -- setting one would move billing off the
 subscription credit to pay-as-you-go, so we deliberately never set it here.
 
-Usage:
-    from claude_cli import run_sync, stream_sync   # sync (batch pipelines)
-    from claude_cli import run, stream             # async (web servers)
+Two entry points, both driven by the same async SDK loop:
 
-The public signatures match the previous hand-rolled subprocess wrapper so the
-rest of the pipeline (claude.py, test_prompt.py) keeps working unchanged. The
-streamed events are adapted from the SDK's dataclass message objects into the
-same dict shape the old `--output-format stream-json` NDJSON produced, because
-claude.py inspects events as dicts (event["type"], event["message"]["content"],
-event.get("parent_tool_use_id"), event.get("total_cost_usd"), ...).
+    run_sync(prompt, ...) -> str        # sync text callers (recap, health check, eval judge)
+    run_agent(prompt, ...) -> StageResult  # async core, awaited by the curation orchestrator
+
+The orchestrator awaits ``run_agent`` directly so the whole curation phase runs
+under one event loop (orchestrate.py opens it once via ``asyncio.run``); the only
+sync bridge is ``run_sync`` for the one-shot text callers.
+
+We consume the SDK's dataclass messages directly -- the previous NDJSON adapter
+that reshaped them back into the old `--output-format stream-json` dict shape is
+gone (that wire format belonged to a transport we no longer use). The only thing
+any caller needs from a finished run is the terminal :class:`ResultMessage`,
+distilled into a small :class:`StageResult`; text callers just read its ``text``.
 
 Prompts pass straight through to the CLI. The digest stages drive agents by
 passing a plain prompt ("Begin.") plus the agent body as the system_prompt (see
-orchestrate.py); a prompt beginning with "/" is still interpreted as a slash
-command by the CLI if a caller wants that. setting_sources is left as None, so
-the SDK loads the same user+project+local settings as the CLI.
+orchestrate.py). setting_sources is left as None, so the SDK loads the same
+user+project+local settings as the CLI.
 """
 
 import asyncio
 import logging
-from collections.abc import AsyncGenerator, Generator
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -34,110 +37,39 @@ from claude_agent_sdk import (
     AssistantMessage,
     ClaudeAgentOptions,
     ResultMessage,
-    StreamEvent,
-    SystemMessage,
     TextBlock,
-    ThinkingBlock,
     ThinkingConfig,
-    ToolResultBlock,
-    ToolUseBlock,
-    UserMessage,
     query,
 )
+from config import DEFAULT_MODEL
 
 logger = logging.getLogger(__name__)
 
 
-# ---------------------------------------------------------------------------
-# SDK message -> legacy stream-json dict adaptation
-# ---------------------------------------------------------------------------
-#
-# claude.py consumes events shaped like the CLI's `stream-json` NDJSON:
-#   {"type": "assistant", "message": {"content": [ {block}, ... ]}, ...}
-#   {"type": "user", "parent_tool_use_id": ..., "message": {"content": [...]}}
-#   {"type": "result", "subtype": "success", "total_cost_usd": ..., "duration_ms": ...}
-# The SDK yields dataclasses instead, so we translate each block/message back
-# into that dict form. Keep these in sync with claude.py's expectations.
+@dataclass(frozen=True)
+class StageResult:
+    """Distilled outcome of one completed agent run.
 
-
-def _normalize_content(content: Any) -> Any:
-    """Normalize a content list of SDK blocks/dicts into stream-json block dicts.
-
-    Non-list content is returned unchanged; list items that are already dicts
-    pass through, SDK block dataclasses are converted via ``_block_to_dict``.
+    Built from the SDK's terminal :class:`ResultMessage`; this is everything any
+    caller needs. ``text`` is the final result text (the ResultMessage ``result``
+    field, else the concatenated assistant text). ``usage`` is the SDK token-usage
+    dict that ``usage._usage_row`` turns into a ``run_usage`` row.
     """
-    if isinstance(content, list):
-        return [b if isinstance(b, dict) else _block_to_dict(b) for b in content]
-    return content
 
+    subtype: str | None
+    text: str
+    usage: dict[str, Any]
+    total_cost_usd: float
+    duration_ms: int
 
-def _block_to_dict(block: Any) -> dict[str, Any]:
-    """Convert an SDK content block dataclass into a stream-json block dict."""
-    if isinstance(block, TextBlock):
-        return {"type": "text", "text": block.text}
-    if isinstance(block, ThinkingBlock):
-        return {"type": "thinking", "thinking": block.thinking}
-    if isinstance(block, ToolUseBlock):
-        return {"type": "tool_use", "id": block.id, "name": block.name, "input": block.input}
-    if isinstance(block, ToolResultBlock):
-        # Nested content blocks (rare) -> normalize so shape stays consistent.
-        content = _normalize_content(block.content)
-        return {
-            "type": "tool_result",
-            "tool_use_id": block.tool_use_id,
-            "content": content,
-            "is_error": block.is_error,
-        }
-    # Unknown block type: pass through whatever attributes exist, best-effort.
-    return {"type": getattr(block, "type", "unknown")}
+    @property
+    def ok(self) -> bool:
+        """True only on a successful run (the SDK's authoritative completion signal).
 
-
-def _message_to_event(message: Any) -> dict[str, Any] | None:
-    """Adapt an SDK Message dataclass into the legacy stream-json event dict.
-
-    Returns None for message types that have no legacy-event equivalent (e.g.
-    partial StreamEvents / rate-limit notices), which callers simply skip.
-    """
-    if isinstance(message, AssistantMessage):
-        return {
-            "type": "assistant",
-            "parent_tool_use_id": message.parent_tool_use_id,
-            "message": {
-                "role": "assistant",
-                "model": message.model,
-                "content": [_block_to_dict(b) for b in message.content],
-                "usage": message.usage,
-                "id": message.message_id,
-            },
-        }
-    if isinstance(message, UserMessage):
-        user_content = _normalize_content(message.content)
-        return {
-            "type": "user",
-            "parent_tool_use_id": message.parent_tool_use_id,
-            "message": {"role": "user", "content": user_content},
-        }
-    if isinstance(message, ResultMessage):
-        return {
-            "type": "result",
-            "subtype": message.subtype,
-            "is_error": message.is_error,
-            "duration_ms": message.duration_ms,
-            "num_turns": message.num_turns,
-            "session_id": message.session_id,
-            "total_cost_usd": message.total_cost_usd,
-            "usage": message.usage,
-            "result": message.result,
-        }
-    if isinstance(message, SystemMessage):
-        return {"type": "system", "subtype": message.subtype, **(message.data or {})}
-    if isinstance(message, StreamEvent):
-        # Emitted when include_partial_messages=True (we enable it in
-        # _build_options). No legacy equivalent, so skip -- but the raw message
-        # still resets the event-idle timer in _stream_events before this filter,
-        # which is exactly why we enable partial messages.
-        return None
-    return None
+        A budget cap trips subtype="error_max_budget_usd"; any other non-success
+        subtype is likewise not ok.
+        """
+        return self.subtype == "success"
 
 
 def _build_options(
@@ -160,12 +92,16 @@ def _build_options(
     SDK load the same user+project+local filesystem settings as the CLI. If a
     future SDK release changes the None default to "load nothing", set
     setting_sources=["user","project","local"].
+
+    We never populate ``env`` with credentials: the SDK inherits the process
+    environment (subscription OAuth), and injecting ANTHROPIC_API_KEY would move
+    billing to pay-as-you-go.
     """
     # include_partial_messages makes the SDK emit partial-token StreamEvents -- a
-    # denser event stream. _message_to_event filters StreamEvents to None so
-    # callers are unaffected; the ONLY beneficiary is the event-idle timer in
-    # _stream_events, which resets on every message and so catches a mid-
-    # generation stall (a model that goes silent between turns) much sooner.
+    # denser event stream. The driver ignores their content; the ONLY beneficiary
+    # is the event-idle watchdog in run_agent, which resets on every
+    # message and so catches a mid-generation stall (a model that goes silent
+    # between turns) much sooner.
     kwargs: dict[str, Any] = {"model": model, "include_partial_messages": True}
     if load_timeout_ms is not None:
         # Startup-hang detection: cap how long the SDK waits for the subprocess
@@ -176,7 +112,7 @@ def _build_options(
     if permission_mode is not None:
         kwargs["permission_mode"] = permission_mode
     if allowed_tools is not None:
-        # Legacy API took a comma/space-separated string; SDK wants a list.
+        # Callers pass a comma/space-separated string; the SDK wants a list.
         kwargs["allowed_tools"] = [t for t in allowed_tools.replace(",", " ").split() if t]
     if tools is not None:
         # Availability restriction (which tools EXIST), distinct from allowed_tools
@@ -202,76 +138,45 @@ def _build_options(
     return ClaudeAgentOptions(**kwargs)
 
 
-def _result_text(events: list[dict[str, Any]]) -> str:
-    """Reconstruct the plain-text result from collected stream events.
-
-    Mirrors the CLI's default (non-stream) output: the final assistant text. We
-    prefer the ResultMessage.result if present, else concatenate assistant text.
-    """
-    for event in reversed(events):
-        if event.get("type") == "result":
-            result = event.get("result")
-            if result:
-                return str(result).strip()
-            break
-    # Fallback: stitch assistant text blocks together.
-    texts: list[str] = []
-    for event in events:
-        if event.get("type") != "assistant":
-            continue
-        for block in event.get("message", {}).get("content", []):
-            if isinstance(block, dict) and block.get("type") == "text":
-                texts.append(block["text"])
-    return "\n".join(texts).strip()
-
-
-def _check_result(events: list[dict[str, Any]]) -> None:
-    """Raise RuntimeError if the run ended without a successful result event.
-
-    The ResultMessage with subtype="success" is the authoritative completion
-    signal (same contract as the old NDJSON `result`/`success` event). A budget
-    cap trips subtype="error_max_budget_usd"; surface it as a clear error.
-    """
-    for event in events:
-        if event.get("type") == "result":
-            subtype = event.get("subtype")
-            if subtype == "success":
-                return
-            raise RuntimeError(f"claude failed: result subtype={subtype!r}")
-    raise RuntimeError("claude failed: no result event received")
-
-
 # ---------------------------------------------------------------------------
 # Core async driver
 # ---------------------------------------------------------------------------
 
 
-async def _stream_events(
+async def run_agent(
     prompt: str,
     *,
-    model: str,
-    system_prompt: str | None,
-    permission_mode: str | None,
-    allowed_tools: str | None,
-    mcp_config: str | Path | None,
-    max_turns: int | None,
-    max_budget_usd: float | None,
-    cwd: str | Path | None,
+    model: str = DEFAULT_MODEL,
+    system_prompt: str | None = None,
+    permission_mode: str | None = None,
+    allowed_tools: str | None = None,
+    mcp_config: str | Path | None = None,
+    max_turns: int | None = None,
+    max_budget_usd: float | None = None,
+    cwd: str | Path | None = None,
     idle_timeout: float = 120.0,
     load_timeout_ms: int | None = None,
     tools: list[str] | None = None,
     thinking: ThinkingConfig | None = None,
-) -> AsyncGenerator[dict[str, Any]]:
-    """Drive the SDK query() and yield adapted legacy-shaped event dicts.
+) -> StageResult:
+    """Drive the SDK query() to completion and return a :class:`StageResult`.
+
+    The async core, awaited by the curation orchestrator under its single event
+    loop. It does NOT raise on a non-success subtype (e.g. the max_budget_usd
+    guardrail) -- the caller inspects ``.ok`` and decides, so it can attach a
+    stage-labelled error. There is no overall wall-clock timeout here:
+    ``idle_timeout`` bounds the gap between events and the orchestrator's retry
+    budget bounds the total.
 
     In-process hang detection: each pull from the SDK iterator is bounded by
     ``idle_timeout`` seconds via ``asyncio.wait_for``. The timer resets on EVERY
-    message -- including partial StreamEvents and any other message
-    ``_message_to_event`` filters to None -- so a mid-generation stall (the
-    subprocess goes silent) is caught, not just a never-started run. On idle we
-    raise a RuntimeError whose message contains "idle timeout" (so retry.py
-    treats it as retryable) and close the SDK generator to tear down the
-    subprocess (no leak).
+    message -- including the content-free partial StreamEvents -- so a
+    mid-generation stall (the subprocess goes silent) is caught, not just a
+    never-started run. On idle we raise a RuntimeError whose message contains
+    "idle timeout" (so retry.py treats it as retryable) and close the SDK
+    generator to tear down the subprocess (no leak).
+
+    Raises RuntimeError if the stream ends without a terminal ResultMessage.
     """
     options = _build_options(
         model=model,
@@ -286,6 +191,8 @@ async def _stream_events(
         tools=tools,
         thinking=thinking,
     )
+    text_parts: list[str] = []
+    result: ResultMessage | None = None
     agen = query(prompt=prompt, options=options).__aiter__()
     try:
         while True:
@@ -295,49 +202,44 @@ async def _stream_events(
                 break
             except TimeoutError as e:
                 raise RuntimeError(f"SDK idle timeout: no event in {idle_timeout}s") from e
-            event = _message_to_event(message)
-            if event is not None:
-                yield event
+            if isinstance(message, AssistantMessage):
+                # Collect assistant text as the fallback for ResultMessage.result.
+                text_parts.extend(b.text for b in message.content if isinstance(b, TextBlock))
+            elif isinstance(message, ResultMessage):
+                result = message
+            # Any other message (UserMessage, SystemMessage, partial StreamEvent)
+            # carries nothing a caller needs -- but each one still reset the idle
+            # timer above, which is the whole point of streaming them.
     finally:
         aclose = getattr(agen, "aclose", None)
         if aclose is not None:
             await aclose()
 
-
-def _drain_sync(agen: AsyncGenerator[dict[str, Any]]) -> Generator[dict[str, Any]]:
-    """Synchronously iterate an async generator, yielding each item.
-
-    Runs a dedicated event loop and pumps the async generator one item at a
-    time so the caller sees events as they stream (matching the old behaviour).
-    """
-    loop = asyncio.new_event_loop()
-    try:
-        while True:
-            try:
-                item = loop.run_until_complete(agen.__anext__())
-            except StopAsyncIteration:
-                break
-            yield item
-    finally:
-        loop.run_until_complete(agen.aclose())
-        loop.close()
+    if result is None:
+        raise RuntimeError("claude failed: no result event received")
+    text = (result.result or "\n".join(text_parts)).strip()
+    return StageResult(
+        subtype=result.subtype,
+        text=text,
+        usage=result.usage or {},
+        total_cost_usd=result.total_cost_usd or 0.0,
+        duration_ms=result.duration_ms or 0,
+    )
 
 
 # ---------------------------------------------------------------------------
-# Synchronous API
+# Public API
 # ---------------------------------------------------------------------------
 
 
 def run_sync(
     prompt: str,
     *,
-    model: str = "claude-sonnet-4-6",
+    model: str = DEFAULT_MODEL,
     system_prompt: str | None = None,
-    output_format: str | None = None,
     permission_mode: str | None = None,
     allowed_tools: str | None = None,
     mcp_config: str | Path | None = None,
-    json_schema: str | None = None,
     max_turns: int | None = None,
     max_budget_usd: float | None = None,
     timeout: int = 30,
@@ -349,162 +251,31 @@ def run_sync(
 ) -> str:
     """Run a prompt synchronously and return the full text output.
 
-    `output_format` and `json_schema` are accepted for signature compatibility
-    with the old CLI wrapper but are not used by the SDK path (the SDK returns
-    structured messages; we reconstruct the text result).
+    For text callers (the weekly recap, the auth health check, the eval judge).
+    Raises RuntimeError if the run does not end successfully. ``timeout`` is an
+    overall wall-clock cap on the whole call; ``idle_timeout`` is the per-event
+    hang watchdog inside it.
     """
-    del output_format, json_schema  # accepted for compat; not used by SDK path
-
-    async def _run() -> str:
-        events: list[dict[str, Any]] = []
-        agen = _stream_events(
-            prompt,
-            model=model,
-            system_prompt=system_prompt,
-            permission_mode=permission_mode,
-            allowed_tools=allowed_tools,
-            mcp_config=mcp_config,
-            max_turns=max_turns,
-            max_budget_usd=max_budget_usd,
-            cwd=cwd,
-            idle_timeout=idle_timeout,
-            load_timeout_ms=load_timeout_ms,
-            tools=tools,
-            thinking=thinking,
+    result = asyncio.run(
+        asyncio.wait_for(
+            run_agent(
+                prompt,
+                model=model,
+                system_prompt=system_prompt,
+                permission_mode=permission_mode,
+                allowed_tools=allowed_tools,
+                mcp_config=mcp_config,
+                max_turns=max_turns,
+                max_budget_usd=max_budget_usd,
+                cwd=cwd,
+                idle_timeout=idle_timeout,
+                load_timeout_ms=load_timeout_ms,
+                tools=tools,
+                thinking=thinking,
+            ),
+            timeout=timeout,
         )
-        async for event in agen:
-            events.append(event)
-        _check_result(events)
-        return _result_text(events)
-
-    return asyncio.run(asyncio.wait_for(_run(), timeout=timeout))
-
-
-def stream_sync(
-    prompt: str,
-    *,
-    model: str = "claude-sonnet-4-6",
-    system_prompt: str | None = None,
-    permission_mode: str | None = None,
-    allowed_tools: str | None = None,
-    mcp_config: str | Path | None = None,
-    max_turns: int | None = None,
-    max_budget_usd: float | None = None,
-    cwd: str | Path | None = None,
-    idle_timeout: float = 120.0,
-    load_timeout_ms: int | None = None,
-    tools: list[str] | None = None,
-    thinking: ThinkingConfig | None = None,
-) -> Generator[dict[str, Any]]:
-    """Stream a prompt synchronously, yielding legacy-shaped event dicts.
-
-    The ResultMessage with subtype="success" is the authoritative completion
-    signal; callers (claude.py) inspect it for cost/duration and to detect
-    non-success endings (including the max_budget_usd guardrail tripping).
-
-    ``idle_timeout`` bounds the gap between SDK events (in-process hang
-    detection); an idle stall raises a retryable RuntimeError. ``load_timeout_ms``
-    bounds subprocess startup (None -> SDK default).
-    """
-    agen = _stream_events(
-        prompt,
-        model=model,
-        system_prompt=system_prompt,
-        permission_mode=permission_mode,
-        allowed_tools=allowed_tools,
-        mcp_config=mcp_config,
-        max_turns=max_turns,
-        max_budget_usd=max_budget_usd,
-        cwd=cwd,
-        idle_timeout=idle_timeout,
-        load_timeout_ms=load_timeout_ms,
-        tools=tools,
-        thinking=thinking,
     )
-    yield from _drain_sync(agen)
-
-
-# ---------------------------------------------------------------------------
-# Async API
-# ---------------------------------------------------------------------------
-
-
-async def run(
-    prompt: str,
-    *,
-    model: str = "claude-sonnet-4-6",
-    system_prompt: str | None = None,
-    output_format: str | None = None,
-    permission_mode: str | None = None,
-    allowed_tools: str | None = None,
-    mcp_config: str | Path | None = None,
-    json_schema: str | None = None,
-    max_turns: int | None = None,
-    max_budget_usd: float | None = None,
-    timeout: int = 600,
-    cwd: str | Path | None = None,
-    idle_timeout: float = 120.0,
-    load_timeout_ms: int | None = None,
-    tools: list[str] | None = None,
-    thinking: ThinkingConfig | None = None,
-) -> str:
-    """Run a prompt asynchronously and return the full text output."""
-    del output_format, json_schema  # accepted for compat; not used by SDK path
-
-    async def _run() -> str:
-        events: list[dict[str, Any]] = []
-        async for event in _stream_events(
-            prompt,
-            model=model,
-            system_prompt=system_prompt,
-            permission_mode=permission_mode,
-            allowed_tools=allowed_tools,
-            mcp_config=mcp_config,
-            max_turns=max_turns,
-            max_budget_usd=max_budget_usd,
-            cwd=cwd,
-            idle_timeout=idle_timeout,
-            load_timeout_ms=load_timeout_ms,
-            tools=tools,
-            thinking=thinking,
-        ):
-            events.append(event)
-        _check_result(events)
-        return _result_text(events)
-
-    return await asyncio.wait_for(_run(), timeout=timeout)
-
-
-async def stream(
-    prompt: str,
-    *,
-    model: str = "claude-sonnet-4-6",
-    system_prompt: str | None = None,
-    permission_mode: str | None = None,
-    allowed_tools: str | None = None,
-    mcp_config: str | Path | None = None,
-    max_turns: int | None = None,
-    max_budget_usd: float | None = None,
-    cwd: str | Path | None = None,
-    idle_timeout: float = 120.0,
-    load_timeout_ms: int | None = None,
-    tools: list[str] | None = None,
-    thinking: ThinkingConfig | None = None,
-) -> AsyncGenerator[dict[str, Any]]:
-    """Stream a prompt asynchronously, yielding legacy-shaped event dicts."""
-    async for event in _stream_events(
-        prompt,
-        model=model,
-        system_prompt=system_prompt,
-        permission_mode=permission_mode,
-        allowed_tools=allowed_tools,
-        mcp_config=mcp_config,
-        max_turns=max_turns,
-        max_budget_usd=max_budget_usd,
-        cwd=cwd,
-        idle_timeout=idle_timeout,
-        load_timeout_ms=load_timeout_ms,
-        tools=tools,
-        thinking=thinking,
-    ):
-        yield event
+    if not result.ok:
+        raise RuntimeError(f"claude failed: result subtype={result.subtype!r}")
+    return result.text

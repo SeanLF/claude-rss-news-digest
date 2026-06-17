@@ -1,7 +1,9 @@
 """Claude invocations for the news digest pipeline."""
 
+import asyncio
 import logging
 
+import config  # referenced at call time so model choices stay env/monkeypatch-overridable
 from claude_agent_sdk import ClaudeSDKError
 from claude_cli import run_sync
 from config import CLAUDE_INPUT_DIR
@@ -24,8 +26,14 @@ def generate_selections(model: str | None = None, resume: bool = False) -> list[
     Subagents write intermediate JSON files; assembly of selections.json happens
     in Python after this returns (see merge.py). The returned rows are recorded
     into ``run_usage`` by the caller (run.py).
+
+    This is the pipeline's single sync/async boundary: ``orchestrate_selections``
+    is async (the curation phase awaits the SDK directly under one event loop), and
+    this one ``asyncio.run`` opens that loop and returns to the sync pipeline. The
+    surrounding pipeline (db, feeds, render, email) is genuinely blocking, so the
+    async island stays scoped to curation rather than going viral up to run.py.
     """
-    return orchestrate_selections(claude_input_dir=CLAUDE_INPUT_DIR, model_override=model, resume=resume)
+    return asyncio.run(orchestrate_selections(claude_input_dir=CLAUDE_INPUT_DIR, model_override=model, resume=resume))
 
 
 def generate_weekly_recap(title_lines: str) -> str:
@@ -42,7 +50,7 @@ def generate_weekly_recap(title_lines: str) -> str:
     # it runs BEFORE selection. It must fail fast on a transient error rather than
     # burn the 4h wall-clock budget here -- riding out an outage is selection's job.
     return with_retry(
-        lambda: run_sync(prompt, model="claude-haiku-4-5", max_turns=1, timeout=120),
+        lambda: run_sync(prompt, model=config.RECAP_MODEL, max_turns=1, timeout=120),
         label="weekly_recap",
         max_attempts=3,
     )
@@ -52,7 +60,7 @@ def health_check() -> int:
     """Verify Claude auth is working. Returns 0 on success, 1 on failure."""
     logger.info("Running Claude auth health check...")
     try:
-        result = run_sync("respond with 'ok'", max_turns=1, timeout=60)
+        result = run_sync("respond with 'ok'", model=config.DEFAULT_MODEL, max_turns=1, timeout=60)
         if "ok" in result.lower():
             logger.info("Health check passed")
             return 0

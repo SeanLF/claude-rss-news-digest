@@ -1,10 +1,16 @@
 """Tests for orchestrate.py: deterministic Python orchestration of subagents.
 
 The Claude Agent SDK cannot run inside this environment (CLAUDECODE=1 blocks
-nested `claude -p`), so every test mocks ``claude_cli.stream_sync`` and never
-makes a real model call. End-to-end validation happens later in Docker.
+nested `claude -p`), so every test mocks ``claude_cli.run_agent`` and never makes
+a real model call. The curation phase is async (one event loop, opened once by
+claude.generate_selections); these sync test bodies drive the async functions via
+asyncio.run, so no pytest-asyncio is needed. ``run_agent`` returns a
+``claude_cli.StageResult``; orchestrate reads ``.ok`` / ``.usage`` /
+``.total_cost_usd`` / ``.duration_ms`` off it. End-to-end validation happens later
+in Docker.
 """
 
+import asyncio
 import json
 import sys
 from pathlib import Path
@@ -14,26 +20,46 @@ import pytest
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 import orchestrate
+from claude_cli import StageResult
 
 REPO_ROOT = Path(__file__).parent.parent.parent
 CLUSTER_SPEC = REPO_ROOT / ".claude" / "agents" / "cluster.md"
 
 
-def _result_event(*, usage=None, cost=0.05, duration_ms=1000, subtype="success"):
-    """Build a terminal `result` event like the SDK wrapper yields."""
-    return {
-        "type": "result",
-        "subtype": subtype,
-        "total_cost_usd": cost,
-        "duration_ms": duration_ms,
-        "usage": usage
+def _stage_result(*, usage=None, cost=0.05, duration_ms=1000, subtype="success"):
+    """Build a StageResult like ``claude_cli.run_agent`` resolves to."""
+    return StageResult(
+        subtype=subtype,
+        text="",
+        usage=usage
         or {
             "input_tokens": 1000,
             "output_tokens": 200,
             "cache_creation_input_tokens": 500,
             "cache_read_input_tokens": 8000,
         },
-    }
+        total_cost_usd=cost,
+        duration_ms=duration_ms,
+    )
+
+
+def _async_return(result):
+    """An async ``run_agent`` stand-in that just resolves to ``result``."""
+
+    async def _f(*_a, **_k):
+        return result
+
+    return _f
+
+
+def _run_stage(*a, **k):
+    """Drive the async ``run_stage`` from a sync test body."""
+    return asyncio.run(orchestrate.run_stage(*a, **k))
+
+
+def _orchestrate(*a, **k):
+    """Drive the async ``orchestrate_selections`` from a sync test body."""
+    return asyncio.run(orchestrate.orchestrate_selections(*a, **k))
 
 
 # --------------------------------------------------------------------------- #
@@ -92,13 +118,9 @@ class TestRunStage:
         out = tmp_path / "clusters.json"
         out.write_text(json.dumps({"clusters": [{"story": "x", "article_ids": ["A1"]}]}))
 
-        monkeypatch.setattr(
-            orchestrate.claude_cli,
-            "stream_sync",
-            lambda *a, **k: iter([_result_event()]),
-        )
+        monkeypatch.setattr(orchestrate.claude_cli, "run_agent", _async_return(_stage_result()))
 
-        row = orchestrate.run_stage(
+        row = _run_stage(
             _spec(),
             label="cluster",
             output_path=out,
@@ -122,13 +144,13 @@ class TestRunStage:
         out.write_text("{}")
         seen = {}
 
-        def fake_stream(*_a, **k):
+        async def fake_run(*_a, **k):
             seen["model"] = k["model"]
-            return iter([_result_event()])
+            return _stage_result()
 
-        monkeypatch.setattr(orchestrate.claude_cli, "stream_sync", fake_stream)
+        monkeypatch.setattr(orchestrate.claude_cli, "run_agent", fake_run)
 
-        row = orchestrate.run_stage(
+        row = _run_stage(
             _spec(),
             label="cluster",
             output_path=out,
@@ -143,14 +165,14 @@ class TestRunStage:
     def test_retries_once_then_raises_on_invalid_output(self, tmp_path, monkeypatch):
         calls = {"n": 0}
 
-        def fake_stream(*_a, **_k):
+        async def fake_run(*_a, **_k):
             calls["n"] += 1
-            return iter([_result_event()])
+            return _stage_result()
 
-        monkeypatch.setattr(orchestrate.claude_cli, "stream_sync", fake_stream)
+        monkeypatch.setattr(orchestrate.claude_cli, "run_agent", fake_run)
 
         with pytest.raises(RuntimeError, match="failed after retry"):
-            orchestrate.run_stage(
+            _run_stage(
                 _spec(),
                 label="cluster",
                 output_path=tmp_path / "clusters.json",
@@ -165,21 +187,21 @@ class TestRunStage:
         out = tmp_path / "clusters.json"
         calls = {"n": 0}
 
-        def fake_stream(*_a, **_k):
+        async def fake_run(*_a, **_k):
             calls["n"] += 1
             if calls["n"] == 1:
                 # First attempt: write nothing -> validator fails.
-                return iter([_result_event()])
+                return _stage_result()
             out.write_text(json.dumps({"clusters": [1]}))
-            return iter([_result_event()])
+            return _stage_result()
 
-        monkeypatch.setattr(orchestrate.claude_cli, "stream_sync", fake_stream)
+        monkeypatch.setattr(orchestrate.claude_cli, "run_agent", fake_run)
 
         def validate(_dir):
             if not out.exists():
                 raise ValueError("missing")
 
-        row = orchestrate.run_stage(
+        row = _run_stage(
             _spec(),
             label="cluster",
             output_path=out,
@@ -191,14 +213,15 @@ class TestRunStage:
         assert calls["n"] == 2
         assert row["subagent"] == "cluster"
 
-    def test_no_result_event_raises(self, tmp_path, monkeypatch):
-        monkeypatch.setattr(
-            orchestrate.claude_cli,
-            "stream_sync",
-            lambda *a, **k: iter([{"type": "assistant", "message": {"content": []}}]),
-        )
+    def test_invocation_error_raises(self, tmp_path, monkeypatch):
+        # run_agent raising (e.g. "no result event") propagates as a stage failure
+        # after the once-retry.
+        async def fake_run(*_a, **_k):
+            raise RuntimeError("claude failed: no result event received")
+
+        monkeypatch.setattr(orchestrate.claude_cli, "run_agent", fake_run)
         with pytest.raises(RuntimeError, match="failed after retry"):
-            orchestrate.run_stage(
+            _run_stage(
                 _spec(),
                 label="cluster",
                 output_path=tmp_path / "clusters.json",
@@ -211,11 +234,11 @@ class TestRunStage:
     def test_non_success_subtype_raises(self, tmp_path, monkeypatch):
         monkeypatch.setattr(
             orchestrate.claude_cli,
-            "stream_sync",
-            lambda *a, **k: iter([_result_event(subtype="error_max_budget_usd")]),
+            "run_agent",
+            _async_return(_stage_result(subtype="error_max_budget_usd")),
         )
         with pytest.raises(RuntimeError, match="failed after retry"):
-            orchestrate.run_stage(
+            _run_stage(
                 _spec(),
                 label="cluster",
                 output_path=tmp_path / "clusters.json",
@@ -224,6 +247,30 @@ class TestRunStage:
                 cwd=None,
                 claude_input_dir=tmp_path,
             )
+
+    def test_unexpected_exception_fails_loud_without_retry(self, tmp_path, monkeypatch):
+        # A non-retryable, non-(RuntimeError|ValueError) error is a programming bug,
+        # not a transient outage: it must propagate immediately and unwrapped -- NOT
+        # be retried and NOT be folded into "failed after retry". Fail loud at the
+        # boundary so the bug surfaces instead of masquerading as a flaky stage.
+        calls = {"n": 0}
+
+        async def fake_run(*_a, **_k):
+            calls["n"] += 1
+            raise KeyError("unexpected bug")
+
+        monkeypatch.setattr(orchestrate.claude_cli, "run_agent", fake_run)
+        with pytest.raises(KeyError, match="unexpected bug"):
+            _run_stage(
+                _spec(),
+                label="cluster",
+                output_path=tmp_path / "clusters.json",
+                validate=_ok_validator,
+                model_override=None,
+                cwd=None,
+                claude_input_dir=tmp_path,
+            )
+        assert calls["n"] == 1  # raised on first attempt, never retried
 
 
 # --------------------------------------------------------------------------- #
@@ -279,13 +326,13 @@ class TestOrchestrateSelections:
     )
 
     def _fake_writer(self, claude_input_dir):
-        """Return a stream_sync stand-in that writes whichever output is due.
+        """Return a run_agent stand-in that writes whichever output is due.
 
         Identifies the running agent by a unique phrase in its system prompt,
-        writes that stage's output file, then yields a success result.
+        writes that stage's output file, then resolves to a success StageResult.
         """
 
-        def fake_stream(_prompt, *, system_prompt, **_k):
+        async def fake_run(_prompt, *, system_prompt, **_k):
             for phrase, filename, payload in self._STAGE_OUTPUTS:
                 if phrase in system_prompt:
                     path = claude_input_dir / filename
@@ -294,16 +341,16 @@ class TestOrchestrateSelections:
                     else:
                         path.write_text(json.dumps(payload))
                     break
-            return iter([_result_event()])
+            return _stage_result()
 
-        return fake_stream
+        return fake_run
 
     def test_returns_five_rows_in_order(self, tmp_path, monkeypatch):
-        monkeypatch.setattr(orchestrate.claude_cli, "stream_sync", self._fake_writer(tmp_path))
+        monkeypatch.setattr(orchestrate.claude_cli, "run_agent", self._fake_writer(tmp_path))
         # Point the orchestrator's spec loader at the real agent files.
         monkeypatch.setattr(orchestrate, "_AGENTS_DIR", REPO_ROOT / ".claude" / "agents")
 
-        rows = orchestrate.orchestrate_selections(claude_input_dir=tmp_path)
+        rows = _orchestrate(claude_input_dir=tmp_path)
 
         assert [r["subagent"] for r in rows] == ["cluster", "recap", "select", "write", "coherence"]
         assert all(r["api_cost_usd"] >= 0 for r in rows)
@@ -311,19 +358,19 @@ class TestOrchestrateSelections:
     def test_raises_if_a_stage_never_validates(self, tmp_path, monkeypatch):
         # cluster writes a valid file, but the recap agent writes nothing ->
         # recap fails after its retry and the run aborts.
-        def fake_stream(_prompt, *, system_prompt, **_k):
+        async def fake_run(_prompt, *, system_prompt, **_k):
             if "news clustering agent" in system_prompt:
                 (tmp_path / "clusters.json").write_text(
                     json.dumps({"clusters": [{"story": "x", "article_ids": ["A1"]}]})
                 )
             # recap agent intentionally writes nothing.
-            return iter([_result_event()])
+            return _stage_result()
 
-        monkeypatch.setattr(orchestrate.claude_cli, "stream_sync", fake_stream)
+        monkeypatch.setattr(orchestrate.claude_cli, "run_agent", fake_run)
         monkeypatch.setattr(orchestrate, "_AGENTS_DIR", REPO_ROOT / ".claude" / "agents")
 
         with pytest.raises(RuntimeError, match="recap stage failed"):
-            orchestrate.orchestrate_selections(claude_input_dir=tmp_path)
+            _orchestrate(claude_input_dir=tmp_path)
 
 
 # --------------------------------------------------------------------------- #
@@ -338,12 +385,16 @@ class TestChaosTransientOutage:
         return orchestrate.parse_agent_spec(CLUSTER_SPEC)
 
     def _no_backoff_sleep(self, monkeypatch):
-        # Skip the real exponential-backoff sleeps so the test is instant, and
-        # drive a fake monotonic clock so the wall-clock retry budget is reached
-        # deterministically without waiting hours.
+        # Skip the real async backoff sleeps so the test is instant, and drive a
+        # fake monotonic clock so the wall-clock retry budget is reached
+        # deterministically without waiting hours. The async path sleeps via
+        # asyncio.sleep (not time.sleep), so that is what we stub.
         import retry
 
-        monkeypatch.setattr(retry.time, "sleep", lambda *_a, **_k: None)
+        async def _fake_sleep(_delay):
+            return None
+
+        monkeypatch.setattr(retry.asyncio, "sleep", _fake_sleep)
         clock = {"t": 0.0}
 
         def fake_monotonic():
@@ -360,17 +411,17 @@ class TestChaosTransientOutage:
         self._no_backoff_sleep(monkeypatch)
         calls = {"n": 0}
 
-        def fake_stream(*_a, **_k):
+        async def fake_run(*_a, **_k):
             calls["n"] += 1
             if calls["n"] <= 2:  # outage for the first two invocations
                 raise RuntimeError("API Error: 529 overloaded_error")
             (tmp_path / "clusters.json").write_text(
                 json.dumps({"clusters": [{"story": "S", "article_ids": ["A1"]}]}), encoding="utf-8"
             )
-            yield _result_event()
+            return _stage_result()
 
-        monkeypatch.setattr(orchestrate.claude_cli, "stream_sync", fake_stream)
-        row = orchestrate.run_stage(
+        monkeypatch.setattr(orchestrate.claude_cli, "run_agent", fake_run)
+        row = _run_stage(
             self._spec(),
             label="cluster",
             output_path=tmp_path / "clusters.json",
@@ -387,14 +438,13 @@ class TestChaosTransientOutage:
         self._no_backoff_sleep(monkeypatch)
         calls = {"n": 0}
 
-        def fake_stream(*_a, **_k):
+        async def fake_run(*_a, **_k):
             calls["n"] += 1
             raise RuntimeError("529 overloaded")
-            yield  # pragma: no cover -- makes this a generator
 
-        monkeypatch.setattr(orchestrate.claude_cli, "stream_sync", fake_stream)
+        monkeypatch.setattr(orchestrate.claude_cli, "run_agent", fake_run)
         with pytest.raises(RuntimeError, match="failed after retry"):
-            orchestrate.run_stage(
+            _run_stage(
                 self._spec(),
                 label="cluster",
                 output_path=tmp_path / "clusters.json",
@@ -403,7 +453,7 @@ class TestChaosTransientOutage:
                 cwd=None,
                 claude_input_dir=tmp_path,
             )
-        # Bounded + loud: with_retry rides the wall-clock budget (fake clock
+        # Bounded + loud: with_retry_async rides the wall-clock budget (fake clock
         # advances ~5min/call) then gives up, and the outer loop retries once.
         # The budget is finite, so the invocation count is bounded -- no infinite
         # backoff storm and no silent pass.
@@ -415,7 +465,7 @@ class TestChaosTransientOutage:
         self._no_backoff_sleep(monkeypatch)
         calls = {"n": 0}
 
-        def fake_stream(*_a, **_k):
+        async def fake_run(*_a, **_k):
             calls["n"] += 1
             if calls["n"] == 1:
                 # Mirror claude_cli's hang detector: a RuntimeError whose message
@@ -424,10 +474,10 @@ class TestChaosTransientOutage:
             (tmp_path / "clusters.json").write_text(
                 json.dumps({"clusters": [{"story": "S", "article_ids": ["A1"]}]}), encoding="utf-8"
             )
-            yield _result_event()
+            return _stage_result()
 
-        monkeypatch.setattr(orchestrate.claude_cli, "stream_sync", fake_stream)
-        row = orchestrate.run_stage(
+        monkeypatch.setattr(orchestrate.claude_cli, "run_agent", fake_run)
+        row = _run_stage(
             self._spec(),
             label="cluster",
             output_path=tmp_path / "clusters.json",
@@ -444,14 +494,13 @@ class TestChaosTransientOutage:
         self._no_backoff_sleep(monkeypatch)
         calls = {"n": 0}
 
-        def fake_stream(*_a, **_k):
+        async def fake_run(*_a, **_k):
             calls["n"] += 1
             raise RuntimeError("authentication failed")  # not in retryable patterns
-            yield  # pragma: no cover
 
-        monkeypatch.setattr(orchestrate.claude_cli, "stream_sync", fake_stream)
+        monkeypatch.setattr(orchestrate.claude_cli, "run_agent", fake_run)
         with pytest.raises(RuntimeError, match="failed after retry"):
-            orchestrate.run_stage(
+            _run_stage(
                 self._spec(),
                 label="cluster",
                 output_path=tmp_path / "clusters.json",

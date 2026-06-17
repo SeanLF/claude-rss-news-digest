@@ -28,6 +28,7 @@ from config import (
     CLAUDE_INPUT_DIR,
     DATA_DIR,
     DB_PATH,
+    DEFAULT_MODEL,
     FETCHED_DIR,
     HEALTH_ALERT_THRESHOLD,
     MIGRATIONS_DIR,
@@ -402,7 +403,7 @@ Examples:
         clusters_path = CLAUDE_INPUT_DIR / "clusters.json"
         if clusters_path.exists():
             db.archive_clusters(clusters_path.read_text())
-        db.archive_run_artifacts(CLAUDE_INPUT_DIR, models={"select": args.model or "claude-sonnet-4-6"})
+        db.archive_run_artifacts(CLAUDE_INPUT_DIR, models={"select": args.model or DEFAULT_MODEL})
         selections = resolve_article_ids(selections)
 
         if args.select_only:

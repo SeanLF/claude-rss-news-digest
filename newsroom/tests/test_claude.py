@@ -1,9 +1,10 @@
 """Tests for claude.py retry behaviour on transient API failures."""
 
+import asyncio
 import logging
 import sys
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from claude_agent_sdk import ClaudeSDKError, ProcessError
@@ -218,6 +219,118 @@ class TestWithRetryWallClockBudget:
         assert retry.is_retryable(RuntimeError("SDK idle timeout: no event in 120.0s"))
 
 
+class TestWithRetryAsync:
+    """``with_retry_async`` is the async sibling of ``with_retry`` -- same backoff
+    decision logic, but it ``await``s an async fn and ``await asyncio.sleep``s.
+    The async orchestration path (orchestrate.run_stage) uses it so the whole
+    curation phase runs under one event loop. We drive it with asyncio.run and
+    stub the async sleep so there are no real waits.
+    """
+
+    def _no_sleep(self, monkeypatch):
+        async def _fake_sleep(_delay):
+            return None
+
+        monkeypatch.setattr(retry.asyncio, "sleep", _fake_sleep)
+
+    def _fake_clock(self, monkeypatch, step=300.0):
+        clock = {"t": 0.0}
+
+        def fake_monotonic():
+            clock["t"] += step
+            return clock["t"]
+
+        monkeypatch.setattr(retry.time, "monotonic", fake_monotonic)
+        return clock
+
+    def test_returns_first_try_when_successful(self, monkeypatch):
+        self._no_sleep(monkeypatch)
+        calls = []
+
+        async def fn():
+            calls.append(1)
+            return "ok"
+
+        assert asyncio.run(retry.with_retry_async(fn, label="t")) == "ok"
+        assert calls == [1]
+
+    def test_raises_immediately_on_non_retryable(self, monkeypatch):
+        self._no_sleep(monkeypatch)
+
+        async def fn():
+            raise RuntimeError("authentication failed")
+
+        with pytest.raises(RuntimeError, match="authentication failed"):
+            asyncio.run(retry.with_retry_async(fn, label="t"))
+
+    def test_retries_on_overloaded_then_succeeds(self, monkeypatch):
+        self._no_sleep(monkeypatch)
+        slept = []
+
+        async def _count_sleep(delay):
+            slept.append(delay)
+
+        monkeypatch.setattr(retry.asyncio, "sleep", _count_sleep)
+        calls = []
+
+        async def fn():
+            calls.append(1)
+            if len(calls) < 3:
+                raise RuntimeError("529 overloaded_error")
+            return "ok"
+
+        assert asyncio.run(retry.with_retry_async(fn, label="t")) == "ok"
+        assert len(calls) == 3
+        assert len(slept) == 2
+
+    def test_gives_up_after_max_attempts(self, monkeypatch):
+        self._no_sleep(monkeypatch)
+        calls = []
+
+        async def fn():
+            calls.append(1)
+            raise RuntimeError("overloaded")
+
+        with pytest.raises(RuntimeError, match="overloaded"):
+            asyncio.run(retry.with_retry_async(fn, label="t", max_attempts=3))
+        assert len(calls) == 3
+
+    def test_gives_up_after_max_elapsed_and_raises_last_error(self, monkeypatch):
+        self._no_sleep(monkeypatch)
+        self._fake_clock(monkeypatch, step=300.0)
+
+        async def fn():
+            raise RuntimeError("529 overloaded budget-test")
+
+        with pytest.raises(RuntimeError, match="budget-test"):
+            asyncio.run(retry.with_retry_async(fn, label="t", max_elapsed=600.0))
+
+    def test_explicit_deadline_overrides_max_elapsed(self, monkeypatch):
+        self._no_sleep(monkeypatch)
+        self._fake_clock(monkeypatch, step=300.0)
+        monkeypatch.setattr(retry.random, "uniform", lambda *_a, **_k: 0.0)
+
+        async def fn():
+            raise RuntimeError("529 overloaded deadline-test")
+
+        with pytest.raises(RuntimeError, match="deadline-test"):
+            asyncio.run(retry.with_retry_async(fn, label="t", max_elapsed=10**9, deadline=601.0))
+
+    def test_on_retry_fires_between_attempts(self, monkeypatch):
+        self._no_sleep(monkeypatch)
+        calls = []
+        fired = []
+
+        async def fn():
+            calls.append(1)
+            if len(calls) < 3:
+                raise RuntimeError("overloaded")
+            return "ok"
+
+        asyncio.run(retry.with_retry_async(fn, label="t", on_retry=lambda: fired.append(len(calls))))
+        assert fired == [1, 2]
+
+
 class TestRetryOnRealSdkErrors:
     """Regression: the Agent SDK raises ClaudeSDKError (NOT RuntimeError) on
     529/overload. _with_retry's except clause must catch the SDK type, or the
@@ -276,15 +389,52 @@ class TestRetryOnRealSdkErrors:
         assert mock_sleep.call_count == 0
 
 
-class TestGenerateSelections:
-    """generate_selections now delegates to orchestrate.orchestrate_selections.
-
-    Per-stage retry/validation lives in orchestrate (see test_orchestrate.py);
-    here we only assert the delegation contract: rows are returned, the model
-    override + CLAUDE_INPUT_DIR are passed through, and errors propagate.
+class TestModelConfig:
+    """Model selection is centralized in config.py (env-overridable), not hardcoded
+    at the call sites. Per-stage curation models still live in agent frontmatter;
+    these cover the two standalone calls (weekly recap, health check) and the
+    config defaults.
     """
 
-    @patch("claude.orchestrate_selections")
+    def test_config_exposes_model_defaults(self):
+        import config
+
+        assert config.DEFAULT_MODEL == "claude-sonnet-4-6"
+        assert config.RECAP_MODEL == "claude-haiku-4-5"
+
+    @patch("claude.run_sync")
+    def test_weekly_recap_uses_configured_recap_model(self, mock_run_sync, monkeypatch):
+        monkeypatch.setattr(claude.config, "RECAP_MODEL", "sentinel-recap-model")
+        mock_run_sync.return_value = "a recap"
+
+        claude.generate_weekly_recap("some titles")
+
+        _, kwargs = mock_run_sync.call_args
+        assert kwargs["model"] == "sentinel-recap-model"
+
+    @patch("claude.run_sync")
+    def test_health_check_uses_configured_default_model(self, mock_run_sync, monkeypatch):
+        monkeypatch.setattr(claude.config, "DEFAULT_MODEL", "sentinel-default-model")
+        mock_run_sync.return_value = "ok"
+
+        assert claude.health_check() == 0
+
+        _, kwargs = mock_run_sync.call_args
+        assert kwargs["model"] == "sentinel-default-model"
+
+
+class TestGenerateSelections:
+    """generate_selections delegates to the async orchestrate.orchestrate_selections.
+
+    It is the single sync/async boundary: a lone ``asyncio.run`` opening one event
+    loop for the whole curation phase. orchestrate_selections is a coroutine, so
+    these tests patch it with an AsyncMock. Per-stage retry/validation lives in
+    orchestrate (see test_orchestrate.py); here we only assert the delegation
+    contract: rows are returned, the model override + CLAUDE_INPUT_DIR are passed
+    through, and errors propagate across the boundary.
+    """
+
+    @patch("claude.orchestrate_selections", new_callable=AsyncMock)
     def test_returns_usage_rows_and_passes_model(self, mock_orchestrate):
         rows = [{"subagent": "cluster", "api_cost_usd": 0.1}]
         mock_orchestrate.return_value = rows
@@ -296,7 +446,7 @@ class TestGenerateSelections:
         assert kwargs["model_override"] == "claude-sonnet-4-6"
         assert kwargs["claude_input_dir"] == claude.CLAUDE_INPUT_DIR
 
-    @patch("claude.orchestrate_selections")
+    @patch("claude.orchestrate_selections", new_callable=AsyncMock)
     def test_default_model_is_none(self, mock_orchestrate):
         mock_orchestrate.return_value = []
 
@@ -305,7 +455,7 @@ class TestGenerateSelections:
         _, kwargs = mock_orchestrate.call_args
         assert kwargs["model_override"] is None
 
-    @patch("claude.orchestrate_selections")
+    @patch("claude.orchestrate_selections", new_callable=AsyncMock)
     def test_stage_failure_propagates(self, mock_orchestrate):
         mock_orchestrate.side_effect = RuntimeError("cluster stage failed after retry")
 

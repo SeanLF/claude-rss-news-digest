@@ -8,7 +8,7 @@ of nondeterminism. We invoke each agent directly, in order, from Python.
 Each agent under `.claude/agents/<name>.md` is self-contained: YAML frontmatter
 (name, tools, model, ...) plus a markdown body that is a complete system prompt.
 We parse the spec, then drive the agent through the SDK wrapper
-(`claude_cli.stream_sync`) with:
+(`await claude_cli.run_agent`) with:
 
   prompt          = "Begin."
   system_prompt   = the agent's markdown body
@@ -16,14 +16,16 @@ We parse the spec, then drive the agent through the SDK wrapper
   allowed_tools   = "Read Write" (from frontmatter `tools: Read, Write`)
   permission_mode = "acceptEdits"
 
+The wrapper returns a `claude_cli.StageResult` (the SDK's terminal ResultMessage
+distilled to subtype/text/usage/cost/duration); we read it directly.
+
 File handoff is unchanged: each agent reads/writes JSON files under
 `/app/data/claude_input` exactly as before. After COHERENCE, the existing Python
 (`merge.assemble_selections`) takes over -- this module does NOT touch that.
 
-Per-stage usage is captured directly from each agent's terminal `result` event
-(its `usage` dict) and turned into a `run_usage` row via `usage._usage_row` /
-`usage._compute_cost`, so the recorded rows stay identical in shape and metric
-to the previous JSONL-parsing path.
+Per-stage usage is captured directly from the StageResult's `usage` dict and
+turned into a `run_usage` row via `usage._usage_row` / `usage._compute_cost`, so
+the recorded rows stay identical in shape and metric to the previous path.
 """
 
 from __future__ import annotations
@@ -37,7 +39,7 @@ from typing import Any
 
 import claude_cli
 from claude_agent_sdk import ThinkingConfig
-from retry import with_retry
+from retry import with_retry_async
 from usage import _usage_row
 
 logger = logging.getLogger(__name__)
@@ -84,9 +86,10 @@ _STAGE_RETRY_BUDGET_S = 14400
 _IDLE_TIMEOUT_S = 120.0
 
 # Stage order is fixed. (subagent_label, agent_spec_name, output_filename, validator).
-# TODO: cluster and recap are independent -- they can be run in parallel once we
-# have a safe concurrency story for stream_sync (separate event loops / threads).
-# Kept sequential for v1 to keep the control flow trivially correct.
+# TODO: cluster and recap are independent -- now that the phase runs under one
+# event loop they can be `asyncio.gather`ed once we confirm the SDK is safe to
+# drive concurrently (two live `claude` subprocesses). Kept sequential for now to
+# keep the control flow trivially correct.
 
 
 @dataclass(frozen=True)
@@ -206,25 +209,25 @@ _STAGES: tuple[tuple[str, str, str, Callable[[Path], None]], ...] = (
 # --------------------------------------------------------------------------- #
 
 
-def _invoke_agent(
+async def _invoke_agent(
     spec: AgentSpec,
     *,
     model: str,
     cwd: str | Path | None,
     idle_timeout: float = _IDLE_TIMEOUT_S,
-) -> dict[str, Any]:
-    """Drive one agent to completion and return its terminal result event.
+) -> claude_cli.StageResult:
+    """Drive one agent to completion and return its :class:`StageResult`.
 
-    Raises RuntimeError (mirroring ``claude_cli._check_result`` semantics) if
-    the stream ends without a result event or with a non-success subtype.
-    ``idle_timeout`` bounds the gap between SDK events; a stall raises a
-    retryable RuntimeError so a hang is recovered, not waited on forever.
+    Raises RuntimeError if the run did not end successfully (the wrapper itself
+    raises on a missing result or an idle hang; a non-success subtype -- e.g. the
+    budget cap -- comes back as ``not result.ok`` and we raise here, attaching the
+    stage name). ``idle_timeout`` bounds the gap between SDK events; a stall
+    raises a retryable RuntimeError so a hang is recovered, not waited on forever.
     """
-    result_event: dict[str, Any] | None = None
     # Two shapes of the same declared tool set: a space-joined string for the
     # auto-approval list, and a list for the availability restriction.
     tool_list = _tool_list(spec)
-    for event in claude_cli.stream_sync(
+    result = await claude_cli.run_agent(
         _PROMPT,
         model=model,
         system_prompt=spec.body,
@@ -234,19 +237,13 @@ def _invoke_agent(
         cwd=cwd,
         idle_timeout=idle_timeout,
         thinking=_THINKING,
-    ):
-        if event.get("type") == "result":
-            result_event = event
-
-    if result_event is None:
-        raise RuntimeError(f"{spec.name}: stream ended without a result event")
-    subtype = result_event.get("subtype")
-    if subtype != "success":
-        raise RuntimeError(f"{spec.name}: result subtype={subtype!r}")
-    return result_event
+    )
+    if not result.ok:
+        raise RuntimeError(f"{spec.name}: result subtype={result.subtype!r}")
+    return result
 
 
-def run_stage(
+async def run_stage(
     spec: AgentSpec,
     *,
     label: str,
@@ -266,8 +263,8 @@ def run_stage(
     the result event's ``usage`` block.
 
     Two layers of retry: transient overload/rate-limit errors during the agent
-    invocation get exponential-backoff retries (via ``with_retry``); a stage that
-    runs but produces missing/invalid output (or a non-transient error) is
+    invocation get exponential-backoff retries (via ``with_retry_async``); a stage
+    that runs but produces missing/invalid output (or a non-transient error) is
     retried ONCE from a clean slate -- mirroring the old dispatcher's "retry the
     subagent once" rule.
     """
@@ -281,7 +278,7 @@ def run_stage(
         output_path.unlink(missing_ok=True)
         try:
             logger.info("[%s started]%s", label.capitalize(), " (retry)" if attempt == 2 else "")
-            result_event = with_retry(
+            result = await with_retry_async(
                 lambda: _invoke_agent(spec, model=model, cwd=cwd),
                 label=label,
                 deadline=stage_deadline,
@@ -294,7 +291,7 @@ def run_stage(
                 continue
             raise RuntimeError(f"{label} stage failed after retry: {e}") from e
 
-        usage = result_event.get("usage") or {}
+        usage = result.usage
         row = _usage_row(
             label,
             model,
@@ -305,8 +302,8 @@ def run_stage(
                 "cache_read": usage.get("cache_read_input_tokens", 0),
             },
         )
-        cost = result_event.get("total_cost_usd", 0) or 0
-        duration = (result_event.get("duration_ms", 0) or 0) / 1000
+        cost = result.total_cost_usd
+        duration = result.duration_ms / 1000
         logger.info(
             "[%s complete] %.1fs $%.4f (API-equiv $%.4f)", label.capitalize(), duration, cost, row["api_cost_usd"]
         )
@@ -332,7 +329,7 @@ def _stage_output_is_valid(claude_input_dir: Path, output_filename: str, validat
         return False
 
 
-def orchestrate_selections(
+async def orchestrate_selections(
     *,
     claude_input_dir: Path,
     model_override: str | None = None,
@@ -345,6 +342,12 @@ def orchestrate_selections(
     and retries once on failure. Raises RuntimeError if any stage cannot
     produce valid output after its retry -- downstream (merge.assemble_selections)
     cannot run without these input files.
+
+    Async so the whole curation phase runs under one event loop (opened once by
+    ``claude.generate_selections`` via ``asyncio.run``), awaiting the SDK directly
+    instead of crossing the sync/async boundary per stage. Stages stay sequential
+    for now -- CLUSTER and RECAP are independent and could be ``asyncio.gather``ed
+    once we have a safe concurrency story (see the _STAGES note).
 
     ``resume=True`` skips any stage whose valid output already survives on disk,
     so a re-run after a mid-pipeline failure picks up where it stopped instead of
@@ -359,7 +362,7 @@ def orchestrate_selections(
             logger.info("[%s] resuming: valid output present, skipping", label.capitalize())
             continue
         spec = parse_agent_spec(_AGENTS_DIR / spec_filename)
-        row = run_stage(
+        row = await run_stage(
             spec,
             label=label,
             output_path=claude_input_dir / output_filename,

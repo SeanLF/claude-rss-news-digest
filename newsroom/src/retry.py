@@ -18,10 +18,11 @@ systemd start-timeout sized above this budget -- so there is no file-activity
 watchdog to placate during a legitimate wait.
 """
 
+import asyncio
 import logging
 import random
 import time
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 
 from claude_agent_sdk import ClaudeSDKError
 
@@ -53,6 +54,61 @@ def is_retryable(err: BaseException) -> bool:
     return any(p in msg for p in _RETRYABLE_PATTERNS)
 
 
+def _backoff_delay_or_raise(
+    err: BaseException,
+    *,
+    attempt: int,
+    label: str,
+    start: float,
+    budget_deadline: float,
+    max_attempts: int | None,
+) -> float:
+    """For a failed attempt, return the backoff delay to sleep -- or re-raise.
+
+    Re-raises ``err`` when it is non-retryable, when ``max_attempts`` is reached,
+    or when the next sleep would cross the wall-clock budget. Shared by the sync
+    and async retry loops, which differ only in HOW they sleep (``time.sleep`` vs
+    ``await asyncio.sleep``).
+
+    Backoff is exponential ``_BASE_DELAY * 2**(n-1)`` capped at ``_MAX_DELAY``
+    (300s) with jitter; past the cap it keeps polling at ~300s.
+    """
+    if not is_retryable(err):
+        raise err
+    if max_attempts is not None and attempt >= max_attempts:
+        raise err
+
+    delay = min(_BASE_DELAY * (2 ** (attempt - 1)), _MAX_DELAY)
+    delay *= 1 + random.uniform(-_JITTER, _JITTER)
+
+    # Wall-clock budget: if this sleep would push us past the deadline, give up
+    # now rather than start a sleep we cannot afford.
+    if max_attempts is None and time.monotonic() + delay >= budget_deadline:
+        raise err
+
+    if max_attempts is not None:
+        logger.warning(
+            "%s: retryable error on attempt %d/%d, sleeping %.1fs: %s",
+            label,
+            attempt,
+            max_attempts,
+            delay,
+            str(err)[:200],
+        )
+    else:
+        elapsed = time.monotonic() - start
+        logger.warning(
+            "%s: retryable error on attempt %d (%.0fs/%.0fs budget), sleeping %.1fs: %s",
+            label,
+            attempt,
+            elapsed,
+            budget_deadline - start,
+            delay,
+            str(err)[:200],
+        )
+    return delay
+
+
 def with_retry[T](
     fn: Callable[[], T],
     *,
@@ -70,11 +126,9 @@ def with_retry[T](
     after that many attempts instead. ``deadline`` (absolute monotonic time)
     overrides ``max_elapsed`` and lets callers share one budget across calls.
 
-    Backoff is exponential ``_BASE_DELAY * 2**(n-1)`` capped at ``_MAX_DELAY``
-    (300s) with jitter; past the cap it keeps polling at ~300s.
-
     Non-retryable errors propagate immediately. Each retry is a full restart of
-    fn(); there is no built-in resume.
+    fn(); there is no built-in resume. See ``with_retry_async`` for the async
+    sibling used by the curation orchestrator.
     """
     start = time.monotonic()
     # Absolute monotonic budget end. A caller-supplied deadline (shared across
@@ -89,40 +143,44 @@ def with_retry[T](
                 logger.info("%s: recovered after %d attempts", label, attempt)
             return result
         except (RuntimeError, ClaudeSDKError) as e:
-            if not is_retryable(e):
-                raise
-            if max_attempts is not None and attempt >= max_attempts:
-                raise
-
-            delay = min(_BASE_DELAY * (2 ** (attempt - 1)), _MAX_DELAY)
-            delay *= 1 + random.uniform(-_JITTER, _JITTER)
-
-            # Wall-clock budget: if this sleep would push us past the deadline,
-            # give up now rather than start a sleep we cannot afford.
-            if max_attempts is None and time.monotonic() + delay >= budget_deadline:
-                raise
-
-            if max_attempts is not None:
-                logger.warning(
-                    "%s: retryable error on attempt %d/%d, sleeping %.1fs: %s",
-                    label,
-                    attempt,
-                    max_attempts,
-                    delay,
-                    str(e)[:200],
-                )
-            else:
-                elapsed = time.monotonic() - start
-                logger.warning(
-                    "%s: retryable error on attempt %d (%.0fs/%.0fs budget), sleeping %.1fs: %s",
-                    label,
-                    attempt,
-                    elapsed,
-                    budget_deadline - start,
-                    delay,
-                    str(e)[:200],
-                )
-
+            delay = _backoff_delay_or_raise(
+                e, attempt=attempt, label=label, start=start, budget_deadline=budget_deadline, max_attempts=max_attempts
+            )
             time.sleep(delay)
+            if on_retry is not None:
+                on_retry()
+
+
+async def with_retry_async[T](
+    fn: Callable[[], Awaitable[T]],
+    *,
+    label: str,
+    max_elapsed: float = _MAX_ELAPSED,
+    max_attempts: int | None = None,
+    deadline: float | None = None,
+    on_retry: Callable[[], None] | None = None,
+) -> T:
+    """Async sibling of ``with_retry``: ``await``s an async fn and sleeps via
+    ``asyncio.sleep`` so the whole curation phase runs under one event loop.
+
+    Identical backoff/budget semantics to ``with_retry`` (shared via
+    ``_backoff_delay_or_raise``); the only difference is the await points.
+    """
+    start = time.monotonic()
+    # Absolute monotonic budget end; a caller-supplied deadline wins (see with_retry).
+    budget_deadline = deadline if deadline is not None else start + max_elapsed
+    attempt = 0
+    while True:
+        attempt += 1
+        try:
+            result = await fn()
+            if attempt > 1:
+                logger.info("%s: recovered after %d attempts", label, attempt)
+            return result
+        except (RuntimeError, ClaudeSDKError) as e:
+            delay = _backoff_delay_or_raise(
+                e, attempt=attempt, label=label, start=start, budget_deadline=budget_deadline, max_attempts=max_attempts
+            )
+            await asyncio.sleep(delay)
             if on_retry is not None:
                 on_retry()
