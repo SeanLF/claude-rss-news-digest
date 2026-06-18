@@ -23,9 +23,9 @@ File handoff is unchanged: each agent reads/writes JSON files under
 `/app/data/claude_input` exactly as before. After COHERENCE, the existing Python
 (`merge.assemble_selections`) takes over -- this module does NOT touch that.
 
-Per-stage usage is captured directly from the StageResult's `usage` dict and
-turned into a `run_usage` row via `usage._usage_row` / `usage._compute_cost`, so
-the recorded rows stay identical in shape and metric to the previous path.
+Per-stage usage is captured directly from the StageResult: token counts from its
+`usage` dict and cost from the SDK's `total_cost_usd`, assembled into a
+`run_usage` row via `usage._usage_row`.
 """
 
 from __future__ import annotations
@@ -301,12 +301,10 @@ async def run_stage(
                 "cache_write": usage.get("cache_creation_input_tokens", 0),
                 "cache_read": usage.get("cache_read_input_tokens", 0),
             },
+            result.total_cost_usd,
         )
-        cost = result.total_cost_usd
         duration = result.duration_ms / 1000
-        logger.info(
-            "[%s complete] %.1fs $%.4f (API-equiv $%.4f)", label.capitalize(), duration, cost, row["api_cost_usd"]
-        )
+        logger.info("[%s complete] %.1fs $%.4f", label.capitalize(), duration, row["api_cost_usd"])
         return row
 
     # Unreachable: the loop either returns or raises on attempt 2.

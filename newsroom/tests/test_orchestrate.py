@@ -118,7 +118,7 @@ class TestRunStage:
         out = tmp_path / "clusters.json"
         out.write_text(json.dumps({"clusters": [{"story": "x", "article_ids": ["A1"]}]}))
 
-        monkeypatch.setattr(orchestrate.claude_cli, "run_agent", _async_return(_stage_result()))
+        monkeypatch.setattr(orchestrate.claude_cli, "run_agent", _async_return(_stage_result(cost=0.4242)))
 
         row = _run_stage(
             _spec(),
@@ -136,8 +136,8 @@ class TestRunStage:
         assert row["output_tokens"] == 200
         assert row["cache_write_tokens"] == 500
         assert row["cache_read_tokens"] == 8000
-        # Sonnet cache_read pricing 0.30/M -> 8000 * 0.30 / 1e6 dominates the row.
-        assert row["api_cost_usd"] > 0
+        # Cost is the SDK's own total_cost_usd, not a hand-rolled token x rate sum.
+        assert row["api_cost_usd"] == 0.4242
 
     def test_model_override_used(self, tmp_path, monkeypatch):
         out = tmp_path / "clusters.json"
