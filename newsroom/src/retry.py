@@ -34,6 +34,16 @@ _RETRYABLE_PATTERNS = (
     "529",
     "503",
     "502",
+    # 500/504/429 reach us ONLY via api_error_status on an is_error result the SDK
+    # still tagged subtype="success" (see claude_cli.StageResult.error_summary). They
+    # are transient API failures worth riding out, like the gateway/overload codes
+    # above. Anchored to the "api_error_status=" token (not bare "500"/"429") so an
+    # incidental number elsewhere in an error message -- a token count, a cost, an
+    # offset -- can't trigger a spurious retry. (502/503/529 keep their bare forms
+    # because those also appear in legacy stderr-parsed messages.)
+    "api_error_status=500",
+    "api_error_status=504",
+    "api_error_status=429",
     "overloaded",
     "rate_limit",
     "rate-limit",

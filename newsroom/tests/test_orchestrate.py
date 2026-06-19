@@ -26,7 +26,7 @@ REPO_ROOT = Path(__file__).parent.parent.parent
 CLUSTER_SPEC = REPO_ROOT / ".claude" / "agents" / "cluster.md"
 
 
-def _stage_result(*, usage=None, cost=0.05, duration_ms=1000, subtype="success"):
+def _stage_result(*, usage=None, cost=0.05, duration_ms=1000, subtype="success", is_error=False, api_error_status=None):
     """Build a StageResult like ``claude_cli.run_agent`` resolves to."""
     return StageResult(
         subtype=subtype,
@@ -40,6 +40,8 @@ def _stage_result(*, usage=None, cost=0.05, duration_ms=1000, subtype="success")
         },
         total_cost_usd=cost,
         duration_ms=duration_ms,
+        is_error=is_error,
+        api_error_status=api_error_status,
     )
 
 
@@ -247,6 +249,22 @@ class TestRunStage:
                 cwd=None,
                 claude_input_dir=tmp_path,
             )
+
+    def test_api_error_with_success_subtype_raises_retryable(self, monkeypatch):
+        # The SDK trap: subtype="success" but is_error=True with api_error_status.
+        # _invoke_agent must raise, AND the message must carry the status so
+        # retry.is_retryable treats it as a transient API failure (not a hard fail).
+        import retry
+
+        monkeypatch.setattr(
+            orchestrate.claude_cli,
+            "run_agent",
+            _async_return(_stage_result(subtype="success", is_error=True, api_error_status=529)),
+        )
+        with pytest.raises(RuntimeError) as exc:
+            asyncio.run(orchestrate._invoke_agent(_spec(), model="m", cwd=None))
+        assert "529" in str(exc.value)
+        assert retry.is_retryable(exc.value)
 
     def test_unexpected_exception_fails_loud_without_retry(self, tmp_path, monkeypatch):
         # A non-retryable, non-(RuntimeError|ValueError) error is a programming bug,

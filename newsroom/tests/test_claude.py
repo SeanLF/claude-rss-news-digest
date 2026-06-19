@@ -37,6 +37,24 @@ class TestIsRetryable:
     def test_matches_timeout(self):
         assert retry.is_retryable(RuntimeError("read timeout after 60s"))
 
+    def test_matches_api_error_status_429(self):
+        # api_error_status from a "success"-subtype-but-errored ResultMessage:
+        # 429 (rate limit) must be retryable even though the word isn't present.
+        assert retry.is_retryable(RuntimeError("CLUSTER: subtype='success' api_error_status=429"))
+
+    def test_matches_api_error_status_500(self):
+        assert retry.is_retryable(RuntimeError("WRITE: subtype='success' api_error_status=500"))
+
+    def test_rejects_non_transient_api_error_status(self):
+        # 400/401/403 are client errors, not transient: they must fail fast, not retry.
+        assert not retry.is_retryable(RuntimeError("WRITE: subtype='success' api_error_status=403"))
+        assert not retry.is_retryable(RuntimeError("WRITE: subtype='success' api_error_status=400"))
+
+    def test_bare_500_not_from_status_does_not_retry(self):
+        # The 500/504/429 patterns are anchored to "api_error_status=" so an
+        # incidental number (a token count, a cost) cannot trigger a spurious retry.
+        assert not retry.is_retryable(RuntimeError("wrote 500 articles, cost $0.0429"))
+
     def test_rejects_auth_error(self):
         assert not retry.is_retryable(RuntimeError("authentication failed"))
 

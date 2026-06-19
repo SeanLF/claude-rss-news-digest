@@ -239,7 +239,10 @@ async def _invoke_agent(
         thinking=_THINKING,
     )
     if not result.ok:
-        raise RuntimeError(f"{spec.name}: result subtype={result.subtype!r}")
+        # error_summary() carries api_error_status when set, so a transient API
+        # failure that the SDK mislabelled subtype="success" still reads as
+        # retryable to with_retry_async (rather than failing the stage outright).
+        raise RuntimeError(f"{spec.name}: {result.error_summary()}")
     return result
 
 

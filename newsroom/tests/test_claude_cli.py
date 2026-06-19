@@ -34,18 +34,34 @@ from claude_agent_sdk import (
 )
 
 
-def _result(*, subtype="success", usage=None, total_cost_usd=0.0, duration_ms=10, result=None):
-    """Build an SDK ResultMessage like query() yields as the terminal event."""
+def _result(
+    *,
+    subtype="success",
+    usage=None,
+    total_cost_usd=0.0,
+    duration_ms=10,
+    result=None,
+    is_error=None,
+    api_error_status=None,
+):
+    """Build an SDK ResultMessage like query() yields as the terminal event.
+
+    ``is_error`` defaults to ``subtype != "success"`` but can be set explicitly to
+    model the SDK's nastiest shape: subtype="success" yet is_error=True with an
+    ``api_error_status`` (an HTTP API failure the CLI still reports as a "success"
+    subtype). See ResultMessage docs for api_error_status.
+    """
     return ResultMessage(
         subtype=subtype,
         duration_ms=duration_ms,
         duration_api_ms=duration_ms,
-        is_error=subtype != "success",
+        is_error=(subtype != "success") if is_error is None else is_error,
         num_turns=1,
         session_id="s1",
         total_cost_usd=total_cost_usd,
         usage=usage,
         result=result,
+        api_error_status=api_error_status,
     )
 
 
@@ -85,6 +101,28 @@ class TestStageResult:
     def test_ok_false_on_missing_subtype(self):
         r = claude_cli.StageResult(subtype=None, text="", usage={}, total_cost_usd=0.0, duration_ms=1)
         assert r.ok is False
+
+    def test_ok_false_when_is_error_despite_success_subtype(self):
+        # The SDK's trap: a failed upstream API call can still report
+        # subtype="success" while is_error=True (api_error_status set). The old
+        # ".ok = subtype == success" read this as success and shipped a broken run.
+        r = claude_cli.StageResult(
+            subtype="success",
+            text="",
+            usage={},
+            total_cost_usd=0.0,
+            duration_ms=1,
+            is_error=True,
+            api_error_status=529,
+        )
+        assert r.ok is False
+
+    def test_ok_true_defaults_is_error_false(self):
+        # Back-compat: callers that don't pass is_error get a clean success.
+        r = claude_cli.StageResult(subtype="success", text="x", usage={}, total_cost_usd=0.0, duration_ms=1)
+        assert r.ok is True
+        assert r.is_error is False
+        assert r.api_error_status is None
 
 
 # ---------------------------------------------------------------------------
@@ -126,6 +164,16 @@ class TestRunAgent:
         res = _run_agent("Begin.", model="sonnet")
         assert res.ok is False
         assert res.subtype == "error_max_budget_usd"
+
+    def test_distills_api_error_despite_success_subtype(self, monkeypatch):
+        # subtype="success" but is_error=True with an HTTP status: must surface as
+        # not-ok and carry the status so the orchestrator can raise a retryable error.
+        messages = [_result(subtype="success", is_error=True, api_error_status=529)]
+        monkeypatch.setattr(claude_cli, "query", _fake_query(messages))
+        res = _run_agent("Begin.", model="sonnet")
+        assert res.ok is False
+        assert res.is_error is True
+        assert res.api_error_status == 529
 
     def test_missing_usage_becomes_empty_dict(self, monkeypatch):
         monkeypatch.setattr(claude_cli, "query", _fake_query([_result(usage=None)]))

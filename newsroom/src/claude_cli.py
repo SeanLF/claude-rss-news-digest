@@ -61,15 +61,35 @@ class StageResult:
     usage: dict[str, Any]
     total_cost_usd: float
     duration_ms: int
+    # The SDK can report a FAILED upstream API call while still tagging the run
+    # subtype="success": is_error flips True and api_error_status carries the HTTP
+    # code (429/500/529...). Captured so ``ok`` can reject it and callers can raise
+    # a retryable, status-bearing error. Default to the clean-success shape.
+    is_error: bool = False
+    api_error_status: int | None = None
 
     @property
     def ok(self) -> bool:
-        """True only on a successful run (the SDK's authoritative completion signal).
+        """True only on a genuinely successful run.
 
-        A budget cap trips subtype="error_max_budget_usd"; any other non-success
-        subtype is likewise not ok.
+        Two ways to be not-ok: a non-success subtype (e.g. the budget cap trips
+        subtype="error_max_budget_usd"), OR the SDK's trap shape -- subtype="success"
+        but is_error=True (an API call failed; api_error_status holds the code). The
+        old check looked only at subtype and shipped that broken run as success.
         """
-        return self.subtype == "success"
+        return self.subtype == "success" and not self.is_error
+
+    def error_summary(self) -> str:
+        """Human-/retry-readable failure detail for a not-ok result.
+
+        Includes ``api_error_status`` when set so the code (529/429/500...) lands in
+        the raised error message -- that is what ``retry.is_retryable`` matches to
+        treat a transient API failure as retryable rather than a hard stage failure.
+        """
+        parts = [f"subtype={self.subtype!r}"]
+        if self.api_error_status is not None:
+            parts.append(f"api_error_status={self.api_error_status}")
+        return " ".join(parts)
 
 
 def _build_options(
@@ -224,6 +244,8 @@ async def run_agent(
         usage=result.usage or {},
         total_cost_usd=result.total_cost_usd or 0.0,
         duration_ms=result.duration_ms or 0,
+        is_error=bool(result.is_error),
+        api_error_status=result.api_error_status,
     )
 
 
@@ -277,5 +299,5 @@ def run_sync(
         )
     )
     if not result.ok:
-        raise RuntimeError(f"claude failed: result subtype={result.subtype!r}")
+        raise RuntimeError(f"claude failed: {result.error_summary()}")
     return result.text
