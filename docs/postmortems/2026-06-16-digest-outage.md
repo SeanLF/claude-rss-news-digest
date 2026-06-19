@@ -26,7 +26,11 @@ thing and observing it.
 ## Impact
 
 - One daily digest delayed ~11 hours (scheduled 06:15 UTC, delivered 18:15 UTC).
-- No data loss after recovery.
+- No content loss after recovery, but the run's **stats metadata was lost**: the
+  18:21 backfill restored `shown_narratives` + dedup only, leaving the aggregate
+  counters and `run_usage`/`source_health` empty. `/stats` showed the 16th as
+  0 kept / 0 emailed / no cost until it was backfilled from the logs on
+  2026-06-19 (see Addendum).
 - During the incident the old failure path *deleted* two runs' records,
   destroying their forensics (since fixed — runs are now marked, not deleted).
 
@@ -44,8 +48,10 @@ thing and observing it.
 - **18:02:41** — CLUSTER completes in 905s — the fix holds.
 - **18:11:50** — broadcast send response read-times-out → `abort_run` deletes the
   run **even though Resend had accepted the send** (delivered 18:15:10).
-- **18:21** — manual backfill rebuilds the run record + dedup without re-sending.
-  Digest confirmed delivered.
+- **18:21** — manual backfill rebuilds `shown_narratives` + dedup without
+  re-sending. Digest confirmed delivered. (The run's aggregate counters and
+  `run_usage`/`source_health` stayed empty — not noticed until 2026-06-19; see
+  Addendum.)
 - **(later same day)** — remediation deployed; the alert fix required two further
   corrections (see Incident 2) before it actually worked on the server.
 
@@ -146,3 +152,24 @@ happy path, unit tests, and dry runs never exercise.
 - Migrations that change an implicit default need a test that asserts the default.
 - The remediation deserves the same rigor as the original system — it can fail the
   same way.
+
+## Addendum — stats backfill (2026-06-19)
+
+Three days later the `/stats` dashboard still showed the 16th as 0 kept / 0
+emailed / no cost: the 18:21 recovery never restored the run's aggregates or
+usage. The successful 17:47 run was fully reconstructable from the prod
+`digest.log` (the `Fetched X/Y` line and per-stage cost lines), cross-validated
+against neighbouring runs (the recorded count matches the log's kept figure
+exactly, and the 35 per-feed `kept` values sum to 823). Backfilled directly into
+the prod DB after a dry run on a clone:
+
+- `digest_runs` #203: `articles_fetched` 823, `articles_emailed` 11.
+- `run_usage`: 5 stage rows, $2.83 API-equivalent total (token counts were
+  unrecoverable — the live SDK events were gone — so they are 0; not shown on
+  `/stats`, only in `make usage`).
+- `source_health`: 35 per-feed rows (all `success=1`, sum kept 823 / fetched 2775).
+- `digests` 2026-06-16: `broadcast_id`, `broadcast_status='sent'`, `recipients=11`.
+
+Lesson reinforced: the recovery path itself needs to restore *all* of a run's
+records, not just the user-visible content — and "recovered" should be verified
+against the dashboard, not just the inbox.
