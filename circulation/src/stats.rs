@@ -34,7 +34,7 @@ pub struct SourceUsage {
 #[derive(Clone)]
 pub struct DigestRun {
     pub run_at: String,
-    pub articles_fetched: i64,
+    pub articles_kept: i64,
     pub articles_emailed: i64,
     pub api_cost_usd: Option<f64>,
 }
@@ -145,7 +145,7 @@ pub fn fetch_stats_data(db_path: &str, days: u32) -> Result<StatsData, (StatusCo
     let recent_runs: Vec<DigestRun> = {
         let mut stmt = conn
             .prepare(
-                "SELECT dr.run_at, dr.articles_fetched, dr.articles_emailed,
+                "SELECT dr.run_at, dr.articles_kept, dr.articles_emailed,
                         SUM(ru.api_cost_usd) as total_cost
                  FROM digest_runs dr
                  LEFT JOIN run_usage ru ON ru.run_id = dr.id
@@ -164,7 +164,7 @@ pub fn fetch_stats_data(db_path: &str, days: u32) -> Result<StatsData, (StatusCo
         stmt.query_map([], |row| {
             Ok(DigestRun {
                 run_at: row.get(0)?,
-                articles_fetched: row.get(1)?,
+                articles_kept: row.get(1)?,
                 articles_emailed: row.get(2)?,
                 api_cost_usd: row.get(3)?,
             })
@@ -287,7 +287,7 @@ pub async fn stats_json(
         .map(|r| {
             serde_json::json!({
                 "run_at": r.run_at,
-                "articles_fetched": r.articles_fetched,
+                "articles_kept": r.articles_kept,
                 "articles_emailed": r.articles_emailed,
                 "api_cost_usd": r.api_cost_usd
             })

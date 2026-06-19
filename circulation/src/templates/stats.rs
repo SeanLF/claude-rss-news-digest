@@ -259,7 +259,7 @@ pub fn render_stats(name: &str, days: u32, data: &StatsData) -> String {
         <thead>
           <tr>
             <th scope="col">Time (UTC)</th>
-            <th scope="col">Articles Fetched</th>
+            <th scope="col">Articles Kept</th>
             <th scope="col">Recipients</th>
             <th scope="col">API cost equiv.</th>
           </tr>
@@ -406,7 +406,7 @@ fn build_runs_rows(data: &StatsData) -> String {
                     <td>{}</td>
                     <td>{}</td>
                 </tr>"#,
-                r.run_at, r.articles_fetched, r.articles_emailed, cost_cell
+                r.run_at, r.articles_kept, r.articles_emailed, cost_cell
             )
         })
         .collect()

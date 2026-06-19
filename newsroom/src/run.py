@@ -153,7 +153,7 @@ def _render_record_deliver(selections, *, skip_record: bool, skip_email: bool, u
         shown_headlines = read_shown_headlines()
         if shown_headlines:
             db.record_shown_headlines(shown_headlines)
-        db.complete_run(articles_fetched=0, articles_emailed=recipients)
+        db.complete_run(articles_kept=0, articles_emailed=recipients)
     except Exception as e:
         db.abort_run(repr(e))
         raise
@@ -328,7 +328,7 @@ Examples:
             shown_headlines = read_shown_headlines()
             if shown_headlines:
                 db.record_shown_headlines(shown_headlines)
-            db.complete_run(articles_fetched=0, articles_emailed=recipients)
+            db.complete_run(articles_kept=0, articles_emailed=recipients)
         except Exception as e:
             db.abort_run(repr(e))
             raise
@@ -425,7 +425,7 @@ Examples:
         if not shown_headlines:
             logger.warning("No headlines recorded - Claude may not have generated shown_headlines.json")
         db.record_shown_headlines(shown_headlines)
-        db.complete_run(articles_fetched=fetch_result.total_kept, articles_emailed=recipients)
+        db.complete_run(articles_kept=fetch_result.total_kept, articles_emailed=recipients)
     except Exception as e:
         db.abort_run(repr(e))
         raise

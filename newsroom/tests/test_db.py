@@ -180,8 +180,27 @@ def test_has_completed_run_today_false_before_complete(fresh_db):
 
 
 def test_has_completed_run_today_true_after_complete(fresh_db):
-    db.complete_run(articles_fetched=30, articles_emailed=0)
+    db.complete_run(articles_kept=30, articles_emailed=0)
     assert db.has_completed_run_today() is True
+
+
+def test_migration_renames_articles_fetched_to_kept(fresh_db):
+    # digest_runs.articles_fetched was renamed to articles_kept (it always held the
+    # kept count). The old name is gone on digest_runs; source_health keeps its own,
+    # genuinely distinct articles_fetched/articles_kept pair.
+    with sqlite3.connect(fresh_db) as conn:
+        digest_cols = {row[1] for row in conn.execute("PRAGMA table_info(digest_runs)")}
+        health_cols = {row[1] for row in conn.execute("PRAGMA table_info(source_health)")}
+    assert "articles_kept" in digest_cols
+    assert "articles_fetched" not in digest_cols
+    assert {"articles_fetched", "articles_kept"} <= health_cols  # source_health untouched
+
+
+def test_complete_run_writes_articles_kept(fresh_db):
+    db.complete_run(articles_kept=42, articles_emailed=7)
+    with sqlite3.connect(fresh_db) as conn:
+        (kept,) = conn.execute("SELECT articles_kept FROM digest_runs WHERE id = ?", (db._state.run_id,)).fetchone()
+    assert kept == 42
 
 
 def test_has_completed_run_today_on_error_controls_failopen(tmp_path, monkeypatch):
@@ -234,7 +253,7 @@ def test_failed_run_is_not_counted_as_completed(fresh_db):
 
 
 def test_complete_run_sets_status_completed(fresh_db):
-    db.complete_run(articles_fetched=10, articles_emailed=5)
+    db.complete_run(articles_kept=10, articles_emailed=5)
     with sqlite3.connect(fresh_db) as conn:
         status, completed = conn.execute(
             "SELECT status, completed_at FROM digest_runs WHERE id = ?", (db._state.run_id,)

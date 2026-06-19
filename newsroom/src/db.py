@@ -85,7 +85,7 @@ def start_run(*, recording: bool = True, broadcasting: bool = True, alerting: bo
         git_sha = os.environ.get("GIT_SHA")
         with sqlite3.connect(_db_path()) as conn:
             cursor = conn.execute(
-                "INSERT INTO digest_runs (articles_fetched, articles_emailed, git_sha) VALUES (NULL, NULL, ?)",
+                "INSERT INTO digest_runs (articles_kept, articles_emailed, git_sha) VALUES (NULL, NULL, ?)",
                 (git_sha,),
             )
             _state.run_id = cursor.lastrowid
@@ -97,15 +97,22 @@ def start_run(*, recording: bool = True, broadcasting: bool = True, alerting: bo
         return None
 
 
-def complete_run(articles_fetched: int, articles_emailed: int = 0):
-    """Complete a digest run by updating counts and marking completion time."""
+def complete_run(articles_kept: int, articles_emailed: int = 0):
+    """Complete a digest run by updating counts and marking completion time.
+
+    ``articles_kept`` is the count of articles kept after dedup/filtering (the
+    column was historically misnamed ``articles_fetched``; see migration
+    20260619000000, which renamed it). It is a deliberate per-run denormalization
+    of ``SUM(source_health.articles_kept)`` -- a durable snapshot that does not
+    depend on source_health row/FK completeness for historical display.
+    """
     if not _state.recording or _state.run_id is None:
         return
     try:
         with sqlite3.connect(_db_path()) as conn:
             conn.execute(
-                "UPDATE digest_runs SET articles_fetched = ?, articles_emailed = ?, completed_at = datetime('now', 'utc'), status = 'completed' WHERE id = ?",
-                (articles_fetched, articles_emailed, _state.run_id),
+                "UPDATE digest_runs SET articles_kept = ?, articles_emailed = ?, completed_at = datetime('now', 'utc'), status = 'completed' WHERE id = ?",
+                (articles_kept, articles_emailed, _state.run_id),
             )
     except sqlite3.Error as e:
         logger.error("DB error completing run %d: %s", _state.run_id, e)
