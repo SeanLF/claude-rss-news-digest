@@ -279,3 +279,68 @@ class TestValidateSelections:
         bad["signals"] = {"americas": []}
         errors = validate_selections(bad)
         assert errors
+
+
+class TestCoherenceMatching:
+    """Coherence-fail matching must survive the WRITE/COHERENCE headline-string drift.
+
+    COHERENCE re-types each headline into its report; the model may reword it. The
+    drop decision must therefore key on the stable opaque article_ids, not the
+    free-text headline, so a pass:false entry reliably drops its target instead of
+    silently keeping an unverified headline.
+    """
+
+    def test_drops_by_article_ids_despite_reworded_headline(self, tmp_path):
+        draft = _draft(
+            must_know=[_article("Aid convoy reaches camp", "A1")],
+            should_know=[_article("Strike kills 12 in Gaza", "A5")],
+        )
+        # COHERENCE flags the A5 story but rewords the headline string entirely.
+        coherence = _coherence(
+            {"headline": "Aid convoy reaches camp", "article_ids": ["A1"], "pass": True},
+            {"headline": "Gaza strike kills twelve people", "article_ids": ["A5"], "pass": False},
+        )
+        _write(tmp_path, draft, coherence)
+
+        assembled = json.loads(assemble_selections(tmp_path).read_text())
+        assert [a["headline"] for a in assembled["must_know"]] == ["Aid convoy reaches camp"]
+        assert assembled["should_know"] == [], "reworded pass:false headline must still drop via article_ids"
+
+    def test_warns_when_fail_matches_no_headline(self, tmp_path, caplog):
+        draft = _draft(must_know=[_article("kept story", "A1")])
+        coherence = _coherence(
+            {"headline": "kept story", "article_ids": ["A1"], "pass": True},
+            {"headline": "ghost story", "article_ids": ["A99"], "pass": False},
+        )
+        _write(tmp_path, draft, coherence)
+
+        with caplog.at_level("WARNING"):
+            assembled = json.loads(assemble_selections(tmp_path).read_text())
+        assert [a["headline"] for a in assembled["must_know"]] == ["kept story"]
+        assert any("ghost story" in r.message for r in caplog.records), "a fail that drops nothing must be surfaced"
+
+    def test_warns_on_coverage_gap(self, tmp_path, caplog):
+        draft = _draft(
+            must_know=[_article("checked", "A1")],
+            should_know=[_article("unchecked", "A2")],
+        )
+        coherence = _coherence({"headline": "checked", "article_ids": ["A1"], "pass": True})
+        _write(tmp_path, draft, coherence)
+
+        with caplog.at_level("WARNING"):
+            json.loads(assemble_selections(tmp_path).read_text())
+        assert any("unchecked" in r.message for r in caplog.records), (
+            "a headline with no coherence entry must be surfaced"
+        )
+
+    def test_headline_fallback_still_drops_when_no_article_ids(self, tmp_path):
+        # Legacy-shaped report (no article_ids): normalized-headline match must still drop.
+        draft = _draft(must_know=[_article("keep me", "A1"), _article("drop me", "A2")])
+        coherence = _coherence(
+            {"headline": "keep me", "pass": True},
+            {"headline": "Drop me.", "pass": False},  # case + trailing-dot drift
+        )
+        _write(tmp_path, draft, coherence)
+
+        assembled = json.loads(assemble_selections(tmp_path).read_text())
+        assert [a["headline"] for a in assembled["must_know"]] == ["keep me"]

@@ -8,12 +8,53 @@ Doing it in Python after the dispatcher exits removes the failure mode.
 
 import json
 import logging
+import re
+import unicodedata
 from pathlib import Path
 
 from eval_graders import grade_selections
 from schema import validate_selections
 
 logger = logging.getLogger(__name__)
+
+
+def _norm_headline(headline: str) -> str:
+    """Normalize a headline for resilient fallback matching.
+
+    COHERENCE re-types each headline into its report, so the string can drift
+    from WRITE's original (smart quotes, dashes, trailing punctuation, casing).
+    Normalizing both sides keeps the fallback match from silently missing.
+    """
+    text = unicodedata.normalize("NFKC", headline or "")
+    for fancy, plain in (("’", "'"), ("‘", "'"), ("“", '"'), ("”", '"'), ("—", "-"), ("–", "-")):
+        text = text.replace(fancy, plain)
+    text = re.sub(r"\s+", " ", text).strip().rstrip(".,;:!?").casefold()
+    return text
+
+
+def _item_article_ids(item: dict) -> frozenset[str]:
+    """The set of cited article_ids for a draft item (its stable identity)."""
+    return frozenset(
+        s["article_id"] for s in item.get("sources", []) if isinstance(s, dict) and isinstance(s.get("article_id"), str)
+    )
+
+
+def _result_matches(result: dict, item_ids: frozenset[str], item_norm_headline: str) -> bool:
+    """Whether a coherence result refers to a given draft item.
+
+    Prefers the opaque article_ids (drift-proof); falls back to the normalized
+    headline when the result carries no article_ids (legacy-shaped reports).
+
+    If two draft items ever cite an identical article_ids set (unusual -- SELECT
+    separates stories), a pass:false result will match and drop both. That is an
+    accepted conservative failure mode: over-dropping is safer than silently
+    keeping an unverified headline, which is the bug this matching replaced.
+    """
+    rids = result.get("article_ids")
+    if rids and item_ids and frozenset(rids) == item_ids:
+        return True
+    rh = result.get("headline")
+    return rh is not None and _norm_headline(rh) == item_norm_headline
 
 
 def _grade_assembled(selections: dict) -> None:
@@ -104,13 +145,25 @@ def assemble_selections(claude_input_dir: Path) -> Path:
     coherence = json.loads(coherence_path.read_text())
     cluster_map = _load_cluster_map(claude_input_dir)
 
-    failed = {r["headline"] for r in coherence.get("results", []) if not r.get("pass", True)}
+    results = coherence.get("results", [])
+    failed = [r for r in results if not r.get("pass", True)]
+    matched_failed: set[int] = set()
 
     dropped = []
     for tier in ("must_know", "should_know"):
         kept = []
         for item in draft.get(tier, []):
-            if item.get("headline") in failed:
+            item_ids = _item_article_ids(item)
+            item_norm = _norm_headline(item.get("headline", ""))
+
+            # Coverage: surface any headline COHERENCE never reported on -- it was
+            # supposed to check EVERY headline, so a gap is a silent miss.
+            if not any(_result_matches(r, item_ids, item_norm) for r in results):
+                logger.warning("Coherence report has no entry for headline: %s", item.get("headline"))
+
+            hits = [i for i, r in enumerate(failed) if _result_matches(r, item_ids, item_norm)]
+            if hits:
+                matched_failed.update(hits)
                 dropped.append((tier, item.get("headline")))
             else:
                 _attach_cluster_id(item, item.get("sources", []), cluster_map)
@@ -121,6 +174,12 @@ def assemble_selections(claude_input_dir: Path) -> Path:
         logger.info("Coherence dropped %d headlines:", len(dropped))
         for section, headline in dropped:
             logger.info("  [%s] %s", section, headline)
+
+    # A pass:false entry that matched no draft headline means a coherence failure
+    # was silently NOT applied (headline drift, stale report) -- never swallow it.
+    for i, r in enumerate(failed):
+        if i not in matched_failed:
+            logger.warning("Coherence flagged a headline not found in draft (no drop applied): %s", r.get("headline"))
 
     if not draft.get("must_know"):
         raise RuntimeError(
