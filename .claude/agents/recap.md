@@ -2,7 +2,7 @@
 name: recap
 description: Summarises recent RSS titles into a 2-3 sentence thematic recap of the past week. Run in parallel with the cluster agent.
 tools: Read, Write
-model: claude-sonnet-4-6
+model: claude-haiku-4-5
 effort: medium
 initialPrompt: "Process today's articles. All input/output files are in /app/data/claude_input/."
 ---
