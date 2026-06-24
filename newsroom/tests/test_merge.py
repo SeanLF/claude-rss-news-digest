@@ -344,3 +344,23 @@ class TestCoherenceMatching:
 
         assembled = json.loads(assemble_selections(tmp_path).read_text())
         assert [a["headline"] for a in assembled["must_know"]] == ["keep me"]
+
+
+class TestMalformedIntermediateFiles:
+    """Truncated/invalid intermediate JSON must surface as the documented
+    RuntimeError contract, not a bare JSONDecodeError -- this path is hit by
+    --write-only, where no upstream validator re-parses these files first."""
+
+    def test_malformed_coherence_raises_runtime_error(self, tmp_path):
+        (tmp_path / "draft_selections.json").write_text(json.dumps(_draft(must_know=[_article("a")])))
+        (tmp_path / "coherence_report.json").write_text('{"results": [trunca')  # invalid JSON
+
+        with pytest.raises(RuntimeError):
+            assemble_selections(tmp_path)
+
+    def test_malformed_draft_raises_runtime_error(self, tmp_path):
+        (tmp_path / "draft_selections.json").write_text("{not json")
+        (tmp_path / "coherence_report.json").write_text(json.dumps(_coherence()))
+
+        with pytest.raises(RuntimeError):
+            assemble_selections(tmp_path)

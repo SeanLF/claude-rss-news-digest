@@ -141,8 +141,14 @@ def assemble_selections(claude_input_dir: Path) -> Path:
     if not coherence_path.exists():
         raise RuntimeError(f"coherence_report.json missing: {coherence_path}")
 
-    draft = json.loads(draft_path.read_text())
-    coherence = json.loads(coherence_path.read_text())
+    try:
+        draft = json.loads(draft_path.read_text())
+    except (OSError, json.JSONDecodeError) as e:
+        raise RuntimeError(f"draft_selections.json unreadable: {e}") from e
+    try:
+        coherence = json.loads(coherence_path.read_text())
+    except (OSError, json.JSONDecodeError) as e:
+        raise RuntimeError(f"coherence_report.json unreadable: {e}") from e
     cluster_map = _load_cluster_map(claude_input_dir)
 
     results = coherence.get("results", [])
