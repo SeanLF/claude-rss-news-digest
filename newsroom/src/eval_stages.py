@@ -33,7 +33,9 @@ Standalone: this module does not touch the live pipeline.
 
 from __future__ import annotations
 
+import html
 import json
+import re
 from pathlib import Path
 
 from eval_graders import GradeReport, GraderLimits, _word_count
@@ -44,6 +46,43 @@ ARTICLE_TIERS = ("must_know", "should_know")
 # Sane upper bound for the recap blurb (2-3 sentences). Generous so it does not
 # fail spuriously, but tight enough to catch a runaway dump.
 RECAP_MAX_CHARS = 600
+
+# The recap spec is "2-3 sentences maximum". Cap at 4 (one over) so a legitimate
+# three-sentence recap never trips, but a runaway list-as-prose does.
+RECAP_MAX_SENTENCES = 4
+
+# Abbreviations whose internal periods must NOT be read as sentence ends. Without
+# this, a recap full of "U.S."/"E.U."/"Mr." miscounts as many short sentences and
+# the count check false-fails -- fatal for an across-model A/B.
+_SENTENCE_ABBREVIATIONS = (
+    "u.s.",
+    "u.k.",
+    "e.u.",
+    "u.n.",
+    "d.c.",
+    "mr.",
+    "ms.",
+    "mrs.",
+    "dr.",
+    "vs.",
+    "etc.",
+    "no.",
+    "st.",
+    "jr.",
+    "sr.",
+    "inc.",
+    "gov.",
+    "sen.",
+    "rep.",
+    "gen.",
+)
+
+# A bullet / numbered-list marker at line start -- the recap must be paragraph prose.
+_BULLET_RE = re.compile(r"(?m)^\s*([-*•–]|\d+[.)])\s+")
+
+# A source title must have at least this many words before we treat a verbatim
+# echo of it as headline reproduction (short titles match generic prose by luck).
+_REPRODUCTION_MIN_WORDS = 6
 
 # Substrings that mark a recap stub / error fallback rather than a real summary.
 # The RECAP subagent emits these when its input (recent_rss_titles.csv) is
@@ -150,10 +189,28 @@ def grade_cluster(clusters: dict, article_index: dict) -> GradeReport:
 # --------------------------------------------------------------------------- #
 
 
-def grade_recap(recap_text: str) -> GradeReport:
+def _norm_for_match(text: str) -> str:
+    """Lower-case, HTML-unescape, and reduce to alnum words for substring matching."""
+    unescaped = html.unescape(text).lower()
+    return re.sub(r"\s+", " ", re.sub(r"[^a-z0-9]+", " ", unescaped)).strip()
+
+
+def _count_sentences(text: str) -> int:
+    """Count sentences, treating known abbreviations' periods as non-terminal."""
+    protected = text
+    for abbr in _SENTENCE_ABBREVIATIONS:
+        protected = re.sub(re.escape(abbr), abbr.replace(".", "\0"), protected, flags=re.IGNORECASE)
+    parts = re.split(r"[.!?]+(?:\s|$)", protected)
+    return len([p for p in parts if p.strip()])
+
+
+def grade_recap(recap_text: str, source_titles: list[str] | None = None) -> GradeReport:
     """Grade the RECAP subagent's recap.txt.
 
-    Checks: non-empty; within a sane length bound; not a stub/error fallback.
+    Checks: non-empty; within a sane length bound; not a stub/error fallback;
+    within the sentence cap; paragraph prose (no bullet/numbered list); and -- when
+    ``source_titles`` is supplied -- does not reproduce a source headline verbatim
+    (the spec forbids echoing titles; thematic language only).
     """
     report = GradeReport()
     text = recap_text if isinstance(recap_text, str) else ""
@@ -175,6 +232,36 @@ def grade_recap(recap_text: str) -> GradeReport:
         passed=hit is None,
         detail="ok" if hit is None else f"stub/error marker: {hit!r}",
     )
+
+    sentences = _count_sentences(stripped)
+    report.add(
+        "recap_sentence_count",
+        passed=sentences <= RECAP_MAX_SENTENCES,
+        detail=f"{sentences} sentences (cap {RECAP_MAX_SENTENCES})",
+    )
+
+    bullet = _BULLET_RE.search(stripped)
+    report.add(
+        "recap_paragraph",
+        passed=bullet is None,
+        detail="ok" if bullet is None else f"list marker: {bullet.group(0)!r}",
+    )
+
+    if source_titles:
+        recap_norm = _norm_for_match(stripped)
+        echoed = next(
+            (
+                t
+                for t in source_titles
+                if len(_norm_for_match(t).split()) >= _REPRODUCTION_MIN_WORDS and _norm_for_match(t) in recap_norm
+            ),
+            None,
+        )
+        report.add(
+            "recap_no_headline_reproduction",
+            passed=echoed is None,
+            detail="ok" if echoed is None else f"reproduces title: {echoed[:60]!r}",
+        )
 
     return report
 

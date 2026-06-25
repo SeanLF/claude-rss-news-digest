@@ -138,6 +138,44 @@ def test_recap_too_long_fails():
     assert not _check(report, "recap_length").passed
 
 
+def test_recap_sentence_count_ignores_abbreviations():
+    # Two real sentences, peppered with abbreviations that a naive split would
+    # miscount as sentence ends. Must NOT trip the sentence-count check.
+    text = (
+        "The U.S. and the E.U. clashed with China over trade, while Mr. Smith's "
+        "panel met in Washington D.C. Talks on the U.K. budget dominated, vs. "
+        "expectations of a quiet week."
+    )
+    report = grade_recap(text)
+    assert _check(report, "recap_sentence_count").passed, _check(report, "recap_sentence_count").detail
+
+
+def test_recap_too_many_sentences_fails():
+    text = "One thing. Two thing. Three thing. Four thing. Five thing. Six thing. Seven thing."
+    report = grade_recap(text)
+    assert not _check(report, "recap_sentence_count").passed
+
+
+def test_recap_bullet_list_fails():
+    text = "This week's themes:\n- Iran peace framework\n- EU-China trade\n- Helicopter crash"
+    report = grade_recap(text)
+    assert not _check(report, "recap_paragraph").passed
+
+
+def test_recap_reproducing_a_source_headline_verbatim_fails():
+    titles = ["Senate votes to halt Iran war in rare rebuke to Trump", "EU and China escalate trade tensions"]
+    text = "In a notable week, the Senate votes to halt Iran war in rare rebuke to Trump, alarming allies."
+    report = grade_recap(text, source_titles=titles)
+    assert not _check(report, "recap_no_headline_reproduction").passed
+
+
+def test_recap_thematic_summary_with_titles_passes_reproduction_check():
+    titles = ["Senate votes to halt Iran war in rare rebuke to Trump", "EU and China escalate trade tensions"]
+    text = "US-Iran tensions and a congressional rebuke shaped the week, alongside escalating EU-China trade friction."
+    report = grade_recap(text, source_titles=titles)
+    assert _check(report, "recap_no_headline_reproduction").passed
+
+
 # --------------------------------------------------------------------------- #
 # SELECT.
 # --------------------------------------------------------------------------- #

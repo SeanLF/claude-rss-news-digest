@@ -1,0 +1,58 @@
+{
+  "_meta": {
+    "description": "Golden validation for the RECAP theme-coverage judge (eval_recap_judge). Unlike the why-judge's binary filler label, RECAP's binary 'clean' is DEGENERATE -- compressing ~300 titles into 3 sentences makes EVERY recap drop a prominent theme, so defect-rate is ~100% for both models and a clean/defective agreement number is uninformative. The meaningful validation is THEME-LEVEL PRECISION: of the themes the judge flags as 'missed', what fraction are real prominent omissions (verifiable against the window's title frequencies + the recap text) vs nitpicks (e.g. editorially-filtered entertainment the digest is SUPPOSED to skip).",
+    "method": "Independent human audit (label_real) of every theme the judge flagged across 4 windows / 8 recaps, cross-referenced against eval_recap_windows.theme_frequencies and the recap text. Judge verdicts cached from data/recap_ab.json (sonnet-4-6, 2026-06-24 run).",
+    "windows_audited": ["2026-03-17", "2026-05-01", "2026-05-19", "2026-06-15"],
+    "findings": {
+      "missed_theme_precision": "~0.94 -- flagged misses are almost always real prominent omissions",
+      "fabrication_precision": "1.0 on the single flagged case -- caught a real subtle Haiku error (claimed oil 'rallied' on the Iran deal when titles say oil slid; Sonnet got it right)",
+      "known_flaws": [
+        "Nitpick: counts editorially-filtered topics (Oscars/entertainment) as 'missed major themes' by title-frequency, though the digest's SELECT tier deliberately filters them -- a symmetric ~1-count inflation per recap.",
+        "Noise/recall inconsistency: in 2026-06-15 it flagged Khamenei's death (11 titles) as missed for Sonnet but NOT for Haiku, though both omitted it. Absolute counts carry +/-1-2 error; trust the PAIRED direction, not precise counts."
+      ],
+      "decision_use": "Judge precision is high enough that the paired missed-theme comparison is meaningful (read as 'Haiku ~= Sonnet', not a precise ranking). Recall noise means small count gaps are not significant."
+    },
+    "n_flagged_themes": 32,
+    "n_real": 30,
+    "n_nitpick": 2,
+    "theme_precision": 0.938
+  },
+  "cases": [
+    {"window_id": "2026-03-17", "model": "haiku", "theme": "Israel-Lebanon conflict / mass displacement", "label_real": true, "note": "lebanon 32 titles, real prominent cluster"},
+    {"window_id": "2026-03-17", "model": "haiku", "theme": "Oscars 2026 results", "label_real": false, "note": "13 titles but entertainment is a SELECT filter topic; omission is correct behavior"},
+    {"window_id": "2026-03-17", "model": "sonnet", "theme": "Oscars 2026", "label_real": false, "note": "entertainment filter topic"},
+    {"window_id": "2026-03-17", "model": "sonnet", "theme": "Ukraine-Russia war", "label_real": true, "note": "ukraine 32 titles; Haiku covered it, Sonnet dropped it"},
+    {"window_id": "2026-03-17", "model": "sonnet", "theme": "Nvidia / AI sector", "label_real": true, "note": "~8 titles; Haiku covered it"},
+    {"window_id": "2026-03-17", "model": "sonnet", "theme": "Nigeria bombings", "label_real": true, "note": "6+ titles, real security cluster"},
+    {"window_id": "2026-03-17", "model": "sonnet", "theme": "Gaza strikes / Rafah crossing", "label_real": true, "note": "~6 titles"},
+    {"window_id": "2026-03-17", "model": "sonnet", "theme": "Iran domestic crackdowns", "label_real": true, "note": "~6 titles, distinct from the war story"},
+
+    {"window_id": "2026-05-01", "model": "haiku", "theme": "Sinaloa governor indictment", "label_real": true, "note": "10+ titles"},
+    {"window_id": "2026-05-01", "model": "haiku", "theme": "Gaza aid flotilla interception", "label_real": true, "note": "8 titles"},
+    {"window_id": "2026-05-01", "model": "haiku", "theme": "Russia-Ukraine ceasefire diplomacy", "label_real": true, "note": "7 titles; Sonnet covered it, Haiku dropped it"},
+    {"window_id": "2026-05-01", "model": "haiku", "theme": "Musk OpenAI trial testimony", "label_real": true, "note": "7 titles"},
+    {"window_id": "2026-05-01", "model": "haiku", "theme": "US government shutdown ending", "label_real": true, "note": "6 titles"},
+    {"window_id": "2026-05-01", "model": "haiku", "theme": "Fed rates / Powell chairmanship", "label_real": true, "note": "6 titles"},
+    {"window_id": "2026-05-01", "model": "sonnet", "theme": "Gaza aid flotilla", "label_real": true, "note": "8 titles"},
+    {"window_id": "2026-05-01", "model": "sonnet", "theme": "Musk OpenAI trial", "label_real": true, "note": "7 titles"},
+    {"window_id": "2026-05-01", "model": "sonnet", "theme": "Sinaloa indictment", "label_real": true, "note": "10+ titles"},
+    {"window_id": "2026-05-01", "model": "sonnet", "theme": "Trump-Germany troop clash", "label_real": true, "note": "real diplomatic cluster"},
+
+    {"window_id": "2026-05-19", "model": "haiku", "theme": "London competing protests (Robinson/Nakba)", "label_real": true, "note": "12+ titles; Sonnet covered it, Haiku dropped it"},
+    {"window_id": "2026-05-19", "model": "haiku", "theme": "UAE nuclear plant drone strike", "label_real": true, "note": "real escalation cluster"},
+    {"window_id": "2026-05-19", "model": "haiku", "theme": "Putin-Xi summit", "label_real": true, "note": "6+ titles"},
+    {"window_id": "2026-05-19", "model": "haiku", "theme": "Musk loses OpenAI lawsuit", "label_real": true, "note": "5+ titles"},
+    {"window_id": "2026-05-19", "model": "sonnet", "theme": "Ukraine war / Moscow drone campaign", "label_real": true, "note": "10+ titles; Haiku covered it, Sonnet dropped it"},
+    {"window_id": "2026-05-19", "model": "sonnet", "theme": "Putin-Xi summit", "label_real": true, "note": "6+ titles, both missed"},
+
+    {"window_id": "2026-06-15", "model": "haiku", "theme": "Ebola outbreak DRC", "label_real": true, "note": "real cluster"},
+    {"window_id": "2026-06-15", "model": "haiku", "theme": "G7 summit + anti-G7 protests", "label_real": true, "note": "real cluster"},
+    {"window_id": "2026-06-15", "model": "haiku", "theme": "Tren de Aragua leader killed", "label_real": true, "note": "multiple titles"},
+    {"window_id": "2026-06-15", "model": "sonnet", "theme": "Khamenei death + funeral", "label_real": true, "note": "11+ titles -- BUT judge inconsistently did not flag this for Haiku, who also omitted it (recall noise)"},
+    {"window_id": "2026-06-15", "model": "sonnet", "theme": "Tren de Aragua leader killed", "label_real": true, "note": "8 titles"},
+    {"window_id": "2026-06-15", "model": "sonnet", "theme": "UK seizes Russian shadow-fleet tanker", "label_real": true, "note": "7 titles"},
+    {"window_id": "2026-06-15", "model": "sonnet", "theme": "Belfast anti-immigration riots", "label_real": true, "note": "8 titles"},
+
+    {"window_id": "2026-06-15", "model": "haiku", "theme": "FABRICATION: oil markets rallying on Iran deal", "label_real": true, "fabrication": true, "note": "real catch -- titles say oil slid; a deal reopening shipping lowers oil. Sonnet got it right. Haiku's one substantive lapse."}
+  ]
+}
