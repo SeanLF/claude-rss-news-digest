@@ -333,6 +333,43 @@ refine **on the ~20 borderline pairs only** (the prior-art arch, NOT a full re-c
 precisely aimed at this gap, since adjudication localized the real errors to ~9 over + ~12 under
 merges across ~29k pairs. That is the experiment worth running next.
 
+## Thin-refine result (2026-06-27) — the arch rebalances error types, it does NOT close the gap
+
+Ran the never-run `refine_borderline.py` on run 204: the split-only, cluster-local thin
+refine (judge only the ~128 within-cluster pairs of multi-article clusters; keep same/either
+edges; split into connected components). Judge = Nemotron-3-Ultra-550B (GLM/DeepSeek were
+429-throttled; Nemotron is cross-family, NVIDIA, so the no-self-preference property holds).
+170 → 184 clusters (12 split). Re-scored on the de-biased pairwise metric:
+
+| | clusters | precision | recall | pairwise-F1 | z |
+|---|--:|--:|--:|--:|--:|
+| extract-join (base) | 170 | 0.850 | 0.551 | **0.663** | −0.8 |
+| refined (split-only) | 184 | **0.947** | 0.518 | **0.663** | −0.8 |
+
+**Finding: split-only thin-refine is a WASH on aggregate clustering quality.** It did exactly
+what it was built for — precision 0.85 → 0.95 (fixed over-merges, the one clean defect the
+adjudication isolated) — but the recall cost of splitting some *defensible* merges (0.551 →
+0.518) **exactly offsets it: pairwise-F1 is unchanged (0.663), still z=−0.8 at the band's low
+edge.** The refine **rebalances the error profile toward precision; it does not move cheap
+clustering toward Sonnet parity.** This is consistent with the de-biased finding that the gap
+is recall-dominated (under-merged big stories) and largely *defensible*: a split-only pass can
+only spend recall, and closing the gap would require a *merge-capable* refine that raises recall
+by lumping shattered big-story facets — i.e. **mimicking Sonnet's defensible over-lumping**, not
+producing a clearly-better partition. So no cheap refine makes cheap clustering "Sonnet-quality."
+
+**Net characterization of the CLUSTER cost lever (the investigation's bottom line):**
+1. Cheap clustering (extract-join, free): a real but modest gap from Sonnet (z=−0.8 on 204,
+   ~−2.1 below band at 465-article scale), **most of which is defensible granularity difference**
+   (Sonnet over-lumps; adjudication: ~75% of the recall "gap" is defensible).
+2. Thin-refine (split-only, ~free on NIM, 24 min): a **precision/recall rebalance**, not a
+   gap-closer — buys cleaner over-merge behaviour (digest-relevant: fewer hidden stories) at a
+   defensible-recall cost, F1 flat.
+3. **Neither reaches Sonnet's own self-agreement band.** The ship/park call is therefore NOT
+   "does cheap match Sonnet's clustering" (it doesn't, by a modest margin) but **"is the cheap
+   (or cheap+refine) DIGEST acceptable"** — a product judgment on a ~38%-of-run cost saving vs a
+   modest, partly-defensible quality gap. The task-grounded digest test (now with the
+   order-swap-hardened judge) is the decision-grade ruler for that question.
+
 ## Key sources
 van Heusden 2022 BCubed Revisited/ELM https://dl.acm.org/doi/10.1145/3539813.3545121 ·
 HUME (band/ceiling) https://arxiv.org/html/2510.10062 · Amigó 2009 (BCubed constraints)
