@@ -370,6 +370,32 @@ producing a clearly-better partition. So no cheap refine makes cheap clustering 
    modest, partly-defensible quality gap. The task-grounded digest test (now with the
    order-swap-hardened judge) is the decision-grade ruler for that question.
 
+## Hardened-judge re-check (2026-06-27) — the old "6/16 missed" was position bias
+
+`judge_digests.py` was hardened to run every coverage/dup verdict in BOTH presentation
+orders and report only swap-stable verdicts (pure reconciliation core unit-tested in
+`test_judge_reconcile.py`; the old version labelled Sonnet "A (reference)" and presented it
+first). Re-ran it on the run-204 extract-join digest vs the Sonnet digest (judge =
+Nemotron-Ultra; GLM throttled):
+
+| | old single-pass judge | order-swap-hardened judge |
+|---|--:|--:|
+| internal dups (Sonnet / cheap) | 2 / 1 | **0 / 0 confirmed** |
+| Sonnet stories missed by cheap | **6/16** | **0/16 confirmed (+6 order-sensitive)** |
+| cheap novel vs Sonnet | 6 | 0 confirmed (+6 order-sensitive) |
+
+**The entire "6/16 missed" signal was a presentation-order artifact.** Under order-swap the
+6 flip (called missing in one order, covered in the other) — position bias measured *within a
+single judge*, so it's attributable to the hardening, not the GLM→Nemotron model change. Net:
+under an unbiased judge the cheap digest has **zero confirmed duplicates and zero confirmed
+missing stories** vs Sonnet; the 6 divergences are genuinely ambiguous (consistent with the
+SELECT-variance control's finding that coverage divergence is mostly selector non-determinism).
+**Caveat:** 6/16 order-sensitive is high residual uncertainty (Nemotron may be a noisier
+coverage judge than GLM); the clean signal is the *dup* side (0/0) and the *disappearance* of
+the confident misses. This is the strongest digest-level evidence yet that cheap clustering is
+shippable — the modest pairwise-F1 gap does not translate into a reader-facing coverage or
+duplication regression once the judge's position bias is removed.
+
 ## Key sources
 van Heusden 2022 BCubed Revisited/ELM https://dl.acm.org/doi/10.1145/3539813.3545121 ·
 HUME (band/ceiling) https://arxiv.org/html/2510.10062 · Amigó 2009 (BCubed constraints)
