@@ -299,7 +299,42 @@ not an entity-bag artifact) — closing that defect needs a thin LLM refine on t
 borderline pairs, not a cheaper gate. The cheap-clustering-then-thin-Sonnet-refine-on-borderline
 architecture (the prior-art convergent design) remains the open, promising path.
 
+## De-biased re-score (2026-06-27) — pairwise-link F1 corrects the BCubed overstatement
+
+An adversarial lit check (van Heusden 2022 "BCubed Revisited / ELM"; Amigó 2009) confirmed
+**BCubed-F is inflated on our singleton-heavy partitions** — singletons get full self-credit,
+so the metric compresses near 1.0 (all-singletons floor 0.804) and the discriminative signal
+lives in the non-singleton minority the average dilutes. So "cheap methods are IN-BAND on
+BCubed-F" above is **partly a metric artifact**. Re-ran the SAME band experiment on
+**pairwise-link F1** (precision/recall over co-clustered article *pairs*; singletons form no
+pairs → no self-credit → the floor collapses to ~0 and the range opens up).
+Harness: `scratch/cluster-replay/band_eval_pairwise.py` (reuses `band_eval` loaders +
+`analyze.pair_prf`, both deflation-checked; degenerate self-checks gate every run).
+
+| | Sonnet self-band (mean / range) | best cheap method | z (sd below mean) | verdict |
+|---|---|---|--:|---|
+| **run 204** (7 refs) | 0.706 / [0.607, 0.879] | extract-join 0.663 | **−0.8** | in-band, low edge |
+| **run 205** (4 refs) | 0.629 / [0.557, 0.686] | refine-embed 0.536 | **−2.1** | **below band** |
+
+(all-singletons → pairwise-F1 0.000, all-one-cluster → 0.014: the de-biasing is real. Recovered
+fraction = cheap/Sonnet-self-agreement: ~0.94 on 204, ~0.77–0.85 on 205. Per-gold pairwise-F1
+reconciles with the draft-refine doc, e.g. draft-embed 0.672 here vs 0.665 there.)
+
+**Corrected conclusion.** The reversal's *core* survives — cheap methods are NOT degenerate
+(degenerate baselines collapse to ~0) and recover ~94% of Sonnet's own (low, 0.71) pairwise
+self-consistency on a good day; the ARI-vs-one-gold critique still holds. But the **"near-Sonnet
+/ indistinguishable" framing is overturned**: on the honest metric the gap is a real ~0.6–0.8 sd
+on 204 and **opens to ~2.1 sd (below Sonnet's own band) at 465-article scale (205)**. BCubed's
+"comfortably in-band" for 205 was singleton inflation. A *pure* cheap swap therefore ships
+measurably worse clustering on big news days — not free. This **sharpens the engineering
+target**: only `draft-gold` (z=+0.7) reaches Sonnet level, and even Sonnet-full-refine-on-a-cheap-
+draft anchors to the draft (~0.67/0.54). The one untested path — cheap clustering → thin-Sonnet-
+refine **on the ~20 borderline pairs only** (the prior-art arch, NOT a full re-cluster) — is
+precisely aimed at this gap, since adjudication localized the real errors to ~9 over + ~12 under
+merges across ~29k pairs. That is the experiment worth running next.
+
 ## Key sources
+van Heusden 2022 BCubed Revisited/ELM https://dl.acm.org/doi/10.1145/3539813.3545121 ·
 HUME (band/ceiling) https://arxiv.org/html/2510.10062 · Amigó 2009 (BCubed constraints)
 https://link.springer.com/article/10.1007/s10791-008-9066-8 · BCubed Revisited/ELM
 https://dl.acm.org/doi/10.1145/3539813.3545121 · USTORY https://arxiv.org/abs/2304.04099 ·
