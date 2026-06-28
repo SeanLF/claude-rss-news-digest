@@ -200,20 +200,21 @@ class ThreadStore:
         ).fetchall()
         return [r[0] for r in rows]
 
-    def render_context(self, thread_id: int, run_id: int) -> dict:
-        """The thread facts the renderer (sub-project C) needs: how many days the thread has run,
-        the questions still open, and any answered THIS run."""
-        day = self.conn.execute(
-            "SELECT COUNT(*) FROM thread_installments WHERE thread_id = ?", (thread_id,)
-        ).fetchone()[0]
-        resolved = [
-            r[0]
-            for r in self.conn.execute(
-                "SELECT question FROM thread_questions WHERE thread_id = ? AND status = 'resolved' AND resolved_run_id = ? ORDER BY id",
-                (thread_id, run_id),
-            )
-        ]
-        return {"day": day, "open_questions": self.open_questions(thread_id), "resolved": resolved}
+    def render_context(self, thread_id: int) -> dict:
+        """The thread facts the renderer (sub-project C) needs: how many days the thread has run
+        and its running narrative (the "story so far"). The open-question ledger is kept as
+        internal state -- it shapes the synthesis prompt -- but is NOT surfaced to readers: in
+        practice only ~16% of raised questions resolve in-digest, so a rendered list would be
+        mostly never-answered clutter. Continuity reads better as the narrative prose."""
+        row = self.conn.execute(
+            """
+            SELECT (SELECT COUNT(*) FROM thread_installments WHERE thread_id = t.id), t.narrative
+            FROM threads t WHERE t.id = ?
+            """,
+            (thread_id,),
+        ).fetchone()
+        day, narrative = row if row else (0, None)
+        return {"day": day, "narrative": narrative}
 
     # --- writes (identity / aging) ---
 

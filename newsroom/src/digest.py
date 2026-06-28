@@ -163,7 +163,7 @@ def attach_thread_context(selections: dict) -> dict:
                 for item in selections.get(tier, []):
                     assignment = by_story.get(item.get("cluster_id"))
                     if assignment:
-                        item["thread"] = store.render_context(assignment["thread_id"], run_id)
+                        item["thread"] = store.render_context(assignment["thread_id"])
         finally:
             conn.close()
     except Exception:

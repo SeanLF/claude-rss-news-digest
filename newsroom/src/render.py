@@ -218,22 +218,15 @@ def generate_feedback_html(email: str) -> str:
     </div>"""
 
 
-def _render_thread_ledger(thread: dict, *, max_open: int = 3) -> str:
-    """The compact open-question ledger for a continuing thread: what today answered, and what
-    the story is still tracking. Returns '' when there's nothing thread-worthy to show."""
-    resolved = thread.get("resolved") or []
-    open_qs = (thread.get("open_questions") or [])[:max_open]
-    if not resolved and not open_qs:
+def _render_thread_continuity(thread: dict) -> str:
+    """A continuing thread's "story so far" -- the running narrative as a prose line. Prose,
+    not a question ledger: most open questions never resolve in-digest, so a structured
+    "still tracking / now answered" list would be mostly stale. Returns '' when there's no
+    narrative yet."""
+    narrative = (thread.get("narrative") or "").strip()
+    if not narrative:
         return ""
-    lines = ['      <div class="thread-ledger">']
-    if resolved:
-        answered = "; ".join(html.escape(q) for q in resolved)
-        lines.append(f'        <p class="thread-answered"><strong>Now answered:</strong> {answered}</p>')
-    if open_qs:
-        tracking = " · ".join(html.escape(q) for q in open_qs)
-        lines.append(f'        <p class="thread-tracking"><strong>Still tracking:</strong> {tracking}</p>')
-    lines.append("      </div>")
-    return "\n".join(lines)
+    return f'      <p class="thread-continuity"><strong>The story so far:</strong> {html.escape(narrative)}</p>'
 
 
 def render_article(article: dict, slug: str, include_reporting_varies: bool = True) -> str:
@@ -281,7 +274,7 @@ def render_article(article: dict, slug: str, include_reporting_varies: bool = Tr
         f'      <p class="why"><strong>Why it matters:</strong> {why}</p>',
     ]
 
-    thread_block = _render_thread_ledger(thread)
+    thread_block = _render_thread_continuity(thread)
     if thread_block:
         parts.append(thread_block)
 

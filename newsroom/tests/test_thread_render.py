@@ -18,46 +18,40 @@ BASE = {
 def test_render_article_without_thread_is_unchanged():
     out = render.render_article(BASE, slug="heatwave")
     assert "thread-badge" not in out
-    assert "thread-ledger" not in out
+    assert "thread-continuity" not in out
     assert "European heatwave breaks records" in out
 
 
-def test_render_article_with_continuing_thread_shows_badge_and_ledger():
+def test_render_article_with_continuing_thread_shows_badge_and_continuity():
     article = {
         **BASE,
         "thread": {
             "day": 4,
-            "open_questions": ["How long will the heat dome persist?", "Will records fall in the UK?"],
-            "resolved": ["How many have died in France?"],
+            "narrative": "A heat dome has gripped Europe for days; France logged red alerts and dozens of deaths, and Britain has now broken its June record.",
         },
     }
     out = render.render_article(article, slug="heatwave")
     assert 'class="thread-badge">Ongoing · day 4' in out
-    assert "Still tracking:" in out
-    assert "How long will the heat dome persist?" in out
-    assert "Now answered:" in out
-    assert "How many have died in France?" in out
+    assert "The story so far:" in out
+    assert "A heat dome has gripped Europe" in out
+    # the brittle question ledger is gone
+    assert "Still tracking" not in out
+    assert "Now answered" not in out
 
 
-def test_thread_badge_hidden_on_first_day():
-    article = {**BASE, "thread": {"day": 1, "open_questions": ["Q?"], "resolved": []}}
+def test_thread_badge_hidden_on_first_day_but_continuity_shows():
+    article = {**BASE, "thread": {"day": 1, "narrative": "Day one of the story."}}
     out = render.render_article(article, slug="x")
     assert "thread-badge" not in out  # day 1 isn't "ongoing" yet
-    assert "Still tracking:" in out  # but the ledger still shows
+    assert "The story so far:" in out
 
 
-def test_thread_ledger_empty_when_no_questions():
-    assert render._render_thread_ledger({"day": 3, "open_questions": [], "resolved": []}) == ""
+def test_thread_continuity_empty_when_no_narrative():
+    assert render._render_thread_continuity({"day": 3, "narrative": None}) == ""
+    assert render._render_thread_continuity({"day": 3, "narrative": "  "}) == ""
 
 
-def test_thread_ledger_caps_open_questions():
-    ledger = render._render_thread_ledger(
-        {"day": 2, "open_questions": [f"q{i}" for i in range(6)], "resolved": []}, max_open=3
-    )
-    assert ledger.count(" · ") == 2  # 3 questions -> 2 separators
-
-
-def test_thread_ledger_escapes_html():
-    out = render._render_thread_ledger({"day": 2, "open_questions": ["<script>x</script>"], "resolved": []})
-    assert "<script>" not in out
+def test_thread_continuity_escapes_html():
+    out = render._render_thread_continuity({"day": 2, "narrative": "<script>x</script>"})
+    assert "<script>x" not in out
     assert "&lt;script&gt;" in out

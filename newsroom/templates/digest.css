@@ -241,24 +241,18 @@ article .sources a {
   vertical-align: middle;
 }
 
-.thread-ledger {
-  margin: 8px 0 0;
+.thread-continuity {
+  margin: 8px 0;
   padding-left: 12px;
   border-left: 2px solid var(--accent);
-  font-size: 0.85em;
+  font-size: 0.9em;
+  color: var(--text-muted);
+  font-style: italic;
 }
 
-.thread-ledger p {
-  margin: 3px 0;
-  color: var(--text-secondary);
-}
-
-.thread-ledger .thread-answered strong {
+.thread-continuity strong {
+  font-style: normal;
   color: var(--accent);
-}
-
-.thread-ledger .thread-tracking strong {
-  color: var(--text);
 }
 
 .reporting-varies em {
