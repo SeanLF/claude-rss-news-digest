@@ -70,6 +70,42 @@ a saving. Bottom line: this is a **quality upgrade at ~neutral cost**, not a cos
 - Format: the rich synthesis (paragraph + 10 facts + disagreements) is far too long for the email
   as-is — it's a superset to be rendered compactly or passed through a tightening stage (untested).
 
+## Method-validation pass (the first cut had circular/eyeballed evidence)
+
+The experiments above had real defects, fixed here:
+
+**Defect 1 — circular faithfulness check (Sonnet audited Sonnet).** **Defect 2 — the auditor
+was never validated.** Built a ground-truth-labeled claim set (`audit_validate.py`): 7 claims
+genuinely supported by their cited source + 6 deliberately corrupted (wrong numbers, wrong date,
+wrong country, a fabricated fact), verified against the real source text. Both judges:
+
+| auditor | recall (corrupted caught) | false-positives (good flagged) |
+|---|--:|--:|
+| Sonnet (the circular one) | **6/6** | 0/7 |
+| Nemotron (cross-family) | **6/6** | 0/7 |
+
+→ the auditor is a trustworthy instrument (not lazy/broken), and a different family agrees on
+ground truth. Then re-audited the **real** synthesized facts cross-family (`audit_crossfamily.py`):
+over 102 facts, **Sonnet self-audit flagged 4 (3.9%), Nemotron flagged 3 (2.9%)** — Nemotron did
+*not* find more, so the ~95-96% grounded result is **not a self-preference artifact** (one fact
+in 102 was caught by Nemotron that Sonnet's self-audit missed — tiny, immaterial to the
+magnitude). Caveat: my injected errors are blatant; subtle self-preference is bounded by the
+cross-family agreement, not separately stressed. (NIM free tier returned 1 ungrammatical response
+→ 1 event skipped.)
+
+**Defect 3 — "richer" was eyeballed; faithfulness used a self-selected fact list.** Measured
+coverage against an **independent Nemotron-extracted reference** (`coverage_eval.py`): synthesis
+covers **79 / 97 / 65%** of the reference facts across three events vs the current item's
+**53 / 67 / 25%** — a real **+26-40pp** advantage. **Caveat (do not oversell):** the current item
+is *intentionally terse*, so part of the gap is just length; the same-length render-and-remeasure
+(the format experiment) is still open, so the coverage win is conflated with length.
+
+**Net:** the *quality* conclusions (faithful ~96%, robust to bad bundles, covers more) survive
+cross-family scrutiny and ground-truth validation. The weakest remaining claim is **cost**
+(per-event measured ~neutral; *batched* synthesis untested and carries its own quality risk —
+more context worsens the skim/positional-bias the literature warns about), plus everything is
+**n=1 (run 204)**.
+
 ## Recommendation
 
 The most promising thread from the whole investigation. It converts "cheap clustering has a
