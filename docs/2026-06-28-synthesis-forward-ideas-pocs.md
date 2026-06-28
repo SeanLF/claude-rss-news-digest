@@ -63,8 +63,47 @@ COHERENCE drop-on-fail logic — the audit->drop loop already does this. Skip.
   ongoing story IS a growing subgraph, synthesized as "what's new in this evolving story-graph."
   The ambitious version, and the only thing here with a genuine research flavour.
 
+## THE UNIFIED IDEA — evolving story-thread (the "even better" change) — VIABLE
+
+Combined the two winners into a persistent story-graph that accretes across days
+(`evolving_thread.py`): each day late-binding scopes the Iran subgraph, threading frames the
+delta, and an OPEN-QUESTION LEDGER is carried forward. Ran across 4 consecutive days (runs
+204-207: scrutiny -> MoU signed -> ceasefire -> Swiss talks cancelled).
+
+**Qualitatively it's a categorically better reader experience** — the story EVOLVES: the running
+narrative is carried forward and **13 open questions are raised then RESOLVED across the thread**
+("what are the deal's terms?" -> resolved when the MoU text is released; "will the Switzerland
+talks happen?" -> resolved when they're cancelled). Nothing in the current pipeline does this;
+today it's 4 disconnected daily Iran summaries.
+
+**The PoC found a real failure mode, then fixed it:**
+
+| evolving-thread (4-day) | unsupported | facts | resolved |
+|---|--:|--:|--:|
+| first cut (memory bleeds into facts) | **22.5%** | 80 | 8 |
+| strict grounding (memory != facts) | **8.4%** | 95 | 13 |
+
+The first cut cratered faithfulness to 22.5% (vs 3.6% single-day): carrying state across days +
+late-binding's bigger bundles made the model weave accumulated-narrative facts into "today's
+news" with today's citations, which then don't trace. The fix — explicitly walling off the
+running narrative/ledger (MEMORY, may reference prior) from `whats_new` (must cite a TODAY
+source, nothing carried) — **more than halved it to 8.4%** while producing MORE facts and
+resolving MORE questions. Residual ~8% concentrates on the most complex day and is exactly what
+the existing audit->drop (COHERENCE) layer mops up. So the unified idea is **viable**: the
+best-experience digest, faithful-enough with a grounding-discipline prompt + audit-drop.
+
 ## Recommendation
 
+**Build the evolving story-thread** — it's the "even better" change: it subsumes #1 (late-binding
+scopes each day) and #2 (threading delta + continuity), adds the open-question ledger, and is the
+only thing here that makes the digest a *living* product rather than daily snapshots. Faithfulness
+is solved by memory/fact separation + the existing audit-drop. Remaining build work: event-level
+edges for late-binding (vs entity-bag), per-story thread state persisted across runs (the digest
+already has `shown_narratives` + `weekly_recap` to build on), and the audit-drop wired into the
+thread. Fallback/keep: plain late-binding (#1) and the continuity framing (#2) are useful even
+without full threading.
+
+(Original single-idea recommendation, now superseded by the unified thread:)
 Push **#1 late-binding** — it's the one with real new capability (granularity at synthesis time).
 Next step: replace raw entity-Jaccard edges with event-level edges (the same discrimination the
 clustering work showed is the crux) and tune the threshold, then measure coverage-vs-faithfulness
