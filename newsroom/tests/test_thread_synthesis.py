@@ -51,6 +51,44 @@ def test_bundle_formats_cited_articles_only():
     assert "A9" not in out  # missing article skipped, no crash
 
 
+# --- late-binding neighbourhood (sub-project D) ----------------------------
+
+
+def test_expand_neighbourhood_pulls_entity_neighbours_not_unrelated():
+    arts = {
+        "A1": {"title": "Iran and US sign nuclear ceasefire in Geneva", "summary": "Iran deal."},
+        "A2": {"title": "Iran tankers transit Strait of Hormuz", "summary": "Iran shipping resumes."},
+        "A3": {"title": "Brazil holds carnival parade in Rio", "summary": "Unrelated festival."},
+    }
+    out = ts.expand_neighbourhood(["A1"], arts, threshold=0.1, max_extra=5)
+    assert "A1" in out
+    assert "A2" in out  # shares Iran entities
+    assert "A3" not in out  # unrelated -> not pulled
+
+
+def test_expand_neighbourhood_respects_max_extra_and_threshold():
+    arts = {f"A{i}": {"title": "Iran nuclear deal talks", "summary": "Iran"} for i in range(6)}
+    out = ts.expand_neighbourhood(["A0"], arts, threshold=0.5, max_extra=2)
+    assert out[0] == "A0" and len(out) == 3  # seed + at most 2 extras
+
+
+def test_expand_neighbourhood_no_signal_returns_seed():
+    arts = {"A1": {"title": "", "summary": ""}, "A2": {"title": "x", "summary": ""}}
+    assert ts.expand_neighbourhood(["A1"], arts, threshold=0.3, max_extra=5) == ["A1"]
+
+
+def test_expand_neighbourhood_idf_strips_hub_entities_to_prevent_overpull():
+    # >=30 articles so IDF kicks in. "Trump" is a hub (in every article) and must NOT fuse the
+    # 30 unrelated Trump-filler stories to the Iran seed; only the genuine Iran neighbours pull.
+    arts = {"A0": {"title": "Iran nuclear deal with Trump", "summary": "Iran"}}
+    for i in range(1, 31):
+        arts[f"F{i}"] = {"title": "Trump speech in Washington", "summary": "Trump politics"}
+    arts["R1"] = {"title": "Iran Hormuz shipping under Trump", "summary": "Iran"}
+    arts["R2"] = {"title": "Iran oil exports and Trump", "summary": "Iran"}
+    out = ts.expand_neighbourhood(["A0"], arts, threshold=0.2, max_extra=20)
+    assert set(out) == {"A0", "R1", "R2"}  # Iran neighbours pulled; 30 Trump-hub fillers excluded
+
+
 # --- apply_installment -----------------------------------------------------
 
 

@@ -22,9 +22,39 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 
 from config import DEFAULT_MODEL
 from usage import _usage_row
+
+# Late-binding (sub-project D): a story's facets are often scattered across hard clusters (an
+# "Iran deal" cluster + a separate "Hormuz shipping" + "reactions"). We expand a thread's seed
+# cluster to the entity-soft neighbourhood across the run's articles so the synthesis sees the
+# whole story. Entity signature = capitalized-name tokens; _LB_STOP drops sentence-leading
+# function words ("The", "A") so they don't masquerade as entities.
+_ENTITY_RE = re.compile(r"[A-Z][A-Za-z'&.-]+(?:\s+[A-Z][A-Za-z'&.-]+)*")
+_LB_STOP = frozenset(
+    [
+        "the",
+        "a",
+        "an",
+        "this",
+        "that",
+        "these",
+        "those",
+        "it",
+        "its",
+        "their",
+        "his",
+        "her",
+        "our",
+        "your",
+        "new",
+        "but",
+        "and",
+        "for",
+    ]
+)
 
 logger = logging.getLogger(__name__)
 
@@ -56,6 +86,67 @@ def _bundle(article_ids: list[str], arts: dict) -> str:
     return "\n\n".join(
         f"{a}: {arts[a]['title']}\n   {arts[a].get('summary', '')[:SUMMARY_CHARS]}" for a in article_ids if a in arts
     )
+
+
+def _article_signature(art: dict) -> set[str]:
+    """Entity-token signature of one article (capitalized names in title + summary lead)."""
+    text = f"{art.get('title', '')} {art.get('summary', '')[:SUMMARY_CHARS]}"
+    sig: set[str] = set()
+    for ent in _ENTITY_RE.findall(text):
+        for word in re.split(r"[\s-]+", ent.lower()):
+            word = word.strip(".'&")
+            if len(word) >= 3 and word not in _LB_STOP:
+                sig.add(word)
+    return sig
+
+
+def _jaccard(a: set[str], b: set[str]) -> float:
+    if not a or not b:
+        return 0.0
+    union = len(a | b)
+    return len(a & b) / union if union else 0.0
+
+
+def _hub_entities(sigs: dict[str, set[str]], *, max_df: float) -> set[str]:
+    """Entities appearing in more than `max_df` of the run's articles -- hubs like Trump/US/China
+    that connect unrelated stories. Dropping them is the IDF fix for late-binding's over-pull
+    (naive entity-overlap pulls 11/15 unrelated; with hubs removed the neighbourhood is the story
+    family). Only meaningful at run scale, so the caller skips this on tiny sets."""
+    n = len(sigs)
+    counts: dict[str, int] = {}
+    for sig in sigs.values():
+        for tok in sig:
+            counts[tok] = counts.get(tok, 0) + 1
+    return {tok for tok, c in counts.items() if c / n > max_df}
+
+
+def expand_neighbourhood(
+    seed_ids: list[str], arts: dict, *, threshold: float, max_extra: int, hub_max_df: float = 0.12
+) -> list[str]:
+    """Widen a thread's seed article set with the most entity-similar articles elsewhere in the
+    run (late-binding). Returns seed_ids + up to `max_extra` neighbours scoring >= threshold by
+    entity-Jaccard against any seed article, AFTER dropping hub entities (IDF) so a shared
+    "Trump"/"US" doesn't fuse unrelated stories. The threshold + cap + the synthesis's cite-today
+    grounding are the remaining guards against over-pull."""
+    sigs = {aid: _article_signature(arts[aid]) for aid in arts}
+    # IDF hub-stripping only bites at run scale; on tiny sets every entity looks like a hub.
+    hubs = _hub_entities(sigs, max_df=hub_max_df) if len(sigs) >= 30 else set()
+    disc = {aid: (sig - hubs) for aid, sig in sigs.items()}
+
+    seed = [a for a in seed_ids if a in arts]
+    seed_sigs = [disc[a] for a in seed if disc.get(a)]
+    if not seed_sigs:
+        return list(seed_ids)
+    seed_set = set(seed)
+    scored: list[tuple[float, str]] = []
+    for aid in arts:
+        if aid in seed_set:
+            continue
+        best = max((_jaccard(disc[aid], ss) for ss in seed_sigs), default=0.0)
+        if best >= threshold:
+            scored.append((best, aid))
+    scored.sort(reverse=True)
+    return list(seed_ids) + [aid for _, aid in scored[:max_extra]]
 
 
 def _run_sonnet(user: str, system: str, *, model: str, subagent: str, usage_rows: list[dict] | None) -> str:
@@ -166,6 +257,8 @@ def synthesize_threads(
     audit_fn=audit_whats_new,
     record_health: bool = True,
     usage_rows: list[dict] | None = None,
+    latebind_threshold: float | None = None,
+    latebind_max_extra: int = 12,
 ) -> tuple[list[dict], int]:
     """Synthesize installments for the CONTINUING threads this run (new single-day threads carry
     no prior, so threading adds nothing yet and we skip the spend). Each thread is independent and
@@ -181,9 +274,15 @@ def synthesize_threads(
     for a in assignments:
         if a.is_new or len(a.article_ids) < min_articles:
             continue
+        # Late-binding (sub-project D): widen the seed cluster to its entity-soft neighbourhood.
+        article_ids = a.article_ids
+        if latebind_threshold is not None:
+            article_ids = expand_neighbourhood(
+                a.article_ids, arts, threshold=latebind_threshold, max_extra=latebind_max_extra
+            )
         try:
             installment = synth_fn(
-                a.prior_narrative, a.open_questions, a.article_ids, arts, model=model, usage_rows=usage_rows
+                a.prior_narrative, a.open_questions, article_ids, arts, model=model, usage_rows=usage_rows
             )
         except Exception:
             logger.warning("thread synthesis failed for thread %s (skipped)", a.thread_id, exc_info=True)

@@ -37,6 +37,9 @@ from config import (
     STYLES_FILE,
     TEMPLATE_FILE,
     THREAD_DORMANT_AFTER,
+    THREAD_LATEBIND,
+    THREAD_LATEBIND_MAX_EXTRA,
+    THREAD_LATEBIND_THRESHOLD,
     THREADS_ENABLED,
 )
 from digest import (
@@ -104,7 +107,13 @@ def _process_story_threads() -> None:
             store = threads.ThreadStore(conn)
             assignments = threads.resolve_threads(stories, run_id, store, dormant_after=THREAD_DORMANT_AFTER)
             installments, audit_failures = thread_synthesis.synthesize_threads(
-                assignments, _load_run_articles(), run_id, store, usage_rows=usage_rows
+                assignments,
+                _load_run_articles(),
+                run_id,
+                store,
+                usage_rows=usage_rows,
+                latebind_threshold=THREAD_LATEBIND_THRESHOLD if THREAD_LATEBIND else None,
+                latebind_max_extra=THREAD_LATEBIND_MAX_EXTRA,
             )
         finally:
             conn.close()

@@ -65,3 +65,9 @@ RECAP_MODEL = os.environ.get("RECAP_MODEL", "claude-haiku-4-5")
 # selected stories. THREAD_DORMANT_AFTER: runs since last-seen before a thread stops matching.
 THREADS_ENABLED = os.environ.get("THREADS_ENABLED", "false").lower() in ("1", "true", "yes")
 THREAD_DORMANT_AFTER = int(os.environ.get("THREAD_DORMANT_AFTER", "3"))
+# Late-binding (sub-project D): widen a thread's synthesis input from its matched cluster to the
+# entity-soft neighbourhood across the run's clusters (pulls scattered facets of the same story).
+# Off by default; an enhancer to B, not required for the feature.
+THREAD_LATEBIND = os.environ.get("THREAD_LATEBIND", "false").lower() in ("1", "true", "yes")
+THREAD_LATEBIND_THRESHOLD = float(os.environ.get("THREAD_LATEBIND_THRESHOLD", "0.35"))
+THREAD_LATEBIND_MAX_EXTRA = int(os.environ.get("THREAD_LATEBIND_MAX_EXTRA", "12"))
