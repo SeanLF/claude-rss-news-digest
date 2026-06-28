@@ -52,15 +52,15 @@ Grew out of the CLUSTER cost work but is a QUALITY play. Validated thoroughly (r
    0.44/item) — same modes; COHERENCE doesn't catch them (it checks headline coherence). The first
    cut (94%/5-per-item) was inflated by auditing why_it_matters (editorial) + the 200-char cap;
    excluding why_it_matters gave the honest number. Caveat: WRITE cites a subset of cluster
-   articles, so a few flags may be under-citation not overstatement. **SHIPPED to write.md** — a
-   clean WRITE-only A/B (v1 vs v2 on IDENTICAL selected stories, run 213) cut overstatements −25%
-   (1.41 -> 1.06/item) at NO cost (slightly cheaper). NOTE: the confounded first A/B (fresh SELECT)
-   showed no effect (1.29 vs 1.18) — story variance (±0.3/item) masked it; the clean same-input A/B
-   revealed the real −25%. Eyeball confirmed the mechanism (v2 drops "first attack" overstatement,
-   adds "reportedly" hedge, no coverage/readability loss). Effect is milder than the synthesis
-   halving (−25% vs −53%) — WRITE's overstatements partly come from compressing a cluster into 2
-   sentences, a different source than comprehensive precision-reaching. n=1 clean A/B; a 2nd run
-   would firm the magnitude but mechanism+direction are clear.
+   articles, so a few flags may be under-citation not overstatement. COHERENCE is NOT a backstop:
+   it dropped 0 items on both 213/215 (post-citation-fix it rarely drops) — these overstatements
+   reach the reader. **SHIPPED to write.md (commit 675848d), KEEP, but the magnitude was OVER-CLAIMED
+   and is corrected here:** the clean n=1 A/B on 213 showed −25% (1.41->1.06/item), BUT the n=2
+   confirmation on 215 was mixed (1.20->1.33/item total, 80%->60% items-affected). **Honest pooled
+   n=2: −9% total overstatements, −13pp items-affected (72%->59%)** — a REAL but MODEST effect; the
+   213 −25% was favorable noise. Mechanism confirmed (drops "first attack", adds "reportedly", no
+   coverage loss). Kept because it is free + strictly-beneficial + cleanly reduces items-affected,
+   but it is NOT a −25% win. Lesson (again): confirm n=1 wins before claiming the magnitude.
 2. **The evolving story-thread** (the "even better" change) — a persistent story-graph across days
    (late-binding subgraph + threading delta + open-question ledger). Demonstrated on a 4-day Iran
    thread: 13 questions raised→resolved, categorically better than daily snapshots. Faithfulness was
