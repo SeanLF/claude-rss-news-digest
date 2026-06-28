@@ -106,6 +106,54 @@ cross-family scrutiny and ground-truth validation. The weakest remaining claim i
 more context worsens the skim/positional-bias the literature warns about), plus everything is
 **n=1 (run 204)**.
 
+## Generalization across runs (n=4) + closing the open threads (2026-06-27)
+
+Everything above was run 204 (n=1). Re-ran synthesis + faithfulness audit on 3 more runs
+(gold bundles; extract-join only materialized for 204):
+
+| run | facts | unsupported | rate |
+|---|--:|--:|--:|
+| 204 | 59 | 3 | 5.1% |
+| 205 | 90 | 4 | 4.4% |
+| 208 | 75 | 1 | 1.3% |
+| 211 | 83 | 3 | 3.6% |
+| **all 4** | **307** | **11** | **3.6%** |
+
+**Faithfulness generalizes** — ~96% grounded across 4 days (range 1.3-5.1%); the flags are all the
+same subtle-overstatement mode, each caught by the audit. The `coherent_event` safety valve even
+**fired naturally** on run 208 (a gold cluster lumping a heatwave with a France alcohol ban).
+
+**No self-preference (cross-family):** 204 — Sonnet self-audit 4/102 vs Nemotron 3/102; 205
+(partial, NIM flakiness) — 2/34 vs 1/34. Nemotron never flags *more* → the ~96% is not a
+self-grading artifact.
+
+**Coverage generalizes (n=2, independent Nemotron reference):** run 205 confirms 204 — synthesis
+81-100% vs current item 24-33% (1 of 3 events on 205 was a Nemotron measurement failure, flagged
+not faked).
+
+**Format/length de-conflation (the "richer = just longer?" question):** compressed each 204
+synthesis to digest length and re-scored vs the same reference:
+
+| event | full synthesis | tightened (digest length) | current item |
+|---|--:|--:|--:|
+| Iran | 89% | **65%** | 49% |
+| Warship | 81% | **81%** | 61% |
+| Oil | 69% | **47%** | 31% |
+
+At EQUAL length the synthesis-derived brief still covers **+16-20pp** more than the current item.
+So the full +26-40pp advantage was partly length, but a real **+16-20pp** survives length control —
+"richer" is genuine (the synthesis reads all sources before compressing, so its brief is
+better-informed than the current WRITE at the same size).
+
+**Cost (batched, measured):** batching 5 events into one call cut synthesis cost **−57%** ($0.096
+vs $0.222) but emitted **−25% facts** (skim) at held faithfulness → a tunable cost/coverage frontier
+(per-event = richest/~neutral cost; batched = cheaper/skims; small-group batch = likely sweet spot).
+
+**Net after the rigor + generalization pass:** every load-bearing conclusion now holds with n>1
+(n=4 faithfulness), cross-family validation, ground-truth-validated instruments, and length control.
+Residual honesty: extract-join cheap-bundle generalization is still 204-only; the 205 coverage had
+1 measurement failure; cross-family is full on 204, partial on 205.
+
 ## Recommendation
 
 The most promising thread from the whole investigation. It converts "cheap clustering has a
