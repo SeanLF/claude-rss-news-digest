@@ -218,15 +218,28 @@ def generate_feedback_html(email: str) -> str:
     </div>"""
 
 
+def _first_sentence(text: str, *, cap: int = 220) -> str:
+    """First sentence of the narrative (background context), hard-capped so the line stays compact.
+    Splits on sentence-ending punctuation followed by a space; falls back to a word-boundary cut."""
+    text = text.strip()
+    ends = [i for end in (". ", "? ", "! ") if 0 < (i := text.find(end)) <= cap]
+    if ends:
+        return text[: min(ends) + 1]  # earliest sentence end, whatever its punctuation
+    if len(text) <= cap:
+        return text
+    return text[:cap].rsplit(" ", 1)[0].rstrip(",;:") + "…"
+
+
 def _render_thread_continuity(thread: dict) -> str:
-    """A continuing thread's "story so far" -- the running narrative as a prose line. Prose,
-    not a question ledger: most open questions never resolve in-digest, so a structured
-    "still tracking / now answered" list would be mostly stale. Returns '' when there's no
-    narrative yet."""
+    """A continuing thread's "story so far" -- the PRIOR run's narrative, trimmed to its first
+    sentence, as a compact background line. Prose, not a question ledger (most open questions never
+    resolve in-digest, so a list would be mostly stale); the prior narrative, not the current one,
+    so it's background rather than a restatement of today. Returns '' when there's no prior yet."""
     narrative = (thread.get("narrative") or "").strip()
     if not narrative:
         return ""
-    return f'      <p class="thread-continuity"><strong>The story so far:</strong> {html.escape(narrative)}</p>'
+    summary = html.escape(_first_sentence(narrative))
+    return f'      <p class="thread-continuity"><strong>The story so far:</strong> {summary}</p>'
 
 
 def render_article(article: dict, slug: str, include_reporting_varies: bool = True) -> str:

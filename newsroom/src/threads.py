@@ -202,13 +202,14 @@ class ThreadStore:
 
     def render_context(self, thread_id: int) -> dict:
         """The thread facts the renderer (sub-project C) needs: how many days the thread has run
-        and its running narrative (the "story so far"). The open-question ledger is kept as
-        internal state -- it shapes the synthesis prompt -- but is NOT surfaced to readers: in
-        practice only ~16% of raised questions resolve in-digest, so a rendered list would be
-        mostly never-answered clutter. Continuity reads better as the narrative prose."""
+        and the PRIOR run's narrative as the "story so far". Using prev_narrative (not the current
+        one, which already folds in today's development the day's summary covers) keeps the line as
+        background context rather than a restatement. The open-question ledger is kept as internal
+        state -- it shapes the synthesis prompt -- but is NOT surfaced to readers: in practice only
+        ~16% of raised questions resolve in-digest, so a rendered list would be mostly clutter."""
         row = self.conn.execute(
             """
-            SELECT (SELECT COUNT(*) FROM thread_installments WHERE thread_id = t.id), t.narrative
+            SELECT (SELECT COUNT(*) FROM thread_installments WHERE thread_id = t.id), t.prev_narrative
             FROM threads t WHERE t.id = ?
             """,
             (thread_id,),
@@ -285,8 +286,10 @@ class ThreadStore:
         self._commit()
 
     def set_narrative(self, thread_id: int, narrative: str) -> None:
+        """Advance the narrative, rolling the current one into prev_narrative so the renderer can
+        show where the story stood coming into today (background, not a today restatement)."""
         self.conn.execute(
-            "UPDATE threads SET narrative = ?, updated_at = datetime('now', 'utc') WHERE id = ?",
+            "UPDATE threads SET prev_narrative = narrative, narrative = ?, updated_at = datetime('now', 'utc') WHERE id = ?",
             (narrative, thread_id),
         )
         self._commit()

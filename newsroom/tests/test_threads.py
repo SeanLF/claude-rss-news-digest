@@ -205,6 +205,28 @@ def test_active_threads_prefers_narrative_then_label(conn):
     assert store.active_threads(before_run_id=2, dormant_after=3)[0].narrative == "running summary"
 
 
+def test_set_narrative_rolls_current_into_prev(conn):
+    store = threads.ThreadStore(conn)
+    tid = store.create_thread("Iran", run_id=1)
+    store.set_narrative(tid, "day-2 state")
+    store.set_narrative(tid, "day-3 state")
+    row = conn.execute("SELECT narrative, prev_narrative FROM threads WHERE id=?", (tid,)).fetchone()
+    assert row == ("day-3 state", "day-2 state")
+
+
+def test_render_context_returns_prior_narrative_as_story_so_far(conn):
+    # The renderer should see the PRIOR run's narrative (background), not today's update.
+    store = threads.ThreadStore(conn)
+    tid = store.create_thread("Iran", run_id=1)
+    store.record_installment(tid, 1, "Iran", is_new=True)
+    store.record_installment(tid, 2, "Iran", is_new=False)
+    store.set_narrative(tid, "as of day 1")
+    store.set_narrative(tid, "as of day 2 (includes today)")
+    ctx = store.render_context(tid)
+    assert ctx["day"] == 2
+    assert ctx["narrative"] == "as of day 1"  # prior, not the current today-laden narrative
+
+
 def test_resolve_threads_ages_out_dormant_threads(conn):
     store = threads.ThreadStore(conn)
     threads.resolve_threads(

@@ -55,3 +55,21 @@ def test_thread_continuity_escapes_html():
     out = render._render_thread_continuity({"day": 2, "narrative": "<script>x</script>"})
     assert "<script>x" not in out
     assert "&lt;script&gt;" in out
+
+
+def test_thread_continuity_trims_to_first_sentence():
+    narrative = "France declared red alerts and dozens died. Britain then broke its June record at 36.1C today."
+    out = render._render_thread_continuity({"day": 4, "narrative": narrative})
+    assert "France declared red alerts and dozens died." in out
+    assert "Britain then broke" not in out  # today's development is trimmed off
+
+
+def test_first_sentence_picks_earliest_terminator_not_punctuation_type():
+    # A question-opening narrative must stop at the '?', not run on to the first '.'.
+    assert render._first_sentence("Will it hold? The ceasefire is fragile. Talks resume.") == "Will it hold?"
+
+
+def test_first_sentence_hard_caps_a_long_run_on():
+    long = "A " + "very " * 100 + "long clause with no sentence end"
+    out = render._first_sentence(long, cap=220)
+    assert len(out) <= 221 and out.endswith("…")
