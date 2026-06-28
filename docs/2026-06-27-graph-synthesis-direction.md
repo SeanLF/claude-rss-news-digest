@@ -149,10 +149,22 @@ better-informed than the current WRITE at the same size).
 vs $0.222) but emitted **−25% facts** (skim) at held faithfulness → a tunable cost/coverage frontier
 (per-event = richest/~neutral cost; batched = cheaper/skims; small-group batch = likely sweet spot).
 
+**Cheap-bundle end-to-end now n=2 (closes the main residual).** Regenerated the cheap extract-join
+clustering for run 205 (`extract_tags.py` --backend haiku -> `join_materialize.py`; the 205 cheap
+clustering is much WORSE than 204's, ARI 0.387 vs 0.661 -- a harder test) and synthesized its
+bundles. Result: **4/109 facts unsupported (3.7%)** -- identical to 205's own gold faithfulness
+(3.8%) and 204's cheap (3.6%). Worse grouping did NOT degrade synthesis faithfulness. A 43-article
+cheap over-merge synthesized coherently (1/34 unsupported), and the `coherent_event` safety valve
+fired **a second time in the wild** on a real cheap junk-drawer (a 13-article "JPMorgan restricts
+Anthropic Claude access" cluster). Bonus stability check: the 205 gold re-sample (independent second
+synthesis of the same articles) gave 3.8% vs the first pass's 4.4% -- faithfulness is run-stable.
+
 **Net after the rigor + generalization pass:** every load-bearing conclusion now holds with n>1
-(n=4 faithfulness), cross-family validation, ground-truth-validated instruments, and length control.
-Residual honesty: extract-join cheap-bundle generalization is still 204-only; the 205 coverage had
-1 measurement failure; cross-family is full on 204, partial on 205.
+(n=4 gold faithfulness + n=2 cheap-bundle end-to-end), cross-family validation, ground-truth-validated
+instruments, and length control. Faithfulness pooled = 96.4%, 95% CI [93.7%, 98.0%] (307 gold facts);
+coverage advantage unanimous (8/8, mean +36pp, min +16pp length-controlled). Residual honesty:
+cheap-bundle is n=2 not n=4; the 205 coverage had 1 measurement failure; cross-family is full on 204,
+partial on 205.
 
 ## Recommendation
 
