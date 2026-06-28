@@ -47,8 +47,20 @@ Grew out of the CLUSTER cost work but is a QUALITY play. Validated thoroughly (r
    Paris, "toppled", "Thursday", fabricated attributions). PORT the rules into `.claude/agents/write.md`
    (no added precision / no completing cut-off text / no unsupported attribution / no asserted
    causation) — a shippable improvement to the LIVE digest. Validate via run_downstream A/B + write_audit
-   before shipping. [IN PROGRESS: corrected production baseline measuring; first cut 94%/5-per-item
-   was inflated by auditing why_it_matters — the real summary-only rate is lower, being measured.]
+   before shipping. PRODUCTION BASELINE MEASURED (write_audit.py, headline+summary only): ~50% of
+   published items carry a summary overstatement (213: 11/17=65%, 1.18/item; 215: 6/16=38%,
+   0.44/item) — same modes; COHERENCE doesn't catch them (it checks headline coherence). The first
+   cut (94%/5-per-item) was inflated by auditing why_it_matters (editorial) + the 200-char cap;
+   excluding why_it_matters gave the honest number. Caveat: WRITE cites a subset of cluster
+   articles, so a few flags may be under-citation not overstatement. **SHIPPED to write.md** — a
+   clean WRITE-only A/B (v1 vs v2 on IDENTICAL selected stories, run 213) cut overstatements −25%
+   (1.41 -> 1.06/item) at NO cost (slightly cheaper). NOTE: the confounded first A/B (fresh SELECT)
+   showed no effect (1.29 vs 1.18) — story variance (±0.3/item) masked it; the clean same-input A/B
+   revealed the real −25%. Eyeball confirmed the mechanism (v2 drops "first attack" overstatement,
+   adds "reportedly" hedge, no coverage/readability loss). Effect is milder than the synthesis
+   halving (−25% vs −53%) — WRITE's overstatements partly come from compressing a cluster into 2
+   sentences, a different source than comprehensive precision-reaching. n=1 clean A/B; a 2nd run
+   would firm the magnitude but mechanism+direction are clear.
 2. **The evolving story-thread** (the "even better" change) — a persistent story-graph across days
    (late-binding subgraph + threading delta + open-question ledger). Demonstrated on a 4-day Iran
    thread: 13 questions raised→resolved, categorically better than daily snapshots. Faithfulness was
