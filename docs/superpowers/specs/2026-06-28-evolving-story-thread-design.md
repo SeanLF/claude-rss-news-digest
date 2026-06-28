@@ -59,17 +59,31 @@ is *small* (a handful of active threads, not 700 articles), so the matching prob
 than clustering — a coarse signal suffices because we match one selected story against a few
 active threads, not partition everything.
 
-**Signal**: each selected story carries a CLUSTER `story` label (a discriminative sentence) plus
-its articles' `original_title`s. Derive a normalized **entity/keyword signature** (set of salient
-tokens) and match today's signature against each active thread's signature by **Jaccard overlap**;
-best match above a tuned threshold continues that thread, else start a new one.
+**Signal**: each selected story carries a CLUSTER `story` label (a discriminative sentence).
+Match today's labels against the active threads and decide, per story, continue-or-new.
 
-**Matcher choice — measure before adding an LLM.** Start deterministic (capitalized-token /
-salient-noun extraction + normalization from the story label + titles). Validate on replay; the
-prior-art finding (entity-bag + time = 92 BCubed F1, zero LLM) says cheap entity signals are
-strong for news. Only escalate to a cheap Haiku entity extraction if deterministic under-links
-true continuations or over-merges distinct stories beyond the gate below. Haiku tags for runs
-204–207 (`scratch/cluster-replay/drafts/tags_haiku_*.json`) are the benchmark for that comparison.
+**Matcher choice — measured, then escalated (deterministic FAILED; the LLM linker WON).** Per
+"measure before tuning," a deterministic token matcher was built and validated on the replay
+first (`thread_matcher_variants.py`, runs 207–215): **it does not work.** Bag-of-tokens
+Jaccard/overlap on labels+titles caught only 1 of ~9 obvious multi-day threads — the shared
+signal (e.g. "heatwave", "Europe") drowns under facet-specific and article-specific tokens, and
+synonyms/rewording ("Swiss"≠"Switzerland", "Europe"≠"European", "Zelensky"≠"Zelenskyy", daily
+re-labelling) never match. Every variant either left the obvious European-heatwave thread at 7→7
+separate threads, or — pushed low enough to merge it — started fusing unrelated stories
+(over-merges 4–8). Thread identity is a **semantic** judgment, not a lexical one.
+
+So A escalates to a **cheap Haiku semantic linker** (`thread_linker_haiku.py`, validated on the
+same replay): each run, show Haiku the active threads (id + one-line description) and today's
+selected story labels; it maps each story to a thread id or NEW. The candidate set is small
+(~16 stories × ~38 active threads), so one Haiku call/run is cheap and architecturally
+consistent (the pipeline already runs Haiku for RECAP/COHERENCE; no heavy local model, unlike
+MiniLM at 642MB on the 4GB CX23). **Measured result: 94 threads, 2 over-merges (~98% separation
+precision); every unambiguous multi-day story collapses correctly (heatwave 7→1, Starmer 6→1,
+Lebanon 6→1, Venezuela 4→1, Ebola/Colombia 3→1, Hormuz 2→1); 18 coherent multi-day threads.**
+It even makes the *correct* sub-story splits — "Iran" fragments into diplomacy / Hormuz shipping /
+military strikes (distinct ongoing stories sharing an entity), which deterministic matching
+cannot do. On LLM/parse failure the linker returns all-NEW (no threading that run) so the digest
+never crashes and recovers next run.
 
 ## Components
 
@@ -79,7 +93,7 @@ true continuations or over-merges distinct stories beyond the gate below. Haiku 
 CREATE TABLE IF NOT EXISTS threads (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     slug TEXT,                              -- human-readable, e.g. "iran-nuclear-deal"
-    signature TEXT NOT NULL,               -- JSON array of normalized signature tokens
+    label TEXT NOT NULL,                    -- latest story label (shown to the linker next run)
     narrative TEXT,                        -- running summary (filled by sub-project B)
     status TEXT NOT NULL DEFAULT 'active', -- active | dormant | closed
     first_run_id INTEGER,
@@ -122,23 +136,24 @@ identity/installment rows. `thread_installments` is the per-run audit trail of w
 
 ### Module `newsroom/src/threads.py`
 
-Pure functions + a thin store; no global state coupling beyond a passed connection.
+A thin store + an injectable LLM linker; no global state beyond a passed connection.
 
-- `extract_signature(story_label: str, titles: list[str]) -> set[str]` — deterministic normalized
-  salient-token set (lowercase, stopword/boilerplate-stripped, capitalized-entity-biased).
-- `jaccard(a: set, b: set) -> float`.
-- `match_thread(signature, active_threads, threshold) -> (thread_id | None, score)` — best Jaccard
-  match above threshold, else `(None, best_score)`.
-- `resolve_threads(selected_stories, run_id, conn, *, threshold, dormant_after) -> list[ThreadAssignment]`
-  — for each selected story: extract signature, match-or-create, record installment, touch
-  `last_run_id`; age threads not seen for `dormant_after` runs to `status='dormant'` (excluded from
-  matching). Returns assignments carrying `(thread_id, is_new, prior_narrative, open_questions, score)`
-  for B to consume.
-- Store helpers (thin SQL wrappers): `active_threads(conn)`, `create_thread(...)`,
-  `record_installment(...)`, `touch_thread(...)`, `decay_threads(...)`, plus question read/write
-  used by B (`open_questions(thread_id)`, `add_questions(...)`, `resolve_question(...)`).
+- `link_threads(active, today_labels, *, model) -> list[int | None]` — one Haiku call mapping each
+  of today's labels to an active `thread_id` (continuation) or `None` (new). Returns all-`None`
+  on any LLM/parse failure so the digest proceeds (no threading that run) rather than crashing.
+  Injectable so unit tests pass a deterministic fake (no LLM in CI).
+- `resolve_threads(selected_stories, run_id, store, *, dormant_after, linker=link_threads) -> list[ThreadAssignment]`
+  — decay threads not seen for `dormant_after` runs to `status='dormant'` (excluded from matching),
+  load the active set, call the linker, then per story create-or-continue, record an installment,
+  and touch `last_run_id`. Returns assignments carrying `(thread_id, is_new, prior_narrative,
+  open_questions)` for B.
+- Store helpers (thin SQL wrappers): `active_threads(...)`, `create_thread(...)`,
+  `touch_thread(...)`, `record_installment(...)`, `decay_threads(...)`, plus the narrative/ledger
+  seam B writes through (`open_questions(thread_id)`, `set_narrative(...)`, `add_questions(...)`,
+  `resolve_question(...)`).
 
-`ThreadAssignment` is a small dataclass (the interface B depends on).
+`ActiveThread` (what the linker sees: id + label + narrative) and `ThreadAssignment` (the
+interface B depends on) are small dataclasses.
 
 ### Integration seam (run.py)
 
@@ -168,13 +183,16 @@ in order through `resolve_threads`, then check against a hand-labelled continuit
    207–215) collapse to ONE stable `thread_id` across their days.
 2. **Separation precision**: distinct stories never share a `thread_id`; no thread accretes
    unrelated stories (spot-check each thread's installment labels read coherently).
-3. Report per-threshold continuity-recall / separation-precision; pick the threshold that maxes
-   both; document the deterministic-vs-Haiku-signature comparison.
+3. Report continuity-recall / separation-precision; high separation precision is the priority — a
+   wrongly-merged thread is worse than a missed continuation, since B's audit can't fix a bad
+   join's narrative, only its facts.
 
-Ship A when the matcher hits the gate on replay (high separation precision is the priority — a
-wrongly-merged thread is worse than a missed continuation, since B's audit can't fix a bad join's
-narrative, only its facts). Unit tests (TDD) cover `extract_signature`, `jaccard`, `match_thread`,
-match-or-create, and aging; the eval harness is the integration gate.
+**Gate result (PASSED):** the Haiku linker scored 94 threads / 2 over-merges (~98% separation
+precision), every unambiguous multi-day story collapsed to one thread, and Iran correctly split
+into diplomacy / Hormuz / strikes. The deterministic baseline FAILED the gate (1/9 threads) and
+is not used. Unit tests (TDD) cover the store CRUD, create-or-continue, aging, and the
+`resolve_threads` orchestration with an injected fake linker; the replay harness
+(`thread_linker_haiku.py`) is the live integration gate.
 
 ## Out of scope for A (handled by later sub-projects)
 

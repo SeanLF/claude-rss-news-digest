@@ -30,6 +30,16 @@ def _db_path() -> Path:
     return _state.db_path
 
 
+def is_recording() -> bool:
+    """Whether this run persists to the DB (False under --dry-run/--no-record)."""
+    return _state.recording
+
+
+def current_run_id() -> int | None:
+    """The active run's id, or None if no run has started."""
+    return _state.run_id
+
+
 def init(db_path: Path, migrations_dir: Path, *, apply_migrations: bool = True):
     """Initialize database, auto-applying any pending migrations.
 

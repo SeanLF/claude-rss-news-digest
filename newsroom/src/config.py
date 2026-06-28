@@ -59,3 +59,9 @@ DEDUP_SIMILARITY_THRESHOLD = float(os.environ.get("DEDUP_SIMILARITY_THRESHOLD", 
 
 DEFAULT_MODEL = os.environ.get("DEFAULT_MODEL", "claude-sonnet-4-6")
 RECAP_MODEL = os.environ.get("RECAP_MODEL", "claude-haiku-4-5")
+
+# Evolving story-thread substrate (sub-project A). Off by default until the feature is
+# reader-visible (sub-project C); when on, each run persists thread identity for the
+# selected stories. THREAD_DORMANT_AFTER: runs since last-seen before a thread stops matching.
+THREADS_ENABLED = os.environ.get("THREADS_ENABLED", "false").lower() in ("1", "true", "yes")
+THREAD_DORMANT_AFTER = int(os.environ.get("THREAD_DORMANT_AFTER", "3"))

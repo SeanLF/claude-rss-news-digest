@@ -35,6 +35,8 @@ from config import (
     SOURCES_FILE,
     STYLES_FILE,
     TEMPLATE_FILE,
+    THREAD_DORMANT_AFTER,
+    THREADS_ENABLED,
 )
 from digest import (
     cleanup_shown_headlines,
@@ -54,6 +56,50 @@ from utils import check_internet, setup_logging, validate_env
 logger = logging.getLogger(__name__)
 
 WEEKLY_RECAP_MAX_WEEKS = 6
+
+
+def _resolve_story_threads() -> None:
+    """Sub-project A: persist evolving-thread identity for this run's selected stories.
+
+    Reads selected.json + clusters.json, links each selected story to a continuing thread
+    (or starts a new one) via the Haiku linker, and persists thread + installment rows.
+    Gated on THREADS_ENABLED and DB recording (no persistence under --dry-run/--no-record).
+    Best-effort: never crashes the digest -- the thread layer is additive.
+    """
+    run_id = db.current_run_id()
+    if not THREADS_ENABLED or not db.is_recording() or run_id is None:
+        return
+
+    try:
+        import json
+        import sqlite3
+
+        import threads
+
+        clusters_doc = json.loads((CLAUDE_INPUT_DIR / "clusters.json").read_text())
+        selected_doc = json.loads((CLAUDE_INPUT_DIR / "selected.json").read_text())
+        stories = threads.selected_labels(clusters_doc, selected_doc)
+        conn = sqlite3.connect(DB_PATH)
+        try:
+            store = threads.ThreadStore(conn)
+            assignments = threads.resolve_threads(stories, run_id, store, dormant_after=THREAD_DORMANT_AFTER)
+        finally:
+            conn.close()
+        (CLAUDE_INPUT_DIR / "thread_assignments.json").write_text(
+            json.dumps(
+                [{"thread_id": a.thread_id, "is_new": a.is_new, "story": a.cluster_story} for a in assignments],
+                indent=2,
+            )
+        )
+        continued = sum(1 for a in assignments if not a.is_new)
+        logger.info(
+            "Threads: %d selected stories -> %d continued, %d new",
+            len(assignments),
+            continued,
+            len(assignments) - continued,
+        )
+    except Exception:
+        logger.warning("Thread resolution failed (non-fatal)", exc_info=True)
 
 
 def _require_recording_to_broadcast(*, skip_email: bool, skip_record: bool, force: bool) -> None:
@@ -404,6 +450,7 @@ Examples:
         if clusters_path.exists():
             db.archive_clusters(clusters_path.read_text())
         db.archive_run_artifacts(CLAUDE_INPUT_DIR, models={"select": args.model or DEFAULT_MODEL})
+        _resolve_story_threads()
         selections = resolve_article_ids(selections)
 
         if args.select_only:
