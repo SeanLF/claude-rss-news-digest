@@ -199,3 +199,39 @@ is not used. Unit tests (TDD) cover the store CRUD, create-or-continue, aging, a
 - Producing narrative / ledger content (B).
 - Late-binding article subgraph (D) — A matches on the existing selected cluster.
 - Any reader-facing rendering (C).
+
+---
+
+# Sub-project B — Threaded synthesis + ledger (BUILT)
+
+`newsroom/src/thread_synthesis.py`. Each run, after A assigns threads, B synthesizes today's
+installment for every CONTINUING thread with ≥2 articles (new single-day threads carry no prior,
+so threading adds nothing yet — skip the spend). Productionizes the validated PoC
+(`scratch/cluster-replay/evolving_thread.py`).
+
+- **EVOLVE synthesis** (Sonnet, `synthesize_installment`): given the thread's carried narrative +
+  open-question ledger and TODAY's articles, produce `whats_new` / `resolved` / `new_questions` /
+  `still_open` / `updated_narrative`. The proven **MEMORY-vs-FACTS wall**: the narrative + ledger
+  are MEMORY (may reference prior days); every `whats_new` fact must cite a TODAY source and carry
+  nothing forward.
+- **Audit→drop** (`audit_whats_new` + `apply_installment`): each `whats_new` fact is fact-checked
+  against its cited today-source; unsupported facts are dropped before persisting — the same
+  synthesize→audit discipline as the production WRITE→COHERENCE pair. The audit **fails open**
+  (keeps grounded facts if the auditor itself errors) and logs at ERROR.
+- **Persistence**: `apply_installment` updates the running narrative, resolves only questions
+  actually carried (no drift), raises new ones, and stores the verified installment JSON on the
+  run's `thread_installments.content` (migration `20260628130000`). All in one `store.transaction()`
+  so a partial write can't leave the narrative advanced while the installment is content-less.
+
+**Gate result (PASSED, runs 207–212, production code):** faithfulness **2.9% unsupported**
+whats_new facts (5/172; audit drops them) — better than the PoC's 8.4%; ledger raised 134 /
+resolved 21; the heatwave thread's narrative visibly evolved day-to-day (heat dome → Omega Block /
+40 drowned → Britain's record 36.1°C) with each fact citing that day's article IDs and questions
+resolving as the story developed. Harness: `scratch/cluster-replay/thread_synthesis_eval.py`.
+
+**Gates for sub-project C (before threads become reader-visible):**
+1. **Audit-health signal** — the fail-open audit currently only logs; a persistently-broken audit
+   would silently stop dropping bad facts. Wire an audit-failure count into the monitored health
+   path (`source_health`/`run_usage` pattern) before readers see `whats_new`.
+2. **Usage attribution** — B's Sonnet calls go through `claude_cli.run_sync` directly (not
+   `orchestrate.py`), so they don't appear in the `run_usage` breakdown. Tag them when live.

@@ -58,13 +58,30 @@ logger = logging.getLogger(__name__)
 WEEKLY_RECAP_MAX_WEEKS = 6
 
 
-def _resolve_story_threads() -> None:
-    """Sub-project A: persist evolving-thread identity for this run's selected stories.
+def _load_run_articles() -> dict:
+    """id -> {title, summary} for this run's articles, read from the claude_input CSVs."""
+    import csv
 
-    Reads selected.json + clusters.json, links each selected story to a continuing thread
-    (or starts a new one) via the Haiku linker, and persists thread + installment rows.
-    Gated on THREADS_ENABLED and DB recording (no persistence under --dry-run/--no-record).
-    Best-effort: never crashes the digest -- the thread layer is additive.
+    arts: dict = {}
+    for csv_path in sorted(CLAUDE_INPUT_DIR.glob("articles_*.csv")):
+        with csv_path.open() as fh:
+            for row in csv.DictReader(fh):
+                aid = row.get("article_id")
+                if aid:
+                    arts[aid] = {"title": row.get("title", ""), "summary": row.get("summary", "")}
+    return arts
+
+
+def _process_story_threads() -> None:
+    """Sub-projects A+B: identity + threaded synthesis for this run's selected stories.
+
+    A: link each selected story to a continuing thread (or start a new one) via the Haiku
+    linker and persist identity. B: for each CONTINUING thread, synthesize today's installment
+    (what's new / resolved / new questions / updated narrative) against its carried state,
+    audit-drop unsupported facts, and persist the evolving narrative + open-question ledger.
+
+    Gated on THREADS_ENABLED and DB recording. Best-effort: never crashes the digest -- the
+    thread layer is additive (off until reader-visible in sub-project C).
     """
     run_id = db.current_run_id()
     if not THREADS_ENABLED or not db.is_recording() or run_id is None:
@@ -74,6 +91,7 @@ def _resolve_story_threads() -> None:
         import json
         import sqlite3
 
+        import thread_synthesis
         import threads
 
         clusters_doc = json.loads((CLAUDE_INPUT_DIR / "clusters.json").read_text())
@@ -83,6 +101,7 @@ def _resolve_story_threads() -> None:
         try:
             store = threads.ThreadStore(conn)
             assignments = threads.resolve_threads(stories, run_id, store, dormant_after=THREAD_DORMANT_AFTER)
+            installments = thread_synthesis.synthesize_threads(assignments, _load_run_articles(), run_id, store)
         finally:
             conn.close()
         (CLAUDE_INPUT_DIR / "thread_assignments.json").write_text(
@@ -91,15 +110,17 @@ def _resolve_story_threads() -> None:
                 indent=2,
             )
         )
+        (CLAUDE_INPUT_DIR / "thread_installments.json").write_text(json.dumps(installments, indent=2))
         continued = sum(1 for a in assignments if not a.is_new)
         logger.info(
-            "Threads: %d selected stories -> %d continued, %d new",
+            "Threads: %d selected stories -> %d continued, %d new; synthesized %d installments",
             len(assignments),
             continued,
             len(assignments) - continued,
+            len(installments),
         )
     except Exception:
-        logger.warning("Thread resolution failed (non-fatal)", exc_info=True)
+        logger.warning("Thread processing failed (non-fatal)", exc_info=True)
 
 
 def _require_recording_to_broadcast(*, skip_email: bool, skip_record: bool, force: bool) -> None:
@@ -450,7 +471,7 @@ Examples:
         if clusters_path.exists():
             db.archive_clusters(clusters_path.read_text())
         db.archive_run_artifacts(CLAUDE_INPUT_DIR, models={"select": args.model or DEFAULT_MODEL})
-        _resolve_story_threads()
+        _process_story_threads()
         selections = resolve_article_ids(selections)
 
         if args.select_only:

@@ -108,21 +108,29 @@ def test_link_threads_ignores_invalid_thread_ids(monkeypatch):
 
 
 def test_selected_labels_maps_cluster_index_in_tier_order():
-    clusters = {"clusters": [{"story": "Iran deal"}, {"story": "Trump tariffs"}, {"story": "Heatwave"}]}
+    clusters = {
+        "clusters": [
+            {"story": "Iran deal", "article_ids": ["A1", "A2"]},
+            {"story": "Trump tariffs", "article_ids": ["A3"]},
+            {"story": "Heatwave", "article_ids": ["A4"]},
+        ]
+    }
     selected = {
-        "must_know": [{"cluster_index": 0}],
+        "must_know": [{"cluster_index": 0, "article_ids": ["A1"]}],
         "should_know": [{"cluster_index": 2}],
     }
     assert threads.selected_labels(clusters, selected) == [
-        {"story": "Iran deal", "tier": "must_know"},
-        {"story": "Heatwave", "tier": "should_know"},
+        {"story": "Iran deal", "tier": "must_know", "article_ids": ["A1"]},  # selected subset wins
+        {"story": "Heatwave", "tier": "should_know", "article_ids": ["A4"]},  # falls back to cluster ids
     ]
 
 
 def test_selected_labels_skips_out_of_range_index():
-    clusters = {"clusters": [{"story": "only one"}]}
+    clusters = {"clusters": [{"story": "only one", "article_ids": ["A1"]}]}
     selected = {"must_know": [{"cluster_index": 5}, {"cluster_index": 0}]}
-    assert threads.selected_labels(clusters, selected) == [{"story": "only one", "tier": "must_know"}]
+    assert threads.selected_labels(clusters, selected) == [
+        {"story": "only one", "tier": "must_know", "article_ids": ["A1"]}
+    ]
 
 
 # --- store + resolve_threads ----------------------------------------------

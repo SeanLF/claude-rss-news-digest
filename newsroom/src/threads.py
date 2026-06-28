@@ -23,6 +23,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 
 logger = logging.getLogger(__name__)
@@ -56,6 +57,7 @@ class ThreadAssignment:
     thread_id: int
     is_new: bool
     cluster_story: str
+    article_ids: list[str] = field(default_factory=list)
     prior_narrative: str | None = None
     open_questions: list[str] = field(default_factory=list)
 
@@ -70,7 +72,14 @@ def selected_labels(clusters_doc: dict, selected_doc: dict) -> list[dict]:
         for entry in selected_doc.get(tier, []) or []:
             idx = entry.get("cluster_index")
             if isinstance(idx, int) and 0 <= idx < len(clusters):
-                out.append({"story": clusters[idx].get("story", ""), "tier": tier})
+                cluster = clusters[idx]
+                out.append(
+                    {
+                        "story": cluster.get("story", ""),
+                        "tier": tier,
+                        "article_ids": entry.get("article_ids") or cluster.get("article_ids", []),
+                    }
+                )
     return out
 
 
@@ -143,6 +152,27 @@ class ThreadStore:
 
     def __init__(self, conn):
         self.conn = conn
+        self._defer_commit = False
+
+    def _commit(self) -> None:
+        if not self._defer_commit:
+            self.conn.commit()
+
+    @contextmanager
+    def transaction(self):
+        """Group several writes into one atomic unit. Inside, the per-method commits are
+        suppressed; the whole block commits once on success or rolls back on any error -- so a
+        partial multi-step update (e.g. narrative advanced but the installment row left NULL)
+        can't be left behind."""
+        self._defer_commit = True
+        try:
+            yield
+            self.conn.commit()
+        except Exception:
+            self.conn.rollback()
+            raise
+        finally:
+            self._defer_commit = False
 
     # --- reads ---
 
@@ -180,7 +210,7 @@ class ThreadStore:
             """,
             (_slugify(label), label, run_id, run_id),
         )
-        self.conn.commit()
+        self._commit()
         return cur.lastrowid
 
     def touch_thread(self, thread_id: int, label: str, run_id: int) -> None:
@@ -193,7 +223,7 @@ class ThreadStore:
             """,
             (run_id, label, thread_id),
         )
-        self.conn.commit()
+        self._commit()
 
     def record_installment(self, thread_id: int, run_id: int, cluster_story: str, is_new: bool) -> None:
         # matched_score column is retained for forensics; NULL for a new thread, 1.0 for a
@@ -202,7 +232,7 @@ class ThreadStore:
             "INSERT INTO thread_installments (thread_id, run_id, cluster_story, matched_score) VALUES (?, ?, ?, ?)",
             (thread_id, run_id, cluster_story, None if is_new else 1.0),
         )
-        self.conn.commit()
+        self._commit()
 
     def decay_threads(self, current_run_id: int, dormant_after: int) -> None:
         """Mark active threads not seen within `dormant_after` COMPLETED runs as dormant so they
@@ -217,16 +247,24 @@ class ThreadStore:
             """,
             (current_run_id, dormant_after),
         )
-        self.conn.commit()
+        self._commit()
 
     # --- writes (narrative / ledger) -- the seam sub-project B fills ---
+
+    def set_installment_content(self, thread_id: int, run_id: int, content: str) -> None:
+        """Attach the synthesized installment JSON to this run's installment row (sub-project B)."""
+        self.conn.execute(
+            "UPDATE thread_installments SET content = ? WHERE thread_id = ? AND run_id = ?",
+            (content, thread_id, run_id),
+        )
+        self._commit()
 
     def set_narrative(self, thread_id: int, narrative: str) -> None:
         self.conn.execute(
             "UPDATE threads SET narrative = ?, updated_at = datetime('now', 'utc') WHERE id = ?",
             (narrative, thread_id),
         )
-        self.conn.commit()
+        self._commit()
 
     def add_questions(self, thread_id: int, questions: list[str], run_id: int) -> None:
         for q in questions:
@@ -234,7 +272,7 @@ class ThreadStore:
                 "INSERT INTO thread_questions (thread_id, question, status, raised_run_id) VALUES (?, ?, 'open', ?)",
                 (thread_id, q, run_id),
             )
-        self.conn.commit()
+        self._commit()
 
     def resolve_question(self, thread_id: int, question: str, run_id: int, how: str) -> None:
         self.conn.execute(
@@ -245,7 +283,7 @@ class ThreadStore:
             """,
             (run_id, how, thread_id, question),
         )
-        self.conn.commit()
+        self._commit()
 
 
 def resolve_threads(
@@ -271,6 +309,7 @@ def resolve_threads(
     assignments: list[ThreadAssignment] = []
     claimed: set[int] = set()  # one thread continues at most once per run
     for i, label in enumerate(labels):
+        article_ids = list(stories[i].get("article_ids", []))
         tid = mapping[i] if i < len(mapping) else None
         if tid is not None and tid in active_by_id and tid not in claimed:
             claimed.add(tid)
@@ -282,6 +321,7 @@ def resolve_threads(
                     thread_id=tid,
                     is_new=False,
                     cluster_story=label,
+                    article_ids=article_ids,
                     prior_narrative=prior.narrative,
                     open_questions=store.open_questions(tid),
                 )
@@ -289,5 +329,7 @@ def resolve_threads(
         else:
             new_id = store.create_thread(label, run_id)
             store.record_installment(new_id, run_id, label, is_new=True)
-            assignments.append(ThreadAssignment(thread_id=new_id, is_new=True, cluster_story=label))
+            assignments.append(
+                ThreadAssignment(thread_id=new_id, is_new=True, cluster_story=label, article_ids=article_ids)
+            )
     return assignments
