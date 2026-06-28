@@ -11,17 +11,20 @@ MEMORY (the running narrative + ledger, which may reference prior days) from FAC
 which must cite a TODAY source and carry nothing forward). That walling more than halved the
 unsupported rate (22.5% -> 8.4%); the residual is mopped up here by the audit->drop.
 
-LLM calls go through claude_cli.run_sync (Sonnet); the orchestration takes injectable
-synth/audit callables so tests run with no LLM. Best-effort throughout: a synthesis failure
-for one thread is logged and skipped, never crashing the digest.
+LLM calls go through claude_cli.run_agent (Sonnet), capturing per-call token usage + cost so
+B's spend is attributed in run_usage like every other stage; the orchestration takes injectable
+synth/audit callables so tests run with no LLM. Best-effort throughout: a synthesis failure for
+one thread is logged and skipped, never crashing the digest.
 """
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 
 from config import DEFAULT_MODEL
+from usage import _usage_row
 
 logger = logging.getLogger(__name__)
 
@@ -55,18 +58,30 @@ def _bundle(article_ids: list[str], arts: dict) -> str:
     )
 
 
-def _run_sonnet(user: str, system: str, *, model: str) -> str:
+def _run_sonnet(user: str, system: str, *, model: str, subagent: str, usage_rows: list[dict] | None) -> str:
+    """Run one Sonnet call via run_agent (so token usage + cost are captured) and return its text.
+    When usage_rows is provided, append this call's run_usage row so B's spend shows up in the
+    run_usage breakdown like every other stage. Raises if the call doesn't end successfully."""
     import claude_cli
 
-    return claude_cli.run_sync(
-        user,
-        model=model,
-        system_prompt=system,
-        tools=[],
-        timeout=300,
-        idle_timeout=120.0,
-        thinking={"type": "disabled"},
+    result = asyncio.run(
+        asyncio.wait_for(
+            claude_cli.run_agent(
+                user,
+                model=model,
+                system_prompt=system,
+                tools=[],
+                idle_timeout=120.0,
+                thinking={"type": "disabled"},
+            ),
+            timeout=300,
+        )
     )
+    if not result.ok:
+        raise RuntimeError(f"claude failed: {result.error_summary()}")
+    if usage_rows is not None and result.usage:
+        usage_rows.append(_usage_row(subagent, model, result.usage, result.total_cost_usd or 0.0))
+    return result.text
 
 
 def synthesize_installment(
@@ -76,16 +91,21 @@ def synthesize_installment(
     arts: dict,
     *,
     model: str = DEFAULT_MODEL,
+    usage_rows: list[dict] | None = None,
 ) -> dict:
     """Synthesize today's installment for one thread (Sonnet). Raises on LLM/parse failure."""
     story_so_far = prior_narrative or "(nothing yet -- this is the thread's first tracked day)"
     questions = "\n".join(f"- {q}" for q in open_questions) or "(none yet)"
     prior = f"STORY SO FAR: {story_so_far}\nOPEN QUESTIONS:\n{questions}"
     user = f"{prior}\n\nTODAY'S SOURCE ARTICLES:\n{_bundle(article_ids, arts)}"
-    return _parse_json(_run_sonnet(user, EVOLVE_SYSTEM, model=model))
+    return _parse_json(
+        _run_sonnet(user, EVOLVE_SYSTEM, model=model, subagent="thread_synthesis", usage_rows=usage_rows)
+    )
 
 
-def audit_whats_new(whats_new: list[dict], arts: dict, *, model: str = DEFAULT_MODEL) -> list[bool]:
+def audit_whats_new(
+    whats_new: list[dict], arts: dict, *, model: str = DEFAULT_MODEL, usage_rows: list[dict] | None = None
+) -> list[bool]:
     """Fact-check each whats_new fact against its cited TODAY source(s). Returns a supported flag
     per fact (same order). RAISES on LLM/parse failure -- the caller (synthesize_threads) owns the
     fail-open decision AND counts the failure, so a persistently-broken audit is recorded as a
@@ -100,7 +120,8 @@ def audit_whats_new(whats_new: list[dict], arts: dict, *, model: str = DEFAULT_M
             if s in arts
         )
         claims.append(f"CLAIM {i}: {f.get('fact', '')}\nCITED SOURCE(S):\n{srcs or '  (none cited)'}")
-    verdicts = _parse_json(_run_sonnet("\n\n".join(claims), AUDIT_SYSTEM, model=model)).get("verdicts", [])
+    text = _run_sonnet("\n\n".join(claims), AUDIT_SYSTEM, model=model, subagent="thread_audit", usage_rows=usage_rows)
+    verdicts = _parse_json(text).get("verdicts", [])
     supported_by_id = {v.get("id"): v.get("supported", True) for v in verdicts}
     return [bool(supported_by_id.get(i, True)) for i in range(1, len(whats_new) + 1)]
 
@@ -144,6 +165,7 @@ def synthesize_threads(
     synth_fn=synthesize_installment,
     audit_fn=audit_whats_new,
     record_health: bool = True,
+    usage_rows: list[dict] | None = None,
 ) -> tuple[list[dict], int]:
     """Synthesize installments for the CONTINUING threads this run (new single-day threads carry
     no prior, so threading adds nothing yet and we skip the spend). Each thread is independent and
@@ -160,13 +182,15 @@ def synthesize_threads(
         if a.is_new or len(a.article_ids) < min_articles:
             continue
         try:
-            installment = synth_fn(a.prior_narrative, a.open_questions, a.article_ids, arts, model=model)
+            installment = synth_fn(
+                a.prior_narrative, a.open_questions, a.article_ids, arts, model=model, usage_rows=usage_rows
+            )
         except Exception:
             logger.warning("thread synthesis failed for thread %s (skipped)", a.thread_id, exc_info=True)
             continue
         whats_new = installment.get("whats_new", []) or []
         try:
-            supported = audit_fn(whats_new, arts, model=model)
+            supported = audit_fn(whats_new, arts, model=model, usage_rows=usage_rows)
         except Exception:
             logger.error("whats_new audit failed for thread %s; keeping facts (fail-open)", a.thread_id, exc_info=True)
             audit_failures += 1

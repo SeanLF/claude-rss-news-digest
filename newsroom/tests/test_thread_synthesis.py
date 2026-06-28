@@ -204,6 +204,24 @@ def test_synthesize_threads_audit_failure_is_fail_open_and_recorded(store):
     assert row == (1, 1)
 
 
+def test_synthesize_threads_threads_usage_rows_through(store):
+    # usage_rows must reach both the synth and audit calls so B's spend lands in run_usage.
+    tid = _seed_thread(store)
+    a = threads.ThreadAssignment(thread_id=tid, is_new=False, cluster_story="g", article_ids=["A1", "A2"])
+
+    def synth(*args, usage_rows=None, **k):
+        usage_rows.append({"subagent": "thread_synthesis"})
+        return {"whats_new": [{"fact": "x", "sources": ["A1"]}], "updated_narrative": "n"}
+
+    def audit(*args, usage_rows=None, **k):
+        usage_rows.append({"subagent": "thread_audit"})
+        return [True]
+
+    rows: list = []
+    ts.synthesize_threads([a], ARTS, run_id=2, store=store, synth_fn=synth, audit_fn=audit, usage_rows=rows)
+    assert [r["subagent"] for r in rows] == ["thread_synthesis", "thread_audit"]
+
+
 def test_synthesize_threads_records_zero_failures_on_clean_run(store):
     tid = _seed_thread(store)
     a = threads.ThreadAssignment(thread_id=tid, is_new=False, cluster_story="g", article_ids=["A1", "A2"])

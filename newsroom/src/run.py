@@ -98,15 +98,17 @@ def _process_story_threads() -> None:
         clusters_doc = json.loads((CLAUDE_INPUT_DIR / "clusters.json").read_text())
         selected_doc = json.loads((CLAUDE_INPUT_DIR / "selected.json").read_text())
         stories = threads.selected_labels(clusters_doc, selected_doc)
+        usage_rows: list[dict] = []
         conn = sqlite3.connect(DB_PATH)
         try:
             store = threads.ThreadStore(conn)
             assignments = threads.resolve_threads(stories, run_id, store, dormant_after=THREAD_DORMANT_AFTER)
             installments, audit_failures = thread_synthesis.synthesize_threads(
-                assignments, _load_run_articles(), run_id, store
+                assignments, _load_run_articles(), run_id, store, usage_rows=usage_rows
             )
         finally:
             conn.close()
+        db.record_usage(usage_rows)  # attribute B's Sonnet spend in run_usage like every other stage
         (CLAUDE_INPUT_DIR / "thread_assignments.json").write_text(
             json.dumps(
                 [{"thread_id": a.thread_id, "is_new": a.is_new, "story": a.cluster_story} for a in assignments],
