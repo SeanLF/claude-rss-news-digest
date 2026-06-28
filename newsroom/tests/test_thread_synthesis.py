@@ -144,7 +144,7 @@ def test_synthesize_threads_synthesizes_continuing_thread(store):
         "new_questions": ["Who monitors it?"],
         "updated_narrative": "A ceasefire holds.",
     }
-    out = ts.synthesize_threads(
+    out, _ = ts.synthesize_threads(
         [a],
         ARTS,
         run_id=2,
@@ -169,7 +169,7 @@ def test_synthesize_threads_skips_failing_thread_without_crashing(store):
     def boom(*a, **k):
         raise RuntimeError("synthesis exploded")
 
-    out = ts.synthesize_threads([good], ARTS, run_id=2, store=store, synth_fn=boom, audit_fn=lambda *a, **k: [])
+    out, _ = ts.synthesize_threads([good], ARTS, run_id=2, store=store, synth_fn=boom, audit_fn=lambda *a, **k: [])
     assert out == []  # failure swallowed, no exception propagated
 
 
@@ -177,11 +177,45 @@ def test_audit_whats_new_empty_is_empty():
     assert ts.audit_whats_new([], ARTS) == []
 
 
-def test_audit_whats_new_fails_open_on_llm_error(monkeypatch):
-    # If the audit LLM call/parse throws, keep all facts (fail-open) rather than erase them.
+def test_audit_whats_new_raises_on_llm_error(monkeypatch):
+    # audit now RAISES on LLM/parse failure; synthesize_threads owns the fail-open + counting.
     monkeypatch.setattr(ts, "_run_sonnet", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("boom")))
-    wn = [{"fact": "x", "sources": ["A1"]}, {"fact": "y", "sources": ["A2"]}]
-    assert ts.audit_whats_new(wn, ARTS) == [True, True]
+    wn = [{"fact": "x", "sources": ["A1"]}]
+    with pytest.raises(RuntimeError):
+        ts.audit_whats_new(wn, ARTS)
+
+
+def test_synthesize_threads_audit_failure_is_fail_open_and_recorded(store):
+    tid = _seed_thread(store)
+    a = threads.ThreadAssignment(thread_id=tid, is_new=False, cluster_story="g", article_ids=["A1", "A2"])
+    fake = {"whats_new": [{"fact": "kept despite audit error", "sources": ["A1"]}], "updated_narrative": "n"}
+
+    def boom_audit(*a, **k):
+        raise RuntimeError("audit endpoint down")
+
+    out, failures = ts.synthesize_threads(
+        [a], ARTS, run_id=2, store=store, synth_fn=lambda *args, **k: fake, audit_fn=boom_audit
+    )
+    assert failures == 1  # the authoritative in-memory count (drives the alert)
+    # fail-open: the fact is kept (not erased) despite the audit error
+    assert [f["fact"] for f in out[0]["whats_new"]] == ["kept despite audit error"]
+    # ...and the failure is also recorded as durable health history
+    row = store.conn.execute("SELECT threads_synthesized, audit_failures FROM thread_runs WHERE run_id=2").fetchone()
+    assert row == (1, 1)
+
+
+def test_synthesize_threads_records_zero_failures_on_clean_run(store):
+    tid = _seed_thread(store)
+    a = threads.ThreadAssignment(thread_id=tid, is_new=False, cluster_story="g", article_ids=["A1", "A2"])
+    ts.synthesize_threads(
+        [a],
+        ARTS,
+        run_id=2,
+        store=store,
+        synth_fn=lambda *args, **k: {"whats_new": [], "updated_narrative": "n"},
+        audit_fn=lambda *a, **k: [],
+    )
+    assert store.conn.execute("SELECT audit_failures FROM thread_runs WHERE run_id=2").fetchone()[0] == 0
 
 
 def test_apply_installment_is_atomic_on_persist_failure(store, monkeypatch):

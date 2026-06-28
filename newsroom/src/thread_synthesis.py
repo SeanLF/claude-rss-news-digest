@@ -87,9 +87,9 @@ def synthesize_installment(
 
 def audit_whats_new(whats_new: list[dict], arts: dict, *, model: str = DEFAULT_MODEL) -> list[bool]:
     """Fact-check each whats_new fact against its cited TODAY source(s). Returns a supported flag
-    per fact (same order). On audit failure, fail OPEN (keep facts) -- the synthesis already
-    grounds against today's sources; the audit is a second line, not a gate that should erase
-    everything if it errors."""
+    per fact (same order). RAISES on LLM/parse failure -- the caller (synthesize_threads) owns the
+    fail-open decision AND counts the failure, so a persistently-broken audit is recorded as a
+    health signal rather than silently keeping facts unchecked forever."""
     if not whats_new:
         return []
     claims = []
@@ -100,14 +100,7 @@ def audit_whats_new(whats_new: list[dict], arts: dict, *, model: str = DEFAULT_M
             if s in arts
         )
         claims.append(f"CLAIM {i}: {f.get('fact', '')}\nCITED SOURCE(S):\n{srcs or '  (none cited)'}")
-    try:
-        verdicts = _parse_json(_run_sonnet("\n\n".join(claims), AUDIT_SYSTEM, model=model)).get("verdicts", [])
-    except Exception:
-        # Fail OPEN (keep grounded facts) but log at ERROR: a persistently-broken audit silently
-        # stops dropping bad facts, which matters once threads are reader-visible (sub-project C
-        # must wire this to a monitored health signal before then).
-        logger.error("whats_new audit failed; keeping all facts (fail-open)", exc_info=True)
-        return [True] * len(whats_new)
+    verdicts = _parse_json(_run_sonnet("\n\n".join(claims), AUDIT_SYSTEM, model=model)).get("verdicts", [])
     supported_by_id = {v.get("id"): v.get("supported", True) for v in verdicts}
     return [bool(supported_by_id.get(i, True)) for i in range(1, len(whats_new) + 1)]
 
@@ -150,19 +143,44 @@ def synthesize_threads(
     min_articles: int = 2,
     synth_fn=synthesize_installment,
     audit_fn=audit_whats_new,
-) -> list[dict]:
+    record_health: bool = True,
+) -> tuple[list[dict], int]:
     """Synthesize installments for the CONTINUING threads this run (new single-day threads carry
     no prior, so threading adds nothing yet and we skip the spend). Each thread is independent and
-    best-effort -- one failure is logged and skipped. Returns the verified installments."""
+    best-effort -- a synthesis failure is logged and skipped.
+
+    The faithfulness audit fails OPEN (keep grounded facts if the auditor itself errors) but the
+    failure is COUNTED and recorded to thread_runs as a health signal -- a persistently-failing
+    audit means unsupported facts are no longer being dropped, which must surface (not silently
+    swallow) before threads are reader-visible. Returns (verified installments, audit_failures);
+    the in-memory count is authoritative for alerting -- the DB row is best-effort durable history."""
     out: list[dict] = []
+    audit_failures = 0
     for a in assignments:
         if a.is_new or len(a.article_ids) < min_articles:
             continue
         try:
             installment = synth_fn(a.prior_narrative, a.open_questions, a.article_ids, arts, model=model)
-            supported = audit_fn(installment.get("whats_new", []) or [], arts, model=model)
+        except Exception:
+            logger.warning("thread synthesis failed for thread %s (skipped)", a.thread_id, exc_info=True)
+            continue
+        whats_new = installment.get("whats_new", []) or []
+        try:
+            supported = audit_fn(whats_new, arts, model=model)
+        except Exception:
+            logger.error("whats_new audit failed for thread %s; keeping facts (fail-open)", a.thread_id, exc_info=True)
+            audit_failures += 1
+            supported = [True] * len(whats_new)
+        try:
             verified = apply_installment(store, a, installment, supported, run_id)
             out.append({"thread_id": a.thread_id, **verified})
         except Exception:
-            logger.warning("thread synthesis failed for thread %s (skipped)", a.thread_id, exc_info=True)
-    return out
+            logger.warning("persisting thread %s installment failed (skipped)", a.thread_id, exc_info=True)
+
+    if record_health:
+        try:
+            store.record_run_health(run_id, synthesized=len(out), audit_failures=audit_failures)
+        except Exception:
+            # Durable history is best-effort; the returned in-memory count is what drives the alert.
+            logger.error("failed to record thread run health (run %s)", run_id, exc_info=True)
+    return out, audit_failures

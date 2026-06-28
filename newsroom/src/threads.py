@@ -267,6 +267,15 @@ class ThreadStore:
 
     # --- writes (narrative / ledger) -- the seam sub-project B fills ---
 
+    def record_run_health(self, run_id: int, *, synthesized: int, audit_failures: int) -> None:
+        """Record this run's thread-processing health (gate signal). audit_failures > 0 means
+        the faithfulness audit failed-open and unsupported facts went unchecked -- alertable."""
+        self.conn.execute(
+            "INSERT INTO thread_runs (run_id, threads_synthesized, audit_failures) VALUES (?, ?, ?)",
+            (run_id, synthesized, audit_failures),
+        )
+        self._commit()
+
     def set_installment_content(self, thread_id: int, run_id: int, content: str) -> None:
         """Attach the synthesized installment JSON to this run's installment row (sub-project B)."""
         self.conn.execute(

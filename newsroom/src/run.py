@@ -21,6 +21,7 @@ from broadcast import (
     send_broadcast,
     send_health_alert,
     send_test_email,
+    send_thread_audit_alert,
 )
 from claude import generate_selections, generate_weekly_recap, health_check
 from claude_agent_sdk import ClaudeSDKError
@@ -101,7 +102,9 @@ def _process_story_threads() -> None:
         try:
             store = threads.ThreadStore(conn)
             assignments = threads.resolve_threads(stories, run_id, store, dormant_after=THREAD_DORMANT_AFTER)
-            installments = thread_synthesis.synthesize_threads(assignments, _load_run_articles(), run_id, store)
+            installments, audit_failures = thread_synthesis.synthesize_threads(
+                assignments, _load_run_articles(), run_id, store
+            )
         finally:
             conn.close()
         (CLAUDE_INPUT_DIR / "thread_assignments.json").write_text(
@@ -113,12 +116,16 @@ def _process_story_threads() -> None:
         (CLAUDE_INPUT_DIR / "thread_installments.json").write_text(json.dumps(installments, indent=2))
         continued = sum(1 for a in assignments if not a.is_new)
         logger.info(
-            "Threads: %d selected stories -> %d continued, %d new; synthesized %d installments",
+            "Threads: %d selected stories -> %d continued, %d new; synthesized %d installments (%d audit fail-open)",
             len(assignments),
             continued,
             len(assignments) - continued,
             len(installments),
+            audit_failures,
         )
+        # Alert off the authoritative in-memory count -- never gated on the best-effort DB write.
+        if audit_failures and db.should_alert():
+            send_thread_audit_alert(audit_failures, run_id)
     except Exception:
         logger.warning("Thread processing failed (non-fatal)", exc_info=True)
 

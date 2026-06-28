@@ -175,6 +175,40 @@ def send_test_email(to_email: str) -> int:
         return 1
 
 
+def send_thread_audit_alert(audit_failures: int, run_id: int):
+    """Alert when the thread faithfulness audit failed-open this run.
+
+    The audit fails OPEN (keeps facts) so the digest never breaks, but that means unsupported
+    facts went UNCHECKED into the thread state. This must surface -- a persistently-failing audit
+    is a silent quality regression once threads are reader-visible."""
+    to_email = os.environ.get("HEALTH_ALERT_EMAIL")
+    from_email = os.environ.get("RESEND_FROM")
+    if not to_email or not os.environ.get("RESEND_API_KEY") or not from_email:
+        logger.warning("Skipping thread-audit alert: HEALTH_ALERT_EMAIL/RESEND_API_KEY/RESEND_FROM not set")
+        return
+
+    resend.api_key = os.environ["RESEND_API_KEY"]
+    content = f"""<h2>News Digest Thread Audit Alert</h2>
+<p>The thread faithfulness audit failed-open on <strong>{audit_failures}</strong> thread(s) in run {run_id}.</p>
+<p>Those installments' facts were kept WITHOUT being fact-checked. If this recurs, unsupported
+facts are reaching thread state unchecked -- investigate the audit model/endpoint.</p>
+<p style="color: #777; font-size: 0.85em;">This is an automated alert from your News Digest system.</p>
+"""
+    try:
+        resend_with_retry(
+            resend.Emails.send,
+            {
+                "from": f"News Digest Alerts <{from_email}>",
+                "to": [to_email],
+                "subject": f"[Alert] Thread audit failed-open on {audit_failures} thread(s)",
+                "html": content,
+            },
+        )
+        logger.info("Thread-audit alert sent to %s", to_email)
+    except resend.exceptions.ResendError as e:
+        logger.error("Failed to send thread-audit alert: %s", e)
+
+
 def send_health_alert(
     failing_sources: list[tuple[str, int]],
     failed_this_run: int,
