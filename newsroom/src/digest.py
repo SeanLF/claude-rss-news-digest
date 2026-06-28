@@ -137,6 +137,40 @@ def cleanup_shown_headlines():
         headlines_file.unlink()
 
 
+def attach_thread_context(selections: dict) -> dict:
+    """Enrich continuing-thread stories with their open-question ledger so the renderer can show
+    the living-thread treatment. Gated on THREADS_ENABLED; best-effort (the thread layer is
+    additive -- a failure here must not break rendering)."""
+    import config
+
+    if not config.THREADS_ENABLED:
+        return selections
+    try:
+        import sqlite3
+
+        import db
+        import threads
+
+        run_id = db.current_run_id()
+        assignments_path = CLAUDE_INPUT_DIR / "thread_assignments.json"
+        if run_id is None or not assignments_path.exists():
+            return selections
+        by_story = {a["story"]: a for a in json.loads(assignments_path.read_text()) if not a.get("is_new")}
+        conn = sqlite3.connect(config.DB_PATH)
+        try:
+            store = threads.ThreadStore(conn)
+            for tier in ("must_know", "should_know"):
+                for item in selections.get(tier, []):
+                    assignment = by_story.get(item.get("cluster_id"))
+                    if assignment:
+                        item["thread"] = store.render_context(assignment["thread_id"], run_id)
+        finally:
+            conn.close()
+    except Exception:
+        logger.warning("Attaching thread context failed (non-fatal)", exc_info=True)
+    return selections
+
+
 def write_digest(selections: dict, template_file: Path) -> Path:
     """Render selections to HTML and write digest file.
 
@@ -148,6 +182,7 @@ def write_digest(selections: dict, template_file: Path) -> Path:
 
     logger.info("Rendering: %d must_know, %d should_know", must_know, should_know)
 
+    selections = attach_thread_context(selections)
     html_content = render_digest(selections, template_file)
 
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)

@@ -226,6 +226,41 @@ article .sources a {
   color: var(--text-secondary);
 }
 
+/* Evolving story-thread: a muted "Ongoing" marker + the open-question ledger. */
+.thread-badge {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 1px 7px;
+  border: 1px solid var(--accent);
+  border-radius: 10px;
+  font-size: 0.6em;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: var(--accent);
+  vertical-align: middle;
+}
+
+.thread-ledger {
+  margin: 8px 0 0;
+  padding-left: 12px;
+  border-left: 2px solid var(--accent);
+  font-size: 0.85em;
+}
+
+.thread-ledger p {
+  margin: 3px 0;
+  color: var(--text-secondary);
+}
+
+.thread-ledger .thread-answered strong {
+  color: var(--accent);
+}
+
+.thread-ledger .thread-tracking strong {
+  color: var(--text);
+}
+
 .reporting-varies em {
   color: var(--text);
   font-style: normal;

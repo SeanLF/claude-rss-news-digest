@@ -200,6 +200,21 @@ class ThreadStore:
         ).fetchall()
         return [r[0] for r in rows]
 
+    def render_context(self, thread_id: int, run_id: int) -> dict:
+        """The thread facts the renderer (sub-project C) needs: how many days the thread has run,
+        the questions still open, and any answered THIS run."""
+        day = self.conn.execute(
+            "SELECT COUNT(*) FROM thread_installments WHERE thread_id = ?", (thread_id,)
+        ).fetchone()[0]
+        resolved = [
+            r[0]
+            for r in self.conn.execute(
+                "SELECT question FROM thread_questions WHERE thread_id = ? AND status = 'resolved' AND resolved_run_id = ? ORDER BY id",
+                (thread_id, run_id),
+            )
+        ]
+        return {"day": day, "open_questions": self.open_questions(thread_id), "resolved": resolved}
+
     # --- writes (identity / aging) ---
 
     def create_thread(self, label: str, run_id: int) -> int:

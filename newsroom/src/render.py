@@ -218,6 +218,24 @@ def generate_feedback_html(email: str) -> str:
     </div>"""
 
 
+def _render_thread_ledger(thread: dict, *, max_open: int = 3) -> str:
+    """The compact open-question ledger for a continuing thread: what today answered, and what
+    the story is still tracking. Returns '' when there's nothing thread-worthy to show."""
+    resolved = thread.get("resolved") or []
+    open_qs = (thread.get("open_questions") or [])[:max_open]
+    if not resolved and not open_qs:
+        return ""
+    lines = ['      <div class="thread-ledger">']
+    if resolved:
+        answered = "; ".join(html.escape(q) for q in resolved)
+        lines.append(f'        <p class="thread-answered"><strong>Now answered:</strong> {answered}</p>')
+    if open_qs:
+        tracking = " · ".join(html.escape(q) for q in open_qs)
+        lines.append(f'        <p class="thread-tracking"><strong>Still tracking:</strong> {tracking}</p>')
+    lines.append("      </div>")
+    return "\n".join(lines)
+
+
 def render_article(article: dict, slug: str, include_reporting_varies: bool = True) -> str:
     """Render a single article (must_know or should_know) to HTML."""
     headline = html.escape(article.get("headline", ""))
@@ -248,13 +266,24 @@ def render_article(article: dict, slug: str, include_reporting_varies: bool = Tr
             sources_parts.append(f"{name} ({bias})")
     sources_line = " · ".join(sources_parts)
 
-    # Build article HTML
+    # Build article HTML. A threaded (continuing) story gets an "Ongoing" marker on the
+    # headline and a compact ledger (answered-this-run + still-tracking questions) below the
+    # why-line -- the living-thread treatment, additive to the existing WRITE output.
+    thread = article.get("thread") or {}
+    ongoing = ""
+    if thread.get("day", 0) >= 2:
+        ongoing = f'<span class="thread-badge">Ongoing · day {thread["day"]}</span>'
+
     parts = [
         f'    <article id="{slug}">',
-        f'      <h3><a href="#{slug}" class="anchor" aria-label="Link to this story">{ANCHOR_SVG}</a>{headline}</h3>',
+        f'      <h3><a href="#{slug}" class="anchor" aria-label="Link to this story">{ANCHOR_SVG}</a>{headline}{ongoing}</h3>',
         f"      <p>{summary}</p>",
         f'      <p class="why"><strong>Why it matters:</strong> {why}</p>',
     ]
+
+    thread_block = _render_thread_ledger(thread)
+    if thread_block:
+        parts.append(thread_block)
 
     # Optional: reporting_varies (only for must_know)
     if include_reporting_varies:
