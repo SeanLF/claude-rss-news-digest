@@ -73,6 +73,16 @@ Grew out of the CLUSTER cost work but is a QUALITY play. Validated thoroughly (r
 Good engineering + research-grade evaluation rigor, NOT novel research (confirms known MDS/graph/
 eval literature) — EXCEPT the evolving-thread, which is the closest to a genuine contribution.
 
+## Other quality dimensions measured (2026-06-28)
+
+- **why_it_matters**: FILLER 0% on both 213/215 — the write.md filler self-check WORKS, no fix
+  needed. "Ungrounded fact" audited ~24% but mostly legitimate analytical inference/world-knowledge
+  context (the audit over-flags analysis as "fact"); the genuine minority (outside-source specifics)
+  is a product/philosophy call, not a bug. The analysis lines are in good shape.
+- **COHERENCE is not a backstop for summary overstatements**: 0 items dropped on 213/215.
+- Net: micro-quality is in decent shape; remaining prompt tweaks yield single-digit-% gains. The
+  real next improvement is the evolving-thread BUILD, not more polish.
+
 ## Next steps (prioritized)
 
 1. **Finish + ship the v2 WRITE fix**: confirm the corrected production overstatement baseline, run
