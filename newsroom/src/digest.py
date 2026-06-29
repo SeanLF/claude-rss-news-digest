@@ -138,9 +138,10 @@ def cleanup_shown_headlines():
 
 
 def attach_thread_context(selections: dict) -> dict:
-    """Enrich continuing-thread stories with their open-question ledger so the renderer can show
-    the living-thread treatment. Gated on THREADS_ENABLED; best-effort (the thread layer is
-    additive -- a failure here must not break rendering)."""
+    """Enrich continuing-thread stories with their badge day-count + delta (today's verified
+    what's-new, which replaces the summary) so the renderer can show the living-thread treatment.
+    Gated on THREADS_ENABLED; best-effort (the thread layer is additive -- a failure here must not
+    break rendering)."""
     import config
 
     if not config.THREADS_ENABLED:
@@ -163,7 +164,7 @@ def attach_thread_context(selections: dict) -> dict:
                 for item in selections.get(tier, []):
                     assignment = by_story.get(item.get("cluster_id"))
                     if assignment:
-                        item["thread"] = store.render_context(assignment["thread_id"])
+                        item["thread"] = store.render_context(assignment["thread_id"], run_id)
         finally:
             conn.close()
     except Exception:

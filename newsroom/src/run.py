@@ -81,8 +81,8 @@ def _process_story_threads() -> None:
 
     A: link each selected story to a continuing thread (or start a new one) via the Haiku
     linker and persist identity. B: for each CONTINUING thread, synthesize today's installment
-    (what's new / resolved / new questions / updated narrative) against its carried state,
-    audit-drop unsupported facts, and persist the evolving narrative + open-question ledger.
+    (what's new / resolved / new questions) against its carried state, audit-drop unsupported
+    facts, and persist the installment + open-question ledger.
 
     Gated on THREADS_ENABLED and DB recording. Best-effort: never crashes the digest -- the
     thread layer is additive (off until reader-visible in sub-project C).

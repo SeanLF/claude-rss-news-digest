@@ -2,8 +2,8 @@
 
 A *thread* is an ongoing news story tracked across daily runs. Each run, the selected
 stories are matched against the active threads and each is either continued or started
-fresh. The thread carries a running narrative + an open-question ledger (written by the
-synthesis stage, sub-project B).
+fresh. The thread's running record IS its per-run installments (the synthesized whats_new
+facts) plus an open-question ledger -- both written by the synthesis stage, sub-project B.
 
 Matcher: a cheap **Haiku semantic linker**. Deterministic token matching was built and
 validated on the replay first and FAILED (caught 1 of ~9 obvious multi-day threads):
@@ -23,7 +23,7 @@ from __future__ import annotations
 import json
 import logging
 import re
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 from dataclasses import dataclass, field
 
 logger = logging.getLogger(__name__)
@@ -43,23 +43,43 @@ Respond with ONLY JSON, no prose: {"links": [{"story": 0, "thread": 3}, {"story"
 
 @dataclass
 class ActiveThread:
-    """A thread eligible to continue this run -- what the linker sees."""
+    """A thread eligible to continue this run -- what the linker sees (matched by its label)."""
 
     thread_id: int
     label: str
-    narrative: str | None = None
 
 
 @dataclass
 class ThreadAssignment:
-    """The result of matching one selected story to a thread -- the interface B consumes."""
+    """The result of matching one selected story to a thread -- the interface B consumes.
+
+    `recent_updates` is the thread's MEMORY: the last few days' delta lines (what was already
+    reported), so the synthesis can compute what's genuinely new today. There is no separately
+    maintained narrative -- the deltas ARE the running record.
+    """
 
     thread_id: int
     is_new: bool
     cluster_story: str
     article_ids: list[str] = field(default_factory=list)
-    prior_narrative: str | None = None
+    recent_updates: list[str] = field(default_factory=list)
     open_questions: list[str] = field(default_factory=list)
+
+
+def delta_from_facts(facts: list[dict], *, top_n: int = 3) -> str:
+    """The thread's delta = the top-N verified whats_new facts joined as prose. Faithful by
+    construction: each fact already passed the per-fact audit, so there's nothing to re-gate.
+    Facts are ordered most-important-first by the synthesis, so the top N lead with what matters."""
+    return " ".join(f.get("fact", "").strip() for f in facts[:top_n] if f.get("fact"))
+
+
+def _whats_new(content: str | None) -> list[dict]:
+    """Parse a stored installment's whats_new facts ([] if missing/corrupt)."""
+    if not content:
+        return []
+    with suppress(ValueError, TypeError, AttributeError):
+        return json.loads(content).get("whats_new", []) or []
+    return []
 
 
 def selected_labels(clusters_doc: dict, selected_doc: dict) -> list[dict]:
@@ -111,7 +131,7 @@ def link_threads(active: list[ActiveThread], today_labels: list[str], *, model: 
         return [None] * len(today_labels)
 
     valid_ids = {t.thread_id for t in active}
-    threads_block = "\n".join(f"  [{t.thread_id}] {t.narrative or t.label}" for t in active)
+    threads_block = "\n".join(f"  [{t.thread_id}] {t.label}" for t in active)
     today_block = "\n".join(f"  ({i}) {lab}" for i, lab in enumerate(today_labels))
     user = (
         f"ACTIVE THREADS:\n{threads_block}\n\nTODAY'S STORIES:\n{today_block}\n\n"
@@ -146,7 +166,7 @@ def link_threads(active: list[ActiveThread], today_labels: list[str], *, model: 
 class ThreadStore:
     """Thin SQL wrapper over the thread tables. Holds no global state; takes a connection.
 
-    Sub-project A uses the identity/installment/aging methods; the narrative + question
+    Sub-project A uses the identity/installment/aging methods; the installment-content + question
     methods are the seam sub-project B writes through.
     """
 
@@ -162,7 +182,7 @@ class ThreadStore:
     def transaction(self):
         """Group several writes into one atomic unit. Inside, the per-method commits are
         suppressed; the whole block commits once on success or rolls back on any error -- so a
-        partial multi-step update (e.g. narrative advanced but the installment row left NULL)
+        partial multi-step update (e.g. a question resolved but the installment row left NULL)
         can't be left behind."""
         self._defer_commit = True
         try:
@@ -182,7 +202,7 @@ class ThreadStore:
         2026-06-16 incident -- from prematurely retiring a live thread."""
         rows = self.conn.execute(
             """
-            SELECT id, label, narrative FROM threads
+            SELECT id, label FROM threads
             WHERE status = 'active'
               AND last_run_id IS NOT NULL
               AND (SELECT COUNT(*) FROM digest_runs
@@ -191,7 +211,7 @@ class ThreadStore:
             """,
             (before_run_id, dormant_after),
         ).fetchall()
-        return [ActiveThread(r[0], r[1], r[2]) for r in rows]
+        return [ActiveThread(r[0], r[1]) for r in rows]
 
     def open_questions(self, thread_id: int) -> list[str]:
         rows = self.conn.execute(
@@ -200,16 +220,35 @@ class ThreadStore:
         ).fetchall()
         return [r[0] for r in rows]
 
-    def render_context(self, thread_id: int) -> dict:
-        """The thread facts the renderer (sub-project C) needs: how many days the thread has run,
-        for the "Ongoing · day N" badge. The narrative + open-question ledger are kept as internal
-        state (they shape the synthesis prompt and the linker's thread descriptions) but are NOT
-        surfaced to readers -- a prose recap repeats the day's summary, and a question list is
-        mostly stale (~16% resolve in-digest). The badge is the non-redundant continuity signal."""
+    def _installment_facts(self, thread_id: int, run_id: int) -> list[dict]:
+        row = self.conn.execute(
+            "SELECT content FROM thread_installments WHERE thread_id = ? AND run_id = ?", (thread_id, run_id)
+        ).fetchone()
+        return _whats_new(row[0] if row else None)
+
+    def recent_deltas(self, thread_id: int, *, limit: int = 3) -> list[str]:
+        """The thread's MEMORY: the last `limit` runs' delta lines (verified whats_new facts
+        joined), oldest-first, for feeding the next synthesis as "what's already been reported"."""
+        rows = self.conn.execute(
+            """
+            SELECT content FROM thread_installments
+            WHERE thread_id = ? AND content IS NOT NULL
+            ORDER BY run_id DESC LIMIT ?
+            """,
+            (thread_id, limit),
+        ).fetchall()
+        deltas = [delta_from_facts(_whats_new(content)) for (content,) in reversed(rows)]  # oldest-first
+        return [d for d in deltas if d]
+
+    def render_context(self, thread_id: int, run_id: int) -> dict:
+        """The thread facts the renderer (sub-project C) needs: the day count (for the
+        "Ongoing · day N" badge) and `delta` -- this run's verified whats_new facts joined as the
+        "what's new today" summary that REPLACES the generic summary for a returning reader (blank
+        on a quiet day, so the renderer falls back to the WRITE summary)."""
         day = self.conn.execute(
             "SELECT COUNT(*) FROM thread_installments WHERE thread_id = ?", (thread_id,)
         ).fetchone()[0]
-        return {"day": day}
+        return {"day": day, "delta": delta_from_facts(self._installment_facts(thread_id, run_id))}
 
     # --- writes (identity / aging) ---
 
@@ -260,7 +299,7 @@ class ThreadStore:
         )
         self._commit()
 
-    # --- writes (narrative / ledger) -- the seam sub-project B fills ---
+    # --- writes (installment content / ledger) -- the seam sub-project B fills ---
 
     def record_run_health(self, run_id: int, *, synthesized: int, audit_failures: int) -> None:
         """Record this run's thread-processing health (gate signal). audit_failures > 0 means
@@ -276,15 +315,6 @@ class ThreadStore:
         self.conn.execute(
             "UPDATE thread_installments SET content = ? WHERE thread_id = ? AND run_id = ?",
             (content, thread_id, run_id),
-        )
-        self._commit()
-
-    def set_narrative(self, thread_id: int, narrative: str) -> None:
-        """Advance the thread's running narrative (internal state: shapes the synthesis prompt and
-        the linker's thread descriptions; not rendered to readers)."""
-        self.conn.execute(
-            "UPDATE threads SET narrative = ?, updated_at = datetime('now', 'utc') WHERE id = ?",
-            (narrative, thread_id),
         )
         self._commit()
 
@@ -340,14 +370,13 @@ def resolve_threads(
             claimed.add(tid)
             store.touch_thread(tid, label, run_id)
             store.record_installment(tid, run_id, label, is_new=False)
-            prior = active_by_id[tid]
             assignments.append(
                 ThreadAssignment(
                     thread_id=tid,
                     is_new=False,
                     cluster_story=label,
                     article_ids=article_ids,
-                    prior_narrative=prior.narrative,
+                    recent_updates=store.recent_deltas(tid),
                     open_questions=store.open_questions(tid),
                 )
             )

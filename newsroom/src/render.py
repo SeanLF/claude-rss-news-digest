@@ -248,19 +248,21 @@ def render_article(article: dict, slug: str, include_reporting_varies: bool = Tr
             sources_parts.append(f"{name} ({bias})")
     sources_line = " · ".join(sources_parts)
 
-    # Build article HTML. A continuing thread gets a muted "Ongoing · day N" marker on the
-    # headline -- the non-redundant continuity signal. (The daily summary already tells today's
-    # state, so we do NOT also render a prose recap; the richer non-redundant way to surface the
-    # synthesis is a delta summary, a deliberate future change rather than a bolted-on block.)
+    # Build article HTML. A continuing thread gets a muted "Ongoing · day N" badge on the
+    # headline, and -- when there's a delta -- its summary is REPLACED with "what's new today"
+    # (the top verified facts), so a returning reader sees the new development, not a generic
+    # re-description. Falls back to the WRITE summary on a quiet day (no delta).
     thread = article.get("thread") or {}
     ongoing = ""
     if thread.get("day", 0) >= 2:
         ongoing = f'<span class="thread-badge">Ongoing · day {thread["day"]}</span>'
+    delta = (thread.get("delta") or "").strip()
+    body = html.escape(delta) if delta else summary
 
     parts = [
         f'    <article id="{slug}">',
         f'      <h3><a href="#{slug}" class="anchor" aria-label="Link to this story">{ANCHOR_SVG}</a>{headline}{ongoing}</h3>',
-        f"      <p>{summary}</p>",
+        f"      <p>{body}</p>",
         f'      <p class="why"><strong>Why it matters:</strong> {why}</p>',
     ]
 

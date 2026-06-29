@@ -1,16 +1,15 @@
 -- Evolving story-thread substrate (sub-project A): persistent identity + carried
 -- state for ongoing stories tracked across daily runs.
 --
--- threads            : one row per ongoing story; signature (for identity matching),
---                      narrative (running summary, filled by the synthesis stage).
+-- threads            : one row per ongoing story (identity + latest label).
 -- thread_questions   : the open-question ledger -- raised, then marked resolved.
--- thread_installments: per-run audit trail of which selected story matched which thread.
+-- thread_installments: per-run record -- which selected story matched, and the synthesized
+--                      content (whats_new facts), which is the thread's running memory.
 
 CREATE TABLE IF NOT EXISTS threads (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     slug TEXT,
     label TEXT NOT NULL,                      -- latest story label (shown to the linker next run)
-    narrative TEXT,                          -- running summary (written by sub-project B)
     status TEXT NOT NULL DEFAULT 'active',   -- active | dormant | closed
     first_run_id INTEGER,
     last_run_id INTEGER,

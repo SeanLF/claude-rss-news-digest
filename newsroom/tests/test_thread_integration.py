@@ -82,10 +82,7 @@ def test_process_story_threads_wiring_end_to_end(staged, monkeypatch):
     monkeypatch.setattr(
         thread_synthesis,
         "synthesize_installment",
-        lambda *a, **k: {
-            "whats_new": [{"fact": "talks resumed", "sources": ["A1"]}],
-            "updated_narrative": "Iran talks resumed.",
-        },
+        lambda *a, **k: {"whats_new": [{"fact": "Iran talks resumed in Geneva.", "sources": ["A1"]}]},
     )
     monkeypatch.setattr(thread_synthesis, "audit_whats_new", lambda *a, **k: [True])
 
@@ -105,14 +102,11 @@ def test_process_story_threads_wiring_end_to_end(staged, monkeypatch):
         "SELECT threads_synthesized, audit_failures FROM thread_runs WHERE run_id=?", (run_id,)
     ).fetchone()
     assert health == (1, 0)
-    # narrative + installment persisted on the Iran thread
-    assert conn.execute("SELECT narrative FROM threads WHERE id=?", (iran_tid,)).fetchone()[0] == "Iran talks resumed."
-    assert (
-        conn.execute(
-            "SELECT content FROM thread_installments WHERE thread_id=? AND run_id=?", (iran_tid, run_id)
-        ).fetchone()[0]
-        is not None
-    )
+    # the verified installment (the delta source + next-day memory) is persisted on the Iran thread
+    content = conn.execute(
+        "SELECT content FROM thread_installments WHERE thread_id=? AND run_id=?", (iran_tid, run_id)
+    ).fetchone()[0]
+    assert content is not None and "Iran talks resumed" in content
 
 
 def test_process_story_threads_disabled_is_noop(staged, monkeypatch):

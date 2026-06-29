@@ -119,13 +119,16 @@ def test_apply_installment_drops_unsupported_facts(store):
     assert len(json.loads(row[0])["whats_new"]) == 1
 
 
-def test_apply_installment_updates_narrative(store):
+def test_apply_installment_stores_verified_content(store):
+    import json
+
     tid = _seed_thread(store)
     a = threads.ThreadAssignment(thread_id=tid, is_new=False, cluster_story="x")
-    ts.apply_installment(store, a, {"updated_narrative": "New running summary."}, supported=[], run_id=2)
-    assert (
-        store.conn.execute("SELECT narrative FROM threads WHERE id=?", (tid,)).fetchone()[0] == "New running summary."
-    )
+    ts.apply_installment(store, a, {"whats_new": [{"fact": "f", "sources": ["A1"]}]}, supported=[True], run_id=2)
+    content = store.conn.execute(
+        "SELECT content FROM thread_installments WHERE thread_id=? AND run_id=2", (tid,)
+    ).fetchone()[0]
+    assert json.loads(content)["whats_new"] == [{"fact": "f", "sources": ["A1"]}]
 
 
 def test_apply_installment_resolves_only_carried_questions(store):
@@ -313,13 +316,17 @@ def test_synthesize_threads_records_zero_failures_on_clean_run(store):
 
 
 def test_apply_installment_is_atomic_on_persist_failure(store, monkeypatch):
-    # If a late write fails, the narrative must NOT have advanced (the whole unit rolls back).
-    tid = _seed_thread(store)
-    store.set_narrative(tid, "OLD narrative")
-    a = threads.ThreadAssignment(thread_id=tid, is_new=False, cluster_story="x")
+    # If a late write fails, a question resolved earlier in the unit must roll back (stay open).
+    tid = _seed_thread(store, open_qs=["Will it hold?"])
+    a = threads.ThreadAssignment(thread_id=tid, is_new=False, cluster_story="x", open_questions=["Will it hold?"])
     monkeypatch.setattr(
         store, "set_installment_content", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("disk full"))
     )
+    installment = {
+        "whats_new": [{"fact": "f", "sources": ["A1"]}],
+        "resolved": [{"question": "Will it hold?", "how": "yes"}],
+    }
     with pytest.raises(RuntimeError):
-        ts.apply_installment(store, a, {"updated_narrative": "NEW narrative"}, supported=[], run_id=2)
-    assert store.conn.execute("SELECT narrative FROM threads WHERE id=?", (tid,)).fetchone()[0] == "OLD narrative"
+        ts.apply_installment(store, a, installment, supported=[True], run_id=2)
+    status = store.conn.execute("SELECT status FROM thread_questions WHERE thread_id=?", (tid,)).fetchone()[0]
+    assert status == "open"  # the resolve rolled back with the failed installment write

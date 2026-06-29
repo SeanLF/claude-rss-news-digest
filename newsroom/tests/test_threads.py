@@ -178,39 +178,49 @@ def test_resolve_threads_distinct_story_starts_new_thread(conn):
     assert conn.execute("SELECT COUNT(*) FROM threads").fetchone()[0] == 2
 
 
-def test_resolve_threads_carries_prior_narrative_and_questions(conn):
+def test_resolve_threads_carries_recent_deltas_and_questions(conn):
+    import json
+
     store = threads.ThreadStore(conn)
     a1 = threads.resolve_threads(
         [{"story": "Iran ceasefire over Strait of Hormuz"}], run_id=1, store=store, linker=anchor_linker
     )
     tid = a1[0].thread_id
-    # B will write these; simulate via the store API.
-    store.set_narrative(tid, "Iran and the US reached a ceasefire after strikes near Hormuz.")
+    # B writes the run-1 installment (its whats_new facts become the memory) + a question.
+    store.set_installment_content(tid, 1, json.dumps({"whats_new": [{"fact": "A ceasefire was signed near Hormuz."}]}))
     store.add_questions(tid, ["Will the ceasefire hold?"], run_id=1)
 
     a2 = threads.resolve_threads(
         [{"story": "Iran ceasefire holds as shipping resumes"}], run_id=2, store=store, linker=anchor_linker
     )
-    assert "ceasefire" in (a2[0].prior_narrative or "")
+    assert any("ceasefire" in u for u in a2[0].recent_updates)  # prior delta carried as memory
     assert "Will the ceasefire hold?" in a2[0].open_questions
 
 
-def test_active_threads_prefers_narrative_then_label(conn):
+def test_active_threads_returns_label_for_linker(conn):
     store = threads.ThreadStore(conn)
-    tid = store.create_thread("Iran nuclear talks", run_id=1)
+    store.create_thread("Iran nuclear talks", run_id=1)
     active = store.active_threads(before_run_id=2, dormant_after=3)
     assert active[0].label == "Iran nuclear talks"
-    assert active[0].narrative is None
-    store.set_narrative(tid, "running summary")
-    assert store.active_threads(before_run_id=2, dormant_after=3)[0].narrative == "running summary"
 
 
-def test_render_context_returns_day_count_for_badge(conn):
+def test_render_context_returns_day_and_delta(conn):
+    import json
+
     store = threads.ThreadStore(conn)
     tid = store.create_thread("Iran", run_id=1)
     store.record_installment(tid, 1, "Iran", is_new=True)
     store.record_installment(tid, 2, "Iran", is_new=False)
-    assert store.render_context(tid) == {"day": 2}
+    store.set_installment_content(
+        tid, 2, json.dumps({"whats_new": [{"fact": "The US struck 10 targets."}, {"fact": "Iran retaliated."}]})
+    )
+    assert store.render_context(tid, 2) == {"day": 2, "delta": "The US struck 10 targets. Iran retaliated."}
+
+
+def test_delta_from_facts_joins_top_n_in_order():
+    facts = [{"fact": "Lead development."}, {"fact": "Second."}, {"fact": "Third."}, {"fact": "Fourth."}]
+    assert threads.delta_from_facts(facts, top_n=2) == "Lead development. Second."
+    assert threads.delta_from_facts([]) == ""
 
 
 def test_resolve_threads_ages_out_dormant_threads(conn):

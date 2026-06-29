@@ -1,7 +1,8 @@
 """Tests for the evolving-thread render treatment (sub-project C) in render.py.
 
-Reader-facing footprint is the "Ongoing · day N" badge -- the non-redundant continuity signal.
-The daily summary already tells today's state, so no prose recap is rendered.
+A continuing thread shows the "Ongoing · day N" badge, and -- when there's a delta -- its summary
+is replaced with "what's new today" (the top verified facts). Falls back to the WRITE summary on a
+quiet day.
 """
 
 import sys
@@ -41,3 +42,22 @@ def test_thread_badge_hidden_on_first_day():
 
 def test_thread_badge_absent_when_thread_empty():
     assert "thread-badge" not in render.render_article({**BASE, "thread": {}}, slug="x")
+
+
+def test_delta_replaces_summary_for_threaded_story():
+    article = {**BASE, "thread": {"day": 4, "delta": "Britain broke its all-time June record today."}}
+    out = render.render_article(article, slug="x")
+    assert "Britain broke its all-time June record today." in out  # delta is the rendered summary
+    assert "Temperatures hit 40C across the continent." not in out  # generic WRITE summary replaced
+
+
+def test_no_delta_falls_back_to_write_summary():
+    out = render.render_article({**BASE, "thread": {"day": 4, "delta": ""}}, slug="x")
+    assert "Temperatures hit 40C across the continent." in out  # quiet day -> normal summary
+    assert 'class="thread-badge">Ongoing · day 4' in out  # badge still shown
+
+
+def test_delta_is_html_escaped():
+    out = render.render_article({**BASE, "thread": {"day": 2, "delta": "<script>x</script>"}}, slug="x")
+    assert "<script>x" not in out
+    assert "&lt;script&gt;" in out

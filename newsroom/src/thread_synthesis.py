@@ -2,14 +2,15 @@
 
 For each CONTINUING thread (identified by sub-project A), synthesize today's installment
 against the thread's carried state: what's genuinely new, which open questions today's
-sources answer, what new questions arise, and an updated running narrative. Then audit the
-new facts for faithfulness and DROP the unsupported ones before persisting -- the same
-synthesize->audit discipline as the production WRITE->COHERENCE pair.
+sources answer, and what new questions arise. Then audit the new facts for faithfulness and
+DROP the unsupported ones before persisting -- the same synthesize->audit discipline as the
+production WRITE->COHERENCE pair. The surviving facts ARE the reader-facing delta (top few
+joined) and the thread's running memory.
 
 The faithfulness fix proven in the PoC (`scratch/cluster-replay/evolving_thread.py`): wall
-MEMORY (the running narrative + ledger, which may reference prior days) from FACTS (`whats_new`,
-which must cite a TODAY source and carry nothing forward). That walling more than halved the
-unsupported rate (22.5% -> 8.4%); the residual is mopped up here by the audit->drop.
+MEMORY (the recent deltas, which may reference prior days) from FACTS (`whats_new`, which must
+cite a TODAY source and carry nothing forward). The walling more than halved the unsupported
+rate (22.5% -> 8.4%); the residual is mopped up here by the audit->drop.
 
 LLM calls go through claude_cli.run_agent (Sonnet), capturing per-call token usage + cost so
 B's spend is attributed in run_usage like every other stage; the orchestration takes injectable
@@ -58,18 +59,17 @@ _LB_STOP = frozenset(
 
 logger = logging.getLogger(__name__)
 
-EVOLVE_SYSTEM = """You maintain an EVOLVING daily digest thread for ONE ongoing news story. You are given the STORY SO FAR (a running summary + OPEN QUESTIONS from prior days) and TODAY'S source articles.
+EVOLVE_SYSTEM = """You maintain an EVOLVING daily digest thread for ONE ongoing news story. You are given RECENT UPDATES (what's already been reported to readers on prior days) + OPEN QUESTIONS, and TODAY'S source articles.
 
-CRITICAL GROUNDING RULE: the STORY SO FAR is MEMORY for context and continuity ONLY. Every fact you put in `whats_new` MUST be stated in TODAY'S articles and cite the exact today-article ID(s) that state it. NEVER carry a fact from the STORY SO FAR into whats_new -- if a development isn't in today's articles, it is not today's news. `updated_narrative`, `resolved`, and `still_open` may reference prior context; `whats_new` may NOT.
+CRITICAL GROUNDING RULE: RECENT UPDATES are MEMORY -- they tell you what's ALREADY been reported so you can identify what is genuinely NEW today and avoid repeating it. Every fact you put in `whats_new` MUST be stated in TODAY'S articles and cite the exact today-article ID(s) that state it. NEVER carry a fact from RECENT UPDATES into whats_new -- if a development isn't in today's articles, it is not today's news. `resolved` and `still_open` may reference prior context; `whats_new` may NOT.
 
 Produce today's installment:
-- whats_new: today's genuinely NEW developments, EACH grounded in and citing today's articles (verifiable from the cited article alone). If nothing is new, return [].
+- whats_new: today's genuinely NEW developments (not already in RECENT UPDATES). ORDER THEM MOST IMPORTANT FIRST, and write each as ONE clean, self-contained sentence a reader could see as the story's update -- because the top few will be shown verbatim as today's summary. EACH must be grounded in and cite today's articles (verifiable from the cited article alone). If nothing is new, return [].
 - resolved: which OPEN QUESTIONS today's articles now answer, and how (cite today's article). Use the EXACT wording of the open question you are resolving.
 - new_questions: new open questions today's developments raise.
 - still_open: prior open questions still unanswered (use their exact wording).
-- updated_narrative: a 2-3 sentence running summary of the whole story to date (may use memory).
 Invent nothing; preserve disagreement.
-Output ONLY JSON: {"whats_new": [{"fact": "...", "sources": ["A1"]}], "resolved": [{"question": "...", "how": "..."}], "new_questions": ["..."], "still_open": ["..."], "updated_narrative": "..."}"""
+Output ONLY JSON: {"whats_new": [{"fact": "...", "sources": ["A1"]}], "resolved": [{"question": "...", "how": "..."}], "new_questions": ["..."], "still_open": ["..."]}"""
 
 SUMMARY_CHARS = 400  # how much of each article summary to feed the synthesis/audit prompts
 
@@ -176,7 +176,7 @@ def _run_sonnet(user: str, system: str, *, model: str, subagent: str, usage_rows
 
 
 def synthesize_installment(
-    prior_narrative: str | None,
+    recent_updates: list[str],
     open_questions: list[str],
     article_ids: list[str],
     arts: dict,
@@ -184,10 +184,12 @@ def synthesize_installment(
     model: str = DEFAULT_MODEL,
     usage_rows: list[dict] | None = None,
 ) -> dict:
-    """Synthesize today's installment for one thread (Sonnet). Raises on LLM/parse failure."""
-    story_so_far = prior_narrative or "(nothing yet -- this is the thread's first tracked day)"
+    """Synthesize today's installment for one thread (Sonnet). `recent_updates` is the memory --
+    the last few days' delta lines (what's already been reported) so the model can compute what's
+    genuinely NEW. Raises on LLM/parse failure."""
+    updates = "\n".join(f"- {u}" for u in recent_updates) or "(nothing yet -- this is the thread's first tracked day)"
     questions = "\n".join(f"- {q}" for q in open_questions) or "(none yet)"
-    prior = f"STORY SO FAR: {story_so_far}\nOPEN QUESTIONS:\n{questions}"
+    prior = f"RECENT UPDATES:\n{updates}\nOPEN QUESTIONS:\n{questions}"
     user = f"{prior}\n\nTODAY'S SOURCE ARTICLES:\n{_bundle(article_ids, arts)}"
     return _parse_json(
         _run_sonnet(user, EVOLVE_SYSTEM, model=model, subagent="thread_synthesis", usage_rows=usage_rows)
@@ -218,9 +220,9 @@ def audit_whats_new(
 
 
 def apply_installment(store, assignment, installment: dict, supported: list[bool], run_id: int) -> dict:
-    """Persist a synthesized installment: drop unsupported whats_new facts, update the running
-    narrative, resolve answered questions, raise new ones, and store the verified installment.
-    Returns the verified installment (unsupported facts removed)."""
+    """Persist a synthesized installment: drop unsupported whats_new facts (the survivors ARE the
+    thread's running record + next-day memory), resolve answered questions, raise new ones, and
+    store the verified installment. Returns the verified installment (unsupported facts removed)."""
     whats_new = installment.get("whats_new", []) or []
     kept = [f for f, ok in zip(whats_new, supported, strict=False) if ok]
     verified = {**installment, "whats_new": kept}
@@ -228,13 +230,10 @@ def apply_installment(store, assignment, installment: dict, supported: list[bool
     tid = assignment.thread_id
     open_now = set(assignment.open_questions)
     new_questions = [q for q in (installment.get("new_questions", []) or []) if q]
-    narrative = installment.get("updated_narrative")
 
-    # One atomic unit: never leave the narrative advanced / questions resolved while the
-    # installment row is left content-less (a partial write the next run would read as truth).
+    # One atomic unit: never leave questions resolved while the installment row is left
+    # content-less (a partial write the next run would read as truth).
     with store.transaction():
-        if narrative:
-            store.set_narrative(tid, narrative)
         for r in installment.get("resolved", []) or []:
             question = r.get("question", "")
             if question in open_now:  # only resolve questions we actually carried (avoid drift)
@@ -285,7 +284,7 @@ def synthesize_threads(
             )
         try:
             installment = synth_fn(
-                a.prior_narrative, a.open_questions, article_ids, arts, model=model, usage_rows=usage_rows
+                a.recent_updates, a.open_questions, article_ids, arts, model=model, usage_rows=usage_rows
             )
         except Exception:
             logger.warning("thread synthesis failed for thread %s (skipped)", a.thread_id, exc_info=True)
