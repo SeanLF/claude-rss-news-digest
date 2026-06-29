@@ -1,6 +1,6 @@
 # News Digest
 
-Automated daily news digest powered by Claude. Fetches from diverse RSS sources across 5 continents, deduplicates against recent history, curates stories into tiers with bias-aware source attribution, and emails an HTML summary via Resend.
+Automated daily news digest powered by Claude. Fetches from diverse RSS sources across 5 continents, deduplicates against recent history, curates stories into tiers with bias-aware source attribution, threads ongoing stories across days so returning readers see what's new, and emails an HTML summary via Resend.
 
 Two components: **newsroom** (Python pipeline that fetches, curates, and emails) and **circulation** (Rust web server for the online archive).
 
