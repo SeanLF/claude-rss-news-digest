@@ -53,7 +53,7 @@ class StageResult:
     Built from the SDK's terminal :class:`ResultMessage`; this is everything any
     caller needs. ``text`` is the final result text (the ResultMessage ``result``
     field, else the concatenated assistant text). ``usage`` is the SDK token-usage
-    dict that ``usage._usage_row`` turns into a ``run_usage`` row.
+    dict that ``usage.usage_row_from_sdk`` turns into a ``run_usage`` row.
     """
 
     subtype: str | None

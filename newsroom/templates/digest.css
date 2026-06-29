@@ -241,19 +241,6 @@ article .sources a {
   vertical-align: middle;
 }
 
-.thread-continuity {
-  margin: 8px 0;
-  padding-left: 12px;
-  border-left: 2px solid var(--accent);
-  font-size: 0.9em;
-  color: var(--text-muted);
-  font-style: italic;
-}
-
-.thread-continuity strong {
-  font-style: normal;
-  color: var(--accent);
-}
 
 .reporting-varies em {
   color: var(--text);

@@ -218,30 +218,6 @@ def generate_feedback_html(email: str) -> str:
     </div>"""
 
 
-def _first_sentence(text: str, *, cap: int = 220) -> str:
-    """First sentence of the narrative (background context), hard-capped so the line stays compact.
-    Splits on sentence-ending punctuation followed by a space; falls back to a word-boundary cut."""
-    text = text.strip()
-    ends = [i for end in (". ", "? ", "! ") if 0 < (i := text.find(end)) <= cap]
-    if ends:
-        return text[: min(ends) + 1]  # earliest sentence end, whatever its punctuation
-    if len(text) <= cap:
-        return text
-    return text[:cap].rsplit(" ", 1)[0].rstrip(",;:") + "…"
-
-
-def _render_thread_continuity(thread: dict) -> str:
-    """A continuing thread's "story so far" -- the PRIOR run's narrative, trimmed to its first
-    sentence, as a compact background line. Prose, not a question ledger (most open questions never
-    resolve in-digest, so a list would be mostly stale); the prior narrative, not the current one,
-    so it's background rather than a restatement of today. Returns '' when there's no prior yet."""
-    narrative = (thread.get("narrative") or "").strip()
-    if not narrative:
-        return ""
-    summary = html.escape(_first_sentence(narrative))
-    return f'      <p class="thread-continuity"><strong>The story so far:</strong> {summary}</p>'
-
-
 def render_article(article: dict, slug: str, include_reporting_varies: bool = True) -> str:
     """Render a single article (must_know or should_know) to HTML."""
     headline = html.escape(article.get("headline", ""))
@@ -272,9 +248,10 @@ def render_article(article: dict, slug: str, include_reporting_varies: bool = Tr
             sources_parts.append(f"{name} ({bias})")
     sources_line = " · ".join(sources_parts)
 
-    # Build article HTML. A threaded (continuing) story gets an "Ongoing" marker on the
-    # headline and a compact ledger (answered-this-run + still-tracking questions) below the
-    # why-line -- the living-thread treatment, additive to the existing WRITE output.
+    # Build article HTML. A continuing thread gets a muted "Ongoing · day N" marker on the
+    # headline -- the non-redundant continuity signal. (The daily summary already tells today's
+    # state, so we do NOT also render a prose recap; the richer non-redundant way to surface the
+    # synthesis is a delta summary, a deliberate future change rather than a bolted-on block.)
     thread = article.get("thread") or {}
     ongoing = ""
     if thread.get("day", 0) >= 2:
@@ -286,10 +263,6 @@ def render_article(article: dict, slug: str, include_reporting_varies: bool = Tr
         f"      <p>{summary}</p>",
         f'      <p class="why"><strong>Why it matters:</strong> {why}</p>',
     ]
-
-    thread_block = _render_thread_continuity(thread)
-    if thread_block:
-        parts.append(thread_block)
 
     # Optional: reporting_varies (only for must_know)
     if include_reporting_varies:

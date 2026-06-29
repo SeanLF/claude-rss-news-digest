@@ -242,6 +242,44 @@ def test_synthesize_threads_audit_failure_is_fail_open_and_recorded(store):
     assert row == (1, 1)
 
 
+def test_run_sonnet_maps_raw_sdk_usage_to_run_usage_row(monkeypatch):
+    # Regression: result.usage is the RAW SDK shape (input_tokens/...), must map to the
+    # run_usage row keys. (The trial caught a KeyError here when raw usage was passed through.)
+    from types import SimpleNamespace
+
+    import claude_cli
+
+    fake = SimpleNamespace(
+        ok=True,
+        text='{"ok": 1}',
+        usage={
+            "input_tokens": 10,
+            "output_tokens": 5,
+            "cache_creation_input_tokens": 2,
+            "cache_read_input_tokens": 3,
+        },
+        total_cost_usd=0.01,
+    )
+
+    async def fake_run_agent(*a, **k):
+        return fake
+
+    monkeypatch.setattr(claude_cli, "run_agent", fake_run_agent)
+    rows: list[dict] = []
+    ts._run_sonnet("u", "s", model="claude-sonnet-4-6", subagent="thread_synthesis", usage_rows=rows)
+    assert rows == [
+        {
+            "subagent": "thread_synthesis",
+            "model": "claude-sonnet-4-6",
+            "input_tokens": 10,
+            "output_tokens": 5,
+            "cache_write_tokens": 2,
+            "cache_read_tokens": 3,
+            "api_cost_usd": 0.01,
+        }
+    ]
+
+
 def test_synthesize_threads_threads_usage_rows_through(store):
     # usage_rows must reach both the synth and audit calls so B's spend lands in run_usage.
     tid = _seed_thread(store)

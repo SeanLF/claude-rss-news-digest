@@ -25,7 +25,7 @@ File handoff is unchanged: each agent reads/writes JSON files under
 
 Per-stage usage is captured directly from the StageResult: token counts from its
 `usage` dict and cost from the SDK's `total_cost_usd`, assembled into a
-`run_usage` row via `usage._usage_row`.
+`run_usage` row via `usage.usage_row_from_sdk`.
 """
 
 from __future__ import annotations
@@ -40,7 +40,7 @@ from typing import Any
 import claude_cli
 from claude_agent_sdk import ThinkingConfig
 from retry import with_retry_async
-from usage import _usage_row
+from usage import usage_row_from_sdk
 
 logger = logging.getLogger(__name__)
 
@@ -262,7 +262,7 @@ async def run_stage(
     written output. On any failure (invocation error, missing/invalid output)
     the stage is retried ONCE from a clean slate. Raises if it still fails.
 
-    The returned dict is a ``run_usage`` row built via ``usage._usage_row`` from
+    The returned dict is a ``run_usage`` row built via ``usage.usage_row_from_sdk`` from
     the result event's ``usage`` block.
 
     Two layers of retry: transient overload/rate-limit errors during the agent
@@ -294,18 +294,7 @@ async def run_stage(
                 continue
             raise RuntimeError(f"{label} stage failed after retry: {e}") from e
 
-        usage = result.usage
-        row = _usage_row(
-            label,
-            model,
-            {
-                "input": usage.get("input_tokens", 0),
-                "output": usage.get("output_tokens", 0),
-                "cache_write": usage.get("cache_creation_input_tokens", 0),
-                "cache_read": usage.get("cache_read_input_tokens", 0),
-            },
-            result.total_cost_usd,
-        )
+        row = usage_row_from_sdk(label, model, result.usage, result.total_cost_usd)
         duration = result.duration_ms / 1000
         logger.info("[%s complete] %.1fs $%.4f", label.capitalize(), duration, row["api_cost_usd"])
         return row

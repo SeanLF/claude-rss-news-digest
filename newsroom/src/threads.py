@@ -201,21 +201,15 @@ class ThreadStore:
         return [r[0] for r in rows]
 
     def render_context(self, thread_id: int) -> dict:
-        """The thread facts the renderer (sub-project C) needs: how many days the thread has run
-        and the PRIOR run's narrative as the "story so far". Using prev_narrative (not the current
-        one, which already folds in today's development the day's summary covers) keeps the line as
-        background context rather than a restatement. The open-question ledger is kept as internal
-        state -- it shapes the synthesis prompt -- but is NOT surfaced to readers: in practice only
-        ~16% of raised questions resolve in-digest, so a rendered list would be mostly clutter."""
-        row = self.conn.execute(
-            """
-            SELECT (SELECT COUNT(*) FROM thread_installments WHERE thread_id = t.id), t.prev_narrative
-            FROM threads t WHERE t.id = ?
-            """,
-            (thread_id,),
-        ).fetchone()
-        day, narrative = row if row else (0, None)
-        return {"day": day, "narrative": narrative}
+        """The thread facts the renderer (sub-project C) needs: how many days the thread has run,
+        for the "Ongoing · day N" badge. The narrative + open-question ledger are kept as internal
+        state (they shape the synthesis prompt and the linker's thread descriptions) but are NOT
+        surfaced to readers -- a prose recap repeats the day's summary, and a question list is
+        mostly stale (~16% resolve in-digest). The badge is the non-redundant continuity signal."""
+        day = self.conn.execute(
+            "SELECT COUNT(*) FROM thread_installments WHERE thread_id = ?", (thread_id,)
+        ).fetchone()[0]
+        return {"day": day}
 
     # --- writes (identity / aging) ---
 
@@ -286,10 +280,10 @@ class ThreadStore:
         self._commit()
 
     def set_narrative(self, thread_id: int, narrative: str) -> None:
-        """Advance the narrative, rolling the current one into prev_narrative so the renderer can
-        show where the story stood coming into today (background, not a today restatement)."""
+        """Advance the thread's running narrative (internal state: shapes the synthesis prompt and
+        the linker's thread descriptions; not rendered to readers)."""
         self.conn.execute(
-            "UPDATE threads SET prev_narrative = narrative, narrative = ?, updated_at = datetime('now', 'utc') WHERE id = ?",
+            "UPDATE threads SET narrative = ?, updated_at = datetime('now', 'utc') WHERE id = ?",
             (narrative, thread_id),
         )
         self._commit()

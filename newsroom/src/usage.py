@@ -46,3 +46,20 @@ def _usage_row(subagent: str, model: str, usage: dict, api_cost_usd: float) -> d
         "cache_read_tokens": usage["cache_read"],
         "api_cost_usd": api_cost_usd,
     }
+
+
+def usage_row_from_sdk(subagent: str, model: str, sdk_usage: dict, api_cost_usd: float) -> dict:
+    """Build a run_usage row from the RAW SDK ResultMessage.usage (keys input_tokens /
+    output_tokens / cache_creation_input_tokens / cache_read_input_tokens). Centralizes the
+    SDK->row key mapping so callers (orchestrate stages, thread synthesis) can't drift apart."""
+    return _usage_row(
+        subagent,
+        model,
+        {
+            "input": sdk_usage.get("input_tokens", 0),
+            "output": sdk_usage.get("output_tokens", 0),
+            "cache_write": sdk_usage.get("cache_creation_input_tokens", 0),
+            "cache_read": sdk_usage.get("cache_read_input_tokens", 0),
+        },
+        api_cost_usd,
+    )
