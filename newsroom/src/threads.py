@@ -30,10 +30,16 @@ logger = logging.getLogger(__name__)
 
 HAIKU_MODEL = "claude-haiku-4-5-20251001"
 
-LINK_SYSTEM = """You track ongoing news stories across days. You are given ACTIVE THREADS (ongoing stories from prior days, each an id + description) and TODAY'S STORIES (each an index + label). For each today-story decide whether it CONTINUES one active thread (the same ongoing story/situation, even if reworded or advanced by a new development) or is NEW.
+# How many recent installment labels (the story arc) to show the linker per active thread. The
+# latest label alone drifts to a narrow facet ("Starmer resigns") and fails to match its own
+# continuation ("Burnham to become PM"); the arc keeps the thread recognisable across re-labelling.
+RECENT_LABELS_K = 4
+
+LINK_SYSTEM = """You track ongoing news stories across days. You are given ACTIVE THREADS (ongoing stories from prior days, each an id + its recent arc shown as "earlier label -> ... -> latest label", oldest to newest) and TODAY'S STORIES (each an index + label). For each today-story decide whether it CONTINUES one active thread (the same ongoing story/situation, even if reworded or advanced by a new development) or is NEW.
 
 Rules:
 - Same thread = same ongoing event/situation. "US-Iran nuclear talks in Switzerland" continues "US-Iran nuclear deal Swiss negotiations". "European heatwave: record temperatures" continues "Europe Heatwave - France Red Alert".
+- Judge against the WHOLE arc, not only the latest label: a thread "Makerfield by-election -> Burnham wins -> Starmer resigns" is continued by "Burnham set to become PM" -- the arc shows it is the same UK-leadership story even though the latest label moved on.
 - Different sub-stories that merely share an entity are DIFFERENT threads: "Strait of Hormuz shipping disruption" is NOT the same thread as "US-Iran nuclear deal" even though both involve Iran. "Iran attacks cargo ship" (a military strike) is a different thread from "US-Iran nuclear negotiations" (diplomacy).
 - Be precise: only link genuine continuations. When unsure, prefer NEW over a wrong link.
 - Each today-story maps to at most one thread.
@@ -43,10 +49,16 @@ Respond with ONLY JSON, no prose: {"links": [{"story": 0, "thread": 3}, {"story"
 
 @dataclass
 class ActiveThread:
-    """A thread eligible to continue this run -- what the linker sees (matched by its label)."""
+    """A thread eligible to continue this run -- what the linker sees.
+
+    `recent_labels` is the thread's recent story arc (last few installment labels, oldest->newest);
+    the linker matches on the arc, not just `label` (the latest), so a thread whose label has
+    drifted still recognises its own continuation. Falls back to `[label]` for a brand-new thread.
+    """
 
     thread_id: int
     label: str
+    recent_labels: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -131,7 +143,7 @@ def link_threads(active: list[ActiveThread], today_labels: list[str], *, model: 
         return [None] * len(today_labels)
 
     valid_ids = {t.thread_id for t in active}
-    threads_block = "\n".join(f"  [{t.thread_id}] {t.label}" for t in active)
+    threads_block = "\n".join(f"  [{t.thread_id}] {' -> '.join(t.recent_labels or [t.label])}" for t in active)
     today_block = "\n".join(f"  ({i}) {lab}" for i, lab in enumerate(today_labels))
     user = (
         f"ACTIVE THREADS:\n{threads_block}\n\nTODAY'S STORIES:\n{today_block}\n\n"
@@ -211,7 +223,30 @@ class ThreadStore:
             """,
             (before_run_id, dormant_after),
         ).fetchall()
-        return [ActiveThread(r[0], r[1]) for r in rows]
+        if not rows:
+            return []
+        history = self._recent_labels(ids=[r[0] for r in rows], before_run_id=before_run_id)
+        return [ActiveThread(tid, label, recent_labels=history.get(tid) or [label]) for tid, label in rows]
+
+    def _recent_labels(self, *, ids: list[int], before_run_id: int) -> dict[int, list[str]]:
+        """The last RECENT_LABELS_K installment labels per thread (oldest->newest) -- the story arc
+        the linker matches on. One windowed query rather than a per-thread fetch."""
+        placeholders = ",".join("?" * len(ids))
+        rows = self.conn.execute(
+            f"""
+            SELECT thread_id, cluster_story FROM (
+                SELECT thread_id, run_id, cluster_story,
+                       ROW_NUMBER() OVER (PARTITION BY thread_id ORDER BY run_id DESC) AS rn
+                FROM thread_installments
+                WHERE run_id < ? AND cluster_story IS NOT NULL AND thread_id IN ({placeholders})
+            ) WHERE rn <= ? ORDER BY thread_id, run_id
+            """,
+            (before_run_id, *ids, RECENT_LABELS_K),
+        ).fetchall()
+        history: dict[int, list[str]] = {}
+        for tid, story in rows:
+            history.setdefault(tid, []).append(story)
+        return history
 
     def open_questions(self, thread_id: int) -> list[str]:
         rows = self.conn.execute(

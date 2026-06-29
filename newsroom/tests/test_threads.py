@@ -202,6 +202,41 @@ def test_active_threads_returns_label_for_linker(conn):
     store.create_thread("Iran nuclear talks", run_id=1)
     active = store.active_threads(before_run_id=2, dormant_after=3)
     assert active[0].label == "Iran nuclear talks"
+    # no installments yet -> recent_labels falls back to [label] (the linker still sees something)
+    assert active[0].recent_labels == ["Iran nuclear talks"]
+
+
+def test_active_threads_carries_recent_label_history(conn):
+    # The linker must see the story ARC, not just the latest (possibly drifted) label -- otherwise
+    # a thread whose label has moved on ("Starmer resigns") fails to match its own continuation
+    # ("Burnham to become PM") and the storyline gets re-threaded with a fresh id.
+    store = threads.ThreadStore(conn)
+    tid = store.create_thread("Makerfield by-election", run_id=1)
+    store.record_installment(tid, 1, "Makerfield by-election", is_new=True)
+    store.touch_thread(tid, "Burnham wins, leadership contest", run_id=2)
+    store.record_installment(tid, 2, "Burnham wins, leadership contest", is_new=False)
+    store.touch_thread(tid, "Starmer resigns as UK PM", run_id=3)
+    store.record_installment(tid, 3, "Starmer resigns as UK PM", is_new=False)
+
+    active = store.active_threads(before_run_id=4, dormant_after=3)
+    assert active[0].label == "Starmer resigns as UK PM"  # latest still available
+    assert active[0].recent_labels == [
+        "Makerfield by-election",
+        "Burnham wins, leadership contest",
+        "Starmer resigns as UK PM",
+    ]  # oldest -> newest, the arc the linker needs
+
+
+def test_active_threads_recent_labels_capped_and_ordered(conn):
+    store = threads.ThreadStore(conn)
+    tid = store.create_thread("day1", run_id=1)
+    for r in range(1, 7):
+        if r > 1:
+            store.touch_thread(tid, f"day{r}", run_id=r)
+        store.record_installment(tid, r, f"day{r}", is_new=(r == 1))
+    active = store.active_threads(before_run_id=7, dormant_after=10)
+    # only the most recent RECENT_LABELS_K, oldest->newest
+    assert active[0].recent_labels == [f"day{r}" for r in range(7 - threads.RECENT_LABELS_K, 7)]
 
 
 def test_render_context_returns_day_and_delta(conn):
