@@ -314,13 +314,16 @@ def resolve_threads(
     store: ThreadStore,
     *,
     dormant_after: int = 3,
-    linker=link_threads,
+    linker=None,
 ) -> list[ThreadAssignment]:
     """Assign each selected story to a thread (continuing or new) and persist identity.
 
-    `stories` is a list of `{"story": label, ...}` for the SELECTED stories this run. The
-    linker is injectable so tests can supply a deterministic fake (no LLM in CI).
+    `stories` is a list of `{"story": label, ...}` for the SELECTED stories this run. The linker
+    is injectable (resolved at call time, so it stays overridable) so tests can supply a
+    deterministic fake (no LLM in CI).
     """
+    if linker is None:
+        linker = link_threads
     store.decay_threads(run_id, dormant_after)
     active = store.active_threads(before_run_id=run_id, dormant_after=dormant_after)
     active_by_id = {t.thread_id: t for t in active}

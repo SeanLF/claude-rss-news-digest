@@ -253,8 +253,8 @@ def synthesize_threads(
     *,
     model: str = DEFAULT_MODEL,
     min_articles: int = 2,
-    synth_fn=synthesize_installment,
-    audit_fn=audit_whats_new,
+    synth_fn=None,
+    audit_fn=None,
     record_health: bool = True,
     usage_rows: list[dict] | None = None,
     latebind_threshold: float | None = None,
@@ -268,7 +268,10 @@ def synthesize_threads(
     failure is COUNTED and recorded to thread_runs as a health signal -- a persistently-failing
     audit means unsupported facts are no longer being dropped, which must surface (not silently
     swallow) before threads are reader-visible. Returns (verified installments, audit_failures);
-    the in-memory count is authoritative for alerting -- the DB row is best-effort durable history."""
+    the in-memory count is authoritative for alerting -- the DB row is best-effort durable history.
+    synth_fn/audit_fn are resolved at call time (overridable) so tests can inject fakes."""
+    synth_fn = synth_fn or synthesize_installment
+    audit_fn = audit_fn or audit_whats_new
     out: list[dict] = []
     audit_failures = 0
     for a in assignments:
