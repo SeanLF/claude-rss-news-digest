@@ -1,0 +1,36 @@
+#!/bin/bash
+# Seed the thread tables from archived runs -- a paced replay of thread identity + synthesis so
+# enabling threads gives day-1 continuity instead of a multi-day blank ramp. Idempotent: --reset
+# clears the thread tables first. Runs invisibly while THREADS_ENABLED is false, so seed -> eyeball
+# -> flip the flag.
+#
+# Usage:
+#   bin/seed-threads --dry-run                       # show the run range, no LLM, no writes
+#   bin/seed-threads --reset                         # seed the last 12 archived runs
+#   bin/seed-threads --reset --runs-back 14 --latebind
+#
+# Needs CLAUDE_CODE_OAUTH_TOKEN in the environment (the linker + synthesis call Claude):
+#   export CLAUDE_CODE_OAUTH_TOKEN="$(op item get 'seanfloyd.dev' --fields label=NEWS_DIGEST_CLAUDE_OAUTH_TOKEN --reveal)"
+#
+# Production -- on the server, AFTER deploy, while THREADS_ENABLED is still false:
+#   docker run --rm --env-file /opt/news-digest/.env -v news-digest-data:/app/data \
+#     <registry>/digest-newsroom:latest .venv/bin/python src/seed_threads.py --reset
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
+
+# If not in Docker, run via docker compose (mirrors bin/migrate)
+if [[ -z "${IN_DOCKER:-}" ]]; then
+  if [[ -z "${CLAUDE_CODE_OAUTH_TOKEN:-}" ]]; then
+    echo "CLAUDE_CODE_OAUTH_TOKEN is not set -- the seed calls Claude (linker + synthesis)." >&2
+    echo "Export it first, e.g.:" >&2
+    echo "  export CLAUDE_CODE_OAUTH_TOKEN=\"\$(op item get 'seanfloyd.dev' --fields label=NEWS_DIGEST_CLAUDE_OAUTH_TOKEN --reveal)\"" >&2
+    exit 1
+  fi
+  cd "$PROJECT_DIR"
+  exec docker compose run --rm -e CLAUDE_CODE_OAUTH_TOKEN digest-newsroom .venv/bin/python src/seed_threads.py "$@"
+fi
+
+exec .venv/bin/python src/seed_threads.py "$@"
