@@ -1,5 +1,10 @@
 # Evolving story-thread — session handoff (2026-06-29)
 
+> **SUPERSEDED for launch/cost/next-steps** by `docs/2026-06-29-evolving-thread-e2e-validation.md`
+> (live e2e result, corrected cost ~$0.25/run, turn-key launch runbook) and
+> `docs/2026-06-29-thread-relinking-recall-fix.md` (the linker recall fix). The `$0.13/run` and
+> "adapt thread_backfill.py" notes below are stale — use `bin/seed-threads`. Kept for history.
+
 Resume point for the evolving-thread feature. Design spec:
 `docs/superpowers/specs/2026-06-28-evolving-story-thread-design.md` (A/B/C/D design + gate
 results). This doc captures the LATER work (delta rework, deltas-as-memory, deployability) and

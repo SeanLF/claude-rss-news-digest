@@ -79,15 +79,41 @@ Caveats:
   (5s/run) worked perfectly. The **prod backfill must be paced**, or it will silently produce an
   all-NEW (history-less) thread table.
 
-## Launch sequence (Sean's call — flags are off by default; this does not flip them)
+## Launch sequence (turn-key — flags are off by default; nothing here flips them until step 3)
 
-1. Deploy code (safe no-op while flags off; migrations are additive `CREATE TABLE IF NOT EXISTS`).
-2. Backfill against the **prod** DB (adapt `thread_backfill.py` to the prod DB path, keep the 5s
-   pacing) so day-1 has continuity instead of a 3-day blank ramp.
-3. Set `THREADS_ENABLED=true` (and optionally `THREAD_LATEBIND=true`) via terraform tfvars.
+The tooling now exists (committed): the thread flags are plumbed through terraform, and
+`bin/seed-threads` does the paced prod backfill. Steps:
 
-## Scratch-harness fixes made this session (gitignored, not committed)
-- `thread_backfill.py`: final report referenced the dropped `narrative` column → now uses
-  `recent_deltas`; added 5s inter-run pacing.
-- `trial_render.py` is also stale (references dropped `prev_narrative`/`narrative`); not needed —
-  the live e2e renders through the production `attach_thread_context` path.
+1. **Deploy** (`bin/deploy`): builds the image *with* the thread code + `seed_threads.py` + the
+   linker recall fix, pushes the commits, applies the additive migrations. Safe no-op while the
+   flags are off — the digest is byte-identical.
+2. **Seed prod history** — on the server, while `THREADS_ENABLED` is still false (the seed runs
+   invisibly), paced:
+   ```
+   docker run --rm --env-file /opt/news-digest/.env -v news-digest-data:/app/data \
+     <registry>/digest-newsroom:latest .venv/bin/python src/seed_threads.py --reset
+   ```
+   `--dry-run` first to confirm the run range; the per-run "N continued" log is the rate-limit
+   canary (all-zeros = token exhausted, re-run). Then clone prod down and eyeball a few threads.
+3. **Enable**: set `news_digest_threads_enabled = "true"` (and optionally
+   `news_digest_thread_latebind = "true"`) in `../seanfloyd.dev/.../terraform.tfvars`, then
+   `terraform apply`. The one-shot container reads the regenerated `.env` on the next scheduled
+   run — no restart needed.
+
+Terraform plumbing (variables + heredoc + `env_hash` trigger) is staged uncommitted in the
+`seanfloyd.dev` infra repo for review. `terraform validate` passes; defaults are `"false"`.
+
+## The linker recall fix (landed `2742dd2`, 2026-06-29)
+
+A re-threading bug surfaced while reviewing this run: storylines whose label drifted got a fresh
+thread_id mid-stream (e.g. Lebanon split day-8 + day-3), undercounting continuity. Fixed by
+showing the linker each thread's recent label arc; full re-backfill confirms the fragments
+collapse to single coherent threads (Lebanon day 10, UK day 8) with zero over-merges. The seed
+produced for launch carries this fix. Detail: `docs/2026-06-29-thread-relinking-recall-fix.md`.
+
+## Tooling notes
+- The paced backfill is now a committed tool: `bin/seed-threads` → `newsroom/src/seed_threads.py`
+  (reads archived runs from `run_artifacts`, `--reset`/`--dry-run`/`--runs-back`/`--from/--to`/
+  `--latebind`). It supersedes the gitignored `scratch/cluster-replay/thread_backfill.py`.
+- `scratch/cluster-replay/trial_render.py` is stale (references dropped `prev_narrative`/
+  `narrative`); not needed — the live e2e renders through production `attach_thread_context`.
