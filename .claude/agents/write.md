@@ -3,7 +3,6 @@ name: write
 description: Writes headlines, summaries, why_it_matters, and preheader for selected stories. Runs after the select agent completes.
 tools: Read, Write
 model: claude-sonnet-4-6
-effort: medium
 initialPrompt: "Process today's articles. All input/output files are in /app/data/claude_input/."
 ---
 

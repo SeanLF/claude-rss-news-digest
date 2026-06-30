@@ -105,6 +105,7 @@ def _build_options(
     load_timeout_ms: int | None = None,
     tools: list[str] | None = None,
     thinking: ThinkingConfig | None = None,
+    effort: str | None = None,
 ) -> ClaudeAgentOptions:
     """Build ClaudeAgentOptions from the wrapper's keyword arguments.
 
@@ -155,6 +156,12 @@ def _build_options(
         # reasoning over ~460 articles and trip the 32k output-token ceiling.
         # Callers pass {"type": "disabled"} to restore the proven-good behaviour.
         kwargs["thinking"] = thinking
+    if effort is not None:
+        # Output-level reasoning/spend dial (low|medium|high|max). Opt-in per
+        # stage via `.claude/agents/*.md` frontmatter. NOT set by default --
+        # omitting it uses the SDK default, and effort is REJECTED (400) on
+        # Haiku 4.5, so Haiku stages (RECAP) must never pass it.
+        kwargs["effort"] = effort
     return ClaudeAgentOptions(**kwargs)
 
 
@@ -178,6 +185,7 @@ async def run_agent(
     load_timeout_ms: int | None = None,
     tools: list[str] | None = None,
     thinking: ThinkingConfig | None = None,
+    effort: str | None = None,
 ) -> StageResult:
     """Drive the SDK query() to completion and return a :class:`StageResult`.
 
@@ -210,6 +218,7 @@ async def run_agent(
         load_timeout_ms=load_timeout_ms,
         tools=tools,
         thinking=thinking,
+        effort=effort,
     )
     text_parts: list[str] = []
     result: ResultMessage | None = None
@@ -233,7 +242,19 @@ async def run_agent(
     finally:
         aclose = getattr(agen, "aclose", None)
         if aclose is not None:
-            await aclose()
+            # Best-effort bound on teardown. The idle watchdog above only guards
+            # __anext__ and run_agent has no outer wall-clock cap, so an unguarded
+            # teardown stall would otherwise be unbounded. Caveat: asyncio.wait_for
+            # only fires if aclose() yields to the loop AND honors cancellation -- it
+            # CANNOT interrupt a CPU-bound busy-spin (the "100% CPU" half of SDK #378).
+            # So this catches async-stall teardowns, not a non-yielding hang; kept
+            # regardless as sound hygiene (inert when aclose() is well-behaved). If
+            # #378 turns out to be a pure CPU spin, the real fix is teardown in a
+            # thread/subprocess with a hard kill -- follow-up, not done here.
+            try:
+                await asyncio.wait_for(aclose(), timeout=5)
+            except TimeoutError:
+                logger.warning("SDK generator aclose() exceeded 5s (SDK #378); abandoning teardown")
 
     if result is None:
         raise RuntimeError("claude failed: no result event received")

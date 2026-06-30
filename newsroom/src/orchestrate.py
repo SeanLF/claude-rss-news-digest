@@ -35,7 +35,7 @@ import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import claude_cli
 from claude_agent_sdk import ThinkingConfig
@@ -104,6 +104,12 @@ class AgentSpec:
     model: str
     tools_str: str
     body: str
+    # Optional per-stage SDK tuning, parsed from frontmatter. `effort` is opt-in
+    # (low|medium|high|max) -- omitted means the SDK default, and it is REJECTED
+    # (400) on Haiku 4.5, so Haiku stages must not set it. `thinking` overrides
+    # the module default (_THINKING, disabled); None falls back to that default.
+    effort: str | None = None
+    thinking: ThinkingConfig | None = None
 
 
 def parse_agent_spec(path: Path) -> AgentSpec:
@@ -139,7 +145,23 @@ def parse_agent_spec(path: Path) -> AgentSpec:
     if not model:
         raise ValueError(f"{path}: frontmatter missing 'model'")
 
-    return AgentSpec(name=name, model=model, tools_str=tools_str, body=body.strip())
+    # Optional tuning keys. `thinking: adaptive` -> {"type": "adaptive"}; absent
+    # keys stay None (effort omitted = SDK default; thinking None = _THINKING).
+    effort = fields.get("effort") or None
+    thinking_val = fields.get("thinking")
+    # cast: the frontmatter value is a runtime str, so the {"type": ...} literal
+    # can't be statically narrowed to a ThinkingConfig variant; an invalid value
+    # surfaces loudly as a 400 at invocation, not silently.
+    thinking = cast(ThinkingConfig, {"type": thinking_val}) if thinking_val else None
+
+    return AgentSpec(
+        name=name,
+        model=model,
+        tools_str=tools_str,
+        body=body.strip(),
+        effort=effort,
+        thinking=thinking,
+    )
 
 
 # --------------------------------------------------------------------------- #
@@ -236,7 +258,8 @@ async def _invoke_agent(
         tools=tool_list,
         cwd=cwd,
         idle_timeout=idle_timeout,
-        thinking=_THINKING,
+        thinking=spec.thinking or _THINKING,
+        effort=spec.effort,
     )
     if not result.ok:
         # error_summary() carries api_error_status when set, so a transient API

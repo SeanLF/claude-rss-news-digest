@@ -3,7 +3,6 @@ name: cluster
 description: Groups news articles covering the same story into clusters. Run at the start of the curation pipeline before SELECT.
 tools: Read, Write
 model: claude-sonnet-4-6
-effort: medium
 initialPrompt: "Process today's articles. All input/output files are in /app/data/claude_input/."
 ---
 

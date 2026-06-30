@@ -92,6 +92,28 @@ class TestParseAgentSpec:
         with pytest.raises(ValueError, match="missing 'name'"):
             orchestrate.parse_agent_spec(p)
 
+    def test_real_specs_omit_effort(self):
+        # Prod stays at the SDK default: no stage sets effort in frontmatter
+        # (effort would 400 on the Haiku RECAP stage and silently change cost on
+        # the others). The lever exists but is opt-in.
+        assert orchestrate.parse_agent_spec(CLUSTER_SPEC).effort is None
+
+    def test_parses_effort_and_thinking(self, tmp_path):
+        p = tmp_path / "a.md"
+        p.write_text(
+            "---\nname: x\nmodel: claude-sonnet-5\ntools: Read, Write\neffort: medium\nthinking: adaptive\n---\nbody"
+        )
+        spec = orchestrate.parse_agent_spec(p)
+        assert spec.effort == "medium"
+        assert spec.thinking == {"type": "adaptive"}
+
+    def test_no_tuning_keys_default_none(self, tmp_path):
+        p = tmp_path / "a.md"
+        p.write_text("---\nname: x\nmodel: claude-haiku-4-5\ntools: Read, Write\n---\nbody")
+        spec = orchestrate.parse_agent_spec(p)
+        assert spec.effort is None
+        assert spec.thinking is None
+
 
 # --------------------------------------------------------------------------- #
 # run_stage
@@ -140,6 +162,60 @@ class TestRunStage:
         assert row["cache_read_tokens"] == 8000
         # Cost is the SDK's own total_cost_usd, not a hand-rolled token x rate sum.
         assert row["api_cost_usd"] == 0.4242
+
+    def test_passes_spec_effort_and_thinking(self, tmp_path, monkeypatch):
+        out = tmp_path / "clusters.json"
+        out.write_text(json.dumps({"clusters": [{"story": "x", "article_ids": ["A1"]}]}))
+        seen = {}
+
+        async def fake_run(*_a, **k):
+            seen.update(k)
+            return _stage_result()
+
+        monkeypatch.setattr(orchestrate.claude_cli, "run_agent", fake_run)
+        spec = orchestrate.AgentSpec(
+            name="cluster",
+            model="claude-sonnet-5",
+            tools_str="Read, Write",
+            body="x",
+            effort="medium",
+            thinking={"type": "adaptive"},
+        )
+        _run_stage(
+            spec,
+            label="cluster",
+            output_path=out,
+            validate=_ok_validator,
+            model_override=None,
+            cwd=None,
+            claude_input_dir=tmp_path,
+        )
+        assert seen["effort"] == "medium"
+        assert seen["thinking"] == {"type": "adaptive"}
+
+    def test_defaults_to_disabled_thinking_no_effort(self, tmp_path, monkeypatch):
+        # A spec with no tuning keys must reproduce the proven-good prod behaviour:
+        # thinking disabled, effort unset (SDK default).
+        out = tmp_path / "clusters.json"
+        out.write_text(json.dumps({"clusters": [{"story": "x", "article_ids": ["A1"]}]}))
+        seen = {}
+
+        async def fake_run(*_a, **k):
+            seen.update(k)
+            return _stage_result()
+
+        monkeypatch.setattr(orchestrate.claude_cli, "run_agent", fake_run)
+        _run_stage(
+            _spec(),
+            label="cluster",
+            output_path=out,
+            validate=_ok_validator,
+            model_override=None,
+            cwd=None,
+            claude_input_dir=tmp_path,
+        )
+        assert seen["thinking"] == orchestrate._THINKING == {"type": "disabled"}
+        assert seen["effort"] is None
 
     def test_model_override_used(self, tmp_path, monkeypatch):
         out = tmp_path / "clusters.json"

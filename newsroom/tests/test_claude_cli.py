@@ -329,6 +329,35 @@ class TestBuildOptions:
         )
         assert opts.thinking == {"type": "disabled"}
 
+    def test_effort_passed_through_when_set(self):
+        opts = claude_cli._build_options(
+            model="claude-sonnet-5",
+            system_prompt=None,
+            permission_mode=None,
+            allowed_tools=None,
+            mcp_config=None,
+            max_turns=None,
+            max_budget_usd=None,
+            cwd=None,
+            effort="medium",
+        )
+        assert opts.effort == "medium"
+
+    def test_effort_unset_by_default(self):
+        # Omitting effort must NOT pin a value -- the SDK default applies, and
+        # effort is rejected (400) on Haiku, so it must stay absent unless asked.
+        opts = claude_cli._build_options(
+            model="claude-haiku-4-5",
+            system_prompt=None,
+            permission_mode=None,
+            allowed_tools=None,
+            mcp_config=None,
+            max_turns=None,
+            max_budget_usd=None,
+            cwd=None,
+        )
+        assert opts.effort is None
+
 
 class TestPartialMessagesEnabled:
     def test_build_options_enables_partial_messages(self):
