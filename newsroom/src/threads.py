@@ -78,11 +78,29 @@ class ThreadAssignment:
     open_questions: list[str] = field(default_factory=list)
 
 
+_ARTICLE_ID_CITATION = re.compile(r"\s*\[A\d+(?:\s*,\s*A\d+)*\]")
+
+
+def strip_article_ids(text: str) -> str:
+    """Remove inline ``[A123]`` / ``[A1, A2]`` article-id citations the synthesis model
+    sometimes embeds in fact prose. Source ids belong only in the separate ``sources`` field
+    (provenance for the audit) and must never reach reader-facing text or the thread's carried
+    fact memory (recent_deltas) -- the thread path's analog of COHERENCE's leak guard. Numeric
+    source markers like ``[1]`` are left untouched (only A-prefixed ids match)."""
+    if not text:
+        return text
+    return re.sub(r"\s{2,}", " ", _ARTICLE_ID_CITATION.sub("", text)).strip()
+
+
 def delta_from_facts(facts: list[dict], *, top_n: int = 3) -> str:
     """The thread's delta = the top-N verified whats_new facts joined as prose. Faithful by
     construction: each fact already passed the per-fact audit, so there's nothing to re-gate.
-    Facts are ordered most-important-first by the synthesis, so the top N lead with what matters."""
-    return " ".join(f.get("fact", "").strip() for f in facts[:top_n] if f.get("fact"))
+    Facts are ordered most-important-first by the synthesis, so the top N lead with what matters.
+
+    This is the single funnel for both the rendered delta and the carried memory (recent_deltas),
+    so it strips any inline ``[A123]`` citations the synthesis leaked into fact prose -- the thread
+    path's reader-facing leak guard, resilient to already-stored facts that still carry them."""
+    return " ".join(strip_article_ids(f.get("fact", "")) for f in facts[:top_n] if f.get("fact"))
 
 
 def _whats_new(content: str | None) -> list[dict]:

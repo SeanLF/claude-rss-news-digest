@@ -324,3 +324,78 @@ def test_resolve_threads_handles_empty_story(conn):
     store = threads.ThreadStore(conn)
     out = threads.resolve_threads([{"story": ""}], run_id=1, store=store, linker=anchor_linker)
     assert len(out) == 1 and out[0].is_new is True
+
+
+# --- strip_article_ids: leak guard for inline [A123] citations in synthesized prose ---
+# The synthesis model sometimes embeds source-id citations inline in fact text (they belong
+# only in the separate `sources` provenance field). They must never reach reader-facing text
+# or the thread's carried memory. This is the thread path's analog of COHERENCE's leak guard.
+
+
+def test_strip_article_ids_removes_trailing_multi_id_citation():
+    assert threads.strip_article_ids("Talks resumed in Doha. [A221, A407]") == "Talks resumed in Doha."
+
+
+def test_strip_article_ids_removes_midsentence_citation_without_double_space():
+    assert threads.strip_article_ids("Iran denied it [A164, A407, A429] and stalled.") == "Iran denied it and stalled."
+
+
+def test_strip_article_ids_removes_single_id():
+    assert threads.strip_article_ids("Quake hit northern Venezuela [A119]") == "Quake hit northern Venezuela"
+
+
+def test_strip_article_ids_handles_no_space_list():
+    assert threads.strip_article_ids("x [A1,A2,A3] y") == "x y"
+
+
+def test_strip_article_ids_removes_leading_citation():
+    assert threads.strip_article_ids("[A1] Big news today") == "Big news today"
+
+
+def test_strip_article_ids_collapses_multiple_separated_citations():
+    assert threads.strip_article_ids("a [A1] b [A2] c") == "a b c"
+
+
+def test_strip_article_ids_preserves_numeric_source_markers():
+    # [1]/[2] are legit rendered source markers, not article ids -- must survive.
+    assert threads.strip_article_ids("See report [1] and [2]") == "See report [1] and [2]"
+
+
+def test_strip_article_ids_preserves_non_id_brackets():
+    assert threads.strip_article_ids("a note [draft] here") == "a note [draft] here"
+
+
+def test_strip_article_ids_passthrough_clean_text():
+    assert threads.strip_article_ids("Nothing to strip here.") == "Nothing to strip here."
+
+
+def test_strip_article_ids_empty_string():
+    assert threads.strip_article_ids("") == ""
+
+
+def test_delta_from_facts_strips_inline_article_ids():
+    # delta_from_facts is the single funnel for both the rendered delta and the carried memory
+    # (recent_deltas), so stripping here keeps reader-facing text AND model memory id-free even
+    # if a stored fact still carries an inline citation.
+    facts = [{"fact": "Talks resumed in Doha. [A221, A407]"}, {"fact": "Iran stalled [A164]"}]
+    assert threads.delta_from_facts(facts) == "Talks resumed in Doha. Iran stalled"
+
+
+def test_render_context_strips_ids_from_already_stored_dirty_facts(conn):
+    # Resilience: a fact persisted BEFORE the leak fix (inline citation still in the text) must
+    # still render id-free, since the strip happens on read in delta_from_facts. This is what
+    # lets the stored-content remediation be cosmetic rather than load-bearing.
+    import json
+
+    store = threads.ThreadStore(conn)
+    tid = store.create_thread("Iran", run_id=1)
+    store.record_installment(tid, 1, "Iran", is_new=True)
+    store.record_installment(tid, 2, "Iran", is_new=False)
+    store.set_installment_content(
+        tid,
+        2,
+        json.dumps({"whats_new": [{"fact": "Doha talks set this week. [A221, A407]", "sources": ["A221", "A407"]}]}),
+    )
+    ctx = store.render_context(tid, 2)
+    assert "[A" not in ctx["delta"]
+    assert ctx["delta"] == "Doha talks set this week."
