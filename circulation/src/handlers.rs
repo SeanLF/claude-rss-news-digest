@@ -149,6 +149,7 @@ pub async fn index(
         .as_ref()
         .map(|d| format!("https://{d}"))
         .unwrap_or_default();
+    let image_url = state.og_image_url();
 
     let html = render_index(&IndexParams {
         name,
@@ -159,6 +160,7 @@ pub async fn index(
         digest_links: &links,
         og_description,
         canonical_url: &canonical_url,
+        image_url: &image_url,
     });
     Ok(Html(html))
 }
@@ -252,6 +254,21 @@ pub async fn favicon() -> impl IntoResponse {
             ("cache-control", "public, max-age=86400"),
         ],
         FAVICON_SVG_RAW,
+    )
+}
+
+const OG_IMAGE_PNG: &[u8] = include_bytes!("../og-image.png");
+
+/// Serve the static branded og:image used for social/chat link previews.
+/// Content is a fixed design asset -- immutable long-lived cache is safe.
+pub async fn og_image() -> impl IntoResponse {
+    (
+        StatusCode::OK,
+        [
+            ("content-type", "image/png"),
+            ("cache-control", "public, max-age=31536000, immutable"),
+        ],
+        OG_IMAGE_PNG,
     )
 }
 
@@ -485,11 +502,13 @@ pub async fn get_digest(
         .as_ref()
         .map(|d| format!("https://{d}/{date}"))
         .unwrap_or_default();
+    let image_url = state.og_image_url();
     let og_tags = digest_og_tags(
         &og_title,
         &og_description,
         &canonical_url,
         &state.digest_name,
+        &image_url,
     );
     let head_inject = format!("{FAVICON_SVG}\n  {og_tags}");
 
@@ -539,4 +558,31 @@ pub async fn get_digest(
     let html = inject(&html, "</body>", "</main></body>", &date);
 
     Ok(Html(html))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use axum::body::to_bytes;
+
+    const PNG_MAGIC: [u8; 8] = [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A];
+
+    #[tokio::test]
+    async fn og_image_serves_png_bytes_with_long_cache_header() {
+        let response = og_image().await.into_response();
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let headers = response.headers();
+        assert_eq!(headers.get("content-type").unwrap(), "image/png");
+        let cache_control = headers.get("cache-control").unwrap().to_str().unwrap();
+        assert!(cache_control.contains("max-age"));
+
+        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        assert!(body.len() > 8, "og-image.png body should not be empty");
+        assert_eq!(
+            &body[..8],
+            &PNG_MAGIC,
+            "body should start with PNG magic bytes"
+        );
+    }
 }

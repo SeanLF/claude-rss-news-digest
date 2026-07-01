@@ -145,6 +145,7 @@ pub fn digest_og_tags(
     description: &str,
     canonical_url: &str,
     site_name: &str,
+    image_url: &str,
 ) -> String {
     format!(
         r#"<meta property="og:title" content="{title}">
@@ -152,6 +153,48 @@ pub fn digest_og_tags(
   <meta property="og:type" content="article">
   <meta property="og:url" content="{canonical_url}">
   <meta property="og:site_name" content="{site_name}">
-  <meta name="description" content="{description}">"#
+  <meta name="description" content="{description}">
+  {image_tags}"#,
+        image_tags = og_image_tags(image_url)
     )
+}
+
+/// Build og:image / twitter:card meta tags shared by every page with OG tags.
+pub fn og_image_tags(image_url: &str) -> String {
+    format!(
+        r#"<meta property="og:image" content="{image_url}">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta name="twitter:card" content="summary_large_image">"#
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn digest_og_tags_includes_absolute_image_and_twitter_card() {
+        let html = digest_og_tags(
+            "Title",
+            "Description",
+            "https://example.com/2026-07-01",
+            "News Digest",
+            "https://example.com/og-image.png",
+        );
+        assert!(
+            html.contains(
+                r#"<meta property="og:image" content="https://example.com/og-image.png">"#
+            )
+        );
+        assert!(html.contains(r#"<meta property="og:image:width" content="1200">"#));
+        assert!(html.contains(r#"<meta property="og:image:height" content="630">"#));
+        assert!(html.contains(r#"<meta name="twitter:card" content="summary_large_image">"#));
+    }
+
+    #[test]
+    fn og_image_tags_uses_the_given_absolute_url() {
+        let html = og_image_tags("https://example.com/og-image.png");
+        assert!(html.contains(r#"content="https://example.com/og-image.png""#));
+    }
 }

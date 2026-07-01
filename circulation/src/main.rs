@@ -17,6 +17,7 @@ use tower_http::trace::TraceLayer;
 pub mod routes {
     pub const SOURCES: &str = "/sources";
     pub const STATS: &str = "/stats";
+    pub const OG_IMAGE: &str = "/og-image.png";
 }
 
 pub struct AppState {
@@ -37,6 +38,14 @@ impl AppState {
             .as_deref()
             .map(|u| format!("{}/privacy", u.trim_end_matches('/')))
             .unwrap_or_else(|| "/privacy".to_string())
+    }
+
+    /// Absolute og:image URL, or empty if no domain is configured (OG tags need an absolute URL).
+    pub fn og_image_url(&self) -> String {
+        self.digest_domain
+            .as_ref()
+            .map(|d| format!("https://{d}{}", routes::OG_IMAGE))
+            .unwrap_or_default()
     }
 }
 
@@ -104,6 +113,7 @@ async fn main() {
             "/apple-touch-icon-precomposed.png",
             get(handlers::apple_touch_icon),
         )
+        .route(routes::OG_IMAGE, get(handlers::og_image))
         .route(routes::SOURCES, get(handlers::sources))
         .route(routes::STATS, get(stats::stats_html))
         .route(&format!("{}.json", routes::STATS), get(stats::stats_json))

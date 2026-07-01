@@ -1,6 +1,6 @@
 //! Index page template - lists recent digests.
 
-use super::digest::FAVICON_SVG;
+use super::digest::{FAVICON_SVG, og_image_tags};
 
 /// Parameters for rendering the index page.
 pub struct IndexParams<'a> {
@@ -12,6 +12,7 @@ pub struct IndexParams<'a> {
     pub digest_links: &'a str,
     pub og_description: &'a str,
     pub canonical_url: &'a str,
+    pub image_url: &'a str,
 }
 
 /// Render the index page listing recent digests
@@ -25,6 +26,7 @@ pub fn render_index(p: &IndexParams) -> String {
         digest_links,
         og_description,
         canonical_url,
+        image_url,
     } = p;
     format!(
         r##"<!DOCTYPE html>
@@ -40,6 +42,7 @@ pub fn render_index(p: &IndexParams) -> String {
   <meta property="og:url" content="{canonical_url}">
   <meta property="og:site_name" content="{name}">
   <meta name="description" content="{og_description}">
+  {image_tags}
   <style>
     :root {{
       --bg: #fafaf8;
@@ -316,8 +319,41 @@ pub fn render_index(p: &IndexParams) -> String {
 </body>
 </html>"##,
         favicon = FAVICON_SVG,
+        image_tags = og_image_tags(image_url),
         skip_link_html = super::digest::SKIP_LINK_HTML,
         skip_link_css = super::digest::SKIP_LINK_CSS,
         reduced_motion_css = super::digest::REDUCED_MOTION_CSS,
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn base_params() -> IndexParams<'static> {
+        IndexParams {
+            name: "News Digest",
+            meta_links: "",
+            success_msg: "",
+            subscribe_form: "",
+            subscribe_teaser: "",
+            digest_links: "",
+            og_description: "Daily briefing.",
+            canonical_url: "https://example.com",
+            image_url: "https://example.com/og-image.png",
+        }
+    }
+
+    #[test]
+    fn render_index_includes_absolute_og_image_and_twitter_card() {
+        let html = render_index(&base_params());
+        assert!(
+            html.contains(
+                r#"<meta property="og:image" content="https://example.com/og-image.png">"#
+            )
+        );
+        assert!(html.contains(r#"<meta property="og:image:width" content="1200">"#));
+        assert!(html.contains(r#"<meta property="og:image:height" content="630">"#));
+        assert!(html.contains(r#"<meta name="twitter:card" content="summary_large_image">"#));
+    }
 }
