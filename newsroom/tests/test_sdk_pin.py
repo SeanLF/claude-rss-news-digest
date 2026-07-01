@@ -54,6 +54,15 @@ def test_pin_matches_validated_workarounds():
     )
 
 
+def test_prod_pins_the_compiled_scientific_stack():
+    """numpy/scipy/scikit-learn are compiled wheels and the runtime is a compiler-less slim
+    image, so an unpinned rebuild that resolves a version with no cp314 wheel would source-build
+    and fail the prod build. They MUST stay pinned in constraints-prod.txt (prod build reproducibility)."""
+    text = CONSTRAINTS.read_text(encoding="utf-8")
+    for pkg in ("numpy", "scipy", "scikit-learn"):
+        assert re.search(rf"^{re.escape(pkg)}==[0-9]", text, re.MULTILINE), f"{pkg} must be pinned in {CONSTRAINTS}"
+
+
 def test_prod_dockerfile_applies_the_constraint():
     """The pin is dead unless the prod Dockerfile installs with -c constraints-prod.txt."""
     df = (NEWSROOM / "Dockerfile").read_text(encoding="utf-8")

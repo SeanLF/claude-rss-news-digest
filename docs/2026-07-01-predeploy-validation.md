@@ -46,6 +46,46 @@ family divergence is `miss_all` (EJ misses more soft-tail MINORS, 8.4 vs 5.7) = 
 coverage-dip signature on the non-gated secondary signal. Both primary gate signals now hold under
 a different model family; the KEEP/PASS verdicts never hinged on this — it is confirmation.
 
+## (c) Whole-branch adversarial audit (5 parallel agents, 2026-07-01)
+Each commit was reviewed in isolation, but the branch as a WHOLE (a base-image migration +
+clustering-stage replacement on a live service) had not been. Ran 5 deep agents in parallel:
+clustering-stage correctness, Docker base-image migration (rebuilt on the real `python:3.14-slim`
+amd64 target), orchestration+WRITE, production silent-failure/outage, and test-coverage gaps.
+
+**Verdict: no deploy-blocker. Migration verified sound; one real bug + two hardening gaps FIXED.**
+
+- **FIXED — coverage-guard bug (found independently by 3 agents).** `cluster_extractjoin.py`'s
+  fallback guard measured `article_id in tags` (key-presence), not usable tags — so an extractor
+  echoing the schema with EMPTY entities/keywords/primary_event (prompt drift, a degraded model, a
+  bad `CLUSTER_EXTRACT_MODEL` swap) passed the guard and silently shipped an all-singleton
+  degenerate partition — the exact failure the guard exists to prevent. Now gates on a join-usable
+  tag token (`_TOKEN_RE.search(_tag_bag(...))`); empty-content items count as fallback (gate trips
+  fail-closed if >25%, else title-only). TDD: a failing `test_stage_raises_on_empty_content_items`
+  first, plus a partial-empty-fallback test.
+- **FIXED — scientific stack unpinned in a compiler-less image (Docker agent, Medium/latent).**
+  numpy/scipy/scikit-learn floated; a future rebuild resolving a version without a cp314 manylinux
+  wheel would source-build and FAIL the prod build (slim has no compiler — a NEW failure mode since
+  sklearn is new on this branch). Pinned all three in `constraints-prod.txt` to the wheel-backed
+  versions verified on the slim/amd64 target (numpy 2.5.0 / scipy 1.18.0 / scikit-learn 1.9.0);
+  rebuild confirmed clean + `import sklearn.cluster` OK; a test guards the pins.
+- **FIXED — degraded-but-shipped runs were only a `logger.warning`.** The 0–25% fallback band
+  ships a degraded (title-only) partition; bumped that log to `logger.error` so it surfaces in
+  monitoring the same day. Added the first multi-batch extraction test (all prior fixtures were
+  single-batch, so the per-batch failure-isolation the stage exists for was untested).
+- **Verified SAFE (Docker migration, empirically rebuilt on target):** UID/GID volume compat
+  (1001:1001 identical to Alpine → prod data volume stays read/writable), venv relocatable,
+  sklearn/scipy/numpy manylinux wheels install (sklearn vendors its own libgomp), native `claude`
+  CLI works, rollback safe (no new migrations). Fail-closed verified end-to-end: a cluster raise
+  aborts the run BEFORE render/broadcast — a total extraction failure ships NO email, not a broken
+  one.
+- **Noted, not fixed (low/by-design):** the cluster branch has no whole-stage clean-slate retry
+  (intentional — per-batch `with_retry_async` + fail-closed); no cluster-size cap vs the old
+  holistic "≤25/cluster" (gate-accepted behavioural divergence); usage slightly under-counts failed
+  batches. **Recommended follow-ups for the deploy (Sean's call, not applied):** add a post-build
+  `docker run <image> .venv/bin/python -c "import sklearn; import cluster_extractjoin"` smoke test to
+  `bin/deploy` (CI only builds the single-stage `Dockerfile.ci`, so venv-relocation isn't gated),
+  and consider a real health-alert (not just a log) on any title-only fallback.
+
 ## Deploy readiness: GREEN (held for Sean)
 The branch runs clean end-to-end on the image that would deploy, produces a high-quality digest,
 and the Item-1 fix holds on real output. Nothing blocks deploy.

@@ -269,6 +269,74 @@ def test_stage_raises_on_empty_extraction(tmp_path, monkeypatch):
         asyncio.run(cej.run_extractjoin_stage(tmp_path, model="claude-sonnet-4-6", cwd=None, threshold=0.80))
 
 
+def test_stage_raises_on_empty_content_items(tmp_path, monkeypatch):
+    """CRITICAL: an extractor that echoes the schema but with EMPTY entities/keywords/primary_event
+    (prompt drift, a degraded model, a bad CLUSTER_EXTRACT_MODEL swap) must TRIP the coverage gate.
+    Key-presence is not coverage -- usable tags are. Otherwise every article gets a unique
+    ``notags`` sentinel and the stage silently ships an all-singleton degenerate partition, the
+    exact failure the guard exists to prevent."""
+    _write_articles(tmp_path, 8)
+
+    async def ok_but_empty_content(prompt, **kw):
+        items = [{"article_id": f"A{i}", "entities": [], "keywords": [], "primary_event": ""} for i in range(1, 9)]
+        return _result(json.dumps({"items": items}))
+
+    monkeypatch.setattr(cej.claude_cli, "run_agent", ok_but_empty_content)
+    with pytest.raises(RuntimeError, match="degenerate partition"):
+        asyncio.run(cej.run_extractjoin_stage(tmp_path, model="claude-sonnet-4-6", cwd=None, threshold=0.80))
+
+
+def test_stage_partial_empty_content_counts_as_fallback(tmp_path, monkeypatch):
+    """A MINORITY of empty-content items must fall back to title-only (not stay tagless singletons)
+    and count toward the coverage gate -- so partial extraction degradation is handled like any
+    other fallback, with full coverage preserved."""
+    _write_articles(tmp_path, 8)
+
+    async def mostly_good(prompt, **kw):
+        # 6 good, 2 empty-content (25% -- at the gate, not over it, so it ships with fallback)
+        items = [
+            {"article_id": f"A{i}", "entities": [f"E{i}"], "keywords": ["k"], "primary_event": f"e{i}"}
+            for i in range(1, 7)
+        ]
+        items += [
+            {"article_id": "A7", "entities": [], "keywords": [], "primary_event": ""},
+            {"article_id": "A8", "entities": [], "keywords": [], "primary_event": ""},
+        ]
+        return _result(json.dumps({"items": items}))
+
+    monkeypatch.setattr(cej.claude_cli, "run_agent", mostly_good)
+    asyncio.run(cej.run_extractjoin_stage(tmp_path, model="claude-sonnet-4-6", cwd=None, threshold=0.80))
+    data = json.loads((tmp_path / "clusters.json").read_text())
+    flat = sorted(a for c in data["clusters"] for a in c["article_ids"])
+    assert flat == [f"A{i}" for i in range(1, 9)], "empty-content articles must still get title-only coverage"
+    # A7/A8 fell back to title-only -> their tag bag is the title, not the empty sentinel
+
+
+def test_stage_multibatch_one_batch_fails_preserves_coverage(tmp_path, monkeypatch):
+    """Multi-batch run (>1 extraction batch -- prod is ~13): one batch failing after retries must
+    NOT fail the whole run when it is a minority. Its articles fall back to title-only, coverage
+    stays 100%, and the usage row sums cost across the surviving batches. All other stage tests use
+    a single batch, so this is the only exercise of the per-batch failure-isolation the stage exists for."""
+    import re as _re
+
+    _write_articles(tmp_path, 200)  # 5 batches of 40
+
+    async def one_batch_fails(prompt, **kw):
+        ids = _re.findall(r"\bA\d+\b", prompt)
+        if "A81" in ids:  # the 3rd batch -> 40/200 = 20% < 25% gate, so it ships with fallback
+            return _result("", ok=False)
+        items = [{"article_id": a, "entities": [f"E{a}"], "keywords": ["k"], "primary_event": f"e{a}"} for a in ids]
+        return _result(json.dumps({"items": items}), cost=0.01)
+
+    monkeypatch.setattr(cej.claude_cli, "run_agent", one_batch_fails)
+    monkeypatch.setattr(cej, "with_retry_async", _passthrough)  # no real backoff
+    row = asyncio.run(cej.run_extractjoin_stage(tmp_path, model="claude-sonnet-4-6", cwd=None, threshold=0.80))
+    data = json.loads((tmp_path / "clusters.json").read_text())
+    flat = sorted((a for c in data["clusters"] for a in c["article_ids"]), key=lambda s: int(s[1:]))
+    assert flat == [f"A{i}" for i in range(1, 201)], "one failed batch must still yield full coverage"
+    assert row["api_cost_usd"] > 0.01, "usage must sum cost across the surviving batches, not one"
+
+
 def test_stage_raises_when_extraction_fails(tmp_path, monkeypatch):
     """Wholesale transport failure (auth/outage) must raise, not ship a degenerate partition."""
     _write_articles(tmp_path, 8)

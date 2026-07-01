@@ -360,9 +360,10 @@ async def run_stage(
 def _stage_output_is_valid(claude_input_dir: Path, output_filename: str, validate: Callable[[Path], None]) -> bool:
     """True if this stage's output already exists on disk and passes its validator.
 
-    Lets a resumed run skip a stage it already completed -- notably CLUSTER, the
-    most expensive (~$6.74/run, ~15 min). A present-but-invalid file (e.g. a crash
-    mid-write) returns False so the stage re-runs from a clean slate.
+    Lets a resumed run skip a stage it already completed. A present-but-invalid file
+    (e.g. a crash mid-write) returns False so the stage re-runs from a clean slate.
+    (CLUSTER is now the cheap extract-join, not the old ~$6.74 holistic call, but
+    skipping any completed stage on resume still saves its cost + latency.)
     """
     if not (claude_input_dir / output_filename).exists():
         return False

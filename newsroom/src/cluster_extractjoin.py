@@ -61,8 +61,10 @@ def _thinking_for(model: str) -> ThinkingConfig | None:
 
 # Reject the whole stage if more than this fraction of articles fall back to title-only tags:
 # that means extraction is broken (auth/outage/refusal/prompt drift), and a title-only partition
-# is near-degenerate (all singletons) -- better to fail the run (cron retries) than ship it. The
-# healthy fallback rate is ~0 (the gate runs saw 0/498), so this only trips on real breakage.
+# is near-degenerate (all singletons) -- better to fail the run than ship it. Failing is fail-CLOSED
+# (no digest ships), but recovery is not automatic: the systemd unit is once/day, so it means no
+# digest until the next scheduled run or a manual `--resume`. The healthy fallback rate is ~0 (the
+# gate runs saw 0/498), so this only trips on real breakage.
 _MAX_FALLBACK_FRACTION = 0.25
 # Wall-clock budget for the whole extraction's transient-overload retries (mirrors the per-stage
 # budget in orchestrate); shared across batches so a real outage is ridden out, then bounded.
@@ -342,8 +344,13 @@ async def run_extractjoin_stage(
                 len(batch) - added,
             )
 
-    # Gate on ACTUAL coverage, not batch failures: an ok-but-empty extractor drops here.
-    missing = [a for a in ids if a not in tags]
+    # Gate on USABLE tags, not key-presence. A batch can fail outright (article never keyed) OR a
+    # "successful" batch can echo the schema with empty entities/keywords/primary_event (prompt
+    # drift, a degraded/mis-swapped model). BOTH yield a tagless article that becomes a unique
+    # `notags` sentinel -> a singleton -> an all-singleton degenerate partition if widespread, the
+    # exact failure this guard exists to prevent. So "covered" means the extracted tag bag has a
+    # join-usable token, not merely that the id came back. Everything else is fallback.
+    missing = [a for a in ids if not _TOKEN_RE.search(_tag_bag(tags.get(a, {})))]
     if len(missing) > len(ids) * _MAX_FALLBACK_FRACTION:
         raise RuntimeError(
             f"extract-join: {len(missing)}/{len(ids)} articles ({len(missing) / len(ids):.0%}) fell back "
@@ -352,7 +359,9 @@ async def run_extractjoin_stage(
     for aid in missing:  # a minority fall back to title-only so coverage stays 100%
         tags[aid] = {"entities": [], "keywords": [], "primary_event": arts[aid]["title"][:60]}
     if missing:
-        logger.warning("extract-join: %d/%d articles title-only fallback", len(missing), len(ids))
+        # A shipped-but-degraded run (title-only articles cluster worse -> reader-facing dups
+        # possible). Log at ERROR so it surfaces in monitoring the same day, not just debug noise.
+        logger.error("extract-join: %d/%d articles title-only fallback (degraded clustering)", len(missing), len(ids))
 
     clusters = join_tags(ids, tags, threshold=threshold)
     out = {"clusters": clusters}
