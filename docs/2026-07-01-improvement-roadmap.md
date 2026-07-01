@@ -158,6 +158,29 @@ Refs: Agent SDK observability docs · Claude Code prompt-caching docs · CC chan
 Defer: A4 (embeddings — only if the pool gets tight), A5 (graph-substrate phase), B2 (only if B1 shows
 headroom), C7 (OTel — needs a backend), C8 (retry — watch).
 
+## Image slimming + security (2026-07-01, done/measured)
+- **CLI dedup + package trim SHIPPED** (`9f3a332`, `b645378`): the image carried TWO ~226MB claude
+  binaries (curl|bash standalone + the SDK bundle) -- dropped the standalone, symlinked `claude` ->
+  the bundle. Also dropped unused curl/jq and force-removed essential-but-unused `perl-base`.
+  **911MB -> 664MB (-27%); trivy 2 CRITICAL + 3 HIGH -> 0 CRITICAL + 7 HIGH** (both CRITICALs were
+  perl's; the 7 remaining HIGH are base-OS libs gzip/acl/attr/ncurses, all fix_deferred = no upstream
+  patch yet, no exploit path, clear on a future rebuild).
+- **C2 (fatten extraction batch 40->80): TESTED + REJECTED.** Measured on the snapshot: wall 146.7s
+  vs batch-40's 144s (NO latency gain -- C1's concurrency already captured it; the bottleneck is
+  per-round generation time, not spawn count) AND it changed the partition (238 vs 261 clusters,
+  coarser -- bigger batches shift extraction), so not even free. Cluster speed is optimized as-is
+  (C1 concurrency=4, which the **4GB prod box caps anyway** -- each in-flight extraction spawns a
+  ~226MB claude subprocess, so ~4 concurrent is the safe ceiling; more risks OOM on prod).
+- **Scratch/distroless base: NOT worth it.** The venv (claude bundle 226MB + sklearn/scipy/numpy
+  ~200MB) is the bulk (~450MB); the Debian base is only ~100MB, so distroless saves little while
+  breaking the bash entrypoint + risking the claude bundle's glibc/libstdc++ needs. The image has
+  two runtimes by ARCHITECTURE (CPython pipeline + the Bun-compiled claude bundle); collapsing to
+  one means a major rewrite (all-TS via the TS SDK, or all-Python via the direct API bypassing the
+  agent SDK) that the cost/benefit doesn't justify. The big win (the duplicate binary) is already done.
+- **S5/Fable access: NOT restricted by the CLI pin.** All models (claude-sonnet-5, claude-fable-5,
+  opus-4-8) work through the bundled CLI 2.1.191 -- routing is API-side. The pin freezes CLI
+  *features*, not model access, so the deferred S5 experiments remain runnable today.
+
 **Key sequencing note:** everything added to the deploy-held branch this session was *additive/behaviour-
 preserving* for the pipeline (docs, tests, a nullable column, an ops script, prompt guards) — safe to
 ship with the extract-join deploy. The remaining high-value builds (C1 parallelize, A4 embeddings, C4
