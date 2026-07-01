@@ -113,6 +113,59 @@ def test_join_empty_tags_do_not_collapse_into_one_blob():
 
 
 # --------------------------------------------------------------------------- #
+# join_tags time-decay (optional temporal signal; prod path unchanged when omitted)
+# --------------------------------------------------------------------------- #
+def test_join_timedecay_separates_same_tags_far_apart_in_time():
+    """Same tags but many days apart (a recurring event) must NOT merge under decay,
+    while same-tag same-hour articles still do -- the precision the temporal signal buys."""
+    from datetime import UTC, datetime
+
+    ids = ["A1", "A2", "A3"]
+    tags = {
+        aid: {"entities": ["Trump", "Congress"], "keywords": ["vote"], "primary_event": "budget vote"} for aid in ids
+    }
+    published = {
+        "A1": datetime(2026, 7, 1, 10, tzinfo=UTC),
+        "A2": datetime(2026, 7, 1, 11, tzinfo=UTC),  # 1h after A1
+        "A3": datetime(2026, 7, 8, 10, tzinfo=UTC),  # 7 days after A1
+    }
+    clusters = cej.join_tags(ids, tags, threshold=0.30, published=published, sigma_hours=72)
+    sets = [sorted(c["article_ids"]) for c in clusters]
+    assert ["A1", "A2"] in sets, "same-tag, same-hour articles should still merge"
+    assert ["A3"] in sets, "same-tag but 7 days later should stay separate under time-decay"
+
+
+def test_join_timedecay_omitted_matches_plain_path():
+    """Passing no temporal args must reproduce the plain (no-decay) partition exactly."""
+    ids = ["A1", "A2", "A3", "A4"]
+    tags = {
+        "A1": {"entities": ["Iran"], "keywords": ["nuclear"], "primary_event": "iran talks"},
+        "A2": {"entities": ["Iran"], "keywords": ["nuclear"], "primary_event": "iran talks"},
+        "A3": {"entities": ["Venezuela"], "keywords": ["quake"], "primary_event": "venezuela earthquake"},
+        "A4": {"entities": ["Apple"], "keywords": ["prices"], "primary_event": "apple price hike"},
+    }
+
+    def key(cs):
+        return sorted(sorted(c["article_ids"]) for c in cs)
+
+    plain = cej.join_tags(ids, tags, threshold=0.80)
+    explicit_none = cej.join_tags(ids, tags, threshold=0.80, published=None, sigma_hours=None)
+    assert key(plain) == key(explicit_none)
+
+
+def test_join_timedecay_missing_publish_time_is_not_penalized():
+    """An article with no publish time gets a neutral (no-penalty) temporal weight,
+    so it clusters purely on tags rather than being spuriously isolated."""
+    from datetime import UTC, datetime
+
+    ids = ["A1", "A2"]
+    tags = {aid: {"entities": ["X"], "keywords": ["k"], "primary_event": "same story"} for aid in ids}
+    published = {"A1": datetime(2026, 7, 1, 10, tzinfo=UTC)}  # A2 missing
+    clusters = cej.join_tags(ids, tags, threshold=0.30, published=published, sigma_hours=72)
+    assert [sorted(c["article_ids"]) for c in clusters] == [["A1", "A2"]]
+
+
+# --------------------------------------------------------------------------- #
 # _thinking_for -- model-aware thinking (next-gen models 400 on thinking=disabled).
 # --------------------------------------------------------------------------- #
 def test_thinking_disabled_only_for_4x_family():

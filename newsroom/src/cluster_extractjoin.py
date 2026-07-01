@@ -149,7 +149,36 @@ def _tag_bag(tag: dict) -> str:
     return " ".join(p for p in parts if p.strip())
 
 
-def join_tags(article_ids: list[str], tags: dict[str, dict], *, threshold: float) -> list[dict]:
+def _time_kernel(article_ids: list[str], published: dict, sigma_hours: float):
+    """Gaussian temporal-proximity weight matrix K[i,j] = exp(-dt^2 / (2*sigma^2)), dt in hours.
+
+    Same-story articles published close in time weigh ~1; the weight decays as they drift apart,
+    so the combined similarity (tag-cosine * K) resists merging same-entity DIFFERENT-time stories
+    (a recurring actor's separate events). An article with no publish time gets dt=0 to everyone
+    (neutral weight 1) so it clusters on tags alone rather than being spuriously isolated.
+    """
+    import numpy as np
+
+    n = len(article_ids)
+    # Hours-from-epoch per article; NaN where unknown (treated as neutral below).
+    hours = np.full(n, np.nan)
+    for i, aid in enumerate(article_ids):
+        ts = published.get(aid)
+        if ts is not None:
+            hours[i] = ts.timestamp() / 3600.0
+    dt = np.abs(hours[:, None] - hours[None, :])
+    dt = np.where(np.isnan(dt), 0.0, dt)  # unknown gap -> no penalty
+    return np.exp(-(dt**2) / (2.0 * sigma_hours**2))
+
+
+def join_tags(
+    article_ids: list[str],
+    tags: dict[str, dict],
+    *,
+    threshold: float,
+    published: dict | None = None,
+    sigma_hours: float | None = None,
+) -> list[dict]:
     """Deterministically group articles by their extracted tags into clusters.
 
     TF-IDF over the per-article tag bag → agglomerative clustering (cosine, average linkage) at
@@ -157,6 +186,12 @@ def join_tags(article_ids: list[str], tags: dict[str, dict], *, threshold: float
     primary_event. Every input id appears in exactly one cluster (the invariant SELECT relies on).
     Threshold 0.80 is the held-out value from runs 204/205 (see the gate doc); the granularity-
     matching threshold rises with corpus size, so revisit if article counts shift materially.
+
+    When ``published`` (``{article_id: datetime}``) AND ``sigma_hours`` are both given, the join
+    additionally weighs each pair's tag-cosine similarity by a Gaussian temporal-proximity kernel
+    (:func:`_time_kernel`) before clustering on the combined distance ``1 - sim*K`` -- so a lower
+    threshold is needed to reach the same granularity (the kernel only shrinks similarity). Omit
+    both (the default) for the exact prod behaviour, byte-for-byte.
     """
     if not article_ids:
         return []
@@ -176,11 +211,30 @@ def join_tags(article_ids: list[str], tags: dict[str, dict], *, threshold: float
         bag = _tag_bag(tags.get(aid, {}))
         docs.append(bag if _TOKEN_RE.search(bag) else f"notags{i}")
     X = TfidfVectorizer().fit_transform(docs).toarray()
-    labels = (
-        AgglomerativeClustering(n_clusters=None, distance_threshold=threshold, metric="cosine", linkage="average")
-        .fit(X)
-        .labels_
-    )
+
+    if published and sigma_hours:
+        import numpy as np
+        from sklearn.metrics.pairwise import cosine_similarity
+
+        # Combined distance = 1 - (tag-cosine similarity * temporal-proximity weight). With no
+        # temporal signal this reduces to 1 - cosine == sklearn's metric="cosine", so the branch
+        # below stays the identical clustering; here the kernel only ever shrinks similarity.
+        sim = cosine_similarity(X) * _time_kernel(article_ids, published, sigma_hours)
+        dist = np.clip(1.0 - sim, 0.0, None)
+        np.fill_diagonal(dist, 0.0)
+        labels = (
+            AgglomerativeClustering(
+                n_clusters=None, distance_threshold=threshold, metric="precomputed", linkage="average"
+            )
+            .fit(dist)
+            .labels_
+        )
+    else:
+        labels = (
+            AgglomerativeClustering(n_clusters=None, distance_threshold=threshold, metric="cosine", linkage="average")
+            .fit(X)
+            .labels_
+        )
 
     groups: dict[int, list[str]] = {}
     for aid, lab in zip(article_ids, labels, strict=True):
