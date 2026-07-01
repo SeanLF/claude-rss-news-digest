@@ -36,7 +36,12 @@ LABEL org.opencontainers.image.source="${OCI_SOURCE}"
 LABEL org.opencontainers.image.licenses="${OCI_LICENSES}"
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends ca-certificates ripgrep bash curl jq \
+    && apt-get install -y --no-install-recommends ca-certificates ripgrep bash \
+    # perl-base is a Debian "essential" package but NOTHING installed depends on it (apt -s purge
+    # cascades to nothing) and the pipeline never invokes perl (python + the SDK-bundled CLI + bash).
+    # It only ships CVEs (perl-Archive-Tar / IO-Compress, fix_deferred). Force-remove it -- done as
+    # the last apt step so no later dpkg maintainer script could need it.
+    && dpkg --purge --force-remove-essential perl-base \
     && rm -rf /var/lib/apt/lists/*
 
 # Non-root user with fixed UID/GID for volume compatibility.
