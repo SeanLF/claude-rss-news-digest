@@ -214,6 +214,34 @@ DEFERRED (NIM/Olla down, checked twice; gate already has Anthropic-family robust
 NO deploy — held. Deploy sequence documented (deploy-check → merge → bin/deploy w/ service unit in
 -target → watch cron).
 
+**Item 5 — SDK pinning + canaries: DONE + committed (`37566ea`).** `newsroom/constraints-prod.txt`
+pins `claude-agent-sdk==0.2.110`; prod `newsroom/Dockerfile` applies it (`-c`), CI floats. Pin
+VERIFIED to bind. Canaries: `test_sdk_pin.py` (CI, forces re-validation on bump) + `bin/sdk-canary`
+(live, reachability-gated, three-way verdict, hardened per a silent-failure review). **The canary
+caught TWO stale priors on 0.2.110: `thinking=disabled` no longer 400s on next-gen AND `effort` no
+longer 400s on Haiku 4.5** — both "400s on…" comments corrected across 6 files; the workarounds are
+retained as validated config policy, not 400-dodges. (⚠️ the §Critical-state "SDK-config facts" 400
+claims are now STALE — verify via bin/sdk-canary.)
+
+---
+
+# LOOP COMPLETE — 2026-07-01 (all 5 shipped to `feat/extractjoin-cluster-stage`, HELD from deploy)
+| # | Item | Outcome | Commit |
+|---|---|---|---|
+| 1 | Stale-world-fact WRITE bug | FIXED (date injection + rule); verified prevention (bug intermittent, couldn't repro) | `9e4fbdd` |
+| 2 | Sonnet 5 on judgment stages | KEEP 4.6 both WRITE+SELECT (clean negative, n=6 pre-reg); synthesis scoped out | `e754c63` |
+| 3 | Time-decay join | Hypothesis FALSIFIED (inert on daily window); shipped DORMANT/opt-in, not wired | `b8fb035` |
+| 4 | Pre-deploy hardening | Full dry run on built image = GREEN; deploy readiness confirmed, HELD | `e04bcb2` |
+| 5 | SDK pinning + canaries | Prod pinned, CI floats, 2 canaries; caught 2 stale SDK-config facts | `37566ea` |
+
+3 ships (1, 4-readiness, 5) + 2 rigorously-recorded negatives (2, 3). **Deploy HELD for Sean**
+(`deploy-check` → merge → `bin/deploy` w/ newsroom service unit in `-target` → watch first cron).
+Deferred nice-to-haves (needed unreachable infra this AFK session): pull the EXACT prod Biden
+instance for Item 1 (SSH/tailscale hung); cross-family NIM re-score for Item 4 (Olla down).
+
+---
+
+## (original paste-prompt below)
 
 > Resume news-digest on branch `feat/extractjoin-cluster-stage`. Execute the five improvements in
 > `docs/2026-07-01-improvements-loop-handoff.md` IN ORDER, each to the project's high bar (verify on
