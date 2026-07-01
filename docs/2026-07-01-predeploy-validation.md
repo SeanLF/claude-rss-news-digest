@@ -36,12 +36,15 @@ Result — clean end-to-end on a real fresh fetch:
 NIM/Olla was down mid-session, then came back; started Olla (`bin/sdk-canary` unrelated — Olla is
 the NIM proxy, keyed from 1Password) and re-scored the gate's `internal_dups` finding with
 **Nemotron** (non-Anthropic) via the exact gate methodology (`scratch/xfam_dedup_probe.py`).
-Result (appended to `2026-07-01-graph-gate-preregistration.md`): **extract-join = 0 internal
-duplicate groups under Nemotron too, holistic = 2.5 (Nemotron is even harsher on holistic than the
-opus judge)** — the dedup win is confirmed ACROSS families, not just within Anthropic. Scoped to
-n=2/arm (NIM free-tier throttled to its concurrency ceiling). The `miss_hard` cross-family re-score
-stays deferred (heavier coverage-judging path, NIM throttled; the gate already treats miss as
-parity, not an EJ win). The KEEP/PASS verdicts never hinged on this — it is confirmation.
+Result (full detail in `2026-07-01-graph-gate-preregistration.md`): re-scored BOTH primary signals
+with the non-Anthropic panel (GLM→DeepSeek→Nemotron, first-to-answer under the throttle) via the
+exact gate logic (same cached opus reference, judge-only swap; `scratch/xfam_full_rescore.py`;
+n=6 holistic / n=5 EJ, 0 judge failures). **internal_dups: EJ 0.00 vs holistic 1.17 (dedup win
+CONFIRMED, mean identical to the opus judge). miss_hard: EJ 2.20 vs holistic 2.17 = PARITY
+(CONFIRMED — the over-merge/hidden-major fear does not reproduce cross-family).** The only cross-
+family divergence is `miss_all` (EJ misses more soft-tail MINORS, 8.4 vs 5.7) = the known ~10%
+coverage-dip signature on the non-gated secondary signal. Both primary gate signals now hold under
+a different model family; the KEEP/PASS verdicts never hinged on this — it is confirmation.
 
 ## Deploy readiness: GREEN (held for Sean)
 The branch runs clean end-to-end on the image that would deploy, produces a high-quality digest,

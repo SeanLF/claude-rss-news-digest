@@ -283,28 +283,29 @@ per arm total). Durable cross-day pattern:
 # CROSS-FAMILY CONFIRMATION (2026-07-01, appended after NIM/Olla came back up)
 
 The gate's deflation caveat #4 ("judge is Anthropic (opus), not cross-family — NIM down") is now
-RESOLVED for the load-bearing dedup signal. Olla/NIM (127.0.0.1:40114) came back; re-scored the
-`internal_dups` finding with **Nemotron** (`nvidia/nemotron-3-ultra-550b-a55b`, a non-Anthropic
-family) using the EXACT gate methodology (`judge_digests.dup_check`: order-swapped, swap-stable
-groups only; `scratch/xfam_dedup_probe.py`). Scoped to n=2/arm (NIM free-tier throttled to its
-concurrency ceiling this session, so a full n=6 panel wasn't reliably completable):
+RESOLVED for BOTH primary signals. Olla/NIM (127.0.0.1:40114) came back; re-scored with the
+**non-Anthropic cross-family panel** (`JUDGES = z-ai/glm-5.1 → deepseek-ai/deepseek-v4-pro →
+nvidia/nemotron-3-ultra-550b-a55b`, first-to-answer under the free-tier throttle) using the EXACT
+gate logic — `tg_judge_product.internal_dups` + `.important_story_miss` against the SAME cached
+opus-built input reference, judge model the only swap (`scratch/xfam_full_rescore.py`). n=6
+holistic / n=5 extract-join (0 judge failures; one EJ digest dropped to the throttle).
 
-| judge family | holistic internal_dups | extract-join internal_dups |
-|---|---|---|
-| Anthropic (opus, the gate) | 1.17 | 0.00 |
-| Anthropic (sonnet-4-6) | 1.50 | 0.00 |
-| Anthropic (haiku-4-5) | 0.50 | 0.00 |
-| **non-Anthropic (Nemotron)** | **2.50** [2,3] | **0.00** [0,0] |
+| signal | Anthropic opus (the gate) | **non-Anthropic panel** | verdict |
+|---|---|---|---|
+| **internal_dups** | H 1.17 / EJ 0.00 | **H 1.17 [0–2] / EJ 0.00 [0,0]** | EJ strictly better — CONFIRMED cross-family |
+| **miss_hard** (load-bearing) | H 3.33 / EJ 3.67 (Δ+0.34) | **H 2.17 / EJ 2.20 (Δ+0.03)** | PARITY — CONFIRMED (over-merge fear does not reproduce) |
+| miss_all (secondary) | ~parity | H 5.67 / EJ 8.40 | EJ misses more SOFT-tail minors = the known ~10% coverage-dip signature |
 
-**The dedup win is now confirmed ACROSS FAMILIES, not just within Anthropic:** extract-join shows
-0 confirmed internal duplicate story-groups under Nemotron too, while holistic shows more (Nemotron
-flagged legitimate ones the opus judge was stricter about — e.g. two separate SCOTUS/Trump
-immigration rulings, duplicated heatwave / Venezuela-quake / Hormuz coverage). If anything Nemotron
-is HARSHER on holistic (2.50 vs opus 1.17), same direction. The "conformity-to-Sonnet" circularity
-concern does not apply (absolute per-digest dup count, both digests Sonnet-authored) and is now
-also empirically cross-checked. (miss_hard cross-family re-score still deferred — heavier coverage-
-judging path, NIM throttled; the gate already treats miss as parity, not an EJ win, so it is the
-less load-bearing signal.)
+**Both primary gate signals hold under a non-Anthropic panel:** extract-join shows 0 internal
+duplicates (vs holistic 1.17 — dedup mean IDENTICAL to the opus judge), and matches holistic on
+top-10 major-story miss (2.20 vs 2.17 — the over-merge/hidden-major fear does NOT reproduce cross-
+family). The only cross-family divergence is `miss_all` (EJ misses more soft-tail MINOR stories,
+8.4 vs 5.7) — that is the coverage dip surfacing on the non-gated secondary signal (EJ's coarser
+head → fewer minor stories), consistent with the durable ~10% `sources_total` dip, NOT a new
+concern. The "conformity-to-Sonnet" circularity concern never applied (absolute per-digest
+measures, both digests Sonnet-authored) and is now empirically cross-checked on both signals.
+(Earlier this section reported an n=2 dedup-only Nemotron pass, 2.50 vs 0.00; the fuller n=6 panel
+above supersedes it — same direction, dedup win intact.)
 
 **Decision:** the generalization caveat is CLEARED. Extract→join is digest-viable across news-days
 under a properly-powered, product-grounded, non-circular gate. The ONE tradeoff to weigh is the
