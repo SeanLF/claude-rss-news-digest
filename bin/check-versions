@@ -135,13 +135,51 @@ def check_python_deps():
     pyproject = Path(__file__).parent.parent / "newsroom" / "pyproject.toml"
     if not lockfile.exists(): return err("py-deps", "no uv.lock")
     if not pyproject.exists(): return err("py-deps", "no pyproject.toml")
-    direct = set(re.findall(r'"(\w[\w-]+?)(?:[><=!~]|\[)', pyproject.read_text()))
+    # Match dependency names whether they carry a version specifier OR are bare (`"name"`). The
+    # old pattern required a `[><=!~[` terminator, so it silently skipped every BARE dep (all of
+    # this project's -- claude-agent-sdk, scikit-learn, etc.), quietly checking nothing.
+    direct = set(re.findall(r'"([A-Za-z][\w.-]+?)(?:[><=!~\[]|")', pyproject.read_text()))
     locked = dict(re.findall(r'^name = "(.+?)"\nversion = "(.+?)"', lockfile.read_text(), re.MULTILINE))
     deps = [(n, locked[n]) for n in direct if n in locked]
     def norm(v): parts = [int(x) for x in v.split(".")]; return parts + [0] * (3 - len(parts))
     outdated = [(n, c, l) for n, c in deps if (l := pypi_ver(n)) and norm(c) < norm(l)]
     if not outdated: return ok("py-deps", "checked")
     return ("py-deps", "update", f"{len(outdated)} outdated", None, [f"{n}: {c} → {l}" for n, c, l in outdated])
+
+def check_newsroom_base():
+    """The newsroom runtime base image. This project MIGRATED Alpine -> python:3.14-slim (the
+    scientific stack has no musl wheels), so check_alpine no longer covers it -- it only sees
+    circulation's Rust image. Flags when a newer Python minor series is out so the pinned base can
+    be bumped deliberately (a base bump must re-confirm the constraints-prod.txt cp3XX wheels exist)."""
+    dockerfile = Path(__file__).parent.parent / "newsroom" / "Dockerfile"
+    if not dockerfile.exists(): return ok("newsroom-base", "(no Dockerfile)")
+    m = re.search(r"FROM python:(\d+\.\d+)-slim", dockerfile.read_text())
+    if not m: return err("newsroom-base", "can't parse python:X.Y-slim base pin")
+    lat = gh_tag("python/cpython")
+    lat_minor = ".".join(lat.lstrip("v").split(".")[:2]) if lat else None
+    return compare("newsroom-base", m.group(1), lat_minor)
+
+def check_prod_pins():
+    """Prod dependency pins (newsroom/constraints-prod.txt) vs PyPI latest. These are what the prod
+    build ACTUALLY installs (the Agent SDK + the compiled scientific stack) -- the deployed truth,
+    unlike the stale uv.lock the build ignores. Flags a pin that is behind so it can be bumped
+    deliberately (a claude-agent-sdk bump must also re-run bin/sdk-canary -- see test_sdk_pin.py)."""
+    cfile = Path(__file__).parent.parent / "newsroom" / "constraints-prod.txt"
+    if not cfile.exists(): return ok("prod-pins", "(none)")
+    pins = re.findall(r'^([A-Za-z][\w.-]+)==([\d.]+)', cfile.read_text(), re.MULTILINE)
+    if not pins: return err("prod-pins", "no pins parsed")
+    def norm(v): parts = [int(x) for x in v.split(".")]; return parts + [0] * (3 - len(parts))
+    behind = [(n, c, l) for n, c in pins if (l := pypi_ver(n)) and norm(c) < norm(l)]
+    if not behind: return ok("prod-pins", f"{len(pins)} current")
+    return ("prod-pins", "update", f"{len(behind)}/{len(pins)} behind", None, [f"{n}: {c} → {l}" for n, c, l in behind])
+
+def check_claude_cli():
+    """Claude Code CLI. The image installs one via curl|bash (floats to latest at build), but the
+    PIPELINE runs the CLI BUNDLED inside claude-agent-sdk (pinned via prod-pins). So this reports
+    the latest release for awareness, not a prod-drift signal -- the pipeline's CLI moves with the
+    SDK pin, not this."""
+    lat = gh_release("anthropics/claude-code")
+    return ok("claude-cli", f"floats → {lat} (pipeline uses the SDK-bundled CLI)" if lat else "floats (latest)")
 
 def check_python_deps_host():
     if not has("uv"): return ok("py-deps-host", "(uv not installed)")
@@ -169,7 +207,7 @@ def check_rust_deps():
     if not outdated: return ok("rust-deps", "checked")
     return ("rust-deps", "update", f"{len(outdated)} outdated", None, [f"{n}: {c} → {l}" for n, c, l in outdated])
 
-CHECKS = [check_python, check_uv, check_uv_host, check_rust, check_rust_host, check_alpine, check_docker, check_orbstack, check_tailscale, check_python_deps, check_python_deps_host, check_rust_deps]
+CHECKS = [check_python, check_uv, check_uv_host, check_rust, check_rust_host, check_alpine, check_newsroom_base, check_claude_cli, check_prod_pins, check_docker, check_orbstack, check_tailscale, check_python_deps, check_python_deps_host, check_rust_deps]
 
 def main():
     if not QUIET: print(f"\n{BOLD}Checking dependency versions...{RESET}\n")
