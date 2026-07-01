@@ -1,4 +1,4 @@
-FROM alpine:3.24
+FROM python:3.14-slim
 
 ARG OCI_TITLE="digest-newsroom"
 ARG OCI_DESCRIPTION="Automated news digest: RSS feeds → Claude curation → HTML email"
@@ -10,19 +10,19 @@ LABEL org.opencontainers.image.description="${OCI_DESCRIPTION}"
 LABEL org.opencontainers.image.source="${OCI_SOURCE}"
 LABEL org.opencontainers.image.licenses="${OCI_LICENSES}"
 
-# Install dependencies for Claude Code on Alpine + CA certs
-RUN apk add --no-cache ca-certificates libgcc libstdc++ ripgrep bash curl jq
+# Debian slim (glibc) base -- scientific-Python deps (scikit-learn/scipy/numpy) install from
+# prebuilt manylinux wheels here; Alpine/musl forced a source build that has no wheels for
+# Python 3.14 and no compiler in the slim image. Python 3.14 ships in the base image.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates ripgrep bash curl jq \
+    && rm -rf /var/lib/apt/lists/*
 
 # Install uv
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/
 
-# Install Python 3.14 and symlink to /usr/local/bin
-ENV UV_PYTHON_INSTALL_DIR=/opt/python
-RUN uv python install 3.14 \
-    && ln -sf /opt/python/*/bin/python3 /usr/local/bin/python3
-
 # Create non-root user with fixed UID/GID for volume compatibility
-RUN addgroup -g 1001 appuser && adduser -u 1001 -G appuser -s /bin/bash -D appuser
+RUN groupadd -g 1001 appuser \
+    && useradd -u 1001 -g appuser -s /bin/bash -m -d /home/appuser appuser
 
 # Install Claude Code CLI (native method) as appuser
 ENV USE_BUILTIN_RIPGREP=0
@@ -32,10 +32,11 @@ USER root
 
 WORKDIR /app
 
-# Install dependencies from pyproject.toml (before copying app code for better caching)
+# Install dependencies from pyproject.toml (before copying app code for better caching).
+# --python targets the base image's Python 3.14; wheels install with no compiler.
 COPY newsroom/pyproject.toml ./
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv venv .venv && uv pip install --python .venv -r pyproject.toml
+    uv venv .venv --python python3.14 && uv pip install --python .venv -r pyproject.toml
 
 # Track which code version produced each digest
 ARG GIT_SHA

@@ -26,11 +26,13 @@ REPO_ROOT = Path(__file__).parent.parent.parent
 CLUSTER_SPEC = REPO_ROOT / ".claude" / "agents" / "cluster.md"
 
 
-def _stage_result(*, usage=None, cost=0.05, duration_ms=1000, subtype="success", is_error=False, api_error_status=None):
+def _stage_result(
+    *, text="", usage=None, cost=0.05, duration_ms=1000, subtype="success", is_error=False, api_error_status=None
+):
     """Build a StageResult like ``claude_cli.run_agent`` resolves to."""
     return StageResult(
         subtype=subtype,
-        text="",
+        text=text,
         usage=usage
         or {
             "input_tokens": 1000,
@@ -419,14 +421,52 @@ class TestOrchestrateSelections:
         ("fact-checking editor", "coherence_report.json", {"results": []}),
     )
 
-    def _fake_writer(self, claude_input_dir):
-        """Return a run_agent stand-in that writes whichever output is due.
+    # CLUSTER is now the extract→join stage (not an agent): it reads articles_*.csv and calls
+    # run_agent for per-article EXTRACTION, then joins deterministically and writes clusters.json
+    # itself. So the fake must (a) have articles present and (b) return tag JSON for the
+    # extraction call (system prompt "You extract clustering metadata").
+    @staticmethod
+    def _write_articles(claude_input_dir):
+        claude_input_dir.joinpath("articles_1.csv").write_text(
+            "article_id,source_id,title,summary\n"
+            "A1,src1,Iran attacks cargo ship in Hormuz,Body\n"
+            "A2,src2,Venezuela earthquake toll rises,Body\n"
+        )
 
-        Identifies the running agent by a unique phrase in its system prompt,
-        writes that stage's output file, then resolves to a success StageResult.
+    @staticmethod
+    def _extract_response():
+        return _stage_result(
+            text=json.dumps(
+                {
+                    "items": [
+                        {
+                            "article_id": "A1",
+                            "entities": ["Iran"],
+                            "keywords": ["ship"],
+                            "primary_event": "iran hormuz attack",
+                        },
+                        {
+                            "article_id": "A2",
+                            "entities": ["Venezuela"],
+                            "keywords": ["quake"],
+                            "primary_event": "venezuela earthquake",
+                        },
+                    ]
+                }
+            )
+        )
+
+    def _fake_writer(self, claude_input_dir):
+        """Return a run_agent stand-in that serves extraction + writes each stage's output.
+
+        Identifies the running agent by a unique phrase in its system prompt: the extraction
+        call ("extract clustering metadata") gets tag JSON (extract→join writes clusters.json
+        itself); the remaining agent stages write their output file.
         """
 
         async def fake_run(_prompt, *, system_prompt, **_k):
+            if "extract clustering metadata" in system_prompt:
+                return self._extract_response()
             for phrase, filename, payload in self._STAGE_OUTPUTS:
                 if phrase in system_prompt:
                     path = claude_input_dir / filename
@@ -440,6 +480,7 @@ class TestOrchestrateSelections:
         return fake_run
 
     def test_returns_five_rows_in_order(self, tmp_path, monkeypatch):
+        self._write_articles(tmp_path)
         monkeypatch.setattr(orchestrate.claude_cli, "run_agent", self._fake_writer(tmp_path))
         # Point the orchestrator's spec loader at the real agent files.
         monkeypatch.setattr(orchestrate, "_AGENTS_DIR", REPO_ROOT / ".claude" / "agents")
@@ -450,14 +491,14 @@ class TestOrchestrateSelections:
         assert all(r["api_cost_usd"] >= 0 for r in rows)
 
     def test_raises_if_a_stage_never_validates(self, tmp_path, monkeypatch):
-        # cluster writes a valid file, but the recap agent writes nothing ->
+        # cluster (extract→join) produces a valid file, but the recap agent writes nothing ->
         # recap fails after its retry and the run aborts.
+        self._write_articles(tmp_path)
+
         async def fake_run(_prompt, *, system_prompt, **_k):
-            if "news clustering agent" in system_prompt:
-                (tmp_path / "clusters.json").write_text(
-                    json.dumps({"clusters": [{"story": "x", "article_ids": ["A1"]}]})
-                )
-            # recap agent intentionally writes nothing.
+            if "extract clustering metadata" in system_prompt:
+                return self._extract_response()
+            # recap (and later) agents intentionally write nothing.
             return _stage_result()
 
         monkeypatch.setattr(orchestrate.claude_cli, "run_agent", fake_run)

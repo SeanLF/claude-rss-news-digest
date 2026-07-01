@@ -60,6 +60,15 @@ DEDUP_SIMILARITY_THRESHOLD = float(os.environ.get("DEDUP_SIMILARITY_THRESHOLD", 
 DEFAULT_MODEL = os.environ.get("DEFAULT_MODEL", "claude-sonnet-4-6")
 RECAP_MODEL = os.environ.get("RECAP_MODEL", "claude-haiku-4-5")
 
+# CLUSTER stage: the deterministic extract→join path (newsroom/src/cluster_extractjoin.py)
+# REPLACES the old holistic Sonnet cluster.md subagent -- it produces cleaner, deterministic,
+# less-repetitive partitions (validated in docs/2026-07-01-graph-gate-preregistration.md).
+# Rollback is a code/image revert (no runtime flag, by design). These two knobs stay tunable:
+# Sonnet extraction keeps source-diversity flat vs Haiku's ~10% dip (the A/B); join threshold
+# 0.80 is the held-out value (the granularity-matching threshold rises with corpus size).
+CLUSTER_EXTRACT_MODEL = os.environ.get("CLUSTER_EXTRACT_MODEL", "claude-sonnet-4-6")
+CLUSTER_JOIN_THRESHOLD = float(os.environ.get("CLUSTER_JOIN_THRESHOLD", "0.80"))
+
 # Evolving story-thread substrate (sub-project A). Off by default until the feature is
 # reader-visible (sub-project C); when on, each run persists thread identity for the
 # selected stories. THREAD_DORMANT_AFTER: runs since last-seen before a thread stops matching.

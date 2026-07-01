@@ -38,6 +38,8 @@ from pathlib import Path
 from typing import Any, cast
 
 import claude_cli
+import cluster_extractjoin
+import config
 from claude_agent_sdk import ThinkingConfig
 from retry import with_retry_async
 from usage import usage_row_from_sdk
@@ -373,6 +375,24 @@ async def orchestrate_selections(
     for label, spec_filename, output_filename, validate in _STAGES:
         if resume and _stage_output_is_valid(claude_input_dir, output_filename, validate):
             logger.info("[%s] resuming: valid output present, skipping", label.capitalize())
+            continue
+        # CLUSTER is the deterministic extract→join path (replaces the holistic LLM agent); it
+        # writes clusters.json and validates identically, so the rest of the pipeline is
+        # untouched. See cluster_extractjoin.py + the gate doc. Rollback = revert the image.
+        if label == "cluster":
+            logger.info(
+                "[Cluster] extract-join (extract=%s, thr=%.2f)",
+                config.CLUSTER_EXTRACT_MODEL,
+                config.CLUSTER_JOIN_THRESHOLD,
+            )
+            row = await cluster_extractjoin.run_extractjoin_stage(
+                claude_input_dir,
+                model=config.CLUSTER_EXTRACT_MODEL,
+                cwd=cwd,
+                threshold=config.CLUSTER_JOIN_THRESHOLD,
+            )
+            validate(claude_input_dir)
+            usage_rows.append(row)
             continue
         spec = parse_agent_spec(_AGENTS_DIR / spec_filename)
         row = await run_stage(

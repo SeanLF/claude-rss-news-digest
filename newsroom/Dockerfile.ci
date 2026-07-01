@@ -1,12 +1,9 @@
-FROM alpine:3.24
+FROM python:3.14-slim
 
-# uv floats on latest; a bad release fails this build, not prod
+# Debian slim (glibc) base so scientific-Python deps install from manylinux wheels (Alpine/musl
+# has no scikit-learn/scipy wheels for Python 3.14). Python 3.14 ships in the base image.
+# uv floats on latest; a bad release fails this build, not prod.
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/
-
-# Install Python
-ENV UV_PYTHON_INSTALL_DIR=/opt/python
-RUN uv python install 3.14 \
-    && ln -sf /opt/python/*/bin/python3 /usr/local/bin/python3
 
 WORKDIR /app
 
