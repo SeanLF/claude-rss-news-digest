@@ -1,3 +1,4 @@
+mod feed;
 mod handlers;
 mod stats;
 mod templates;
@@ -18,6 +19,7 @@ pub mod routes {
     pub const SOURCES: &str = "/sources";
     pub const STATS: &str = "/stats";
     pub const OG_IMAGE: &str = "/og-image.png";
+    pub const FEED: &str = "/feed.xml";
 }
 
 pub struct AppState {
@@ -45,6 +47,15 @@ impl AppState {
         self.digest_domain
             .as_ref()
             .map(|d| format!("https://{d}{}", routes::OG_IMAGE))
+            .unwrap_or_default()
+    }
+
+    /// Scheme+host (e.g. "https://example.com"), or empty string when DIGEST_DOMAIN is
+    /// unset (local/dev) -- callers then fall back to root-relative links.
+    pub fn base_url(&self) -> String {
+        self.digest_domain
+            .as_ref()
+            .map(|d| format!("https://{d}"))
             .unwrap_or_default()
     }
 }
@@ -115,6 +126,7 @@ async fn main() {
         )
         .route(routes::OG_IMAGE, get(handlers::og_image))
         .route(routes::SOURCES, get(handlers::sources))
+        .route(routes::FEED, get(handlers::feed))
         .route(routes::STATS, get(stats::stats_html))
         .route(&format!("{}.json", routes::STATS), get(stats::stats_json))
         .route("/{date}", get(handlers::get_digest))

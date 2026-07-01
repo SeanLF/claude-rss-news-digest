@@ -10,6 +10,7 @@ use std::sync::Arc;
 
 use crate::AppState;
 use crate::check_database_health;
+use crate::feed::{DigestRow, render_atom_feed};
 use crate::routes;
 use crate::templates::{
     DIGEST_NAV_CSS, DIGEST_NAV_HTML, FAVICON_SVG, IndexParams, REDUCED_MOTION_CSS, SKIP_LINK_CSS,
@@ -18,6 +19,9 @@ use crate::templates::{
 use crate::util::{
     escape_html, format_date, format_month_year, is_valid_date, log_row_error, year_month,
 };
+
+/// Most recent digests included in the Atom feed.
+const FEED_ENTRY_LIMIT: u32 = 30;
 
 #[derive(Deserialize)]
 pub struct SubscribeForm {
@@ -144,11 +148,7 @@ pub async fn index(
         nav_links.join(" · ")
     );
     let og_description = "Daily briefing on geopolitics, tech, and privacy. All sides. No fluff.";
-    let canonical_url = state
-        .digest_domain
-        .as_ref()
-        .map(|d| format!("https://{d}"))
-        .unwrap_or_default();
+    let canonical_url = state.base_url();
     let image_url = state.og_image_url();
 
     let html = render_index(&IndexParams {
@@ -469,6 +469,44 @@ pub async fn sources(
     Ok(Html(html))
 }
 
+/// Serve an Atom 1.0 feed of the most recent digests, for feed reader auto-discovery.
+pub async fn feed(
+    State(state): State<Arc<AppState>>,
+) -> Result<impl IntoResponse, (StatusCode, &'static str)> {
+    let conn = Connection::open_with_flags(&state.db_path, OpenFlags::SQLITE_OPEN_READ_ONLY)
+        .map_err(|_| (StatusCode::SERVICE_UNAVAILABLE, "Service unavailable"))?;
+
+    let mut stmt = conn
+        .prepare("SELECT date, COALESCE(preheader, '') FROM digests ORDER BY date DESC LIMIT ?1")
+        .map_err(|_| (StatusCode::SERVICE_UNAVAILABLE, "Service unavailable"))?;
+
+    let rows: Vec<DigestRow> = stmt
+        .query_map([FEED_ENTRY_LIMIT], |row| {
+            Ok(DigestRow {
+                date: row.get(0)?,
+                preheader: row.get(1)?,
+            })
+        })
+        .map_err(|_| (StatusCode::SERVICE_UNAVAILABLE, "Service unavailable"))?
+        .filter_map(|r| log_row_error(r, "digests"))
+        .collect();
+
+    // Feed-level <updated> is required by Atom; fall back to the epoch when there are no
+    // digests yet rather than omitting the element.
+    let updated = rows
+        .first()
+        .map(|r| format!("{}T00:00:00Z", r.date))
+        .unwrap_or_else(|| "1970-01-01T00:00:00Z".to_string());
+
+    let xml = render_atom_feed(&state.digest_name, &state.base_url(), &updated, &rows);
+
+    Ok((
+        StatusCode::OK,
+        [("content-type", "application/atom+xml; charset=utf-8")],
+        xml,
+    ))
+}
+
 /// Serve digest HTML by date (YYYY-MM-DD)
 pub async fn get_digest(
     Path(date): Path<String>,
@@ -584,5 +622,111 @@ mod tests {
             &PNG_MAGIC,
             "body should start with PNG magic bytes"
         );
+    }
+}
+
+#[cfg(test)]
+mod feed_tests {
+    use super::*;
+    use reqwest::Client;
+    use std::sync::atomic::{AtomicU32, Ordering};
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    static TEST_DB_COUNTER: AtomicU32 = AtomicU32::new(0);
+
+    /// Create a throwaway sqlite DB with a `digests` table seeded with `rows`, and an
+    /// `AppState` pointing at it. The file is left on disk under the OS temp dir (test dirs
+    /// are cheap and unique per-call, no cross-test collisions).
+    fn state_with_digests(rows: &[(&str, &str)]) -> Arc<AppState> {
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let n = TEST_DB_COUNTER.fetch_add(1, Ordering::SeqCst);
+        let path = std::env::temp_dir().join(format!("circulation_feed_test_{nanos}_{n}.db"));
+        let db_path = path.to_str().unwrap().to_string();
+
+        let conn = Connection::open(&db_path).unwrap();
+        conn.execute(
+            "CREATE TABLE digests (date TEXT PRIMARY KEY, html TEXT NOT NULL, preheader TEXT DEFAULT '')",
+            [],
+        )
+        .unwrap();
+        for (date, preheader) in rows {
+            conn.execute(
+                "INSERT INTO digests (date, html, preheader) VALUES (?1, '<html></html>', ?2)",
+                [date, preheader],
+            )
+            .unwrap();
+        }
+        drop(conn);
+
+        Arc::new(AppState {
+            db_path,
+            digest_name: "News Digest".to_string(),
+            digest_domain: Some("example.com".to_string()),
+            homepage_url: None,
+            source_url: None,
+            resend_api_key: None,
+            resend_audience_id: None,
+            http_client: Client::new(),
+        })
+    }
+
+    async fn feed_response_text(state: Arc<AppState>) -> (StatusCode, Option<String>, String) {
+        let response = feed(State(state)).await.unwrap().into_response();
+        let status = response.status();
+        let content_type = response
+            .headers()
+            .get("content-type")
+            .map(|v| v.to_str().unwrap().to_string());
+        let body_bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let body = String::from_utf8(body_bytes.to_vec()).unwrap();
+        (status, content_type, body)
+    }
+
+    #[tokio::test]
+    async fn feed_parses_as_xml_with_seeded_entries() {
+        let state = state_with_digests(&[
+            ("2026-06-12", "Second story"),
+            ("2026-06-11", "First story"),
+        ]);
+
+        let (status, content_type, body) = feed_response_text(state).await;
+
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(
+            content_type.as_deref(),
+            Some("application/atom+xml; charset=utf-8")
+        );
+        assert!(body.starts_with(r#"<?xml version="1.0" encoding="utf-8"?>"#));
+        assert_eq!(body.matches("<entry>").count(), 2);
+        assert!(body.contains("https://example.com/2026-06-12"));
+        assert!(body.contains("https://example.com/2026-06-11"));
+        // Newest first.
+        assert!(body.find("2026-06-12").unwrap() < body.find("2026-06-11").unwrap());
+    }
+
+    #[tokio::test]
+    async fn feed_escapes_special_characters_from_the_db() {
+        let state = state_with_digests(&[("2026-06-12", "Cats & dogs <fight> today")]);
+
+        let (_, _, body) = feed_response_text(state).await;
+
+        assert!(!body.contains("<fight>"));
+        assert!(body.contains("Cats &amp; dogs &lt;fight&gt; today"));
+    }
+
+    #[tokio::test]
+    async fn feed_is_empty_but_valid_with_no_digests() {
+        let state = state_with_digests(&[]);
+
+        let (status, _, body) = feed_response_text(state).await;
+
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body.matches("<entry>").count(), 0);
+        assert!(body.contains("<feed xmlns=\"http://www.w3.org/2005/Atom\">"));
     }
 }

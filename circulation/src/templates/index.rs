@@ -1,6 +1,7 @@
 //! Index page template - lists recent digests.
 
 use super::digest::{FAVICON_SVG, og_image_tags};
+use crate::routes;
 
 /// Parameters for rendering the index page.
 pub struct IndexParams<'a> {
@@ -36,6 +37,7 @@ pub fn render_index(p: &IndexParams) -> String {
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{name}</title>
   {favicon}
+  <link rel="alternate" type="application/atom+xml" title="{name}" href="{canonical_url}{feed_url}">
   <meta property="og:title" content="{name}">
   <meta property="og:description" content="{og_description}">
   <meta property="og:type" content="website">
@@ -320,6 +322,7 @@ pub fn render_index(p: &IndexParams) -> String {
 </html>"##,
         favicon = FAVICON_SVG,
         image_tags = og_image_tags(image_url),
+        feed_url = routes::FEED,
         skip_link_html = super::digest::SKIP_LINK_HTML,
         skip_link_css = super::digest::SKIP_LINK_CSS,
         reduced_motion_css = super::digest::REDUCED_MOTION_CSS,
