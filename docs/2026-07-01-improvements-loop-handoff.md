@@ -161,7 +161,40 @@ run `checking-usage`; stop only if the weekly pool is near-full. Do NOT cross th
 deploy). If an eval does NOT clear its pre-registered bar, that's a real finding — record it, don't
 force the change.
 
-## Paste-prompt for the new session
+---
+
+## STATUS LOG (execution session, 2026-07-01)
+
+**Item 1 — stale-world-fact WRITE bug: DONE + committed (`9e4fbdd`).** Fix = inject
+the run date into the WRITE system prompt via a `{{CURRENT_DATE}}` token resolved at
+invocation (`orchestrate.render_body`, UTC-anchored to match run.py/db.py/digest.py) +
+a "NO STALE WORLD-STATE PRIORS" anti-fabrication rule in `write.md`. TDD: 5 failing
+unit tests first (render_body substitution/no-op/UTC-default/live-injection + write.md
+guard), then green (481 pass). Review gate: code-reviewer caught a real UTC-vs-local
+bug (fixed); simplifier clean. Verified on REAL output: live 499-article WRITE run — token
+substitutes to "Wednesday, 1 July 2026" in the actual SDK system prompt, clean 5+14
+digest, 0 stale office-holder hits, no regression from the added rules. **HONEST
+DEFLATION:** could NOT pull the exact prod instance (SSH/tailscale unreachable this AFK
+session; local prod clone reaches 06-30 only and its 12 most-recent Biden mentions are
+all correct historical references — bug is intermittent). Adversarial reproduction (two
+bait designs incl. a strong Biden-coded student-debt lure, 8 fix-off reps) could NOT
+force the failure — the frontier model resists it. So this ships as **verified
+prevention**, not a measured before/after. Low-risk (no-op for other stages).
+
+**Item 2 — Sonnet 5 on JUDGMENT stages: DONE (WRITE+SELECT), synthesis scoped out. KEEP 4.6 on
+both — clean negative.** Pre-registered `docs/2026-07-01-sonnet5-judgment-stages-preregistration.md`
+(gate/signals/rule fixed before results; absolute signals only since NIM/Olla down → no pairwise
+preference judge that would show family bias vs the S5-authored arm). n=6 per arm, product-grounded.
+- **WRITE:** S5 WORSE on the validated why_judge golden (filler 0.114 vs 4.6's 0.000, clears band),
+  −28% citations (but distinct-sources + bias-spread IDENTICAL → bias diversity unchanged), +26%
+  cost, one invalid-JSON WRITE output (caught by prod once-retry). KEEP 4.6.
+- **SELECT:** filler floor-hug 0/0 both (non-discriminating), coverage/bias/kept parity, +25% cost.
+  KEEP 4.6.
+- **One honest positive:** S5 has fewer COHERENCE failures in BOTH gates (mild, low-count rare-event
+  edge, NOT gated on) → the trigger to revisit S5 IF faithfulness becomes priority or pricing drops.
+  No prod change; `usage.py::_PINNED_MODEL_IDS` untouched (S5 not wired). Harnesses in scratch.
+
+
 > Resume news-digest on branch `feat/extractjoin-cluster-stage`. Execute the five improvements in
 > `docs/2026-07-01-improvements-loop-handoff.md` IN ORDER, each to the project's high bar (verify on
 > real output, TDD, eval pre-registration + band + cross-family judge + deflation, review gate,
