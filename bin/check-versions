@@ -174,12 +174,15 @@ def check_prod_pins():
     return ("prod-pins", "update", f"{len(behind)}/{len(pins)} behind", None, [f"{n}: {c} → {l}" for n, c, l in behind])
 
 def check_claude_cli():
-    """Claude Code CLI. The image installs one via curl|bash (floats to latest at build), but the
-    PIPELINE runs the CLI BUNDLED inside claude-agent-sdk (pinned via prod-pins). So this reports
-    the latest release for awareness, not a prod-drift signal -- the pipeline's CLI moves with the
-    SDK pin, not this."""
+    """Claude Code CLI -- there are TWO. (1) The PIPELINE runs the CLI BUNDLED inside
+    claude-agent-sdk: the Python SDK ships a CLI *snapshot*, PINNED by the SDK version (prod-pins),
+    NOT floating -- and it lags Claude Code's daily release train (e.g. SDK 0.2.110 bundles CC
+    2.1.191, several patches behind latest). (2) The image's curl|bash `claude` (interactive only)
+    floats to latest. This line reports the latest CC release for AWARENESS -- it is neither the
+    pipeline's version (that's the pinned SDK's bundle) nor a drift signal. To move the pipeline's
+    CLI, bump the claude-agent-sdk pin (which re-runs bin/sdk-canary)."""
     lat = gh_release("anthropics/claude-code")
-    return ok("claude-cli", f"floats → {lat} (pipeline uses the SDK-bundled CLI)" if lat else "floats (latest)")
+    return ok("claude-cli", f"latest CC {lat} (FYI; pipeline CLI = the pinned SDK's bundle, not this)" if lat else "?")
 
 def check_python_deps_host():
     if not has("uv"): return ok("py-deps-host", "(uv not installed)")
