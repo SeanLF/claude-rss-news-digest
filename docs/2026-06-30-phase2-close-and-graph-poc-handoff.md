@@ -33,18 +33,37 @@ n=6 per arm, downstream model fixed at prod's 4.6 so the CLUSTER *partition* is 
 - **NOT wasted / keep:** (a) the **measuring stick** (`cluster_taskgrounded_eval.py`) — it's the go/no-go gate for the graph PoC and scores digests regardless of how clusters are formed; (b) **WRITE / SELECT / synthesis** model choices — those stages **survive** the redesign (they operate on subgraphs instead of clusters), so their A/Bs stay relevant, just **deferred** until the architecture is settled.
 - Therefore the next real experiment is the **graph-first PoC**, not more current-arch stage tuning.
 
-## Next session — the graph-first clustering PoC (the keystone go/no-go)
-Prove the graph-first grouping against the measuring stick on the fixed snapshot. This is the architecture-deciding experiment (per `docs/2026-06-26-news-clustering-prior-art.md`: every serious aggregator does cheap per-article extract → deterministic join → thin LLM refine; entity-bag + pub-time = 92 BCubed F1 with zero LLM).
+## ⚠️ The graph-first pipeline is ALREADY BUILT — reuse, don't rebuild
+A sweep of `scratch/cluster-replay/` (50+ scripts) + `docs/2026-06-2{5,6,7,8}-*.md` shows the extract → join → refine pipeline was **built and validated (runs 204–205, June 26–28)** and **already cleared an initial task-grounded gate**. The next session's job is to **re-validate it with the NEW measuring stick on the current snapshot, then productionize** — NOT to build from scratch.
 
-**Build:**
-1. **Cheap extract** — Haiku per-article: entities + event type + time. (Cheap tokens; batch/parallel per the fan-out pattern.)
-2. **Deterministic join** — SQLite + `networkx` (default; minimal stack). Group by entity-bag + temporal proximity into candidate stories.
-3. **(Optional) thin Sonnet refine** — only if the deterministic join underperforms; keep it thin.
-4. **Score with the measuring stick** — feed the graph-derived partition into `cluster_taskgrounded_eval.py` (it takes any `clusters.json`-shaped partition) and compare its **digest** to the holistic-CLUSTER digest. **GATE: task-grounded digest quality ≥ holistic — NEVER ARI.**
+### Prior assets to REUSE (with results)
+- **Extract (Stage 1):** `scratch/cluster-replay/extract_tags.py` — Haiku per-article `{entities, keywords, primary_event, time}`. >99% coverage (run 205: 464/465), ~$0.00015/article, batched (40/call), title-only fallback. Backends: Haiku (Docker) or DeepSeek (on-host, free). Output already on disk: `drafts/tags_haiku_{204,205,206,207}.json`. **The `primary_event` phrase is the load-bearing join signal — not generic entities.**
+- **Join (Stage 2):** `join_materialize.py` (writes partition) + `join_eval.py` (TF-IDF on entity/tag bag, agglomerative) + `join_embed.py` (event-embedding + entity-Jaccard). **Result: TF-IDF join peak ARI 0.661 @ thresh 0.40, BCubed-F 0.913 (IN-BAND), pairwise-F1 0.663 — i.e. inside Sonnet's own 0.704±0.057 self-agreement noise.** Materialized partitions on disk: `drafts/clusters_extractjoin_haiku_{204,205}.json`.
+- **Refine (Stage 3):** `refine_borderline.py` — thin cross-family split-only judge (~128 pairs/run vs ~29k holistic). **Result: raises precision 0.85→0.95 but recall cost offsets it → pairwise-F1 FLAT. It's a rebalance, not a gap-closer.** Output: `drafts/clusters_refined_extractjoin_haiku_204.json`.
+- **Eval infra (already gold-free + de-biased):** `band_eval.py` / `band_eval_pairwise.py` (score any partition vs the reference band; stdlib-only), `adjudicate.py` + `judge_digests.py` + `test_judge_reconcile.py` (cross-family, order-swapped, position-bias-removed). **Prior task-grounded digest test: extract-join vs Sonnet = zero confirmed duplicates, zero confirmed misses.**
+- **Embedding deflation harness:** `scratch/cluster-embed/embed_cluster_poc.py` — MiniLM 0.497 / model2vec 0.288 / TF-IDF 0.269 ARI. Use as a deflation floor, not a path.
+- **Downstream / synthesis / threads (further out, validated):** `synth_poc.py`/`synth_batched.py` (96.4% faithfulness pooled, n=4), `late_bind.py` (entity-Jaccard soft-edge neighborhood), `evolving_thread.py`/`temporal_thread.py` (persistent graph across days; memory/fact wall is load-bearing). Docs: `docs/2026-06-27-graph-synthesis-direction.md`, `docs/2026-06-28-synthesis-forward-ideas-pocs.md`.
 
-**Keystone risk / gate:** cheap automated grouping (MiniLM 0.497 ARI in the earlier PoC) did NOT match Claude's editorial-narrative judgment. The cheap-extract → join must clear the *narrative* bar, validated task-grounded (digest quality). That PoC is the go/no-go for the whole graph direction.
+### DON'T REDO (learned + paid for)
+1. **ARI-vs-one-gold** — broken ruler (4+ research strands agree). Use band + pairwise-F1 + the task-grounded digest gate.
+2. **Single-pass judges w/o order-swap** — position bias flips verdicts 17–40%.
+3. **Cheaper deterministic gates on over-merges** (`join_conjunction.py` FAILED) — residual errors are *quasi-identity/semantic* (e.g. "G7 AI-chip access" vs "US-China AI race"), not lexical. Only thin LLM refine touches them, and even that only rebalances.
+4. **BCubed-F alone on singleton-heavy data** — inflates (all-singletons ≈ 0.804). Pair with pairwise-F1.
+5. **Haiku as the holistic clustering model** — output cost explodes (`cluster-token-experiment.md` VHAIKU2). Haiku is for per-article *extraction* only.
+6. **Trimming CLUSTER prompt narration** — reasoning is load-bearing; trimming adds cost.
 
-**PoC #2 (if #1 clears):** LlamaIndex `PropertyGraphIndex` vs SQLite+`networkx` for the persistent story-graph substrate. GATE: adopt only if it beats the minimal stack on *capability*, not convenience.
+### Next session — validate-with-new-gate, then productionize
+1. **Regenerate extract→join on the CURRENT measuring-stick snapshot** (the on-disk partitions are runs 204/205 = 465 articles; the `data/claude_input/` snapshot is 290 articles → IDs won't match, so re-run `extract_tags.py` + `join_materialize.py` against this snapshot to get a matching `clusters.json`-shaped file).
+2. **Score it with the NEW measuring stick** (`cluster_taskgrounded_eval.py`, parallel via `tg_parallel.sh`, n≥6) — drop the extract-join partition into `data/claude_input/sonnet5_ab/`, add to `PARTITIONS`, compare its **digest** to the holistic-CLUSTER digest. This is the apples-to-apples confirmation the prior work never got (it used `band_eval`/`judge_digests`, not the integrated SELECT→WRITE→COHERENCE chain). **GATE: digest quality ≥ holistic. NEVER ARI.**
+3. **If it holds → close the productionization gaps** (below) and plan the actual pipeline integration (extract+join become the new CLUSTER stage; keep SELECT/WRITE/COHERENCE downstream).
+
+### Open gaps the prior work left (the real remaining work)
+- **Time-decay never modeled** — join used entity/tag TF-IDF with NO temporal signal; literature says entity-Jaccard + temporal proximity ≈ 92 BCubed-F. Add Gaussian time-decay (σ≈72h) to the join.
+- **SQLite + `networkx` graph substrate not built** — joins are one-shot partitions; the persistent story-graph (nodes=articles, edges=same-event, carried across days for late-binding/threads) doesn't exist yet. This is the actual "graph" build.
+- **Scale not benchmarked** — only run 204 fully materialized+refined; generalize to 205–207.
+- **Learned join classifier untested** (Miranda's trick: small SVM over {entity-Jaccard, time-gap, event-cosine} vs hand-set threshold).
+- **Rendering/length** — synthesis output exceeds email length; the tighten-to-digest stage doesn't exist.
+- **PoC #2 (only if a substrate is needed):** LlamaIndex `PropertyGraphIndex` vs SQLite+`networkx`. GATE: adopt only if it beats the minimal stack on *capability*, not convenience.
 
 **Keep (non-negotiable):** deterministic Python orchestration, small stages, ID-indirection, COHERENCE, the eval floor, the measuring stick. NO LLM orchestrator. Decouple grouping from ranking.
 
