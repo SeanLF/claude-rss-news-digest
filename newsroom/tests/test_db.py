@@ -36,6 +36,35 @@ def test_migration_adds_cluster_id_column(fresh_db):
     assert "cluster_id" in cols
 
 
+def test_run_usage_persists_duration_ms(fresh_db):
+    """The duration_ms migration + record_usage persist per-stage latency (previously logged then
+    discarded). A row that omits the key stores NULL rather than crashing (backward-safe)."""
+    from usage import usage_row_from_sdk
+
+    rows = [
+        usage_row_from_sdk(
+            "cluster", "claude-sonnet-4-6", {"input_tokens": 10, "output_tokens": 5}, 0.01, duration_ms=1234
+        ),
+        # A dict without the duration_ms key (e.g. an older caller) -> NULL, not a KeyError.
+        {
+            "subagent": "legacy",
+            "model": "m",
+            "input_tokens": 1,
+            "output_tokens": 1,
+            "cache_write_tokens": 0,
+            "cache_read_tokens": 0,
+            "api_cost_usd": 0.0,
+        },
+    ]
+    db.record_usage(rows)
+    with sqlite3.connect(fresh_db) as conn:
+        cols = {r[1] for r in conn.execute("PRAGMA table_info(run_usage)")}
+        assert "duration_ms" in cols
+        got = dict(conn.execute("SELECT subagent, duration_ms FROM run_usage").fetchall())
+    assert got["cluster"] == 1234
+    assert got["legacy"] is None
+
+
 def test_migration_creates_cluster_runs_table(fresh_db):
     with sqlite3.connect(fresh_db) as conn:
         tables = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}

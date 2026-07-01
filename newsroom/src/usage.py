@@ -23,11 +23,12 @@ logger = logging.getLogger(__name__)
 _PINNED_MODEL_IDS = ("claude-sonnet-4-6", "claude-haiku-4-5")
 
 
-def _usage_row(subagent: str, model: str, usage: dict, api_cost_usd: float) -> dict:
+def _usage_row(subagent: str, model: str, usage: dict, api_cost_usd: float, duration_ms: int = 0) -> dict:
     """Build a ``run_usage`` row from a subagent's token counts and SDK cost.
 
     ``usage`` holds the SDK token counts (keys: input/output/cache_write/
-    cache_read); ``api_cost_usd`` is the SDK's ``total_cost_usd`` for the stage.
+    cache_read); ``api_cost_usd`` is the SDK's ``total_cost_usd`` for the stage;
+    ``duration_ms`` is its wall-clock latency (0 if the caller doesn't have it).
     """
     if model != "unknown" and not model.startswith(_PINNED_MODEL_IDS):
         logger.warning(
@@ -45,13 +46,15 @@ def _usage_row(subagent: str, model: str, usage: dict, api_cost_usd: float) -> d
         "cache_write_tokens": usage["cache_write"],
         "cache_read_tokens": usage["cache_read"],
         "api_cost_usd": api_cost_usd,
+        "duration_ms": duration_ms,
     }
 
 
-def usage_row_from_sdk(subagent: str, model: str, sdk_usage: dict, api_cost_usd: float) -> dict:
+def usage_row_from_sdk(subagent: str, model: str, sdk_usage: dict, api_cost_usd: float, duration_ms: int = 0) -> dict:
     """Build a run_usage row from the RAW SDK ResultMessage.usage (keys input_tokens /
     output_tokens / cache_creation_input_tokens / cache_read_input_tokens). Centralizes the
-    SDK->row key mapping so callers (orchestrate stages, thread synthesis) can't drift apart."""
+    SDK->row key mapping so callers (orchestrate stages, thread synthesis) can't drift apart.
+    ``duration_ms`` is the stage's wall-clock latency (``StageResult.duration_ms``)."""
     return _usage_row(
         subagent,
         model,
@@ -62,4 +65,5 @@ def usage_row_from_sdk(subagent: str, model: str, sdk_usage: dict, api_cost_usd:
             "cache_read": sdk_usage.get("cache_read_input_tokens", 0),
         },
         api_cost_usd,
+        duration_ms,
     )

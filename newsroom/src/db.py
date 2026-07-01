@@ -492,7 +492,8 @@ def record_usage(usage_rows: list[dict]):
     """Record per-subagent token usage for the current run.
 
     Each dict has: subagent, model, input_tokens, output_tokens,
-    cache_write_tokens, cache_read_tokens, api_cost_usd.
+    cache_write_tokens, cache_read_tokens, api_cost_usd, and (optionally)
+    duration_ms (per-stage wall-clock latency; NULL if the row omits it).
     """
     if not _state.recording or _state.run_id is None:
         return
@@ -503,8 +504,8 @@ def record_usage(usage_rows: list[dict]):
             conn.executemany(
                 """INSERT INTO run_usage
                    (run_id, subagent, model, input_tokens, output_tokens,
-                    cache_write_tokens, cache_read_tokens, api_cost_usd)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                    cache_write_tokens, cache_read_tokens, api_cost_usd, duration_ms)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 [
                     (
                         _state.run_id,
@@ -515,6 +516,7 @@ def record_usage(usage_rows: list[dict]):
                         r["cache_write_tokens"],
                         r["cache_read_tokens"],
                         r["api_cost_usd"],
+                        r.get("duration_ms"),
                     )
                     for r in usage_rows
                 ],

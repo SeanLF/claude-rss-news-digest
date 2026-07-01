@@ -232,6 +232,8 @@ class TestRunStage:
         assert row["cache_read_tokens"] == 8000
         # Cost is the SDK's own total_cost_usd, not a hand-rolled token x rate sum.
         assert row["api_cost_usd"] == 0.4242
+        # Per-stage wall-clock latency is persisted for monitoring (was logged then discarded).
+        assert row["duration_ms"] == 1000  # _stage_result default
 
     def test_passes_spec_effort_and_thinking(self, tmp_path, monkeypatch):
         out = tmp_path / "clusters.json"

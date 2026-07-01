@@ -348,7 +348,7 @@ async def run_stage(
                 continue
             raise RuntimeError(f"{label} stage failed after retry: {e}") from e
 
-        row = usage_row_from_sdk(label, model, result.usage, result.total_cost_usd)
+        row = usage_row_from_sdk(label, model, result.usage, result.total_cost_usd, duration_ms=result.duration_ms)
         duration = result.duration_ms / 1000
         logger.info("[%s complete] %.1fs $%.4f", label.capitalize(), duration, row["api_cost_usd"])
         return row

@@ -262,6 +262,7 @@ def test_run_sonnet_maps_raw_sdk_usage_to_run_usage_row(monkeypatch):
             "cache_read_input_tokens": 3,
         },
         total_cost_usd=0.01,
+        duration_ms=1000,
     )
 
     async def fake_run_agent(*a, **k):
@@ -279,6 +280,7 @@ def test_run_sonnet_maps_raw_sdk_usage_to_run_usage_row(monkeypatch):
             "cache_write_tokens": 2,
             "cache_read_tokens": 3,
             "api_cost_usd": 0.01,
+            "duration_ms": 1000,
         }
     ]
 

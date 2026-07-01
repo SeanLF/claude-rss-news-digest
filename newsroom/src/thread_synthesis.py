@@ -171,7 +171,11 @@ def _run_sonnet(user: str, system: str, *, model: str, subagent: str, usage_rows
     if not result.ok:
         raise RuntimeError(f"claude failed: {result.error_summary()}")
     if usage_rows is not None and result.usage:
-        usage_rows.append(usage_row_from_sdk(subagent, model, result.usage, result.total_cost_usd or 0.0))
+        usage_rows.append(
+            usage_row_from_sdk(
+                subagent, model, result.usage, result.total_cost_usd or 0.0, duration_ms=result.duration_ms
+            )
+        )
     return result.text
 
 

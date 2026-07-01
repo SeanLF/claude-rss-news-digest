@@ -286,6 +286,7 @@ async def run_extractjoin_stage(
     silently ship a degenerate (all-singleton) partition. On raise, the run fails and the next
     cron run retries.
     """
+    stage_start = time.monotonic()
     arts = load_articles(claude_input_dir)
     ids = list(arts.keys())
     if not ids:
@@ -370,4 +371,6 @@ async def run_extractjoin_stage(
         "extract-join: %d articles -> %d clusters (thr %.2f, $%.4f)", len(ids), len(clusters), threshold, total_cost
     )
 
-    return usage.usage_row_from_sdk("cluster", model, _merge_usage(usage_rows), total_cost)
+    # Whole-stage wall clock (batched extraction + deterministic join), for run_usage latency.
+    duration_ms = int((time.monotonic() - stage_start) * 1000)
+    return usage.usage_row_from_sdk("cluster", model, _merge_usage(usage_rows), total_cost, duration_ms=duration_ms)
