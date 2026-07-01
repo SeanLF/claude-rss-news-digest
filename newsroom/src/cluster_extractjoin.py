@@ -21,6 +21,7 @@ does the batched extraction via the Agent SDK and returns a ``run_usage`` row.
 
 from __future__ import annotations
 
+import asyncio
 import csv
 import json
 import logging
@@ -87,6 +88,11 @@ Respond IMMEDIATELY with ONLY a JSON object, no prose, no markdown fence, one it
 {"items": [{"article_id": "A1", "entities": ["..."], "keywords": ["..."], "primary_event": "..."}]}"""
 
 _EXTRACT_BATCH = 40
+# The ~13 per-batch extraction calls are independent, so they run concurrently (bounded) rather
+# than serially -- the single longest wall-clock chunk of the stage. Precedent: scratch/tg_parallel
+# ran 6-12 concurrent chains on one OAuth token with 0 rate-limit failures; 4 is well within that.
+# Each batch keeps its own with_retry_async, so a 429 under concurrency is still backed off.
+_EXTRACT_CONCURRENCY = 4
 _SUMMARY_CAP = 300  # chars of summary shown per article (title carries most of the signal)
 
 
@@ -316,12 +322,31 @@ async def run_extractjoin_stage(
     total_cost = 0.0
     batches = [ids[i : i + batch_size] for i in range(0, len(ids), batch_size)]
     deadline = time.monotonic() + _EXTRACT_RETRY_BUDGET_S  # shared across batches: ride out an outage, bounded
-    for n, batch in enumerate(batches, 1):
+    sem = asyncio.Semaphore(_EXTRACT_CONCURRENCY)
+
+    async def _run_batch(n: int, batch: list[str]) -> claude_cli.StageResult | None:
+        """One batch's extraction, semaphore-bounded. Returns None on failure-after-retries so its
+        articles title-fallback -- identical to the old per-iteration `continue`, without failing
+        the whole gather."""
         prompt = build_extract_prompt(batch, arts)
-        try:
-            result = await with_retry_async(partial(_extract, prompt), label="cluster-extract", deadline=deadline)
-        except (RuntimeError, ValueError) as e:
-            logger.warning("extract-join batch %d/%d failed after retries, title-fallback: %s", n, len(batches), e)
+        async with sem:
+            try:
+                return await with_retry_async(partial(_extract, prompt), label="cluster-extract", deadline=deadline)
+            except (RuntimeError, ValueError) as e:
+                logger.warning("extract-join batch %d/%d failed after retries, title-fallback: %s", n, len(batches), e)
+                return None
+
+    # Batches are independent -> run them concurrently (bounded), then fold results IN batch order so
+    # tag assignment stays deterministic. Output (clusters.json) is identical to the serial version;
+    # only wall-clock changes. gather (not TaskGroup) on purpose: default return_exceptions=False is
+    # the fail-CLOSED choice -- an UNEXPECTED exception (a bug, a non-retryable SDK error, teardown
+    # CancelledError) propagates and aborts the stage rather than silently degrading the partition;
+    # `_run_batch` only absorbs the same (RuntimeError, ValueError) the serial loop did. Siblings are
+    # left to the loop teardown, fine for this one-shot cron run (revisit with TaskGroup only if this
+    # is ever wrapped in a longer-lived loop that needs deterministic sibling cancellation).
+    results = await asyncio.gather(*(_run_batch(n, b) for n, b in enumerate(batches, 1)))
+    for n, (batch, result) in enumerate(zip(batches, results, strict=True), 1):
+        if result is None:
             continue
         usage_rows.append(result.usage)
         total_cost += result.total_cost_usd

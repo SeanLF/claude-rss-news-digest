@@ -312,6 +312,30 @@ def test_stage_partial_empty_content_counts_as_fallback(tmp_path, monkeypatch):
     # A7/A8 fell back to title-only -> their tag bag is the title, not the empty sentinel
 
 
+def test_stage_extracts_batches_concurrently(tmp_path, monkeypatch):
+    """Batches run CONCURRENTLY (bounded by the semaphore), not one-at-a-time -- the latency win.
+    A fake that stays in-flight while others start lets us observe the overlap; a serial loop would
+    show max-concurrency 1."""
+    import re as _re
+
+    _write_articles(tmp_path, 120)  # 3 batches of 40
+    live = {"now": 0, "max": 0}
+
+    async def fake(prompt, **kw):
+        live["now"] += 1
+        live["max"] = max(live["max"], live["now"])
+        await asyncio.sleep(0.05)  # hold open so concurrent entries overlap observably
+        live["now"] -= 1
+        aids = _re.findall(r"\bA\d+\b", prompt)
+        items = [{"article_id": a, "entities": [f"E{a}"], "keywords": ["k"], "primary_event": f"e{a}"} for a in aids]
+        return _result(json.dumps({"items": items}))
+
+    monkeypatch.setattr(cej.claude_cli, "run_agent", fake)
+    monkeypatch.setattr(cej, "with_retry_async", _passthrough)
+    asyncio.run(cej.run_extractjoin_stage(tmp_path, model="claude-sonnet-4-6", cwd=None, threshold=0.80))
+    assert live["max"] >= 2, f"extraction batches must run concurrently (saw max {live['max']})"
+
+
 def test_stage_multibatch_one_batch_fails_preserves_coverage(tmp_path, monkeypatch):
     """Multi-batch run (>1 extraction batch -- prod is ~13): one batch failing after retries must
     NOT fail the whole run when it is a minority. Its articles fall back to title-only, coverage
