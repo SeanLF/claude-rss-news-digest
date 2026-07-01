@@ -113,6 +113,18 @@ def test_join_empty_tags_do_not_collapse_into_one_blob():
 
 
 # --------------------------------------------------------------------------- #
+# _thinking_for -- model-aware thinking (next-gen models 400 on thinking=disabled).
+# --------------------------------------------------------------------------- #
+def test_thinking_disabled_only_for_4x_family():
+    assert cej._thinking_for("claude-sonnet-4-6") == {"type": "disabled"}
+    assert cej._thinking_for("claude-haiku-4-5-20251001") == {"type": "disabled"}
+    # next-gen models reject thinking=disabled (400) -> must omit it
+    assert cej._thinking_for("claude-sonnet-5") is None
+    assert cej._thinking_for("claude-opus-4-8") is None
+    assert cej._thinking_for("claude-fable-5") is None
+
+
+# --------------------------------------------------------------------------- #
 # parse_extract_items -- tolerant JSON extraction.
 # --------------------------------------------------------------------------- #
 def test_parse_object_form():

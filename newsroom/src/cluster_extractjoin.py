@@ -33,9 +33,23 @@ from typing import Any
 
 import claude_cli
 import usage
+from claude_agent_sdk import ThinkingConfig
 from retry import with_retry_async
 
 logger = logging.getLogger(__name__)
+
+
+def _thinking_for(model: str) -> ThinkingConfig | None:
+    """thinking=disabled restores the proven-good clustering behaviour on the 4.x family
+    (Sonnet 4.6, Haiku 4.5), but Sonnet 5 / Opus 4.8 / Fable 5 have always-on thinking and
+    400 on ``disabled`` -- omit it there (SDK default = adaptive). Same model-agnosticism
+    reason ``effort`` is left unset; keeps CLUSTER_EXTRACT_MODEL swappable to a next-gen model
+    (the documented Sonnet-5 direction) without every batch 400ing into a degenerate partition.
+    """
+    if model.startswith(("claude-sonnet-4", "claude-haiku-4")):
+        return {"type": "disabled"}
+    return None
+
 
 # Reject the whole stage if more than this fraction of articles fall back to title-only tags:
 # that means extraction is broken (auth/outage/refusal/prompt drift), and a title-only partition
@@ -215,9 +229,10 @@ async def run_extractjoin_stage(
 
     async def _extract(prompt: str) -> claude_cli.StageResult:
         # Mechanical single-shot JSON extraction: no tools (no file I/O, unlike the other
-        # stages), thinking off, one turn. effort is left at the SDK default deliberately --
-        # it is REQUIRED for model-agnosticism (Haiku 4.5 rejects effort with a 400 and is a
-        # supported CLUSTER_EXTRACT_MODEL) and the gate validated the default.
+        # stages), one turn. thinking and effort are both left MODEL-AGNOSTIC: effort unset
+        # (Haiku 4.5 400s on it) and thinking chosen per model (_thinking_for -- next-gen
+        # models 400 on thinking=disabled), so CLUSTER_EXTRACT_MODEL can swap 4.6<->Haiku<->
+        # Sonnet 5 without a per-batch 400 collapsing the run into a degenerate partition.
         result = await claude_cli.run_agent(
             prompt,
             model=model,
@@ -225,7 +240,7 @@ async def run_extractjoin_stage(
             tools=[],
             max_turns=1,
             cwd=cwd,
-            thinking={"type": "disabled"},
+            thinking=_thinking_for(model),
         )
         if not result.ok:  # non-success (incl. the subtype=success+is_error API-fail trap): retryable
             raise RuntimeError(result.error_summary())
