@@ -43,11 +43,12 @@ RUN apt-get update \
 RUN groupadd -g 1001 appuser \
     && useradd -u 1001 -g appuser -s /bin/bash -m -d /home/appuser appuser
 
-# Install Claude Code CLI (native method) as appuser.
+# The Claude Code CLI is NOT installed separately: claude-agent-sdk bundles it (see the pinned SDK
+# in constraints-prod.txt), and the pipeline drives that bundle. We used to also `curl | bash` the
+# standalone CLI -- a second ~236MB binary + a floating supply-chain dep, and the SDK never used it
+# (_find_cli returns the bundle first). `claude` on PATH is symlinked to the bundle below instead,
+# so interactive `claude` == the pinned pipeline CLI. USE_BUILTIN_RIPGREP=0 -> use the apt ripgrep.
 ENV USE_BUILTIN_RIPGREP=0
-USER appuser
-RUN curl -fsSL https://claude.ai/install.sh | bash
-USER root
 
 WORKDIR /app
 
@@ -68,9 +69,11 @@ COPY --chown=appuser:appuser bin/ ./bin/
 COPY --chown=appuser:appuser .claude/agents/ /app/.claude/agents/
 COPY --chmod=755 newsroom/entrypoint.sh /app/entrypoint.sh
 
-# Runtime dirs + claude symlink (chown only the two new dirs, not the whole tree).
+# Runtime dirs + claude symlink -> the SDK-bundled CLI (located via the package, so the path is
+# robust to the python minor version). chown only the two new dirs, not the whole tree.
 RUN mkdir -p /app/data /home/appuser/.bash_history_dir \
-    && ln -s /home/appuser/.local/bin/claude /usr/local/bin/claude \
+    && ln -s "$(/app/.venv/bin/python -c 'import claude_agent_sdk, os; print(os.path.join(os.path.dirname(claude_agent_sdk.__file__), "_bundled", "claude"))')" /usr/local/bin/claude \
+    && test -x /usr/local/bin/claude \
     && chown appuser:appuser /app/data /home/appuser/.bash_history_dir
 ENV HISTFILE=/home/appuser/.bash_history_dir/.bash_history
 
