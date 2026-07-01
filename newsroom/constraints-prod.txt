@@ -1,0 +1,13 @@
+# Production dependency pins (applied via `uv pip install -c` in newsroom/Dockerfile).
+#
+# Why: pyproject.toml lists claude-agent-sdk unpinned, and both Dockerfiles install
+# with `uv pip install -r pyproject.toml` (the uv.lock is not consulted), so without
+# this a fresh PROD build floats to whatever PyPI-latest is at build time -- a bad SDK
+# release would break prod with no guard. Pinning here makes prod builds reproducible.
+#
+# CI (newsroom/Dockerfile.ci) deliberately does NOT apply this constraint: it floats to
+# latest so a bad release fails the CI build first, not prod. The canary in
+# newsroom/tests/test_sdk_pin.py ties this pin to the SDK version the in-repo SDK
+# workarounds (#378 teardown timeout, _thinking_for thinking-400) were validated against,
+# so bumping the pin forces re-verifying them.
+claude-agent-sdk==0.2.110

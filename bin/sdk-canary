@@ -1,0 +1,129 @@
+#!/bin/bash
+# Live SDK behaviour canary (supply-chain reliability, Phase 5).
+#
+# The in-repo SDK workarounds are behaviour-dependent, so a version pin alone can't tell you
+# when upstream changes the behaviour they guard. Run this after bumping the claude-agent-sdk
+# pin (newsroom/constraints-prod.txt) -- the test_sdk_pin.py canary forces that moment -- to
+# re-verify the workarounds' PREMISES on the new SDK, BEFORE shipping the bump.
+#
+# Premises probed (live API, so it runs in the digest-newsroom container with SDK + OAuth, NOT
+# under CLAUDECODE which blocks nested SDK calls):
+#   A. thinking={"type":"disabled"} is REJECTED (400) on a next-gen model (claude-sonnet-5) but
+#      accepted on the 4.x family (claude-sonnet-4-6). This is _thinking_for's original premise.
+#   B. effort="medium" is REJECTED (400) on Haiku 4.5. This is why RECAP + the extraction call
+#      never pass effort (orchestrate / cluster_extractjoin).
+#
+# It is a DIAGNOSTIC, not a pass/fail gate -- do NOT wire it into CI. It exits 0 only when every
+# premise still holds; a changed premise (exit 1) or an unattributable failure (exit 2 =
+# INCONCLUSIVE) both mean "a human must look", which is the point.
+#
+# Robustness: a premise is only judged from an ATTRIBUTABLE result. Each "should 400" probe is
+# paired with a control call of the SAME model WITHOUT the disputed option; if the control fails
+# the model is unreachable/auth is broken, so the probe's failure is meaningless -> INCONCLUSIVE,
+# never a false "premise holds". A probe failure counts as a 400 only when it is actually a 400.
+#
+# Usage: bin/sdk-canary
+set -e
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
+cd "$PROJECT_DIR"
+
+exec docker compose --env-file .env run --rm --no-deps --entrypoint sh digest-newsroom -c '
+.venv/bin/python - <<\PY
+import asyncio, sys
+sys.path.insert(0, "/app/src")
+import claude_cli
+
+async def probe(model, **opts):
+    """Return (status, code, detail). status in {ok, error, exception}; code is the API status
+    (int) when the SDK surfaced one, else None. A real disabled/effort rejection is a 400."""
+    try:
+        r = await claude_cli.run_agent(
+            "Reply with the single word OK.", model=model, system_prompt="You are terse.",
+            tools=[], max_turns=1, **opts,
+        )
+        if r.ok:
+            return ("ok", None, r.text[:40])
+        return ("error", getattr(r, "api_error_status", None), r.error_summary()[:140])
+    except Exception as e:  # noqa: BLE001
+        return ("exception", None, repr(e)[:140])
+
+def _is_400(status, code, detail):
+    """True only when a FAILED probe is attributably a request-validation 400 (the rejection
+    signal), not a transient 429/500/timeout. Prefer the structured api_error_status; fall back to
+    the error text ONLY when "400" co-occurs with a request-error phrase, so a stray "400" in a
+    request id / cost / token count cannot manufacture a false rejection."""
+    if status == "ok":
+        return False
+    if code == 400:
+        return True
+    d = (detail or "").lower()
+    return "400" in d and any(w in d for w in ("bad request", "invalid", "unsupported", "not supported"))
+
+async def check(name, model, control_opts, test_opts, expect):
+    """Probe `model` with test_opts, guarded by a control probe (control_opts, expected ok).
+    expect="reject": test is EXPECTED to 400. expect="accept": test is EXPECTED to succeed.
+    Returns holds | obsolete | changed | inconclusive (never green on an unattributable failure)."""
+    c_status, c_code, c_detail = await probe(model, **control_opts)
+    t_status, t_code, t_detail = await probe(model, **test_opts)
+    print(f"{name}: control={c_status}({c_code}) test={t_status}({t_code}) :: {t_detail}", flush=True)
+    if c_status != "ok":
+        print(f"  -> INCONCLUSIVE: {model} unreachable/auth/other via the control call "
+              f"({c_status} {c_code} {c_detail}); cannot attribute the test result.", flush=True)
+        return "inconclusive"
+    if expect == "reject":
+        if t_status == "ok":
+            return "obsolete"  # no longer rejects -- the 400-avoidance rationale is stale
+        if _is_400(t_status, t_code, t_detail):
+            return "holds"  # still rejects
+    else:  # expect == "accept"
+        if t_status == "ok":
+            return "holds"  # still accepts
+        if _is_400(t_status, t_code, t_detail):
+            return "changed"  # now REJECTS what it used to accept -- a real regression
+    print(f"  -> INCONCLUSIVE: test failed but not with an attributable 400 ({t_code}); not the signal.", flush=True)
+    return "inconclusive"
+
+async def main():
+    import importlib.metadata as m
+    print("=== SDK live behaviour canary ===", flush=True)
+    print("claude-agent-sdk:", m.version("claude-agent-sdk"), flush=True)
+
+    verdicts = {
+        # Premise A: thinking=disabled rejected on next-gen, accepted on 4.x.
+        "A thinking-disabled/next-gen-rejects": await check(
+            "A thinking=disabled on next-gen (sonnet-5)", "claude-sonnet-5",
+            control_opts={}, test_opts={"thinking": {"type": "disabled"}}, expect="reject"),
+        "A thinking-disabled/4.x-accepts": await check(
+            "A thinking=disabled on 4.x (sonnet-4-6)", "claude-sonnet-4-6",
+            control_opts={}, test_opts={"thinking": {"type": "disabled"}}, expect="accept"),
+        # Premise B: effort rejected on Haiku 4.5.
+        "B effort/Haiku-rejects": await check(
+            "B effort=medium on Haiku 4.5", "claude-haiku-4-5",
+            control_opts={}, test_opts={"effort": "medium"}, expect="reject"),
+    }
+
+    print("--- verdict ---", flush=True)
+    for k, v in verdicts.items():
+        print(f"  {k}: {v}", flush=True)
+
+    if any(v == "inconclusive" for v in verdicts.values()):
+        print("VERDICT: INCONCLUSIVE -- a premise could not be attributed; re-run (check reachability/auth).", flush=True)
+        sys.exit(2)
+    if verdicts["A thinking-disabled/next-gen-rejects"] == "obsolete":
+        print("NOTE: next-gen no longer 400s on thinking=disabled -- 400-avoidance rationale obsolete, "
+              "but _thinking_for is retained as validated CONFIG (adaptive for next-gen). Confirm before changing.", flush=True)
+    if verdicts["B effort/Haiku-rejects"] == "obsolete":
+        print("NOTE: Haiku 4.5 no longer 400s on effort -- the effort-omission 400-rationale is obsolete; re-check.", flush=True)
+    if verdicts["A thinking-disabled/4.x-accepts"] == "changed":
+        print("WARNING: 4.x now REJECTS thinking=disabled -- the _thinking_for disabled path is BROKEN on "
+              "the production family. Ship-blocker; do NOT bump the pin until investigated.", flush=True)
+    if all(v == "holds" for v in verdicts.values()):
+        print("VERDICT: all premises HOLD -- the SDK workarounds are load-bearing.", flush=True)
+        sys.exit(0)
+    print("VERDICT: a premise CHANGED (see NOTE/WARNING) -- review the affected workaround before shipping the pin.", flush=True)
+    sys.exit(1)
+
+asyncio.run(main())
+PY
+'

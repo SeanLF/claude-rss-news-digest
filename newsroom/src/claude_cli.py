@@ -158,9 +158,10 @@ def _build_options(
         kwargs["thinking"] = thinking
     if effort is not None:
         # Output-level reasoning/spend dial (low|medium|high|max). Opt-in per
-        # stage via `.claude/agents/*.md` frontmatter. NOT set by default --
-        # omitting it uses the SDK default, and effort is REJECTED (400) on
-        # Haiku 4.5, so Haiku stages (RECAP) must never pass it.
+        # stage via `.claude/agents/*.md` frontmatter. NOT set by default: Haiku
+        # 4.5 used to 400 on effort (no longer reproduces on SDK 0.2.110 per
+        # bin/sdk-canary), and RECAP/Haiku has no reason to spend on it -- so it
+        # stays absent unless a stage opts in.
         kwargs["effort"] = effort
     return ClaudeAgentOptions(**kwargs)
 

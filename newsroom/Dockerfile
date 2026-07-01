@@ -9,9 +9,13 @@ FROM python:3.14-slim AS builder
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/
 
 WORKDIR /app
-COPY newsroom/pyproject.toml ./
+# constraints-prod.txt pins the Agent SDK (and any other volatile dep) so a fresh PROD build is
+# reproducible and a bad upstream release can't break it. CI (Dockerfile.ci) omits it and floats
+# on purpose, so a bad release fails CI first. See newsroom/tests/test_sdk_pin.py.
+COPY newsroom/pyproject.toml newsroom/constraints-prod.txt ./
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv venv .venv --python python3.14 && uv pip install --python .venv -r pyproject.toml
+    uv venv .venv --python python3.14 \
+    && uv pip install --python .venv -r pyproject.toml -c constraints-prod.txt
 
 # ---------------------------------------------------------------------------- #
 # Runtime: slim Debian (glibc). Debian is required over Alpine because the

@@ -166,7 +166,8 @@ def test_join_timedecay_missing_publish_time_is_not_penalized():
 
 
 # --------------------------------------------------------------------------- #
-# _thinking_for -- model-aware thinking (next-gen models 400 on thinking=disabled).
+# _thinking_for -- model-aware thinking. (Next-gen models used to 400 on thinking=disabled;
+# no longer on SDK 0.2.110 per bin/sdk-canary -- retained as config, adaptive for next-gen.)
 # --------------------------------------------------------------------------- #
 def test_thinking_disabled_only_for_4x_family():
     assert cej._thinking_for("claude-sonnet-4-6") == {"type": "disabled"}

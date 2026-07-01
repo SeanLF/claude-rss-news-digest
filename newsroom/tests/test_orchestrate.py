@@ -96,8 +96,8 @@ class TestParseAgentSpec:
 
     def test_real_specs_omit_effort(self):
         # Prod stays at the SDK default: no stage sets effort in frontmatter
-        # (effort would 400 on the Haiku RECAP stage and silently change cost on
-        # the others). The lever exists but is opt-in.
+        # (effort used to 400 on the Haiku RECAP stage -- no longer on 0.2.110,
+        # see bin/sdk-canary -- and would silently change cost). Opt-in lever.
         assert orchestrate.parse_agent_spec(CLUSTER_SPEC).effort is None
 
     def test_parses_effort_and_thinking(self, tmp_path):

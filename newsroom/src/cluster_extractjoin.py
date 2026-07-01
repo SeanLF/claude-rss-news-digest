@@ -40,11 +40,19 @@ logger = logging.getLogger(__name__)
 
 
 def _thinking_for(model: str) -> ThinkingConfig | None:
-    """thinking=disabled restores the proven-good clustering behaviour on the 4.x family
-    (Sonnet 4.6, Haiku 4.5), but Sonnet 5 / Opus 4.8 / Fable 5 have always-on thinking and
-    400 on ``disabled`` -- omit it there (SDK default = adaptive). Same model-agnosticism
-    reason ``effort`` is left unset; keeps CLUSTER_EXTRACT_MODEL swappable to a next-gen model
-    (the documented Sonnet-5 direction) without every batch 400ing into a degenerate partition.
+    """Per-model thinking config for the extraction call: ``disabled`` for the 4.x family
+    (Sonnet 4.6, Haiku 4.5), omitted (SDK default = adaptive) for next-gen models
+    (Sonnet 5 / Opus 4.8 / Fable 5).
+
+    Originally a hard-400 workaround: next-gen models used to REJECT ``thinking=disabled``, so a
+    ``CLUSTER_EXTRACT_MODEL=<next-gen>`` build would 400 every batch into a degenerate partition.
+    As of claude-agent-sdk 0.2.110 that 400 no longer reproduces (verified live by ``bin/sdk-canary``),
+    but the split is RETAINED deliberately as CONFIG POLICY, not a 400 dodge: adaptive is the
+    validated config for next-gen (the S5 extraction sweep; and on WRITE, forcing ``disabled`` on
+    S5 induced a self-revision rewrite pathology). ``effort`` is likewise left unset -- Haiku 4.5
+    used to 400 on it (also no longer reproduces on 0.2.110 per ``bin/sdk-canary``), and the
+    extraction call has no reason to spend on effort -- keeping CLUSTER_EXTRACT_MODEL swappable
+    across 4.6 / Haiku / next-gen. Re-run ``bin/sdk-canary`` after an SDK bump to re-check both.
     """
     if model.startswith(("claude-sonnet-4", "claude-haiku-4")):
         return {"type": "disabled"}
@@ -283,10 +291,10 @@ async def run_extractjoin_stage(
 
     async def _extract(prompt: str) -> claude_cli.StageResult:
         # Mechanical single-shot JSON extraction: no tools (no file I/O, unlike the other
-        # stages), one turn. thinking and effort are both left MODEL-AGNOSTIC: effort unset
-        # (Haiku 4.5 400s on it) and thinking chosen per model (_thinking_for -- next-gen
-        # models 400 on thinking=disabled), so CLUSTER_EXTRACT_MODEL can swap 4.6<->Haiku<->
-        # Sonnet 5 without a per-batch 400 collapsing the run into a degenerate partition.
+        # stages), one turn. thinking and effort are both left MODEL-AGNOSTIC: effort unset and
+        # thinking chosen per model (_thinking_for). Both used to be hard-400 guards (Haiku 400d
+        # on effort, next-gen on thinking=disabled -- no longer on 0.2.110, see bin/sdk-canary),
+        # now kept so CLUSTER_EXTRACT_MODEL swaps 4.6<->Haiku<->next-gen on the validated config.
         result = await claude_cli.run_agent(
             prompt,
             model=model,

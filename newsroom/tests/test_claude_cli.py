@@ -344,8 +344,9 @@ class TestBuildOptions:
         assert opts.effort == "medium"
 
     def test_effort_unset_by_default(self):
-        # Omitting effort must NOT pin a value -- the SDK default applies, and
-        # effort is rejected (400) on Haiku, so it must stay absent unless asked.
+        # Omitting effort must NOT pin a value -- the SDK default applies. Haiku
+        # used to 400 on effort (no longer on 0.2.110, see bin/sdk-canary), so it
+        # stays absent unless a stage opts in.
         opts = claude_cli._build_options(
             model="claude-haiku-4-5",
             system_prompt=None,

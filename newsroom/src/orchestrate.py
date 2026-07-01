@@ -135,9 +135,10 @@ class AgentSpec:
     tools_str: str
     body: str
     # Optional per-stage SDK tuning, parsed from frontmatter. `effort` is opt-in
-    # (low|medium|high|max) -- omitted means the SDK default, and it is REJECTED
-    # (400) on Haiku 4.5, so Haiku stages must not set it. `thinking` overrides
-    # the module default (_THINKING, disabled); None falls back to that default.
+    # (low|medium|high|max) -- omitted means the SDK default. Haiku 4.5 used to
+    # 400 on effort (no longer on SDK 0.2.110 per bin/sdk-canary), so Haiku stages
+    # still leave it unset. `thinking` overrides the module default (_THINKING,
+    # disabled); None falls back to that default.
     effort: str | None = None
     thinking: ThinkingConfig | None = None
 
