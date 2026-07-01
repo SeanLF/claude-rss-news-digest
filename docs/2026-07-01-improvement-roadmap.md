@@ -17,6 +17,25 @@ highest-value moves are building the missing rulers, not running optimizers agai
 ---
 
 ## Track A — Clustering: recover the ~10% coverage dip
+> **UPDATE (2026-07-01, free structural screen `scratch/coverage_screen.py` on runs 205+206):**
+> **A1, A2, A3 are STRUCK — the cheap tag-space fixes cannot recover the dip, and the dip is not a
+> prod problem anyway.** Two findings:
+> 1. **The recall signal is not in tag space.** A1 (re-weight: entities×3→×2, primary_event×2→×3)
+>    *reduced* head coverage on both days (Δ −2 to −22 — entities are the load-bearing same-story
+>    signal). A3 (absorb small satellites into top-N heads) was inert (Δ≈0 at radius ≥0.45). The
+>    diagnostic is decisive: **96% of non-head articles are tag-orthogonal (<0.3 cosine) to every
+>    top-20 head** (271/281 on 205, 277/289 on 206). The under-cited articles are same-story but
+>    lexically dissimilar (reactions / different-angle / different-entity), so *no* tag-cosine fix
+>    — including A2's citation-expansion in tag space — can find them. Only a SEMANTIC signal
+>    (A4 embeddings) or better extraction could. This is a $0 kill of A1/A2/A3, same as time-decay.
+> 2. **The dip is Haiku-extraction-only; prod is already coverage-neutral.** `CLUSTER_EXTRACT_MODEL`
+>    defaults to `claude-sonnet-4-6`, which the gate A/B showed recovers coverage to ≥ holistic. The
+>    ~10% dip is the *Haiku*-extraction result. So Track A is really "enable cheaper Haiku extraction
+>    without the coverage cost" — a POOL optimization, not a prod-quality fix. **De-prioritized.**
+>    A4 (embeddings) is now the *only* structurally-viable path, and its value is pool-savings
+>    (Haiku extraction), not fixing a live defect. Pursue only if the weekly pool gets tight.
+
+
 The dip is an isolable head-cluster **recall** problem: extract-join's entity-dominated tag bag is
 tuned for precision (it wins dedup 0 vs holistic) but under-recalls peripheral same-story articles,
 so SELECT surfaces fewer sources/bias-buckets. Ruled out: **time-decay** (inert on the single-day
@@ -121,16 +140,26 @@ Refs: Agent SDK observability docs · Claude Code prompt-caching docs · CC chan
 
 ---
 
-## Recommended ordering (lowest-regret first)
+## Recommended ordering (lowest-regret first) — UPDATED after the screen
+0. ~~A1/A3 free structural screen~~ — **DONE**; killed A1/A2/A3 (tag-space can't recover the dip) and
+   reframed Track A as a pool-optimization (prod's Sonnet extraction is coverage-neutral). Track A is
+   now DEFERRED (only A4-embeddings could enable cheap-Haiku-with-coverage, and only if the pool bites).
 1. **C6 follow-up + C3** — surface latency/cache-ratio in `/stats`, confirm caching hits. (Cheap, the
-   data now exists.)
-2. **A1/A3 free structural screen** on runs 205/206 — an afternoon, $0, tells you if the cheap
-   coverage fixes even move the needle before any spend.
-3. **A2 (decoupled citation-expansion)** — the highest-conviction coverage recovery; preserves the
-   dedup win. Build behind the product gate.
-4. **C1/C2 (parallelize + fatten extraction)** — real latency win; do after the coverage work settles
-   (both touch the same stage).
-5. **B1 (faithfulness ruler)** — the durable eval investment; unblocks B2 and gives a standing
-   regression gate. Labeling-heavy but high-value.
-6. **C4 (COHERENCE→Haiku)** — pool saving; quick, needs a validation snapshot.
-Defer: A4/A5 (graph-substrate phase), B2 (only if B1 shows headroom), C7 (needs a backend), C8 (watch).
+   data now exists after the duration_ms commit; `/stats` is Rust.)
+2. **C1/C2 (parallelize + fatten extraction)** — the real remaining win: latency ~3-5×. NOTE: this
+   CHANGES the extraction stage's runtime behaviour, so it invalidates the sequential-stage dry-run
+   the deploy was validated on — do it as its own tested effort (re-run the dry run), ideally AFTER
+   the current deploy ships, not piled onto the deploy-held branch.
+3. **B1 (faithfulness ruler)** — the durable eval investment; unblocks B2. Labeling-heavy (needs a
+   ~100-150-case HUMAN golden — the crux; building the judge without it just reintroduces circularity).
+   Its own effort, no deploy risk (eval infra only).
+4. **C4 (COHERENCE→Haiku)** — pool saving; quick config change, needs a validation snapshot (COHERENCE
+   golden is partly circular).
+Defer: A4 (embeddings — only if the pool gets tight), A5 (graph-substrate phase), B2 (only if B1 shows
+headroom), C7 (OTel — needs a backend), C8 (retry — watch).
+
+**Key sequencing note:** everything added to the deploy-held branch this session was *additive/behaviour-
+preserving* for the pipeline (docs, tests, a nullable column, an ops script, prompt guards) — safe to
+ship with the extract-join deploy. The remaining high-value builds (C1 parallelize, A4 embeddings, C4
+model swap) all CHANGE runtime behaviour and should be their own re-validated efforts, not last-minute
+additions before the deploy.
