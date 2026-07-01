@@ -194,6 +194,26 @@ preference judge that would show family bias vs the S5-authored arm). n=6 per ar
   edge, NOT gated on) → the trigger to revisit S5 IF faithfulness becomes priority or pricing drops.
   No prod change; `usage.py::_PINNED_MODEL_IDS` untouched (S5 not wired). Harnesses in scratch.
 
+**Item 3 — time-decay join: DONE + committed (`b8fb035`). Hypothesis FALSIFIED — NOT shipped active.**
+Pre-registered + a deterministic no-LLM structural probe (`docs/2026-07-01-timedecay-join-finding.md`).
+σ=72h is INERT on the daily fetch window (~24-32h): matched-granularity partition is 99.9% pair-
+identical to no-decay across runs 205+206, coverage moves ±1-2 (noise) — the kernel is near-constant
+within a day so it can't reorder distances. Tighter σ (≤12h) HURTS coverage (fragments day-spanning
+stories, −10..−21 in top-20). The dip is head-coarseness; the proven lever is Sonnet extraction
+(graph-gate A/B). LLM gate skipped (unchanged partition → provably unchanged digest). Time-decay ships
+DORMANT/opt-in on `join_tags` (params default off → byte-identical prod, 3 TDD tests, both review
+agents clean) for reproducibility + the future multi-day story-graph substrate; NOT wired to config.
+
+**Item 4 — pre-deploy hardening: DONE. Deploy-readiness GREEN, HELD for Sean.** Doc
+`docs/2026-07-01-predeploy-validation.md`. (a) Full dry run on the FRESHLY-BUILT multi-stage image
+(`--build --no-email --no-record --force`) = clean end-to-end: 751 fetched → 545 to Claude → 240
+extract-join clusters (max 26, no junk) → 5 must_know + 10 should_know → valid HTML, $2.74, exit 0.
+Item-1 fix HOLDS on real output (0 Biden, correct Trump-admin framing); COHERENCE dropped 1;
+only non-fatal flag = 1 why_it_matters 61w vs 60w soft cap (cosmetic). (b) Cross-family re-score
+DEFERRED (NIM/Olla down, checked twice; gate already has Anthropic-family robustness). ⚠️ NO merge,
+NO deploy — held. Deploy sequence documented (deploy-check → merge → bin/deploy w/ service unit in
+-target → watch cron).
+
 
 > Resume news-digest on branch `feat/extractjoin-cluster-stage`. Execute the five improvements in
 > `docs/2026-07-01-improvements-loop-handoff.md` IN ORDER, each to the project's high bar (verify on
