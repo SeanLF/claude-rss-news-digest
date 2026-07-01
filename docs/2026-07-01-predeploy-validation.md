@@ -32,13 +32,16 @@ Result — clean end-to-end on a real fresh fetch:
 - **Only non-fatal L1 flag:** one should_know `why_it_matters` at 61 words vs a soft 60-word cap
   (cosmetic, non-blocking) — normal WRITE-length noise, not a regression.
 
-## (b) Cross-family judge re-score of the gate — DEFERRED (NIM/Olla down)
-NIM/Olla (`127.0.0.1:40114`) was unreachable this session (curl fails, checked twice), so the
-GLM/Nemotron cross-family re-score of the graph-gate dedup/miss numbers could not run. The gate
-already carries **within-Anthropic-family judge-robustness** (opus/sonnet/haiku, in
-`2026-07-01-graph-gate-preregistration.md`), and the primary signals are absolute per-digest
-measures, so the KEEP/PASS verdicts do not hinge on this. Re-score is a cheap confirmation when
-NIM returns; recorded as deferred, not skipped-and-forgotten.
+## (b) Cross-family judge re-score of the gate — DONE for the load-bearing dedup signal
+NIM/Olla was down mid-session, then came back; started Olla (`bin/sdk-canary` unrelated — Olla is
+the NIM proxy, keyed from 1Password) and re-scored the gate's `internal_dups` finding with
+**Nemotron** (non-Anthropic) via the exact gate methodology (`scratch/xfam_dedup_probe.py`).
+Result (appended to `2026-07-01-graph-gate-preregistration.md`): **extract-join = 0 internal
+duplicate groups under Nemotron too, holistic = 2.5 (Nemotron is even harsher on holistic than the
+opus judge)** — the dedup win is confirmed ACROSS families, not just within Anthropic. Scoped to
+n=2/arm (NIM free-tier throttled to its concurrency ceiling). The `miss_hard` cross-family re-score
+stays deferred (heavier coverage-judging path, NIM throttled; the gate already treats miss as
+parity, not an EJ win). The KEEP/PASS verdicts never hinged on this — it is confirmation.
 
 ## Deploy readiness: GREEN (held for Sean)
 The branch runs clean end-to-end on the image that would deploy, produces a high-quality digest,

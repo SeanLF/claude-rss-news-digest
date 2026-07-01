@@ -280,6 +280,32 @@ per arm total). Durable cross-day pattern:
 - **cost/faithfulness: parity** downstream; extract (~$0.1 Haiku) replaces the ~$1.1–1.4 holistic
   Sonnet CLUSTER call → net pipeline saving stands.
 
+# CROSS-FAMILY CONFIRMATION (2026-07-01, appended after NIM/Olla came back up)
+
+The gate's deflation caveat #4 ("judge is Anthropic (opus), not cross-family — NIM down") is now
+RESOLVED for the load-bearing dedup signal. Olla/NIM (127.0.0.1:40114) came back; re-scored the
+`internal_dups` finding with **Nemotron** (`nvidia/nemotron-3-ultra-550b-a55b`, a non-Anthropic
+family) using the EXACT gate methodology (`judge_digests.dup_check`: order-swapped, swap-stable
+groups only; `scratch/xfam_dedup_probe.py`). Scoped to n=2/arm (NIM free-tier throttled to its
+concurrency ceiling this session, so a full n=6 panel wasn't reliably completable):
+
+| judge family | holistic internal_dups | extract-join internal_dups |
+|---|---|---|
+| Anthropic (opus, the gate) | 1.17 | 0.00 |
+| Anthropic (sonnet-4-6) | 1.50 | 0.00 |
+| Anthropic (haiku-4-5) | 0.50 | 0.00 |
+| **non-Anthropic (Nemotron)** | **2.50** [2,3] | **0.00** [0,0] |
+
+**The dedup win is now confirmed ACROSS FAMILIES, not just within Anthropic:** extract-join shows
+0 confirmed internal duplicate story-groups under Nemotron too, while holistic shows more (Nemotron
+flagged legitimate ones the opus judge was stricter about — e.g. two separate SCOTUS/Trump
+immigration rulings, duplicated heatwave / Venezuela-quake / Hormuz coverage). If anything Nemotron
+is HARSHER on holistic (2.50 vs opus 1.17), same direction. The "conformity-to-Sonnet" circularity
+concern does not apply (absolute per-digest dup count, both digests Sonnet-authored) and is now
+also empirically cross-checked. (miss_hard cross-family re-score still deferred — heavier coverage-
+judging path, NIM throttled; the gate already treats miss as parity, not an EJ win, so it is the
+less load-bearing signal.)
+
 **Decision:** the generalization caveat is CLEARED. Extract→join is digest-viable across news-days
 under a properly-powered, product-grounded, non-circular gate. The ONE tradeoff to weigh is the
 ~10% coverage/citation dip (bias-diversity is the product differentiator) — buyable back with
