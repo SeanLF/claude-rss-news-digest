@@ -30,6 +30,7 @@ Per-stage usage is captured directly from the StageResult: token counts from its
 
 from __future__ import annotations
 
+import datetime
 import logging
 import time
 from collections.abc import Callable
@@ -57,6 +58,33 @@ _AGENTS_DIR = Path(".claude/agents")
 # and the run aborted. Disabling restores the known-good behaviour. Per-stage
 # thinking budgets are a future tuning knob (e.g. the WRITE/SELECT judgment stages).
 _THINKING: ThinkingConfig = {"type": "disabled"}
+
+
+# Runtime-context token substituted into an agent's system prompt at invocation.
+# The models have a training cutoff, so without an explicit "today" anchor a stage
+# reasoning about world state (WRITE) silently falls back to a stale prior -- e.g.
+# naming "the Biden administration" as current when the day's stories are all about
+# the Trump administration. Injecting the real run date (and the paired write.md
+# rule to ground office-holders in the articles, not prior knowledge) is the fix.
+_CURRENT_DATE_TOKEN = "{{CURRENT_DATE}}"
+
+
+def render_body(body: str, *, today: datetime.date | None = None) -> str:
+    """Resolve runtime-context tokens in an agent system prompt.
+
+    Currently substitutes ``{{CURRENT_DATE}}`` with the run date formatted as
+    e.g. ``Wednesday, 1 July 2026``. A body without the token is returned
+    unchanged, so this is a no-op for every stage that does not opt in.
+
+    The default date is UTC, matching the pipeline's canonical clock (the digest
+    is filed under a UTC date -- see ``run.py``/``db.py``/``digest.py``). Using
+    local time here would let the WRITE "today" disagree with the digest date by
+    a full day near the UTC-midnight boundary, reintroducing a date mismatch.
+    """
+    today = today or datetime.datetime.now(datetime.UTC).date()
+    # Explicit field formatting avoids the non-portable %-d (no leading zero) flag.
+    formatted = f"{today:%A}, {today.day} {today:%B} {today.year}"
+    return body.replace(_CURRENT_DATE_TOKEN, formatted)
 
 
 def _tool_list(spec: AgentSpec) -> list[str]:
@@ -254,7 +282,7 @@ async def _invoke_agent(
     result = await claude_cli.run_agent(
         _PROMPT,
         model=model,
-        system_prompt=spec.body,
+        system_prompt=render_body(spec.body),
         permission_mode=_PERMISSION_MODE,
         allowed_tools=" ".join(tool_list),
         tools=tool_list,

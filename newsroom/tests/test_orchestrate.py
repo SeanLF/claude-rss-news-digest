@@ -118,6 +118,74 @@ class TestParseAgentSpec:
 
 
 # --------------------------------------------------------------------------- #
+# render_body -- runtime context injection (current date, world-state grounding)
+# --------------------------------------------------------------------------- #
+
+
+class TestRenderBody:
+    def test_substitutes_current_date_token(self):
+        from datetime import date
+
+        body = "Today is {{CURRENT_DATE}}. Write as of this date."
+        out = orchestrate.render_body(body, today=date(2026, 7, 1))
+        assert out == "Today is Wednesday, 1 July 2026. Write as of this date."
+        assert "{{CURRENT_DATE}}" not in out
+
+    def test_body_without_token_is_unchanged(self):
+        from datetime import date
+
+        body = "No token here."
+        assert orchestrate.render_body(body, today=date(2026, 7, 1)) == body
+
+    def test_defaults_to_utc_today(self):
+        # Must anchor to UTC (the pipeline's canonical clock), not local time --
+        # otherwise the WRITE "today" can disagree with the UTC digest date by a
+        # full day near the UTC-midnight boundary.
+        import datetime as dt
+
+        utc_today = dt.datetime.now(dt.UTC).date()
+        expected = f"{utc_today:%A}, {utc_today.day} {utc_today:%B} {utc_today.year}"
+        out = orchestrate.render_body("d: {{CURRENT_DATE}}")
+        assert out == f"d: {expected}"
+        assert "{{CURRENT_DATE}}" not in out
+
+    def test_invoke_agent_injects_date_into_system_prompt(self, monkeypatch):
+        # The token in an agent body must be resolved BEFORE the body becomes the
+        # SDK system_prompt -- otherwise WRITE reasons about "current" world state
+        # with no date anchor and defaults to a stale training-data prior.
+        seen = {}
+
+        async def fake_run(*_a, **k):
+            seen.update(k)
+            return _stage_result()
+
+        monkeypatch.setattr(orchestrate.claude_cli, "run_agent", fake_run)
+        spec = orchestrate.AgentSpec(
+            name="write",
+            model="claude-sonnet-4-6",
+            tools_str="Read, Write",
+            body="Today is {{CURRENT_DATE}}.",
+        )
+        asyncio.run(orchestrate._invoke_agent(spec, model="claude-sonnet-4-6", cwd=None))
+        from datetime import date
+
+        assert "{{CURRENT_DATE}}" not in seen["system_prompt"]
+        assert str(date.today().year) in seen["system_prompt"]
+
+
+class TestWriteSpecGroundsWorldState:
+    """The WRITE prompt must anchor 'current' to the run date and forbid asserting
+    office-holders / political framing from prior knowledge (the stale-Biden bug)."""
+
+    def test_write_spec_has_date_token_and_office_rule(self):
+        spec = orchestrate.parse_agent_spec(REPO_ROOT / ".claude" / "agents" / "write.md")
+        assert "{{CURRENT_DATE}}" in spec.body
+        low = spec.body.lower()
+        # names the failure mode explicitly (office-holder / administration prior)
+        assert "administration" in low or "office-holder" in low or "in power" in low
+
+
+# --------------------------------------------------------------------------- #
 # run_stage
 # --------------------------------------------------------------------------- #
 
