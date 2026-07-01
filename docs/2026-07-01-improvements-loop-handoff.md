@@ -180,6 +180,14 @@ all correct historical references — bug is intermittent). Adversarial reproduc
 bait designs incl. a strong Biden-coded student-debt lure, 8 fix-off reps) could NOT
 force the failure — the frontier model resists it. So this ships as **verified
 prevention**, not a measured before/after. Low-risk (no-op for other stages).
+**REAL PROD INSTANCE CONFIRMED (2026-07-01, after tailscale came back + db-clone succeeded):** today's
+prod digest, in the "Maduro sued in US court… as regime blocks quake rescuers" (Venezuela) story,
+WRITE wrote *"…Washington is deploying troops to help — puts **the Biden administration** in a
+bind…"* — naming Biden as the CURRENT US administration on a day the digest is otherwise Trump-framed
+(Trump ×5, Biden ×1 = this instance). The articles are about Venezuela/Maduro, so it is a pure
+un-sourced training prior. This is the exact bug the fix targets → Item 1 upgrades from "verified
+prevention" to "targets a confirmed shipped reader-facing bug" (and Item 4's fixed-pipeline dry run
+on today's fresh fetch produced 0 stale office-holders).
 
 **Item 2 — Sonnet 5 on JUDGMENT stages: DONE (WRITE+SELECT), synthesis scoped out. KEEP 4.6 on
 both — clean negative.** Pre-registered `docs/2026-07-01-sonnet5-judgment-stages-preregistration.md`
