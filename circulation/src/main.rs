@@ -2,6 +2,7 @@ mod feed;
 mod handlers;
 mod stats;
 mod templates;
+mod thread;
 mod util;
 
 use axum::Router;
@@ -20,6 +21,8 @@ pub mod routes {
     pub const STATS: &str = "/stats";
     pub const OG_IMAGE: &str = "/og-image.png";
     pub const FEED: &str = "/feed.xml";
+    pub const THREAD: &str = "/thread";
+    pub const THREADS: &str = "/threads";
 }
 
 pub struct AppState {
@@ -129,6 +132,11 @@ async fn main() {
         .route(routes::FEED, get(handlers::feed))
         .route(routes::STATS, get(stats::stats_html))
         .route(&format!("{}.json", routes::STATS), get(stats::stats_json))
+        .route(routes::THREADS, get(thread::threads_index))
+        .route(
+            &format!("{}/{{id}}", routes::THREAD),
+            get(thread::thread_page),
+        )
         .route("/{date}", get(handlers::get_digest))
         .layer(TraceLayer::new_for_http())
         .with_state(state);

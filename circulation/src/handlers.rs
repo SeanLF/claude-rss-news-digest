@@ -130,6 +130,10 @@ pub async fn index(
         r#"<a href="{}" class="meta-link">📰 Sources</a>"#,
         routes::SOURCES
     ));
+    nav_links.push(format!(
+        r#"<a href="{}" class="meta-link">🧵 Threads</a>"#,
+        routes::THREADS
+    ));
     let privacy_url = state.privacy_url();
     nav_links.push(format!(
         r#"<a href="{privacy_url}" class="meta-link">🔒 Privacy</a>"#
