@@ -214,11 +214,16 @@ async def run_extractjoin_stage(
         raise ValueError("extract-join: no articles found (articles_*.csv missing/empty)")
 
     async def _extract(prompt: str) -> claude_cli.StageResult:
+        # Mechanical single-shot JSON extraction: no tools (no file I/O, unlike the other
+        # stages), thinking off, one turn. effort is left at the SDK default deliberately --
+        # it is REQUIRED for model-agnosticism (Haiku 4.5 rejects effort with a 400 and is a
+        # supported CLUSTER_EXTRACT_MODEL) and the gate validated the default.
         result = await claude_cli.run_agent(
             prompt,
             model=model,
             system_prompt=EXTRACT_SYSTEM,
             tools=[],
+            max_turns=1,
             cwd=cwd,
             thinking={"type": "disabled"},
         )
