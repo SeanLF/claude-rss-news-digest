@@ -50,6 +50,10 @@ SELECTIONS_SCHEMA = {
         "must_know": {"type": "array", "items": ARTICLE_SCHEMA},
         "should_know": {"type": "array", "items": ARTICLE_SCHEMA},
         "preheader": {"type": "string", "maxLength": 150},
+        # Optional SELECT-stage garnish (what was deliberately filtered and why),
+        # copied through by merge.assemble_selections. Absent when SELECT's
+        # selected.json has no usable field -- see _load_not_covered_blurb.
+        "not_covered_blurb": {"type": "string", "maxLength": 300},
     },
     "required": ["must_know", "should_know", "preheader"],
     "additionalProperties": False,

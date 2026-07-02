@@ -441,6 +441,24 @@ def replace_placeholders(
     content = content.replace("{{GENERATED_AT}}", generated_at)
     content = content.replace("{{PREHEADER}}", html.escape(preheader))
 
+    # Optional: not-covered footer garnish (what SELECT deliberately filtered,
+    # copied through by merge.assemble_selections). Strip the whole line when
+    # absent, same pattern as {{AUTHOR_PLUG}} below.
+    not_covered = selections.get("not_covered_blurb")
+    if isinstance(not_covered, str) and not_covered.strip():
+        content = content.replace("{{NOT_COVERED}}", f"Not covered today: {html.escape(not_covered.strip())}")
+    else:
+        if not_covered is not None:
+            # Present but unusable (wrong type, or blank string) -- matters most
+            # in --write-only re-renders where render.py is running against a
+            # possibly stale/hand-edited selections.json with no merge.py pass
+            # in between to have already logged the problem.
+            logger.warning(
+                "not_covered_blurb present but unusable (type=%s) -- omitting footer line",
+                type(not_covered).__name__,
+            )
+        content = re.sub(r'\s*<p class="not-covered">\{\{NOT_COVERED\}\}</p>', "", content)
+
     # Optional: replace SOURCE_URL if configured, otherwise remove the links
     if source_url:
         content = content.replace("{{SOURCE_URL}}", source_url)

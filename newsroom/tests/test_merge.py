@@ -33,11 +33,13 @@ def _coherence(*results):
     return {"results": list(results)}
 
 
-def _write(tmp_path, draft, coherence, clusters=None):
+def _write(tmp_path, draft, coherence, clusters=None, selected=None):
     (tmp_path / "draft_selections.json").write_text(json.dumps(draft))
     (tmp_path / "coherence_report.json").write_text(json.dumps(coherence))
     if clusters is not None:
         (tmp_path / "clusters.json").write_text(json.dumps(clusters))
+    if selected is not None:
+        (tmp_path / "selected.json").write_text(selected if isinstance(selected, str) else json.dumps(selected))
 
 
 class TestAssembleSelections:
@@ -280,6 +282,21 @@ class TestValidateSelections:
         errors = validate_selections(bad)
         assert errors
 
+    def test_accepts_not_covered_blurb(self):
+        good = self._valid()
+        good["not_covered_blurb"] = "Skipped a minor sports story."
+        assert validate_selections(good) == []
+
+    def test_valid_without_not_covered_blurb(self):
+        # Optional -- omitting it entirely must still pass.
+        assert validate_selections(self._valid()) == []
+
+    def test_rejects_overlong_not_covered_blurb(self):
+        bad = self._valid()
+        bad["not_covered_blurb"] = "x" * 301
+        errors = validate_selections(bad)
+        assert any("not_covered_blurb" in e for e in errors)
+
 
 class TestCoherenceMatching:
     """Coherence-fail matching must survive the WRITE/COHERENCE headline-string drift.
@@ -344,6 +361,116 @@ class TestCoherenceMatching:
 
         assembled = json.loads(assemble_selections(tmp_path).read_text())
         assert [a["headline"] for a in assembled["must_know"]] == ["keep me"]
+
+
+class TestNotCoveredBlurb:
+    """not_covered_blurb is a footer garnish copied from selected.json -- a
+    missing/empty/malformed source must never break assembly (see merge.py
+    ``_load_not_covered_blurb``)."""
+
+    def test_copies_blurb_when_present(self, tmp_path):
+        draft = _draft(must_know=[_article("h")])
+        _write(
+            tmp_path,
+            draft,
+            _coherence({"headline": "h", "pass": True}),
+            selected={"must_know": [], "should_know": [], "not_covered_blurb": "Skipped celebrity news."},
+        )
+
+        assembled = json.loads(assemble_selections(tmp_path).read_text())
+
+        assert assembled["not_covered_blurb"] == "Skipped celebrity news."
+
+    def test_absent_when_selected_json_missing(self, tmp_path, caplog):
+        draft = _draft(must_know=[_article("h")])
+        _write(tmp_path, draft, _coherence({"headline": "h", "pass": True}))  # no selected.json
+
+        with caplog.at_level("INFO", logger="merge"):
+            assembled = json.loads(assemble_selections(tmp_path).read_text())
+
+        assert "not_covered_blurb" not in assembled
+        assert any("not_covered_blurb" in r.getMessage() for r in caplog.records)
+
+    @pytest.mark.parametrize(
+        "selected",
+        [{"must_know": [], "should_know": []}, {"not_covered_blurb": "   "}],
+        ids=["field-missing", "blank-string"],
+    )
+    def test_absent_when_field_missing_or_blank(self, tmp_path, selected):
+        draft = _draft(must_know=[_article("h")])
+        _write(tmp_path, draft, _coherence({"headline": "h", "pass": True}), selected=selected)
+
+        assembled = json.loads(assemble_selections(tmp_path).read_text())
+
+        assert "not_covered_blurb" not in assembled
+
+    def test_absent_when_field_wrong_type(self, tmp_path, caplog):
+        draft = _draft(must_know=[_article("h")])
+        _write(
+            tmp_path,
+            draft,
+            _coherence({"headline": "h", "pass": True}),
+            selected={"not_covered_blurb": ["not", "a", "string"]},
+        )
+
+        with caplog.at_level("WARNING", logger="merge"):
+            assembled = json.loads(assemble_selections(tmp_path).read_text())
+
+        assert "not_covered_blurb" not in assembled
+        # Wrong-typed-but-present must be loud (WARNING), not conflated with
+        # the benign absent/empty case -- it means SELECT emitted something
+        # off-schema, which is worth knowing about in prod (root logger INFO).
+        warnings = [r for r in caplog.records if r.levelname == "WARNING"]
+        assert any("not_covered_blurb" in r.getMessage() and "list" in r.getMessage() for r in warnings)
+
+    def test_absent_when_selected_json_malformed(self, tmp_path, caplog):
+        draft = _draft(must_know=[_article("h")])
+        _write(
+            tmp_path,
+            draft,
+            _coherence({"headline": "h", "pass": True}),
+            selected="{ not valid json",
+        )
+
+        with caplog.at_level("WARNING", logger="merge"):
+            assembled = json.loads(assemble_selections(tmp_path).read_text())  # must not raise
+
+        assert "not_covered_blurb" not in assembled
+        # An actual read/parse failure (vs. the routine missing-file case)
+        # matches _load_cluster_map's severity for the same condition.
+        warnings = [r for r in caplog.records if r.levelname == "WARNING"]
+        assert any("selected.json unreadable" in r.getMessage() for r in warnings)
+
+    def test_absent_when_selected_json_not_utf8(self, tmp_path, caplog):
+        # UnicodeDecodeError is a ValueError subclass, same as
+        # json.JSONDecodeError -- must be caught, not propagate and abort
+        # the whole run (the docstring's never-raises contract).
+        draft = _draft(must_know=[_article("h")])
+        _write(tmp_path, draft, _coherence({"headline": "h", "pass": True}))
+        (tmp_path / "selected.json").write_bytes(b"\xff\xfe not utf-8 at all")
+
+        with caplog.at_level("WARNING", logger="merge"):
+            assembled = json.loads(assemble_selections(tmp_path).read_text())  # must not raise
+
+        assert "not_covered_blurb" not in assembled
+        warnings = [r for r in caplog.records if r.levelname == "WARNING"]
+        assert any("selected.json unreadable" in r.getMessage() for r in warnings)
+
+    def test_overlong_blurb_is_truncated_not_dropped(self, tmp_path):
+        # Never let a garnish break schema validation: truncate to the schema
+        # cap instead of failing assembly.
+        long_blurb = "x" * 400
+        draft = _draft(must_know=[_article("h")])
+        _write(
+            tmp_path,
+            draft,
+            _coherence({"headline": "h", "pass": True}),
+            selected={"not_covered_blurb": long_blurb},
+        )
+
+        assembled = json.loads(assemble_selections(tmp_path).read_text())
+
+        assert len(assembled["not_covered_blurb"]) <= 300
 
 
 class TestMalformedIntermediateFiles:

@@ -17,6 +17,10 @@ from schema import validate_selections
 
 logger = logging.getLogger(__name__)
 
+# Footer garnish length cap -- matches SELECTIONS_SCHEMA's not_covered_blurb maxLength
+# (see eval_graders.GraderLimits.preheader_max_chars for the same pattern).
+_NOT_COVERED_BLURB_MAX_LEN = 300
+
 
 def _norm_headline(headline: str) -> str:
     """Normalize a headline for resilient fallback matching.
@@ -123,6 +127,55 @@ def _attach_cluster_id(item: dict, sources: list[dict], cluster_map: dict[str, s
             return
 
 
+def _load_not_covered_blurb(claude_input_dir: Path) -> str | None:
+    """Read the optional not_covered_blurb footer garnish from selected.json.
+
+    Best-effort by design: this is WRITE-stage context (see select.md) that we
+    also surface to readers, never load-bearing. Any failure mode here --
+    missing file, invalid JSON, missing/empty/wrong-typed field -- yields None
+    (field absent from the assembled output) rather than raising. A value over
+    the schema cap is truncated rather than dropped, so a verbose SELECT
+    output still degrades to *something* instead of silently vanishing.
+    """
+    selected_path = claude_input_dir / "selected.json"
+    if not selected_path.exists():
+        # Missing file is the routine case (SELECT chose not to emit the
+        # garnish, or an older selected.json predates this field) -- info,
+        # not warning. Deliberately lower severity than _load_cluster_map's
+        # missing-file warning: cluster_id is a tracked field, this is garnish.
+        logger.info("selected.json missing -- no not_covered_blurb to surface")
+        return None
+    try:
+        # ValueError covers json.JSONDecodeError (a subclass) and
+        # UnicodeDecodeError (also a ValueError subclass, raised by
+        # read_text() on non-UTF8 bytes) -- both are real read/parse
+        # failures, not the benign absent case, so this branch warns.
+        selected = json.loads(selected_path.read_text())
+    except (OSError, ValueError) as e:
+        logger.warning("selected.json unreadable (%s) -- skipping not_covered_blurb", e)
+        return None
+    blurb = selected.get("not_covered_blurb") if isinstance(selected, dict) else None
+    if blurb is not None and not isinstance(blurb, str):
+        logger.warning(
+            "not_covered_blurb has wrong type %s -- omitting from footer: %s",
+            type(blurb).__name__,
+            repr(blurb)[:80],
+        )
+        return None
+    if not blurb or not blurb.strip():
+        logger.debug("not_covered_blurb absent or empty in selected.json")
+        return None
+    blurb = blurb.strip()
+    if len(blurb) > _NOT_COVERED_BLURB_MAX_LEN:
+        logger.warning(
+            "not_covered_blurb exceeds %d chars (%d) -- truncating rather than dropping",
+            _NOT_COVERED_BLURB_MAX_LEN,
+            len(blurb),
+        )
+        blurb = blurb[: _NOT_COVERED_BLURB_MAX_LEN - 1].rstrip() + "…"
+    return blurb
+
+
 def assemble_selections(claude_input_dir: Path) -> Path:
     """Read draft + coherence, drop coherence-failed entries, write selections.json.
 
@@ -191,6 +244,10 @@ def assemble_selections(claude_input_dir: Path) -> Path:
         raise RuntimeError(
             f"Assembled selections has no must_know entries (dropped {len(dropped)} via coherence); aborting to avoid empty broadcast"
         )
+
+    not_covered_blurb = _load_not_covered_blurb(claude_input_dir)
+    if not_covered_blurb:
+        draft["not_covered_blurb"] = not_covered_blurb
 
     errors = validate_selections(draft)
     if errors:
