@@ -21,3 +21,11 @@ claude-agent-sdk==0.2.110
 numpy==2.5.0
 scipy==1.18.0
 scikit-learn==1.9.0
+
+# trafilatura (fulltext.py's full-text fetch for SELECTED stories). Same compiler-less
+# python:3.14-slim constraint as the scientific stack above: trafilatura pulls in lxml, a
+# COMPILED wheel, and its other deps (htmldate, courlan, justext, ...) are pure Python. Pinning
+# both keeps the prod build wheel-installable and reproducible -- verified empirically by
+# building newsroom/Dockerfile on this exact pin (cp314 manylinux wheels, no source build).
+trafilatura==2.1.0
+lxml==6.1.1

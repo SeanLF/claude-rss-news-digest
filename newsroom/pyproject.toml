@@ -12,6 +12,7 @@ dependencies = [
     "beautifulsoup4",
     "claude-agent-sdk",
     "scikit-learn",
+    "trafilatura",
 ]
 
 [project.optional-dependencies]

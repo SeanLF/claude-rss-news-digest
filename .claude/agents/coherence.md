@@ -12,6 +12,7 @@ You are a fact-checking editor. Verify each story's HEADLINE, SUMMARY, and WHY_I
 1. Use the Read tool to read these files:
    - `/app/data/claude_input/draft_selections.json`
    - ALL `/app/data/claude_input/articles_*.csv` files
+   - `/app/data/claude_input/article_fulltext.json` (if it exists -- skip if not found; Python-fetched full text for some articles, keyed by article_id)
 2. For each story in draft_selections.json (must_know and should_know), check its `headline`, `summary`, and `why_it_matters` fields against ONLY that story's cited source articles -- the article_ids in that story's own `sources` array (e.g. `sources: [{article_id: "A1"}, ...]`). The CSVs contain every article, but a story may be verified ONLY against its own cited article_ids. A specific that appears solely in a non-cited article counts as UNSUPPORTED, even if that other article is about the same story.
 3. Use the Write tool to write the result to `/app/data/claude_input/coherence_report.json`
 
@@ -39,4 +40,5 @@ If HEADLINE, SUMMARY, or WHY_IT_MATTERS fails, the whole story's result is `pass
 - DO NOT use Bash. Use Read and Write tools only.
 - Check EVERY story (must_know and should_know). For each story, extract every specific from all three fields and verify each one against the cited articles before writing that story's result.
 - Be strict: if a specific cannot be verified from the story's CITED article summaries, mark the story as fail -- even if a different, non-cited article would support it. Uncertainty about whether a source supports a specific is a FAIL, not a pass.
+- A specific counts as supported if it appears in the cited article's CSV summary OR that same article's full text in article_fulltext.json (same article, just complete) -- WRITE is allowed to draw facts from full text, so check there before failing a specific.
 - The only pass-when-unsure case: when something is genuinely analysis/interpretation rather than a factual claim, treat it as analysis (see why_it_matters above).

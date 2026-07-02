@@ -22,7 +22,7 @@ Claude never sees URLs. Python assigns opaque article IDs (A1, A2...) and builds
 
 After the stages complete, Python (`merge.py:assemble_selections`) reads `draft_selections.json` and `coherence_report.json`, drops headlines whose coherence entry has `pass: false`, validates against `schema.SELECTIONS_SCHEMA`, and writes `selections.json`. Python then resolves article IDs to URLs/source/bias via `resolve_article_ids()` in `digest.py`.
 
-**Intermediate files** (in `data/claude_input/`): `clusters.json`, `recap.txt`, `selected.json`, `draft_selections.json`, `coherence_report.json`, `article_index.json`, `selections.json` (assembled by Python).
+**Intermediate files** (in `data/claude_input/`): `clusters.json`, `recap.txt`, `selected.json`, `article_fulltext.json` (Python-fetched full text for SELECTED stories, best-effort), `draft_selections.json`, `coherence_report.json`, `article_index.json`, `selections.json` (assembled by Python).
 
 **Dedup strategy:** TF-IDF pre-filter on RSS titles (not editorial). `recent_rss_titles.csv` + RECAP subagent + `weekly_recap.txt` replace the old `recent_headlines.csv` feedback loop.
 
@@ -77,4 +77,4 @@ Check `.claude/tasks/todo.md` for tasks that persist across sessions (not tracke
 - Don't skip article files
 - Don't skip deduplication
 - Don't hardcode paths or emails
-- Don't fabricate details not in the RSS summary
+- Don't fabricate details not in the RSS summary or fetched article text

@@ -80,3 +80,14 @@ THREAD_DORMANT_AFTER = int(os.environ.get("THREAD_DORMANT_AFTER", "3"))
 THREAD_LATEBIND = os.environ.get("THREAD_LATEBIND", "false").lower() in ("1", "true", "yes")
 THREAD_LATEBIND_THRESHOLD = float(os.environ.get("THREAD_LATEBIND_THRESHOLD", "0.35"))
 THREAD_LATEBIND_MAX_EXTRA = int(os.environ.get("THREAD_LATEBIND_MAX_EXTRA", "12"))
+
+# Full-text fetch for SELECTED stories (newsroom/src/fulltext.py): after SELECT, Python fetches
+# each selected story's representative article pages (trafilatura) so WRITE/COHERENCE see full
+# article text instead of the ~300-char RSS blurb. Strictly additive -- the step is wrapped so no
+# exception can abort the run, and "no full text" falls back to the CSV summaries (the floor).
+# FULLTEXT_ENABLED is the kill switch (same parsing style as THREADS_ENABLED) for a
+# network-dependent step, e.g. a deploy target with restricted egress.
+FULLTEXT_ENABLED = os.environ.get("FULLTEXT_ENABLED", "true").lower() in ("1", "true", "yes")
+FULLTEXT_PER_STORY = int(os.environ.get("FULLTEXT_PER_STORY", "3"))
+FULLTEXT_MAX_CHARS = int(os.environ.get("FULLTEXT_MAX_CHARS", "4000"))
+FULLTEXT_DEADLINE_S = int(os.environ.get("FULLTEXT_DEADLINE_S", "120"))

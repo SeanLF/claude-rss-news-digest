@@ -185,6 +185,28 @@ class TestWriteSpecGroundsWorldState:
         assert "administration" in low or "office-holder" in low or "in power" in low
 
 
+class TestWriteSpecFulltext:
+    """The WRITE prompt must read article_fulltext.json (if present) and treat it as the SAME
+    article as the CSV row -- richer facts, not a new uncited source -- per fulltext.py (Task 2)."""
+
+    def setup_method(self):
+        self.spec = orchestrate.parse_agent_spec(REPO_ROOT / ".claude" / "agents" / "write.md")
+
+    def test_reads_article_fulltext_optionally(self):
+        low = self.spec.body.lower()
+        assert "article_fulltext.json" in low
+        # Same "if it exists -- skip if not found" phrasing as weekly_recap.txt's optional read.
+        assert "if it exists -- skip if not found" in low
+
+    def test_fabrication_rule_covers_full_text_not_just_summaries(self):
+        low = self.spec.body.lower()
+        assert "do not fabricate beyond what is in the article summaries or the article full text" in low
+
+    def test_citation_rule_allows_support_from_full_text(self):
+        low = self.spec.body.lower()
+        assert "support may come from that article's csv summary or its full text" in low
+
+
 # --------------------------------------------------------------------------- #
 # run_stage
 # --------------------------------------------------------------------------- #
@@ -753,6 +775,86 @@ class TestOrchestrateSelections:
 
         with pytest.raises(RuntimeError, match="recap stage failed"):
             _orchestrate(claude_input_dir=tmp_path)
+
+
+# --------------------------------------------------------------------------- #
+# fulltext wiring: the best-effort fetch step between SELECT and WRITE.
+# fulltext.fetch_for_selected itself is unit-tested in test_fulltext.py (no
+# network); these tests only cover the orchestrator's INTEGRATION with it --
+# ordering and fault isolation.
+# --------------------------------------------------------------------------- #
+
+
+class TestFulltextWiring:
+    def _fake_run_recording(self, claude_input_dir, calls):
+        """Like TestOrchestrateSelections._fake_writer, but also appends to ``calls`` when the
+        select/write agents run, so tests can assert fulltext's position between them."""
+        base = TestOrchestrateSelections()._fake_writer(claude_input_dir)
+
+        async def fake_run(_prompt, *, system_prompt, **_k):
+            if "news editor" in system_prompt:
+                calls.append("select")
+            if "news writer" in system_prompt:
+                calls.append("write")
+            return await base(_prompt, system_prompt=system_prompt, **_k)
+
+        return fake_run
+
+    def test_fulltext_runs_between_select_and_write(self, tmp_path, monkeypatch):
+        TestOrchestrateSelections._write_articles(tmp_path)
+        calls: list[str] = []
+
+        def fake_fetch(claude_input_dir):
+            assert claude_input_dir == tmp_path
+            calls.append("fulltext")
+            return None
+
+        monkeypatch.setattr(orchestrate.fulltext, "fetch_for_selected", fake_fetch)
+        monkeypatch.setattr(orchestrate.claude_cli, "run_agent", self._fake_run_recording(tmp_path, calls))
+        monkeypatch.setattr(orchestrate, "_AGENTS_DIR", REPO_ROOT / ".claude" / "agents")
+
+        rows = _orchestrate(claude_input_dir=tmp_path)
+
+        assert [r["subagent"] for r in rows] == ["cluster", "recap", "select", "write", "coherence"]
+        assert calls.index("select") < calls.index("fulltext") < calls.index("write")
+
+    def test_fulltext_raising_unexpectedly_does_not_abort_orchestration(self, tmp_path, monkeypatch, caplog):
+        TestOrchestrateSelections._write_articles(tmp_path)
+
+        def fake_fetch(_claude_input_dir):
+            raise RuntimeError("totally unexpected bug inside fulltext")
+
+        monkeypatch.setattr(orchestrate.fulltext, "fetch_for_selected", fake_fetch)
+        monkeypatch.setattr(orchestrate.claude_cli, "run_agent", TestOrchestrateSelections()._fake_writer(tmp_path))
+        monkeypatch.setattr(orchestrate, "_AGENTS_DIR", REPO_ROOT / ".claude" / "agents")
+
+        with caplog.at_level("WARNING"):
+            rows = _orchestrate(claude_input_dir=tmp_path)  # must not raise
+
+        assert [r["subagent"] for r in rows] == ["cluster", "recap", "select", "write", "coherence"]
+        warnings = [r for r in caplog.records if r.levelname == "WARNING"]
+        # The unexpected-exception path must log with both the exception type/message and a
+        # real traceback attached (exc_info=True), not just a bare str(e).
+        assert any(
+            "RuntimeError" in r.getMessage() and "totally unexpected bug inside fulltext" in r.getMessage()
+            for r in warnings
+        )
+        assert any(r.exc_info is not None for r in warnings)
+
+    def test_fulltext_disabled_skips_the_call_entirely(self, tmp_path, monkeypatch):
+        TestOrchestrateSelections._write_articles(tmp_path)
+        monkeypatch.setattr(orchestrate.config, "FULLTEXT_ENABLED", False)
+
+        def fake_fetch(_claude_input_dir):
+            raise AssertionError("fetch_for_selected must not be called when FULLTEXT_ENABLED=false")
+
+        monkeypatch.setattr(orchestrate.fulltext, "fetch_for_selected", fake_fetch)
+        monkeypatch.setattr(orchestrate.claude_cli, "run_agent", TestOrchestrateSelections()._fake_writer(tmp_path))
+        monkeypatch.setattr(orchestrate, "_AGENTS_DIR", REPO_ROOT / ".claude" / "agents")
+
+        rows = _orchestrate(claude_input_dir=tmp_path)  # must not raise (and must not call fake_fetch)
+
+        assert [r["subagent"] for r in rows] == ["cluster", "recap", "select", "write", "coherence"]
 
 
 # --------------------------------------------------------------------------- #

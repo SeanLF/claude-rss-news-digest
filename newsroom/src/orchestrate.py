@@ -30,6 +30,7 @@ Per-stage usage is captured directly from the StageResult: token counts from its
 
 from __future__ import annotations
 
+import asyncio
 import datetime
 import logging
 import time
@@ -41,6 +42,7 @@ from typing import Any, cast
 import claude_cli
 import cluster_extractjoin
 import config
+import fulltext
 from claude_agent_sdk import ThinkingConfig
 from retry import with_retry_async
 from usage import usage_row_from_sdk
@@ -446,6 +448,31 @@ def _stage_output_is_valid(claude_input_dir: Path, output_filename: str, validat
         return False
 
 
+async def _run_fulltext_best_effort(claude_input_dir: Path) -> None:
+    """Best-effort full-text fetch for the SELECTED stories, between SELECT and WRITE.
+
+    Network-dependent and strictly additive: WRITE/COHERENCE already work off the CSV summaries
+    alone (the floor), so nothing here may touch the run's success. ``fulltext.fetch_for_selected``
+    already catches everything internally and returns None on any failure; the broad catch here is
+    a second, redundant layer (mirrors ``merge.py``'s best-effort instrumentation) so even a bug
+    inside fulltext itself -- not just an expected fetch failure -- can never reach this orchestrator.
+    Run via ``asyncio.to_thread`` since it does blocking network I/O (a ThreadPoolExecutor of its
+    own) that would otherwise stall the event loop for up to ``config.FULLTEXT_DEADLINE_S``.
+    """
+    try:
+        path = await asyncio.to_thread(fulltext.fetch_for_selected, claude_input_dir)
+    except Exception as e:  # broad by design: this step must never abort the run
+        logger.warning(
+            "fulltext: unexpected error (non-fatal, falling back to CSV summaries): %s: %s",
+            type(e).__name__,
+            e,
+            exc_info=True,
+        )
+        return
+    if path is None:
+        logger.info("fulltext: no full text extracted (WRITE/COHERENCE fall back to CSV summaries)")
+
+
 async def orchestrate_selections(
     *,
     claude_input_dir: Path,
@@ -477,11 +504,10 @@ async def orchestrate_selections(
     for label, spec_filename, output_filename, validate in _STAGES:
         if resume and _stage_output_is_valid(claude_input_dir, output_filename, validate):
             logger.info("[%s] resuming: valid output present, skipping", label.capitalize())
-            continue
         # CLUSTER is the deterministic extract→join path (replaces the holistic LLM agent); it
         # writes clusters.json and validates identically, so the rest of the pipeline is
         # untouched. See cluster_extractjoin.py + the gate doc. Rollback = revert the image.
-        if label == "cluster":
+        elif label == "cluster":
             logger.info(
                 "[Cluster] extract-join (extract=%s, thr=%.2f)",
                 config.CLUSTER_EXTRACT_MODEL,
@@ -495,18 +521,24 @@ async def orchestrate_selections(
             )
             validate(claude_input_dir)
             usage_rows.append(row)
-            continue
-        spec = parse_agent_spec(_AGENTS_DIR / spec_filename)
-        row = await run_stage(
-            spec,
-            label=label,
-            output_path=claude_input_dir / output_filename,
-            validate=validate,
-            model_override=model_override,
-            cwd=cwd,
-            claude_input_dir=claude_input_dir,
-        )
-        usage_rows.append(row)
+        else:
+            spec = parse_agent_spec(_AGENTS_DIR / spec_filename)
+            row = await run_stage(
+                spec,
+                label=label,
+                output_path=claude_input_dir / output_filename,
+                validate=validate,
+                model_override=model_override,
+                cwd=cwd,
+                claude_input_dir=claude_input_dir,
+            )
+            usage_rows.append(row)
+        # Fetch full text for the SELECTED stories before WRITE runs (whether SELECT just ran or
+        # was resumed from a valid prior output), so WRITE/COHERENCE see real article text instead
+        # of the ~300-char RSS blurb. Best-effort: guarded by the kill switch here (skip entirely,
+        # no thread pool spun up) and internally by fulltext itself.
+        if label == "select" and config.FULLTEXT_ENABLED:
+            await _run_fulltext_best_effort(claude_input_dir)
 
     total = sum(r["api_cost_usd"] for r in usage_rows)
     logger.info("Selection complete: %d stages, $%.4f API-equivalent", len(usage_rows), total)
