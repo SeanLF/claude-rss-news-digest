@@ -45,8 +45,14 @@ You are a news editor. Assign tiers to story clusters.
 {
   "must_know": [{"cluster_index": 0, "article_ids": ["A1", "A2"]}],
   "should_know": [{"cluster_index": 3, "article_ids": ["A5"]}],
-  "not_covered_blurb": "Brief description of what was not selected and why, for Writer context."
+  "not_covered_blurb": "One plain sentence for the reader: the main themes you deliberately left out and why."
 }
+
+**not_covered_blurb (reader-facing -- it is printed verbatim in the digest footer):**
+- Write ONE complete, natural sentence a reader will see. Under ~250 characters.
+- Name the themes you dropped in plain words ("major-league sports, celebrity news, US-domestic lifestyle"), not an inventory of every cluster.
+- NEVER include internal identifiers -- no "cluster 3", no "clusters 0, 1", no article IDs like "A5"/"[A5]". These are working notes, not reader text; a blurb containing them will be discarded and no footer will show.
+- Example: "We skipped major-league sports, celebrity news, and several US-domestic lifestyle stories to keep the digest focused on world affairs."
 
 **Rules:**
 - DO NOT use Bash. Use Read and Write tools only.

@@ -21,6 +21,18 @@ logger = logging.getLogger(__name__)
 # (see eval_graders.GraderLimits.preheader_max_chars for the same pattern).
 _NOT_COVERED_BLURB_MAX_LEN = 300
 
+# The not_covered_blurb is reader-facing (rendered in the digest footer), but it
+# originates from SELECT, whose working vocabulary includes internal cluster
+# indices ("cluster 132", "clusters 0, 1") and opaque article IDs ("[A221]").
+# Those must never reach a reader (cf. the 2026-06-30 [A221] delta_from_facts
+# leak). If the blurb still carries them, we DROP it (degrade to no footer)
+# rather than sanitise freeform prose -- and warn, so a prompt regression is
+# visible in logs instead of shipping garbage.
+_INTERNAL_ID_PATTERNS = (
+    re.compile(r"\bclusters?\s+\d", re.IGNORECASE),  # "cluster 132", "clusters 0, 1"
+    re.compile(r"\[A\d+\]"),  # bracketed article IDs like "[A221]"
+)
+
 
 def _norm_headline(headline: str) -> str:
     """Normalize a headline for resilient fallback matching.
@@ -218,14 +230,41 @@ def _load_not_covered_blurb(claude_input_dir: Path) -> str | None:
         logger.debug("not_covered_blurb absent or empty in selected.json")
         return None
     blurb = blurb.strip()
+    leaked = next((p.pattern for p in _INTERNAL_ID_PATTERNS if p.search(blurb)), None)
+    if leaked is not None:
+        logger.warning(
+            "not_covered_blurb leaks internal ids (matched /%s/) -- dropping from footer rather than "
+            "exposing them to readers: %s",
+            leaked,
+            repr(blurb)[:120],
+        )
+        return None
     if len(blurb) > _NOT_COVERED_BLURB_MAX_LEN:
         logger.warning(
             "not_covered_blurb exceeds %d chars (%d) -- truncating rather than dropping",
             _NOT_COVERED_BLURB_MAX_LEN,
             len(blurb),
         )
-        blurb = blurb[: _NOT_COVERED_BLURB_MAX_LEN - 1].rstrip() + "…"
+        blurb = _truncate_on_word_boundary(blurb, _NOT_COVERED_BLURB_MAX_LEN)
     return blurb
+
+
+def _truncate_on_word_boundary(text: str, max_len: int) -> str:
+    """Truncate to <= max_len chars ending in an ellipsis, cutting on a word
+    boundary so we never emit a mid-word fragment (cf. the "...SO…" that shipped
+    2026-07-02). Reserves one char for the ellipsis; if the first word alone
+    exceeds the budget, falls back to a hard cut. Text already within max_len is
+    returned unchanged -- self-guarding so callers need not pre-check length."""
+    if len(text) <= max_len:
+        return text
+    budget = max_len - 1  # reserve room for the ellipsis
+    head = text[:budget]
+    if not text[budget].isspace() and not text[budget - 1].isspace():
+        # We cut mid-word -- back up to the last whitespace so the final word is whole.
+        cut = head.rfind(" ")
+        if cut > 0:
+            head = head[:cut]
+    return head.rstrip() + "…"
 
 
 def assemble_selections(claude_input_dir: Path) -> Path:

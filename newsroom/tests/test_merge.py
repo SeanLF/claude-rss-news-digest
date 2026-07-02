@@ -707,6 +707,76 @@ class TestNotCoveredBlurb:
 
         assert len(assembled["not_covered_blurb"]) <= 300
 
+    @pytest.mark.parametrize(
+        "leaky_blurb",
+        [
+            "Skipped sports (clusters 0, 1, and World Cup articles) and the heatwave (cluster 132).",
+            "Filtered US domestic lifestyle: cluster 46 and cluster 89.",
+            "Dropped a minor thread referenced as [A221] in the source set.",
+        ],
+        ids=["cluster-list", "single-clusters", "article-id"],
+    )
+    def test_drops_blurb_leaking_internal_ids(self, tmp_path, caplog, leaky_blurb):
+        # The footer is reader-facing. SELECT's internal cluster/article
+        # indices ("cluster 132", "[A221]") must never reach a reader -- if the
+        # blurb still carries them, drop it (degrade to no footer) and warn,
+        # rather than sanitising freeform prose or shipping the leak.
+        draft = _draft(must_know=[_article("h")])
+        _write(
+            tmp_path,
+            draft,
+            _coherence({"headline": "h", "pass": True}),
+            selected={"not_covered_blurb": leaky_blurb},
+        )
+
+        with caplog.at_level("WARNING", logger="merge"):
+            assembled = json.loads(assemble_selections(tmp_path).read_text())
+
+        assert "not_covered_blurb" not in assembled
+        warnings = [r for r in caplog.records if r.levelname == "WARNING"]
+        assert any("not_covered_blurb" in r.getMessage() and "internal" in r.getMessage().lower() for r in warnings)
+
+    def test_clean_blurb_survives(self, tmp_path):
+        # A plain reader-facing sentence with no internal markers passes through
+        # untouched -- the leak guard must not be trigger-happy on ordinary prose
+        # that merely contains numbers.
+        blurb = "We left out sports, celebrity news, and coverage of the 12 World Cup group matches."
+        draft = _draft(must_know=[_article("h")])
+        _write(
+            tmp_path,
+            draft,
+            _coherence({"headline": "h", "pass": True}),
+            selected={"not_covered_blurb": blurb},
+        )
+
+        assembled = json.loads(assemble_selections(tmp_path).read_text())
+
+        assert assembled["not_covered_blurb"] == blurb
+
+    def test_overlong_blurb_truncates_on_word_boundary(self, tmp_path):
+        # A legit-but-long blurb must degrade to a clean truncation, never a
+        # mid-word cut like the "...SO…" that shipped on 2026-07-02.
+        long_blurb = "We deliberately skipped several softer stories " * 10  # > 300 chars
+        draft = _draft(must_know=[_article("h")])
+        _write(
+            tmp_path,
+            draft,
+            _coherence({"headline": "h", "pass": True}),
+            selected={"not_covered_blurb": long_blurb},
+        )
+
+        assembled = json.loads(assemble_selections(tmp_path).read_text())
+        blurb = assembled["not_covered_blurb"]
+
+        assert len(blurb) <= 300
+        assert blurb.endswith("…")
+        # The character before the ellipsis must be a word char, and the word it
+        # ends on must be whole -- i.e. the truncation happened at a space, so
+        # stripping the ellipsis leaves text that is a prefix ending on a full word.
+        assert blurb[:-1] == blurb[:-1].rstrip()
+        assert long_blurb.startswith(blurb[:-1].rstrip())
+        assert blurb[:-1].rstrip().split()[-1] in long_blurb.split()
+
 
 class TestMalformedIntermediateFiles:
     """Truncated/invalid intermediate JSON must surface as the documented
