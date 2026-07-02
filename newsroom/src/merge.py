@@ -61,6 +61,58 @@ def _result_matches(result: dict, item_ids: frozenset[str], item_norm_headline: 
     return rh is not None and _norm_headline(rh) == item_norm_headline
 
 
+def _coherence_failed(result: dict) -> bool:
+    """Whether a coherence result should be treated as FAILED (drop trigger).
+
+    Strict pass semantics: only the literal boolean ``True`` counts as a pass.
+    The report is model-generated JSON, so a non-boolean "pass" value (e.g. the
+    JSON string ``"false"`` -- TRUTHY if used raw -- or ``"true"``) or an
+    omitted "pass" key on an otherwise-present entry is a plausible drift.
+    Both are treated as a FAILURE, matching this module's "over-dropping is
+    safer than silently keeping an unverified headline" stance (see
+    ``_result_matches``). A warning names the story and the offending value so
+    prompt drift toward non-boolean output is visible in run logs.
+    """
+    value = result.get("pass")
+    if value is True:
+        return False
+    if value is False:
+        return True
+    if "pass" in result:
+        logger.warning(
+            "Coherence result for %r has non-boolean pass=%r; treating as FAILED",
+            result.get("headline"),
+            value,
+        )
+    else:
+        logger.warning(
+            "Coherence result for %r is missing 'pass'; treating as FAILED",
+            result.get("headline"),
+        )
+    return True
+
+
+def _why_it_matters_only_failure(result: dict) -> bool:
+    """Whether a FAILED coherence result's failed_fields is usable AND names
+    exactly why_it_matters -- the one case merge.py degrades gracefully instead
+    of dropping the whole story.
+
+    WRITE habitually seasons why_it_matters with true-but-uncited background
+    specifics ("6-3", "$60bn", "last major city in Darfur"); COHERENCE catches
+    these correctly, but a headline-drop-on-any-fail policy was costing up to
+    35% of stories on a real archived day even though only one field was ever
+    wrong. Any other shape -- failed_fields absent, empty, unparseable (not a
+    list), or naming headline/summary/an unknown field alongside or instead of
+    why_it_matters -- returns False, so the caller falls back to a full drop.
+    Over-dropping is safer than silently keeping an unverified headline or
+    summary; only why_it_matters gets the softer treatment.
+    """
+    fields = result.get("failed_fields")
+    if not isinstance(fields, list) or not all(isinstance(f, str) for f in fields):
+        return False
+    return set(fields) == {"why_it_matters"}
+
+
 def _grade_assembled(selections: dict) -> None:
     """Run the L1 code-assertion graders as a NON-FATAL production assertion.
 
@@ -205,7 +257,7 @@ def assemble_selections(claude_input_dir: Path) -> Path:
     cluster_map = _load_cluster_map(claude_input_dir)
 
     results = coherence.get("results", [])
-    failed = [r for r in results if not r.get("pass", True)]
+    failed = [r for r in results if _coherence_failed(r)]
     matched_failed: set[int] = set()
 
     dropped = []
@@ -223,7 +275,20 @@ def assemble_selections(claude_input_dir: Path) -> Path:
             hits = [i for i, r in enumerate(failed) if _result_matches(r, item_ids, item_norm)]
             if hits:
                 matched_failed.update(hits)
-                dropped.append((tier, item.get("headline")))
+                # Graceful degradation: if EVERY matching failure is a usable
+                # why_it_matters-only failure, keep the story and blank just that
+                # field instead of dropping it. Any other case (mixed fields,
+                # unparseable, unknown names) is a full drop, same as before.
+                # NOTE: the L1 no_empty_fields grader also flags the blanked
+                # field (non-fatal) -- expected double signal on this path.
+                if all(_why_it_matters_only_failure(failed[i]) for i in hits):
+                    item["why_it_matters"] = ""
+                    reasons = "; ".join(str(failed[i].get("reason") or "(no reason given by COHERENCE)") for i in hits)
+                    logger.warning("coherence stripped why_it_matters: %s: %s", item.get("headline"), reasons)
+                    _attach_cluster_id(item, item.get("sources", []), cluster_map)
+                    kept.append(item)
+                else:
+                    dropped.append((tier, item.get("headline")))
             else:
                 _attach_cluster_id(item, item.get("sources", []), cluster_map)
                 kept.append(item)

@@ -73,8 +73,11 @@ class TestAssembleSelections:
 
         assert [a["headline"] for a in assembled["should_know"]] == ["keep"]
 
-    def test_pass_missing_defaults_to_keep(self, tmp_path):
-        # If coherence omits a headline entirely, treat it as passing.
+    def test_pass_missing_from_report_entirely_defaults_to_keep(self, tmp_path):
+        # If coherence's results list has NO entry at all for a headline (a
+        # coverage gap, not a malformed entry), treat it as passing -- this is
+        # the "no entry" case, distinct from an entry present with a bad/missing
+        # "pass" value (see TestStrictPassSemantics).
         draft = _draft(must_know=[_article("missing-from-coherence")])
         _write(tmp_path, draft, _coherence())
 
@@ -136,6 +139,238 @@ class TestAssembleSelections:
 
         with pytest.raises(RuntimeError, match="schema validation"):
             assemble_selections(tmp_path)
+
+
+class TestStrictPassSemantics:
+    """Only the literal boolean True counts as a pass. The report is
+    model-generated JSON, so non-boolean "pass" values (JSON-encoded as a
+    string) or an omitted "pass" key on a present entry are plausible drift.
+    Both must be treated as FAILED (conservative drop), not silently kept -- matching the
+    module's "over-dropping is safer than silently keeping an unverified
+    headline" stance. A warning must name the story and the offending value."""
+
+    def test_string_false_drops_and_warns(self, tmp_path, caplog):
+        draft = _draft(must_know=[_article("good"), _article("bad")])
+        coherence = _coherence(
+            {"headline": "good", "pass": True},
+            {"headline": "bad", "pass": "false"},  # string, not bool -- TRUTHY if used raw
+        )
+        _write(tmp_path, draft, coherence)
+
+        with caplog.at_level("WARNING"):
+            assembled = json.loads(assemble_selections(tmp_path).read_text())
+
+        assert [a["headline"] for a in assembled["must_know"]] == ["good"]
+        assert any("bad" in r.getMessage() for r in caplog.records)
+
+    def test_string_true_drops_and_warns(self, tmp_path, caplog):
+        draft = _draft(must_know=[_article("good"), _article("bad")])
+        coherence = _coherence(
+            {"headline": "good", "pass": True},
+            {"headline": "bad", "pass": "true"},  # string, not bool
+        )
+        _write(tmp_path, draft, coherence)
+
+        with caplog.at_level("WARNING"):
+            assembled = json.loads(assemble_selections(tmp_path).read_text())
+
+        assert [a["headline"] for a in assembled["must_know"]] == ["good"]
+        assert any("bad" in r.getMessage() for r in caplog.records)
+
+    def test_entry_present_but_missing_pass_key_drops_and_warns(self, tmp_path, caplog):
+        # An entry that DOES exist for the headline but omits "pass" entirely --
+        # distinct from a coverage gap (no entry at all), which still defaults
+        # to keep (see test_pass_missing_from_report_entirely_defaults_to_keep).
+        draft = _draft(must_know=[_article("good"), _article("bad")])
+        coherence = _coherence(
+            {"headline": "good", "pass": True},
+            {"headline": "bad"},  # no "pass" key
+        )
+        _write(tmp_path, draft, coherence)
+
+        with caplog.at_level("WARNING"):
+            assembled = json.loads(assemble_selections(tmp_path).read_text())
+
+        assert [a["headline"] for a in assembled["must_know"]] == ["good"]
+        assert any("bad" in r.getMessage() for r in caplog.records)
+
+    def test_boolean_false_still_drops(self, tmp_path):
+        draft = _draft(must_know=[_article("good"), _article("bad")])
+        coherence = _coherence(
+            {"headline": "good", "pass": True},
+            {"headline": "bad", "pass": False},
+        )
+        _write(tmp_path, draft, coherence)
+
+        assembled = json.loads(assemble_selections(tmp_path).read_text())
+
+        assert [a["headline"] for a in assembled["must_know"]] == ["good"]
+
+    def test_boolean_true_still_keeps(self, tmp_path):
+        draft = _draft(must_know=[_article("good")])
+        coherence = _coherence({"headline": "good", "pass": True})
+        _write(tmp_path, draft, coherence)
+
+        assembled = json.loads(assemble_selections(tmp_path).read_text())
+
+        assert [a["headline"] for a in assembled["must_know"]] == ["good"]
+
+
+class TestFieldAwareCoherenceDegradation:
+    """A why_it_matters-only coherence failure should NOT drop the whole story --
+    WRITE habitually seasons why_it_matters with true-but-uncited background
+    specifics ("6-3", "$60bn"), and that pattern was dropping up to 35% of
+    stories on a real archived day. Instead: blank why_it_matters and keep the
+    rest of the story. ANY other shape (mixed fields, absent, empty, unparseable,
+    unknown names) stays a full drop -- conservative default, over-drop beats
+    shipping fabrication."""
+
+    def test_why_it_matters_only_failure_keeps_story_with_blanked_field(self, tmp_path, caplog):
+        draft = _draft(must_know=[_article("bad")])
+        coherence = _coherence(
+            {
+                "headline": "bad",
+                "pass": False,
+                "reason": "why_it_matters: cites a 6-3 vote not in sources",
+                "failed_fields": ["why_it_matters"],
+            }
+        )
+        _write(tmp_path, draft, coherence)
+
+        with caplog.at_level("WARNING"):
+            assembled = json.loads(assemble_selections(tmp_path).read_text())
+
+        assert [a["headline"] for a in assembled["must_know"]] == ["bad"]
+        assert assembled["must_know"][0]["why_it_matters"] == ""
+        assert any(
+            "coherence stripped why_it_matters" in r.getMessage() and "bad" in r.getMessage() for r in caplog.records
+        )
+
+    def test_mixed_failed_fields_drops(self, tmp_path):
+        draft = _draft(must_know=[_article("good"), _article("bad")])
+        coherence = _coherence(
+            {"headline": "good", "pass": True},
+            {
+                "headline": "bad",
+                "pass": False,
+                "reason": "summary + why_it_matters both unsupported",
+                "failed_fields": ["summary", "why_it_matters"],
+            },
+        )
+        _write(tmp_path, draft, coherence)
+
+        assembled = json.loads(assemble_selections(tmp_path).read_text())
+
+        assert [a["headline"] for a in assembled["must_know"]] == ["good"]
+
+    def test_absent_failed_fields_drops(self, tmp_path):
+        draft = _draft(must_know=[_article("good"), _article("bad")])
+        coherence = _coherence(
+            {"headline": "good", "pass": True},
+            {"headline": "bad", "pass": False, "reason": "why_it_matters: unsupported"},
+        )
+        _write(tmp_path, draft, coherence)
+
+        assembled = json.loads(assemble_selections(tmp_path).read_text())
+
+        assert [a["headline"] for a in assembled["must_know"]] == ["good"]
+
+    def test_unknown_field_name_drops(self, tmp_path):
+        draft = _draft(must_know=[_article("good"), _article("bad")])
+        coherence = _coherence(
+            {"headline": "good", "pass": True},
+            {
+                "headline": "bad",
+                "pass": False,
+                "reason": "some other field failed",
+                "failed_fields": ["preheader"],
+            },
+        )
+        _write(tmp_path, draft, coherence)
+
+        assembled = json.loads(assemble_selections(tmp_path).read_text())
+
+        assert [a["headline"] for a in assembled["must_know"]] == ["good"]
+
+    def test_empty_failed_fields_list_drops(self, tmp_path):
+        draft = _draft(must_know=[_article("good"), _article("bad")])
+        coherence = _coherence(
+            {"headline": "good", "pass": True},
+            {"headline": "bad", "pass": False, "reason": "unclear", "failed_fields": []},
+        )
+        _write(tmp_path, draft, coherence)
+
+        assembled = json.loads(assemble_selections(tmp_path).read_text())
+
+        assert [a["headline"] for a in assembled["must_know"]] == ["good"]
+
+    def test_unparseable_failed_fields_drops(self, tmp_path):
+        # Defensive: not a list at all (e.g. malformed/legacy shape). merge.py
+        # must not crash and must fall back to the conservative full drop.
+        draft = _draft(must_know=[_article("good"), _article("bad")])
+        coherence = _coherence(
+            {"headline": "good", "pass": True},
+            {"headline": "bad", "pass": False, "reason": "unclear", "failed_fields": "why_it_matters"},
+        )
+        _write(tmp_path, draft, coherence)
+
+        assembled = json.loads(assemble_selections(tmp_path).read_text())
+
+        assert [a["headline"] for a in assembled["must_know"]] == ["good"]
+
+    def test_mixed_type_failed_fields_drops(self, tmp_path):
+        # A list whose entries are not ALL strings is unparseable -- it must NOT
+        # be silently filtered down to {"why_it_matters"} and given the softer
+        # strip treatment. Conservative full drop (defense in depth: the
+        # orchestrate gate rejects this shape, but merge.py must not rely on it).
+        draft = _draft(must_know=[_article("good"), _article("bad")])
+        coherence = _coherence(
+            {"headline": "good", "pass": True},
+            {"headline": "bad", "pass": False, "reason": "why_it_matters: x", "failed_fields": ["why_it_matters", 42]},
+        )
+        _write(tmp_path, draft, coherence)
+
+        assembled = json.loads(assemble_selections(tmp_path).read_text())
+
+        assert [a["headline"] for a in assembled["must_know"]] == ["good"]
+
+    def test_two_failing_results_one_why_only_one_summary_drops(self, tmp_path):
+        # A story matched by TWO failing results -- one why_it_matters-only,
+        # one naming summary -- must take the conservative full drop (the
+        # all() over hits is the load-bearing line).
+        draft = _draft(must_know=[_article("good"), _article("bad")])
+        coherence = _coherence(
+            {"headline": "good", "pass": True},
+            {"headline": "bad", "pass": False, "reason": "why_it_matters: x", "failed_fields": ["why_it_matters"]},
+            {"headline": "bad", "pass": False, "reason": "summary: y", "failed_fields": ["summary"]},
+        )
+        _write(tmp_path, draft, coherence)
+
+        assembled = json.loads(assemble_selections(tmp_path).read_text())
+
+        assert [a["headline"] for a in assembled["must_know"]] == ["good"]
+
+    def test_coerced_nonboolean_pass_with_why_only_failed_fields_still_strips(self, tmp_path, caplog):
+        # The coercion in _coherence_failed is about the "pass" VALUE, not the
+        # fields -- a non-True pass ("false" the string) that nonetheless
+        # carries a usable why_it_matters-only failed_fields should still strip
+        # rather than drop.
+        draft = _draft(must_know=[_article("bad")])
+        coherence = _coherence(
+            {
+                "headline": "bad",
+                "pass": "false",  # coerced fail, not a strict boolean
+                "reason": "why_it_matters: unsupported specific",
+                "failed_fields": ["why_it_matters"],
+            }
+        )
+        _write(tmp_path, draft, coherence)
+
+        with caplog.at_level("WARNING"):
+            assembled = json.loads(assemble_selections(tmp_path).read_text())
+
+        assert [a["headline"] for a in assembled["must_know"]] == ["bad"]
+        assert assembled["must_know"][0]["why_it_matters"] == ""
 
 
 class TestClusterIdMapping:

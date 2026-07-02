@@ -274,8 +274,13 @@ def render_article(
         f'    <article id="{slug}">',
         f'      <h3><a href="#{slug}" class="anchor" aria-label="Link to this story">{ANCHOR_SVG}</a>{headline}{ongoing}</h3>',
         f"      <p>{body}</p>",
-        f'      <p class="why"><strong>Why it matters:</strong> {why}</p>',
     ]
+    # COHERENCE can strip why_it_matters to "" (field-aware graceful degradation
+    # in merge.py, see _why_it_matters_only_failure) when only that field failed
+    # fact-checking, keeping the rest of the story. An empty/whitespace why must
+    # not leave a dangling "Why it matters:" label with no content.
+    if why.strip():
+        parts.append(f'      <p class="why"><strong>Why it matters:</strong> {why}</p>')
 
     # Optional: reporting_varies (only for must_know)
     if include_reporting_varies:

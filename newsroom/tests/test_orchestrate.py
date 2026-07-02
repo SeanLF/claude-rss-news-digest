@@ -473,6 +473,183 @@ class TestValidators:
         orchestrate.validate_coherence(tmp_path)
 
 
+class TestValidateCoherenceStrictStructure:
+    """Fail-closed structure gate for coherence_report.json. A truncated-but-
+    valid-JSON report used to only warn downstream (merge.py) and ship the
+    unchecked tail; raising here instead makes the stage retry (see run_stage)."""
+
+    def test_non_dict_entry_raises(self, tmp_path):
+        (tmp_path / "coherence_report.json").write_text(json.dumps({"results": ["not a dict"]}))
+        with pytest.raises(ValueError, match="not an object"):
+            orchestrate.validate_coherence(tmp_path)
+
+    def test_string_pass_raises(self, tmp_path):
+        (tmp_path / "coherence_report.json").write_text(json.dumps({"results": [{"headline": "h", "pass": "false"}]}))
+        with pytest.raises(ValueError, match="boolean 'pass'"):
+            orchestrate.validate_coherence(tmp_path)
+
+    def test_missing_pass_raises(self, tmp_path):
+        (tmp_path / "coherence_report.json").write_text(json.dumps({"results": [{"headline": "h"}]}))
+        with pytest.raises(ValueError, match="boolean 'pass'"):
+            orchestrate.validate_coherence(tmp_path)
+
+    def test_undercoverage_vs_draft_raises(self, tmp_path):
+        (tmp_path / "draft_selections.json").write_text(
+            json.dumps(
+                {
+                    "must_know": [{"headline": "a"}],
+                    "should_know": [{"headline": "b"}],
+                    "preheader": "p",
+                }
+            )
+        )
+        (tmp_path / "coherence_report.json").write_text(
+            json.dumps({"results": [{"headline": "a", "pass": True}]})  # only 1 of 2 draft stories
+        )
+        with pytest.raises(ValueError, match="no result matches"):
+            orchestrate.validate_coherence(tmp_path)
+
+    def test_duplicate_results_cannot_mask_an_unchecked_story(self, tmp_path):
+        # Identity-based coverage: two results for story "a" satisfy a COUNT
+        # check while "b" goes unchecked -- that must still raise (a count-only
+        # gate was defeatable; the unchecked story would then ship fail-open
+        # via merge.py's keep-with-warning fallback).
+        (tmp_path / "draft_selections.json").write_text(
+            json.dumps(
+                {
+                    "must_know": [{"headline": "a"}],
+                    "should_know": [{"headline": "b"}],
+                    "preheader": "p",
+                }
+            )
+        )
+        (tmp_path / "coherence_report.json").write_text(
+            json.dumps(
+                {
+                    "results": [
+                        {"headline": "a", "pass": True},
+                        {"headline": "a", "pass": True},
+                    ]
+                }
+            )
+        )
+        with pytest.raises(ValueError, match=r"no result matches.*'b'"):
+            orchestrate.validate_coherence(tmp_path)
+
+    def test_retyped_headline_matches_via_article_ids(self, tmp_path):
+        # COHERENCE re-types headlines; a drifted headline with intact cited
+        # article_ids must still count as coverage (merge.py matches by ids
+        # first -- validation must agree with assembly).
+        (tmp_path / "draft_selections.json").write_text(
+            json.dumps(
+                {
+                    "must_know": [{"headline": "a - original", "sources": [{"article_id": "A1"}]}],
+                    "should_know": [],
+                    "preheader": "p",
+                }
+            )
+        )
+        (tmp_path / "coherence_report.json").write_text(
+            json.dumps({"results": [{"headline": "A -- Original (retyped)", "article_ids": ["A1"], "pass": True}]})
+        )
+        orchestrate.validate_coherence(tmp_path)  # no raise
+
+    def test_exact_coverage_passes(self, tmp_path):
+        (tmp_path / "draft_selections.json").write_text(
+            json.dumps(
+                {
+                    "must_know": [{"headline": "a"}],
+                    "should_know": [{"headline": "b"}],
+                    "preheader": "p",
+                }
+            )
+        )
+        (tmp_path / "coherence_report.json").write_text(
+            json.dumps(
+                {
+                    "results": [
+                        {"headline": "a", "pass": True},
+                        {"headline": "b", "pass": False},
+                    ]
+                }
+            )
+        )
+        orchestrate.validate_coherence(tmp_path)  # no raise
+
+    def test_missing_draft_selections_skips_coverage_check(self, tmp_path, caplog):
+        # draft_selections.json absent here -- the write-stage validator owns
+        # that file, so validate_coherence must not raise over its absence.
+        # But the skip must be VISIBLE: the coverage gate silently disabling
+        # itself is exactly the wrong-file case most worth surfacing.
+        (tmp_path / "coherence_report.json").write_text(json.dumps({"results": []}))
+        with caplog.at_level("WARNING"):
+            orchestrate.validate_coherence(tmp_path)  # no raise
+        assert "skipping coherence coverage check" in caplog.text
+
+    def test_unreadable_draft_selections_skips_coverage_check_with_warning(self, tmp_path, caplog):
+        (tmp_path / "coherence_report.json").write_text(json.dumps({"results": []}))
+        (tmp_path / "draft_selections.json").write_text("{not json")
+        with caplog.at_level("WARNING"):
+            orchestrate.validate_coherence(tmp_path)  # no raise
+        assert "skipping coherence coverage check" in caplog.text
+
+
+class TestValidateCoherenceFailedFields:
+    """failed_fields is OPTIONAL on a pass:false entry -- graceful degradation
+    for why_it_matters-only coherence failures (merge.py owns the field-aware
+    drop/strip decision). This gate only enforces the wire shape: when present,
+    a list of strings; absent is fine. Unknown field names inside the list are
+    NOT rejected here (forward-compat) -- merge.py treats unknown names
+    conservatively (full drop)."""
+
+    def test_absent_failed_fields_on_fail_passes(self, tmp_path):
+        (tmp_path / "coherence_report.json").write_text(
+            json.dumps({"results": [{"headline": "h", "pass": False, "reason": "r"}]})
+        )
+        orchestrate.validate_coherence(tmp_path)  # no raise
+
+    def test_valid_failed_fields_list_passes(self, tmp_path):
+        (tmp_path / "coherence_report.json").write_text(
+            json.dumps(
+                {"results": [{"headline": "h", "pass": False, "reason": "r", "failed_fields": ["why_it_matters"]}]}
+            )
+        )
+        orchestrate.validate_coherence(tmp_path)  # no raise
+
+    def test_unknown_field_name_in_list_still_passes(self, tmp_path):
+        # Forward-compat: unknown names are not rejected at this layer.
+        (tmp_path / "coherence_report.json").write_text(
+            json.dumps(
+                {"results": [{"headline": "h", "pass": False, "reason": "r", "failed_fields": ["mystery_field"]}]}
+            )
+        )
+        orchestrate.validate_coherence(tmp_path)  # no raise
+
+    def test_non_list_failed_fields_raises(self, tmp_path):
+        (tmp_path / "coherence_report.json").write_text(
+            json.dumps(
+                {"results": [{"headline": "h", "pass": False, "reason": "r", "failed_fields": "why_it_matters"}]}
+            )
+        )
+        with pytest.raises(ValueError, match="failed_fields"):
+            orchestrate.validate_coherence(tmp_path)
+
+    def test_list_with_non_string_entries_raises(self, tmp_path):
+        (tmp_path / "coherence_report.json").write_text(
+            json.dumps({"results": [{"headline": "h", "pass": False, "reason": "r", "failed_fields": ["summary", 5]}]})
+        )
+        with pytest.raises(ValueError, match="failed_fields"):
+            orchestrate.validate_coherence(tmp_path)
+
+    def test_failed_fields_on_passing_entry_ignored(self, tmp_path):
+        # Spec scopes the check to pass:false entries; a pass:true entry with a
+        # malformed failed_fields should not be rejected by this gate.
+        (tmp_path / "coherence_report.json").write_text(
+            json.dumps({"results": [{"headline": "h", "pass": True, "reason": "ok", "failed_fields": "oops"}]})
+        )
+        orchestrate.validate_coherence(tmp_path)  # no raise
+
+
 # --------------------------------------------------------------------------- #
 # orchestrate_selections (happy path)
 # --------------------------------------------------------------------------- #

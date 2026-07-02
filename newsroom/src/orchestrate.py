@@ -241,10 +241,82 @@ def validate_draft(claude_input_dir: Path) -> None:
 
 
 def validate_coherence(claude_input_dir: Path) -> None:
+    """Fail-closed structure gate on coherence_report.json.
+
+    Raises ValueError (retrying the stage via run_stage) when: (a) any entry in
+    ``results`` is not an object, (b) any entry lacks a boolean "pass", or (c)
+    any draft story has NO matching result (matched the way merge.py matches:
+    by cited-article_ids set, falling back to normalized headline). A truncated
+    or drifted report used to only warn downstream (merge.py's coverage-gap
+    log) and ship the unchecked story unverified -- COHERENCE is meant to check
+    EVERY story, so a coverage gap is a stage failure, not a soft signal. The
+    check is identity-based, not count-based: a duplicate result or a
+    badly-retyped headline cannot satisfy it while a real story goes unchecked.
+
+    (c) is best-effort: if draft_selections.json is missing or unreadable here,
+    the coverage check is skipped rather than raised -- the WRITE-stage
+    validator (validate_draft) owns that file's integrity, not this one.
+    """
     data = _load_json(claude_input_dir / "coherence_report.json")
     results = data.get("results") if isinstance(data, dict) else None
     if not isinstance(results, list):
         raise ValueError("coherence_report.json: 'results' array missing")
+    for i, r in enumerate(results):
+        if not isinstance(r, dict):
+            raise ValueError(f"coherence_report.json: results[{i}] is not an object")
+        if not isinstance(r.get("pass"), bool):
+            raise ValueError(
+                f"coherence_report.json: results[{i}] (headline={r.get('headline')!r}) missing boolean 'pass'"
+            )
+        # failed_fields is OPTIONAL graceful-degradation metadata (merge.py owns the
+        # drop-vs-strip decision). Only enforce the wire shape on a failing entry;
+        # absent is fine, but present-and-malformed is a stage failure, not a
+        # silent downstream misparse. Unknown field names inside the list are NOT
+        # rejected here (forward-compat) -- merge.py treats those conservatively.
+        if r.get("pass") is False and "failed_fields" in r:
+            failed_fields = r["failed_fields"]
+            if not isinstance(failed_fields, list) or not all(isinstance(f, str) for f in failed_fields):
+                raise ValueError(
+                    f"coherence_report.json: results[{i}] (headline={r.get('headline')!r}) "
+                    "'failed_fields' must be a list of strings"
+                )
+
+    import json
+
+    draft_path = claude_input_dir / "draft_selections.json"
+    if not draft_path.exists():
+        logger.warning("draft_selections.json missing -- skipping coherence coverage check")
+        return
+    try:
+        draft = json.loads(draft_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as e:
+        logger.warning("draft_selections.json unreadable (%s) -- skipping coherence coverage check", e)
+        return
+    if not isinstance(draft, dict):
+        logger.warning(
+            "draft_selections.json is %s, not an object -- skipping coherence coverage check",
+            type(draft).__name__,
+        )
+        return
+    # Identity-based coverage: every draft story must have >=1 matching result,
+    # using merge.py's own matching (ids preferred, normalized headline
+    # fallback), so validation and assembly agree on what "covered" means.
+    import merge
+
+    unmatched = []
+    for tier in ("must_know", "should_know"):
+        for item in draft.get(tier) or []:
+            if not isinstance(item, dict):
+                continue
+            item_ids = merge._item_article_ids(item)
+            item_norm = merge._norm_headline(item.get("headline", ""))
+            if not any(merge._result_matches(r, item_ids, item_norm) for r in results):
+                unmatched.append(item.get("headline"))
+    if unmatched:
+        raise ValueError(
+            f"coherence_report.json: no result matches {len(unmatched)} draft story(ies): "
+            + "; ".join(repr(h) for h in unmatched[:5])
+        )
 
 
 # (label, spec filename, output filename, validator)

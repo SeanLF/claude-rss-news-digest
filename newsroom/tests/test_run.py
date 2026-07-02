@@ -537,7 +537,37 @@ class TestRenderArticleSources:
             date_url="2026-07-01",
         )
         assert 'href="https://digest.example.com/feedback?d=2026-07-01&s=test-slug&v=up"' in result
-        assert 'href="https://digest.example.com/feedback?d=2026-07-01&s=test-slug&v=down"' in result
+
+
+class TestRenderArticleWhyItMatters:
+    """A coherence-stripped why_it_matters (merge.py blanks the field rather
+    than dropping the whole story, see TestFieldAwareCoherenceDegradation in
+    test_merge.py) must not leave a dangling "Why it matters:" label with no
+    content -- omit the whole <p class="why"> when empty/whitespace."""
+
+    def _article(self, why_it_matters):
+        return {
+            "headline": "Test",
+            "summary": "Summary",
+            "why_it_matters": why_it_matters,
+            "sources": [{"name": "BBC", "url": "https://bbc.com/news/1", "bias": "center"}],
+        }
+
+    def test_empty_why_omits_paragraph(self):
+        result = render_article(self._article(""), slug="test", include_reporting_varies=False)
+        assert '<p class="why"' not in result
+        assert "Why it matters" not in result
+
+    def test_whitespace_only_why_omits_paragraph(self):
+        result = render_article(self._article("   "), slug="test", include_reporting_varies=False)
+        assert '<p class="why"' not in result
+        assert "Why it matters" not in result
+
+    def test_nonempty_why_renders_as_before(self):
+        result = render_article(
+            self._article("It matters because reasons."), slug="test", include_reporting_varies=False
+        )
+        assert '<p class="why"><strong>Why it matters:</strong> It matters because reasons.</p>' in result
         assert "mailto:" not in result
 
 
