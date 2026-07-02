@@ -52,6 +52,7 @@ from digest import (
 )
 from feeds import collect_fetched_articles, fetch_feeds, load_sources
 from feeds_cli import validate_feeds_cli
+from healthcheck import ping as healthcheck_ping
 from merge import assemble_selections
 from prepare import prepare_claude_input
 from render import extract_preheader, prepare_for_email, replace_placeholders
@@ -242,6 +243,13 @@ def _render_record_deliver(selections, *, skip_record: bool, skip_email: bool, u
     except Exception as e:
         db.abort_run(repr(e))
         raise
+    # Successful recovery (resume/write-only that actually delivered AND
+    # recorded) clears any down-state the failed cron run left on the external
+    # monitor. Same "real delivery run" predicate as the main path (below), so
+    # the dead-man's-switch semantics can't drift between the two: a completed
+    # run is one that both reached subscribers and persisted to the DB.
+    if not skip_email and not skip_record:
+        healthcheck_ping()
     cleanup_shown_headlines()
     return 0
 
@@ -417,6 +425,7 @@ Examples:
         except Exception as e:
             db.abort_run(repr(e))
             raise
+        healthcheck_ping()  # manual resend succeeded -- clear any down-state
         cleanup_shown_headlines()
         return 0
 
@@ -460,6 +469,12 @@ Examples:
 
     last_run = db.get_last_run_time()
     db.start_run(recording=not skip_record, broadcasting=not skip_email, alerting=not skip_alert)
+
+    # Signal the external dead-man's-switch only for a real delivery run (the
+    # scheduled cron): dry-runs and --no-email/--no-record must not touch it.
+    monitored = not skip_email and not skip_record
+    if monitored:
+        healthcheck_ping("start")
 
     try:
         fetch_result = fetch_feeds(sources, FETCHED_DIR, last_run)
@@ -514,7 +529,12 @@ Examples:
         db.complete_run(articles_kept=fetch_result.total_kept, articles_emailed=recipients)
     except Exception as e:
         db.abort_run(repr(e))
+        if monitored:
+            healthcheck_ping("fail")  # immediate down-alert, before the grace window
         raise
+    else:
+        if monitored:
+            healthcheck_ping()  # success
 
     cleanup_shown_headlines()
     return 0
