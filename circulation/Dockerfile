@@ -12,7 +12,7 @@ RUN mkdir src && echo "fn main() {}" > src/main.rs \
     && rm -rf src
 
 # Build actual source (deps layer cached above)
-COPY circulation/apple-touch-icon.png ./
+COPY circulation/apple-touch-icon.png circulation/og-image.png ./
 COPY circulation/src ./src
 COPY newsroom/sources.json ./sources.json
 RUN touch src/main.rs && cargo build --release
