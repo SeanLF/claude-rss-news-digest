@@ -451,8 +451,16 @@ main() {
   fi
 
   build_and_push
-  apply_terraform
+  # Migrations BEFORE terraform: circulation fail-closes at boot on missing
+  # required tables (REQUIRED_TABLES), and terraform restarts it. Migrating
+  # first means the new container boots against an already-migrated DB; the
+  # old, still-running services ignore the (additive) new tables. The old
+  # order took the site down: new circulation crash-looped on the missing
+  # table, kamal-proxy's health check failed, terraform aborted, and
+  # run_migrations was never reached. run_migrations pulls the freshly
+  # pushed newsroom image itself, so it does not depend on apply_terraform.
   run_migrations || exit 1
+  apply_terraform
   tag_deployment
 
   # Success
