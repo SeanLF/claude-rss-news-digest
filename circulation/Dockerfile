@@ -31,7 +31,12 @@ LABEL org.opencontainers.image.source="${OCI_SOURCE}"
 LABEL org.opencontainers.image.licenses="${OCI_LICENSES}"
 
 # Add non-root user
-RUN addgroup -S app && adduser -S app -G app
+# Fixed uid/gid 1001 to MATCH the newsroom image's appuser: both containers now
+# write the shared news-digest-data volume (digest.db is 1001:1001, mode 644),
+# and SQLite needs file+directory write to create its journal. The old -S
+# (system) user got uid 100 and could only read -- /feedback 500'd with
+# "attempt to write a readonly database" on an rw mount.
+RUN addgroup -g 1001 app && adduser -u 1001 -G app -D -H app
 
 COPY --from=builder /app/target/release/digest-circulation /usr/local/bin/
 
