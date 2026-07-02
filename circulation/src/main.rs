@@ -25,6 +25,7 @@ pub mod routes {
     pub const THREAD: &str = "/thread";
     pub const THREADS: &str = "/threads";
     pub const SEARCH: &str = "/search";
+    pub const FEEDBACK: &str = "/feedback";
 }
 
 pub struct AppState {
@@ -140,6 +141,7 @@ async fn main() {
             get(thread::thread_page),
         )
         .route(routes::SEARCH, get(search::search))
+        .route(routes::FEEDBACK, get(handlers::feedback))
         .route("/{date}", get(handlers::get_digest))
         .layer(TraceLayer::new_for_http())
         .with_state(state);
@@ -164,6 +166,7 @@ const REQUIRED_TABLES: &[&str] = &[
     "source_health",
     "shown_narratives",
     "dedup_log",
+    "story_feedback",
 ];
 
 /// Check database health - returns list of missing tables (empty if healthy).

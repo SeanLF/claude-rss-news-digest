@@ -59,7 +59,9 @@ services:
     ports:
       - "8080:8080"
     volumes:
-      - ./data:/data:ro
+      # rw (not :ro) -- GET /feedback records a vote (INSERT INTO story_feedback);
+      # circulation was read-only until this route existed.
+      - ./data:/data
     environment:
       - DATABASE_PATH=/data/digest.db
       - DIGEST_NAME=${DIGEST_NAME:-News Digest}

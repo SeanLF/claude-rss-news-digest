@@ -2,6 +2,7 @@
 
 import json
 import logging
+import os
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -184,10 +185,21 @@ def write_digest(selections: dict, template_file: Path) -> Path:
     logger.info("Rendering: %d must_know, %d should_know", must_know, should_know)
 
     selections = attach_thread_context(selections)
-    html_content = render_digest(selections, template_file)
+
+    # Computed once and reused for both the filename (-> db.digest_date's key) and the
+    # per-story feedback links, so a vote's "d" param can never disagree with the date
+    # the digest is actually stored/served under.
+    timestamp = datetime.now(UTC).strftime("%Y-%m-%d-%H%MZ")
+    date_url = timestamp[:10]
+    digest_domain = os.environ.get("DIGEST_DOMAIN", "")
+    if not digest_domain:
+        # render_story_feedback_html silently omits the links when digest_domain is
+        # empty (there's no mailto fallback anymore) -- a missing/misconfigured
+        # DIGEST_DOMAIN would otherwise ship a digest with no feedback affordance.
+        logger.warning("DIGEST_DOMAIN is not set -- digest will ship without story feedback links")
+    html_content = render_digest(selections, template_file, digest_domain=digest_domain, date_url=date_url)
 
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-    timestamp = datetime.now(UTC).strftime("%Y-%m-%d-%H%MZ")
     digest_path = OUTPUT_DIR / f"digest-{timestamp}.html"
     digest_path.write_text(html_content)
 

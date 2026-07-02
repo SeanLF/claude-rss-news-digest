@@ -205,20 +205,31 @@ def prepare_for_email(html_content: str) -> str:
 # =============================================================================
 
 
-def generate_feedback_html(email: str) -> str:
-    """Generate feedback buttons HTML with mailto links."""
-    encoded = html.escape(email)
-    return f"""<div class="feedback">
-      <p>How was today's digest?</p>
-      <div class="feedback-buttons">
-        <a class="feedback-btn" href="mailto:{encoded}?subject=Feedback: Love it">🚀 Love it</a>
-        <a class="feedback-btn" href="mailto:{encoded}?subject=Feedback: Good">😊 Good</a>
-        <a class="feedback-btn" href="mailto:{encoded}?subject=Feedback: So so">😐 So so</a>
-      </div>
-    </div>"""
+def render_story_feedback_html(digest_domain: str, date_url: str, slug: str) -> str:
+    """Generate subtle per-story up/down feedback links (one-click HTTP GET).
+
+    Replaces the old digest-level mailto "how was today's digest" buttons: this
+    is per-story, hits circulation's /feedback route, and records a vote in
+    SQLite instead of relying on a reader composing an email nobody read.
+
+    `slug` is already URL-safe (see slugify: lowercase alnum + hyphens), and
+    date_url is a validated YYYY-MM-DD, so no additional percent-encoding is
+    needed here.
+    """
+    if not digest_domain or not date_url:
+        return ""
+    up_url = f"https://{digest_domain}/feedback?d={date_url}&s={slug}&v=up"
+    down_url = f"https://{digest_domain}/feedback?d={date_url}&s={slug}&v=down"
+    return f'<p class="story-feedback">Useful? <a href="{up_url}">Yes</a> · <a href="{down_url}">No</a></p>'
 
 
-def render_article(article: dict, slug: str, include_reporting_varies: bool = True) -> str:
+def render_article(
+    article: dict,
+    slug: str,
+    include_reporting_varies: bool = True,
+    digest_domain: str = "",
+    date_url: str = "",
+) -> str:
     """Render a single article (must_know or should_know) to HTML."""
     headline = html.escape(article.get("headline", ""))
     summary = html.escape(article.get("summary", ""))
@@ -282,13 +293,20 @@ def render_article(article: dict, slug: str, include_reporting_varies: bool = Tr
             parts.append("      </div>")
 
     parts.append(f'      <p class="sources">{sources_line}</p>')
+    feedback_html = render_story_feedback_html(digest_domain, date_url, slug)
+    if feedback_html:
+        parts.append(f"      {feedback_html}")
     parts.append("    </article>")
 
     return "\n".join(parts)
 
 
-def render_digest(selections: dict, template_file: Path) -> str:
-    """Render selections.json to complete HTML string."""
+def render_digest(selections: dict, template_file: Path, digest_domain: str = "", date_url: str = "") -> str:
+    """Render selections.json to complete HTML string.
+
+    digest_domain/date_url build the per-story feedback links; both are optional
+    (no links rendered) so callers that don't need them stay unchanged.
+    """
     if not template_file.exists():
         raise RuntimeError(f"Template file not found: {template_file}")
     template = template_file.read_text()
@@ -310,13 +328,25 @@ def render_digest(selections: dict, template_file: Path) -> str:
 
     # Render must_know
     must_know_html = "\n".join(
-        render_article(article, slug=unique_slug(article.get("headline", "")), include_reporting_varies=True)
+        render_article(
+            article,
+            slug=unique_slug(article.get("headline", "")),
+            include_reporting_varies=True,
+            digest_domain=digest_domain,
+            date_url=date_url,
+        )
         for article in selections.get("must_know", [])
     )
 
     # Render should_know
     should_know_html = "\n".join(
-        render_article(article, slug=unique_slug(article.get("headline", "")), include_reporting_varies=False)
+        render_article(
+            article,
+            slug=unique_slug(article.get("headline", "")),
+            include_reporting_varies=False,
+            digest_domain=digest_domain,
+            date_url=date_url,
+        )
         for article in selections.get("should_know", [])
     )
 
@@ -419,13 +449,6 @@ def replace_placeholders(
         content = re.sub(
             r'\s*This project is <a href="\{\{SOURCE_URL\}\}">[^<]+</a> and contributions are welcome\.', "", content
         )
-
-    # Feedback buttons (mailto links with pre-filled subject)
-    feedback_email = os.environ.get("RESEND_FROM", "")
-    if feedback_email:
-        content = content.replace("{{FEEDBACK_BUTTONS}}", generate_feedback_html(feedback_email))
-    else:
-        content = re.sub(r"\s*\{\{FEEDBACK_BUTTONS\}\}", "", content)
 
     # Optional: author plug
     author_name = os.environ.get("AUTHOR_NAME", "")

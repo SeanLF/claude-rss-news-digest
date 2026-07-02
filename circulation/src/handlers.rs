@@ -14,7 +14,8 @@ use crate::feed::{DigestRow, render_atom_feed};
 use crate::routes;
 use crate::templates::{
     DIGEST_NAV_CSS, DIGEST_NAV_HTML, FAVICON_SVG, IndexParams, REDUCED_MOTION_CSS, SKIP_LINK_CSS,
-    SKIP_LINK_HTML, Source, digest_og_tags, render_index, render_sources, web_footer_html,
+    SKIP_LINK_HTML, Source, digest_og_tags, render_feedback_thanks, render_index, render_sources,
+    web_footer_html,
 };
 use crate::util::{
     escape_html, format_date, format_month_year, is_valid_date, log_row_error, year_month,
@@ -32,6 +33,19 @@ pub struct SubscribeForm {
 pub struct IndexQuery {
     pub subscribed: Option<String>,
 }
+
+/// Query params for GET /feedback -- all optional so extraction never fails;
+/// validation (and the resulting 400) happens in the handler.
+#[derive(Deserialize, Default)]
+pub struct FeedbackQuery {
+    pub d: Option<String>,
+    pub s: Option<String>,
+    pub v: Option<String>,
+}
+
+/// Cap on the `s` (story) query param length -- generous for a slugified
+/// headline, tight enough to keep the column and index sane.
+const MAX_STORY_LEN: usize = 200;
 
 #[derive(Serialize)]
 struct ResendContact {
@@ -733,5 +747,276 @@ mod feed_tests {
         assert_eq!(status, StatusCode::OK);
         assert_eq!(body.matches("<entry>").count(), 0);
         assert!(body.contains("<feed xmlns=\"http://www.w3.org/2005/Atom\">"));
+    }
+}
+
+/// Record a one-click per-story feedback vote (GET /feedback?d=&s=&v=up|down).
+///
+/// GET-with-side-effect is a known tradeoff here: mail scanners that prefetch
+/// links can create noise votes. Acceptable at this list's size; dedup can
+/// come later if it becomes a problem.
+pub async fn feedback(
+    State(state): State<Arc<AppState>>,
+    Query(query): Query<FeedbackQuery>,
+) -> Result<Html<String>, (StatusCode, &'static str)> {
+    let date = query
+        .d
+        .as_deref()
+        .filter(|d| is_valid_date(d))
+        .ok_or((StatusCode::BAD_REQUEST, "Invalid or missing date"))?;
+    let vote = query
+        .v
+        .as_deref()
+        .filter(|v| *v == "up" || *v == "down")
+        .ok_or((StatusCode::BAD_REQUEST, "Invalid or missing vote"))?;
+    let story = query
+        .s
+        .as_deref()
+        .filter(|s| !s.is_empty() && s.chars().count() <= MAX_STORY_LEN)
+        .ok_or((StatusCode::BAD_REQUEST, "Invalid or missing story"))?;
+
+    let conn = Connection::open_with_flags(&state.db_path, OpenFlags::SQLITE_OPEN_READ_WRITE)
+        .map_err(|e| {
+            tracing::error!("Failed to open database for feedback write: {e}");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Feedback service unavailable",
+            )
+        })?;
+    // Mirror Python's sqlite3 default (5s busy timeout); circulation is now a
+    // second writer alongside the newsroom pipeline, and rusqlite defaults to 0ms.
+    conn.busy_timeout(std::time::Duration::from_secs(5))
+        .map_err(|e| {
+            tracing::error!("Failed to set busy_timeout for feedback write: {e}");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Feedback service unavailable",
+            )
+        })?;
+
+    conn.execute(
+        "INSERT INTO story_feedback (digest_date, story, vote) VALUES (?1, ?2, ?3)",
+        (date, story, vote),
+    )
+    .map_err(|e| {
+        tracing::error!("Failed to record feedback: {e}");
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Failed to record feedback",
+        )
+    })?;
+
+    Ok(Html(render_feedback_thanks(
+        &state.digest_name,
+        date,
+        story,
+    )))
+}
+
+#[cfg(test)]
+mod feedback_tests {
+    use super::*;
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    static COUNTER: AtomicU64 = AtomicU64::new(0);
+
+    /// Build an AppState pointed at `db_path` -- every other field is a fixed
+    /// stub, irrelevant to the feedback handler under test.
+    fn build_state(db_path: impl Into<String>) -> Arc<AppState> {
+        Arc::new(AppState {
+            db_path: db_path.into(),
+            digest_name: "Test Digest".to_string(),
+            digest_domain: None,
+            homepage_url: None,
+            source_url: None,
+            resend_api_key: None,
+            resend_audience_id: None,
+            http_client: reqwest::Client::new(),
+        })
+    }
+
+    /// Build an AppState backed by a throwaway sqlite file with just the
+    /// story_feedback table -- enough for the handler under test.
+    fn test_state() -> (Arc<AppState>, String) {
+        let n = COUNTER.fetch_add(1, Ordering::SeqCst);
+        let path = std::env::temp_dir()
+            .join(format!("feedback_test_{}_{n}.sqlite", std::process::id()))
+            .to_string_lossy()
+            .into_owned();
+
+        let conn = Connection::open(&path).expect("open test db");
+        conn.execute_batch(
+            "CREATE TABLE story_feedback (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                digest_date TEXT NOT NULL,
+                story TEXT NOT NULL,
+                vote TEXT NOT NULL CHECK (vote IN ('up', 'down')),
+                created_at TEXT NOT NULL DEFAULT (datetime('now', 'utc'))
+            );",
+        )
+        .expect("create test schema");
+
+        (build_state(path.clone()), path)
+    }
+
+    fn feedback_count(path: &str) -> i64 {
+        let conn = Connection::open(path).expect("open test db");
+        conn.query_row("SELECT COUNT(*) FROM story_feedback", [], |row| row.get(0))
+            .expect("count rows")
+    }
+
+    fn query(d: Option<&str>, s: Option<&str>, v: Option<&str>) -> Query<FeedbackQuery> {
+        Query(FeedbackQuery {
+            d: d.map(String::from),
+            s: s.map(String::from),
+            v: v.map(String::from),
+        })
+    }
+
+    #[tokio::test]
+    async fn valid_vote_inserts_and_renders_thanks() {
+        let (state, path) = test_state();
+        let result = feedback(
+            State(state),
+            query(Some("2026-07-01"), Some("some-story-slug"), Some("up")),
+        )
+        .await;
+
+        let Html(body) = result.expect("expected success");
+        assert!(body.contains("Thanks"));
+        assert!(body.contains("some-story-slug"));
+        assert!(body.contains("/2026-07-01"));
+        assert_eq!(feedback_count(&path), 1);
+        std::fs::remove_file(&path).ok();
+    }
+
+    #[tokio::test]
+    async fn down_vote_inserts() {
+        let (state, path) = test_state();
+        let result = feedback(
+            State(state),
+            query(Some("2026-07-01"), Some("some-story-slug"), Some("down")),
+        )
+        .await;
+
+        assert!(result.is_ok());
+        assert_eq!(feedback_count(&path), 1);
+        std::fs::remove_file(&path).ok();
+    }
+
+    #[tokio::test]
+    async fn invalid_date_rejected_without_insert() {
+        let (state, path) = test_state();
+        let result = feedback(
+            State(state),
+            query(Some("not-a-date"), Some("story"), Some("up")),
+        )
+        .await;
+
+        let err = result.expect_err("expected rejection");
+        assert_eq!(err.0, StatusCode::BAD_REQUEST);
+        assert_eq!(feedback_count(&path), 0);
+        std::fs::remove_file(&path).ok();
+    }
+
+    #[tokio::test]
+    async fn missing_date_rejected_without_insert() {
+        let (state, path) = test_state();
+        let result = feedback(State(state), query(None, Some("story"), Some("up"))).await;
+
+        assert_eq!(
+            result.expect_err("expected rejection").0,
+            StatusCode::BAD_REQUEST
+        );
+        assert_eq!(feedback_count(&path), 0);
+        std::fs::remove_file(&path).ok();
+    }
+
+    #[tokio::test]
+    async fn invalid_vote_rejected_without_insert() {
+        let (state, path) = test_state();
+        let result = feedback(
+            State(state),
+            query(Some("2026-07-01"), Some("story"), Some("sideways")),
+        )
+        .await;
+
+        assert_eq!(
+            result.expect_err("expected rejection").0,
+            StatusCode::BAD_REQUEST
+        );
+        assert_eq!(feedback_count(&path), 0);
+        std::fs::remove_file(&path).ok();
+    }
+
+    #[tokio::test]
+    async fn empty_story_rejected_without_insert() {
+        let (state, path) = test_state();
+        let result = feedback(
+            State(state),
+            query(Some("2026-07-01"), Some(""), Some("up")),
+        )
+        .await;
+
+        assert_eq!(
+            result.expect_err("expected rejection").0,
+            StatusCode::BAD_REQUEST
+        );
+        assert_eq!(feedback_count(&path), 0);
+        std::fs::remove_file(&path).ok();
+    }
+
+    #[tokio::test]
+    async fn oversized_story_rejected_without_insert() {
+        let (state, path) = test_state();
+        let oversized = "a".repeat(MAX_STORY_LEN + 1);
+        let result = feedback(
+            State(state),
+            query(Some("2026-07-01"), Some(&oversized), Some("up")),
+        )
+        .await;
+
+        assert_eq!(
+            result.expect_err("expected rejection").0,
+            StatusCode::BAD_REQUEST
+        );
+        assert_eq!(feedback_count(&path), 0);
+        std::fs::remove_file(&path).ok();
+    }
+
+    #[tokio::test]
+    async fn db_open_failure_returns_500_not_fake_success() {
+        let state = build_state("/nonexistent/does-not-exist.sqlite");
+        let result = feedback(
+            State(state),
+            query(Some("2026-07-01"), Some("story"), Some("up")),
+        )
+        .await;
+
+        assert_eq!(
+            result
+                .expect_err("expected failure, not a fake success page")
+                .0,
+            StatusCode::INTERNAL_SERVER_ERROR
+        );
+    }
+
+    #[tokio::test]
+    async fn story_is_escaped_in_thanks_page() {
+        let (state, path) = test_state();
+        let result = feedback(
+            State(state),
+            query(
+                Some("2026-07-01"),
+                Some("<script>alert(1)</script>"),
+                Some("up"),
+            ),
+        )
+        .await;
+
+        let Html(body) = result.expect("expected success");
+        assert!(!body.contains("<script>alert"));
+        assert!(body.contains("&lt;script&gt;"));
+        std::fs::remove_file(&path).ok();
     }
 }
