@@ -165,6 +165,7 @@ pub async fn index(
         og_description,
         canonical_url: &canonical_url,
         image_url: &image_url,
+        search_url: routes::SEARCH,
     });
     Ok(Html(html))
 }

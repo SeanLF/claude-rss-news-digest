@@ -1,5 +1,6 @@
 mod feed;
 mod handlers;
+mod search;
 mod stats;
 mod templates;
 mod thread;
@@ -23,6 +24,7 @@ pub mod routes {
     pub const FEED: &str = "/feed.xml";
     pub const THREAD: &str = "/thread";
     pub const THREADS: &str = "/threads";
+    pub const SEARCH: &str = "/search";
 }
 
 pub struct AppState {
@@ -137,6 +139,7 @@ async fn main() {
             &format!("{}/{{id}}", routes::THREAD),
             get(thread::thread_page),
         )
+        .route(routes::SEARCH, get(search::search))
         .route("/{date}", get(handlers::get_digest))
         .layer(TraceLayer::new_for_http())
         .with_state(state);

@@ -2,6 +2,7 @@
 
 mod digest;
 mod index;
+mod search;
 mod sources;
 mod stats;
 mod thread;
@@ -11,6 +12,7 @@ pub use digest::{
     SKIP_LINK_HTML, digest_og_tags, web_footer_html,
 };
 pub use index::{IndexParams, render_index};
+pub use search::render_search;
 pub use sources::{Source, render_sources};
 pub use stats::render_stats;
 pub use thread::{render_thread, render_threads_index};

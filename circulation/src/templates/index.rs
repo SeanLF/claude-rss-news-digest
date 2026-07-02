@@ -14,6 +14,7 @@ pub struct IndexParams<'a> {
     pub og_description: &'a str,
     pub canonical_url: &'a str,
     pub image_url: &'a str,
+    pub search_url: &'a str,
 }
 
 /// Render the index page listing recent digests
@@ -28,6 +29,7 @@ pub fn render_index(p: &IndexParams) -> String {
         og_description,
         canonical_url,
         image_url,
+        search_url,
     } = p;
     format!(
         r##"<!DOCTYPE html>
@@ -189,6 +191,40 @@ pub fn render_index(p: &IndexParams) -> String {
     .subscribe-form button:hover {{
       background: var(--ruby-hover);
     }}
+    .search-form {{
+      display: flex;
+      gap: 0.5rem;
+      margin-bottom: 2rem;
+    }}
+    .search-form input {{
+      flex: 1;
+      padding: 0.6rem 0.85rem;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      color: var(--text);
+      font-family: inherit;
+      font-size: 0.93rem;
+    }}
+    .search-form input:focus-visible {{
+      border-color: var(--ruby);
+    }}
+    .search-form button {{
+      padding: 0.6rem 1.25rem;
+      background: transparent;
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+      font-weight: 600;
+      font-size: 0.88rem;
+      cursor: pointer;
+      transition: border-color 0.15s ease, color 0.15s ease;
+    }}
+    .search-form button:hover {{
+      border-color: var(--ruby);
+      color: var(--ruby);
+    }}
     h2 {{
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
       font-size: 0.75rem;
@@ -308,6 +344,10 @@ pub fn render_index(p: &IndexParams) -> String {
     {success_msg}
     {subscribe_form}
     {subscribe_teaser}
+    <form class="search-form" action="{search_url}" method="get" role="search">
+      <input type="search" name="q" placeholder="Search past headlines" aria-label="Search past headlines">
+      <button type="submit">Search</button>
+    </form>
     <h2>All Digests</h2>
     <div class="digest-archive">
       {digest_links}
@@ -344,6 +384,7 @@ mod tests {
             og_description: "Daily briefing.",
             canonical_url: "https://example.com",
             image_url: "https://example.com/og-image.png",
+            search_url: "/search",
         }
     }
 
@@ -358,5 +399,12 @@ mod tests {
         assert!(html.contains(r#"<meta property="og:image:width" content="1200">"#));
         assert!(html.contains(r#"<meta property="og:image:height" content="630">"#));
         assert!(html.contains(r#"<meta name="twitter:card" content="summary_large_image">"#));
+    }
+
+    #[test]
+    fn renders_search_form_pointing_at_search_url() {
+        let html = render_index(&base_params());
+        assert!(html.contains(r#"action="/search""#));
+        assert!(html.contains(r#"name="q""#));
     }
 }
