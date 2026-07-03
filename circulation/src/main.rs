@@ -26,6 +26,7 @@ pub mod routes {
     pub const THREADS: &str = "/threads";
     pub const SEARCH: &str = "/search";
     pub const FEEDBACK: &str = "/feedback";
+    pub const TODAY: &str = "/today";
 }
 
 pub struct AppState {
@@ -142,6 +143,7 @@ async fn main() {
         )
         .route(routes::SEARCH, get(search::search))
         .route(routes::FEEDBACK, get(handlers::feedback))
+        .route(routes::TODAY, get(handlers::today))
         .route("/{date}", get(handlers::get_digest))
         .layer(TraceLayer::new_for_http())
         .with_state(state);

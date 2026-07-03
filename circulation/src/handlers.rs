@@ -617,6 +617,28 @@ pub async fn get_digest(
     Ok(Html(html))
 }
 
+/// Redirect /today to the most recent digest -- a stable, bookmarkable URL.
+pub async fn today(
+    State(state): State<Arc<AppState>>,
+) -> Result<Redirect, (StatusCode, &'static str)> {
+    // Open database read-only
+    let conn = Connection::open_with_flags(&state.db_path, OpenFlags::SQLITE_OPEN_READ_ONLY)
+        .map_err(|_| (StatusCode::SERVICE_UNAVAILABLE, "Digest unavailable"))?;
+
+    // Resolve the latest digest date; QueryReturnedNoRows when the table is empty
+    let date: String = conn
+        .query_row(
+            "SELECT date FROM digests ORDER BY date DESC LIMIT 1",
+            [],
+            |row| row.get(0),
+        )
+        .map_err(|_| (StatusCode::NOT_FOUND, "No digests yet"))?;
+
+    // Root-relative target: same canonical path get_digest serves (`/{date}`),
+    // works regardless of whether DIGEST_DOMAIN is configured.
+    Ok(Redirect::temporary(&format!("/{date}")))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -747,6 +769,30 @@ mod feed_tests {
         assert_eq!(status, StatusCode::OK);
         assert_eq!(body.matches("<entry>").count(), 0);
         assert!(body.contains("<feed xmlns=\"http://www.w3.org/2005/Atom\">"));
+    }
+
+    #[tokio::test]
+    async fn today_redirects_to_the_most_recent_digest() {
+        let state = state_with_digests(&[
+            ("2026-06-11", "First story"),
+            ("2026-06-12", "Second story"),
+        ]);
+
+        let response = today(State(state)).await.unwrap().into_response();
+
+        // Redirect::temporary -> 307, Location points at the newest digest.
+        assert_eq!(response.status(), StatusCode::TEMPORARY_REDIRECT);
+        assert_eq!(response.headers().get("location").unwrap(), "/2026-06-12");
+    }
+
+    #[tokio::test]
+    async fn today_returns_404_when_no_digests_exist() {
+        let state = state_with_digests(&[]);
+
+        let result = today(State(state)).await;
+
+        let (status, _) = result.expect_err("expected 404 when no digests");
+        assert_eq!(status, StatusCode::NOT_FOUND);
     }
 }
 
