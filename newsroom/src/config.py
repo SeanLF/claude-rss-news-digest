@@ -91,3 +91,12 @@ FULLTEXT_ENABLED = os.environ.get("FULLTEXT_ENABLED", "true").lower() in ("1", "
 FULLTEXT_PER_STORY = int(os.environ.get("FULLTEXT_PER_STORY", "3"))
 FULLTEXT_MAX_CHARS = int(os.environ.get("FULLTEXT_MAX_CHARS", "4000"))
 FULLTEXT_DEADLINE_S = int(os.environ.get("FULLTEXT_DEADLINE_S", "120"))
+
+# GNEWS_RESOLVE_ENABLED: kill switch for resolving Google-News redirect links (Reuters/Nikkei)
+# to the publisher URL at render time. Best-effort + undocumented Google internals, so keep it
+# trivially disableable if Google breaks the RPC (the gnews_live canary flags that).
+GNEWS_RESOLVE_ENABLED = os.environ.get("GNEWS_RESOLVE_ENABLED", "true").lower() in ("1", "true", "yes")
+GNEWS_RESOLVE_TIMEOUT_S = int(os.environ.get("GNEWS_RESOLVE_TIMEOUT_S", "15"))
+# Serial pace between requests to news.google.com. Google sends no Retry-After and 429s the whole
+# IP under bursts; at ~10-30 requests/run once daily a 2s pace is ~10x under the abuse threshold.
+GNEWS_RESOLVE_DELAY_S = float(os.environ.get("GNEWS_RESOLVE_DELAY_S", "2"))

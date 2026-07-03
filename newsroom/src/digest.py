@@ -165,7 +165,47 @@ def resolve_article_ids(selections: dict) -> dict:
     if unresolved_count:
         logger.warning("Dropped %d unresolved article_id references", unresolved_count)
 
+    try:
+        _resolve_gnews_links(selections)
+    except Exception as e:  # best-effort: a broken resolver must never break rendering
+        logger.warning("gnews: link resolution skipped after error: %s", e)
     return selections
+
+
+def _resolve_gnews_links(selections: dict) -> None:
+    """Best-effort: upgrade Google-News redirect links on the SHOWN sources to the real
+    publisher URL (cleaner reader links for Reuters/Nikkei). Only the ~handful of GN links that
+    survived collapse are resolved; results are cached per art_id within the run. Any failure
+    leaves the GN URL in place -- this must never break rendering. Gated by GNEWS_RESOLVE_ENABLED."""
+    import config
+    import gnews
+
+    if not config.GNEWS_RESOLVE_ENABLED:
+        return
+    cache: dict[str, str | None] = {}
+    upgraded = 0
+    try:
+        for tier in ("must_know", "should_know"):
+            for item in selections.get(tier, []):
+                for src in item.get("sources", []):
+                    url = src.get("url", "")
+                    if not gnews.is_gnews_url(url):
+                        continue
+                    art_id = gnews._extract_art_id(url)
+                    if not art_id:
+                        continue
+                    if art_id not in cache:
+                        cache[art_id] = gnews.resolve(
+                            url, timeout=config.GNEWS_RESOLVE_TIMEOUT_S, delay=config.GNEWS_RESOLVE_DELAY_S
+                        )
+                    if cache[art_id]:
+                        src["url"] = cache[art_id]
+                        upgraded += 1
+    except gnews.GnewsRateLimited:
+        # 429: stop for this run, keep raw GN URLs for everything not yet resolved (best-effort)
+        logger.warning("gnews: rate-limited (429), stopping link resolution for this run")
+    if upgraded:
+        logger.info("gnews: upgraded %d Google-News links to publisher URLs", upgraded)
 
 
 def read_shown_headlines() -> list[dict]:
