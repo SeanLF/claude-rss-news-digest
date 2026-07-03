@@ -407,6 +407,113 @@ class TestPrepareArticleIndex:
         # Check output dir also has index
         assert (output_dir / "article_index.json").exists()
 
+    @staticmethod
+    def _run_prepare(tmp_path, fetched):
+        """Write ``fetched`` ({source_id: [article, ...]}) to per-source files, run
+        prepare_claude_input over those sources, and return the resulting article_index."""
+        fetched_dir = tmp_path / "fetched"
+        fetched_dir.mkdir()
+        sources = []
+        for source_id, articles in fetched.items():
+            with open(fetched_dir / f"{source_id}.json", "w") as f:
+                json.dump(articles, f)
+            sources.append(
+                {
+                    "id": source_id,
+                    "name": source_id.upper(),
+                    "url": f"https://{source_id}.example/rss",
+                    "bias": "center",
+                    "factuality": "high",
+                    "perspective": "x",
+                }
+            )
+
+        with (
+            patch("prepare.CLAUDE_INPUT_DIR", tmp_path / "claude_input"),
+            patch("prepare.FETCHED_DIR", fetched_dir),
+            patch("prepare.OUTPUT_DIR", tmp_path / "output"),
+            patch("prepare.DATA_DIR", tmp_path / "data"),
+            patch("prepare.get_previous_headlines", return_value=[]),
+            patch("prepare.log_dedup_action"),
+        ):
+            from prepare import prepare_claude_input
+
+            prepare_claude_input(sources)
+
+        with open(tmp_path / "claude_input" / "article_index.json") as f:
+            return json.load(f)
+
+    def test_dedups_identical_urls_within_run(self, tmp_path):
+        """A feed listing the same URL multiple times (al-monitor emits each article
+        under several category tags) must yield ONE article, not one per repeat."""
+        index = self._run_prepare(
+            tmp_path,
+            {
+                "al_monitor": [
+                    {"title": "Turkish jets strike al-Shabab", "url": "https://al-monitor.com/x/somalia"},
+                    {"title": "Turkish jets strike al-Shabab", "url": "https://al-monitor.com/x/somalia"},
+                    {"title": "Turkish jets strike al-Shabab", "url": "https://al-monitor.com/x/somalia"},
+                    {"title": "Turkish jets strike al-Shabab", "url": "https://al-monitor.com/x/somalia"},
+                    {"title": "A different al-Monitor story", "url": "https://al-monitor.com/x/other"},
+                ]
+            },
+        )
+        urls = [v["url"] for v in index.values()]
+        assert urls.count("https://al-monitor.com/x/somalia") == 1
+        assert len(index) == 2
+
+    def test_keeps_distinct_urls_from_same_source(self, tmp_path):
+        """Dedup must not over-collapse: distinct URLs stay, even with similar titles."""
+        index = self._run_prepare(
+            tmp_path,
+            {
+                "reuters": [
+                    {"title": "France wildfires", "url": "https://reuters.com/a"},
+                    {"title": "France wildfires update", "url": "https://reuters.com/b"},
+                ]
+            },
+        )
+        assert len(index) == 2
+
+    def test_dedups_identical_url_across_sources(self, tmp_path):
+        """Two feeds pointing at the exact same page are the same article -- keep one."""
+        index = self._run_prepare(
+            tmp_path,
+            {
+                "wire": [{"title": "Shared page", "url": "https://example.com/story"}],
+                "reposter": [{"title": "Shared page", "url": "https://example.com/story"}],
+            },
+        )
+        assert len(index) == 1
+
+    def test_collapses_url_variants_that_point_at_one_page(self, tmp_path):
+        """Trailing slash, fragment, and scheme/host case are cosmetic -- collapse them."""
+        index = self._run_prepare(
+            tmp_path,
+            {
+                "src": [
+                    {"title": "Story", "url": "https://example.com/a"},
+                    {"title": "Story slash", "url": "https://example.com/a/"},
+                    {"title": "Story anchor", "url": "https://example.com/a#comments"},
+                    {"title": "Story caps", "url": "HTTPS://Example.com/a"},
+                ]
+            },
+        )
+        assert len(index) == 1
+
+    def test_keeps_urls_that_differ_only_by_query(self, tmp_path):
+        """The query string carries the article identity (Google News, ?id=) -- never merge on it."""
+        index = self._run_prepare(
+            tmp_path,
+            {
+                "src": [
+                    {"title": "One", "url": "https://news.example/read?id=1"},
+                    {"title": "Two", "url": "https://news.example/read?id=2"},
+                ]
+            },
+        )
+        assert len(index) == 2
+
 
 class TestExtractHeadlinesExpanded:
     """Test per-source headline expansion."""

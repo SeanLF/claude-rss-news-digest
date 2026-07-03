@@ -7,6 +7,7 @@ import logging
 import random
 import shutil
 from pathlib import Path
+from urllib.parse import urlsplit, urlunsplit
 
 from config import (
     CLAUDE_INPUT_DIR,
@@ -25,6 +26,23 @@ from dedup import TfidfMatcher
 from render import estimate_tokens, is_safe_url, strip_html
 
 logger = logging.getLogger(__name__)
+
+
+def _canonical_url(url: str) -> str:
+    """Normalise a URL for exact-duplicate detection within a single run.
+
+    Conservative on purpose -- lowercases scheme+host, drops the fragment, and trims a
+    trailing slash, but keeps the path and query verbatim. Two genuinely different
+    articles never collapse to the same key; the target is feeds that list the identical
+    page multiple times (e.g. al-monitor emits each article under several category tags,
+    producing four byte-identical URLs)."""
+    stripped = url.strip()
+    try:
+        parts = urlsplit(stripped)
+    except ValueError:
+        return stripped
+    path = parts.path.rstrip("/")
+    return urlunsplit((parts.scheme.lower(), parts.netloc.lower(), path, parts.query, ""))
 
 
 def prepare_claude_input(sources: list[dict], dry_run: bool = False, article_limit: int | None = None) -> list[Path]:
@@ -82,6 +100,8 @@ def prepare_claude_input(sources: list[dict], dry_run: bool = False, article_lim
     article_counter = 0
     filtered_count = 0
     filtered_similarities: list[float] = []
+    seen_urls: set[str] = set()
+    url_dup_count = 0
 
     for source in sources:
         source_file = FETCHED_DIR / f"{source['id']}.json"
@@ -92,6 +112,16 @@ def prepare_claude_input(sources: list[dict], dry_run: bool = False, article_lim
                 url = a.get("url", "")[:2000]
                 if not is_safe_url(url):
                     continue
+
+                # Exact-URL dedup within the run: some feeds list the identical page
+                # multiple times (category tags), which otherwise wastes clustering +
+                # full-text tokens and shows duplicate links in the digest.
+                canonical = _canonical_url(url)
+                if canonical in seen_urls:
+                    url_dup_count += 1
+                    continue
+                seen_urls.add(canonical)
+
                 title = html.escape(strip_html(a.get("title") or ""))[:MAX_TITLE_LENGTH]
                 summary = html.escape(strip_html(a.get("summary") or ""))[:MAX_SUMMARY_LENGTH]
 
@@ -186,6 +216,8 @@ def prepare_claude_input(sources: list[dict], dry_run: bool = False, article_lim
 
     # Log summary
     details = []
+    if url_dup_count > 0:
+        details.append(f"{url_dup_count} dropped as exact-URL duplicates")
     if filtered_count > 0:
         sim_min, sim_max = min(filtered_similarities), max(filtered_similarities)
         details.append(f"{filtered_count} filtered as duplicates (sim {sim_min:.2f}-{sim_max:.2f})")
