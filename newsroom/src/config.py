@@ -45,7 +45,13 @@ MAX_SUMMARY_LENGTH = 200
 # =============================================================================
 
 DEDUP_WINDOW_DAYS = 7  # Days of headline history for deduplication
-DEDUP_SIMILARITY_THRESHOLD = float(os.environ.get("DEDUP_SIMILARITY_THRESHOLD", "0.35"))
+# High-precision near-verbatim backstop. At the old 0.35 this hand-rolled title-TF-IDF filter fired
+# on entity collisions: a 180-pair blind-judge study put its false-positive rate at 65%, and a
+# counterfactual found ~23% of those drops were real world-news stories lost before Claude saw them
+# (a Guinea-Bissau coup, deadly Kenya protests). At 0.80 it drops only genuine near-verbatim repeats
+# (~100% precision on the labelled set); SELECT (yesterday_headlines) + THREADS own the nuanced
+# semantic cross-day dedup. Full analysis: docs/2026-07-02-dedup-poc-findings.md.
+DEDUP_SIMILARITY_THRESHOLD = float(os.environ.get("DEDUP_SIMILARITY_THRESHOLD", "0.80"))
 
 # =============================================================================
 # Models

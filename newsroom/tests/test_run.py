@@ -11,6 +11,7 @@ from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 import digest as digest_module
+from config import DEDUP_SIMILARITY_THRESHOLD
 from dedup import TfidfMatcher, tokenize
 from digest import resolve_article_ids
 from feeds import parse_date
@@ -188,6 +189,29 @@ class TestTfidfMatcher:
         headline, score = matcher.find_most_similar("France approves social media ban for under-15s")
         assert headline == "France passes social media ban for minors"
         assert score > 0.5
+
+
+class TestCrossDayThresholdIsBackstop:
+    """The cross-day dedup threshold must be a high-precision near-verbatim backstop, not the old
+    0.35 that fired on entity collisions. 2026-07-02 counterfactual (docs/2026-07-02-dedup-poc-findings.md):
+    at 0.35, 65% of drops were different stories and ~23% of those were real world-news losses
+    (a Guinea-Bissau coup, deadly Kenya protests). SELECT + THREADS own semantic cross-day dedup;
+    this filter should only kill obvious near-verbatim repeats."""
+
+    def test_threshold_is_high_precision(self):
+        assert DEDUP_SIMILARITY_THRESHOLD >= 0.7  # backstop range, not the FP-heavy 0.35
+
+    def test_entity_collision_is_not_filtered(self):
+        # a real 0.35-era false positive: two different stories sharing "divided" must survive
+        matcher = TfidfMatcher(["Colombia elects new divided Congress ahead of May presidential vote"])
+        _, score = matcher.find_most_similar("Messi Meets Trump and Argentina Is Divided")
+        assert score < DEDUP_SIMILARITY_THRESHOLD  # kept, not dropped
+
+    def test_near_verbatim_repeat_is_still_caught(self):
+        title = "Firefighters battle blazes in southern France after European heatwave"
+        matcher = TfidfMatcher([title])
+        _, score = matcher.find_most_similar(title)
+        assert score >= DEDUP_SIMILARITY_THRESHOLD  # genuine cross-day repeat still filtered
 
 
 class TestRenderStoryFeedbackHtml:

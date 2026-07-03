@@ -78,8 +78,8 @@ Both are passed via environment variable — no credential files needed.
 
 TF-IDF pre-filter runs before Claude sees articles:
 - Compares new articles against 7-day history in SQLite
-- Threshold: 0.35 similarity (configurable via `DEDUP_SIMILARITY_THRESHOLD`)
-- Filters ~20-25% of articles
-- Catches word-overlap duplicates; semantic duplicates may slip through
+- Threshold: 0.80 similarity — a high-precision near-verbatim backstop (configurable via `DEDUP_SIMILARITY_THRESHOLD`). Was 0.35, which false-positived at 65% and dropped real stories; SELECT + THREADS handle semantic cross-day dedup. See docs/2026-07-02-dedup-poc-findings.md.
+- Filters only ~1-2% of articles now (near-verbatim repeats); was ~20-25% at 0.35
+- Catches near-verbatim word-overlap repeats; nuanced cross-day dedup is left to SELECT + THREADS
 
 The prompt also instructs Claude to deduplicate, as a second pass for semantic similarity.
