@@ -155,6 +155,17 @@ class TestResolveGnewsLinksWiring:
         digest._resolve_gnews_links(sel)  # must not raise
         assert all(s["url"].startswith("https://news.google.com") for s in sel["must_know"][0]["sources"])
 
+    def test_stops_at_deadline_keeping_raw_urls(self, monkeypatch):
+        import digest
+
+        # first monotonic() sets the deadline, second (the check) is far past it -> stop before any resolve
+        times = iter([0.0, 1e9])
+        monkeypatch.setattr(digest.time, "monotonic", lambda: next(times))
+        monkeypatch.setattr("gnews.resolve", lambda *a, **k: pytest.fail("must not resolve past the deadline"))
+        sel = self._selections("https://news.google.com/rss/articles/CBMiA?oc=5")
+        digest._resolve_gnews_links(sel)
+        assert sel["must_know"][0]["sources"][0]["url"].startswith("https://news.google.com")
+
     def test_noop_when_disabled(self, monkeypatch):
         import config
         import digest

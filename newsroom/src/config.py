@@ -100,3 +100,6 @@ GNEWS_RESOLVE_TIMEOUT_S = int(os.environ.get("GNEWS_RESOLVE_TIMEOUT_S", "15"))
 # Serial pace between requests to news.google.com. Google sends no Retry-After and 429s the whole
 # IP under bursts; at ~10-30 requests/run once daily a 2s pace is ~10x under the abuse threshold.
 GNEWS_RESOLVE_DELAY_S = float(os.environ.get("GNEWS_RESOLVE_DELAY_S", "2"))
+# Wall-clock budget for the whole resolve pass (~11-16 links/run take ~70-100s at the pace above);
+# a slow Google day can't stall the digest -- unresolved links just keep their raw GN URL.
+GNEWS_RESOLVE_DEADLINE_S = int(os.environ.get("GNEWS_RESOLVE_DEADLINE_S", "120"))

@@ -4,6 +4,7 @@ import json
 import logging
 import os
 import re
+import time
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -182,28 +183,34 @@ def _resolve_gnews_links(selections: dict) -> None:
 
     if not config.GNEWS_RESOLVE_ENABLED:
         return
+    gn_sources = [
+        src
+        for tier in ("must_know", "should_know")
+        for item in selections.get(tier, [])
+        for src in item.get("sources", [])
+        if gnews.is_gnews_url(src.get("url", ""))
+    ]
     cache: dict[str, str | None] = {}
     upgraded = 0
-    try:
-        for tier in ("must_know", "should_know"):
-            for item in selections.get(tier, []):
-                for src in item.get("sources", []):
-                    url = src.get("url", "")
-                    if not gnews.is_gnews_url(url):
-                        continue
-                    art_id = gnews._extract_art_id(url)
-                    if not art_id:
-                        continue
-                    if art_id not in cache:
-                        cache[art_id] = gnews.resolve(
-                            url, timeout=config.GNEWS_RESOLVE_TIMEOUT_S, delay=config.GNEWS_RESOLVE_DELAY_S
-                        )
-                    if cache[art_id]:
-                        src["url"] = cache[art_id]
-                        upgraded += 1
-    except gnews.GnewsRateLimited:
-        # 429: stop for this run, keep raw GN URLs for everything not yet resolved (best-effort)
-        logger.warning("gnews: rate-limited (429), stopping link resolution for this run")
+    deadline = time.monotonic() + config.GNEWS_RESOLVE_DEADLINE_S
+    for src in gn_sources:
+        art_id = gnews._extract_art_id(src["url"])
+        if not art_id:
+            continue
+        if art_id not in cache:
+            if time.monotonic() > deadline:
+                logger.warning("gnews: resolve deadline reached, keeping raw GN URLs for the rest")
+                break
+            try:
+                cache[art_id] = gnews.resolve(
+                    src["url"], timeout=config.GNEWS_RESOLVE_TIMEOUT_S, delay=config.GNEWS_RESOLVE_DELAY_S
+                )
+            except gnews.GnewsRateLimited:
+                logger.warning("gnews: rate-limited (429), stopping link resolution for this run")
+                break
+        if cache[art_id]:
+            src["url"] = cache[art_id]
+            upgraded += 1
     if upgraded:
         logger.info("gnews: upgraded %d Google-News links to publisher URLs", upgraded)
 
