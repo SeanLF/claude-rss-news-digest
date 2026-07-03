@@ -89,11 +89,27 @@ unproven**, and fixing it has a **real cost**. This is a quality-vs-cost PRODUCT
 token project makes it his call), NOT a confident unilateral ship. The rigorous signal work
 (primary_event AUC 0.92, kappa 0.87) stands regardless.
 
+## Counterfactual (RESOLVES the fork) — the FP is NOT harmless
+Ran the gating measure: 97 confirmed FP-dropped articles (concordant "no"), each checked against
+its own day's digest by 5 world-news-editor judges. Verdict:
+- **26%** covered in the digest anyway (harmless)
+- **52%** lost but genuinely minor/off-topic (album reviews, gadget posts, opinion — SELECT would skip)
+- **23% LOST and would-belong** — real world news, dropped, never covered: Guinea-Bissau coup, 4 killed
+  in Kenya fuel protests, new Dutch PM, US sanctions on Kabila, EU-Ukraine membership talks, Peru
+  anti-Fujimori protests, Costa Rica president-elect, Brazil election poll, Japan arms-export shift,
+  a Chinese-agent espionage conviction, Lutnick Epstein testimony, US intel cuts, Finland war-readiness.
+These are exactly the "breadth across regions" stories SELECT's prompt prioritizes. Caveat: "would-belong"
+is an UPPER BOUND on loss (not all would beat the top-19 cut), so true selection-loss is somewhat <23% —
+but a coup + deadly protests dropped are unambiguous misses. **The 65% FP costs real editorial quality;
+fixing it (+~40% CLUSTER input, ~$0.05/run) is justified.**
+
 ## Decisions
-- **SHIPPED**: same-day source-priority collapse (`b912405`) + exact-URL dedup (`a8d64ed`) + /today (`c6edcf4`).
-- **Cross-day filter: NOT shipped** — genuine cost/quality fork (see above). Options: retune to 0.80
-  backstop (recovers stories, +~180 articles/run to cluster); remove entirely (rely on SELECT+THREADS);
-  or leave as-is if the FP turns out product-harmless. Needs the counterfactual measure first.
+- **SHIPPED** (local main, deploy-ready): /today (`c6edcf4`), exact-URL dedup (`a8d64ed`), same-day
+  collapse (`b912405`), GN resolver + deadline + async prefetch (`17196d7`/`5d5b548`/`ada1077`).
+- **Cross-day filter: FIX IS JUSTIFIED (follow-up, not in the deploy).** The counterfactual settles it.
+  Simplest fix: raise `DEDUP_SIMILARITY_THRESHOLD` 0.35 → ~0.80 (high-precision near-verbatim backstop;
+  recovers the wrongly-dropped stories; accept the modest CLUSTER cost, now justified). More surgical
+  option: entity/primary_event matching post-cluster. Deploy the shipped work first, then do this.
 - **GN URL resolver**: spike done — batchexecute decode works 98.4% on real Reuters/Nikkei URLs,
   stdlib-only ~30 lines, best-effort + canary. Ready to build on Sean's go-ahead (not built — he asked
   to spike, not build).
