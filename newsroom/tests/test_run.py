@@ -284,6 +284,161 @@ class TestResolveArticleIds:
         assert src["source_id"] == "bbc"
         assert src["original_title"] == "BBC headline"
 
+    def _resolve(self, tmp_path, index, article_ids):
+        self._write_index(tmp_path, index)
+        selections = {
+            "must_know": [
+                {
+                    "headline": "Story",
+                    "summary": "S",
+                    "why_it_matters": "W",
+                    "sources": [{"article_id": a} for a in article_ids],
+                }
+            ],
+            "should_know": [],
+            "preheader": "P",
+        }
+        with patch("digest.CLAUDE_INPUT_DIR", tmp_path):
+            return resolve_article_ids(selections)["must_know"][0]["sources"]
+
+    def test_collapses_verbatim_reposts_keeping_wire(self, tmp_path):
+        """Reuters + two outlets carrying the identical wire copy -> keep Reuters only.
+        (Reuters' RSS title has a ' - Reuters' suffix that must be stripped to match.)"""
+        index = {
+            "A1": {
+                "url": "https://st.com/x",
+                "source_id": "straits_times",
+                "bias": "center",
+                "original_title": "Firefighters battle blazes in southern France",
+                "name": "Straits Times",
+            },
+            "A2": {
+                "url": "https://reuters.com/x",
+                "source_id": "reuters",
+                "bias": "center",
+                "original_title": "Firefighters battle blazes in southern France - Reuters",
+                "name": "Reuters",
+                "wire": True,
+            },
+            "A3": {
+                "url": "https://dm.com/x",
+                "source_id": "daily_maverick",
+                "bias": "lean-left",
+                "original_title": "Firefighters battle blazes in southern France",
+                "name": "Daily Maverick",
+            },
+        }
+        sources = self._resolve(tmp_path, index, ["A1", "A2", "A3"])
+        assert [s["source_id"] for s in sources] == ["reuters"]
+
+    def test_keeps_distinct_coverage_of_same_story(self, tmp_path):
+        """Different headlines = genuinely different articles -> keep all (source diversity)."""
+        index = {
+            "A1": {
+                "url": "https://a.com",
+                "source_id": "reuters",
+                "bias": "center",
+                "original_title": "France wildfires force evacuations - Reuters",
+                "name": "Reuters",
+            },
+            "A2": {
+                "url": "https://b.com",
+                "source_id": "scmp_world",
+                "bias": "center",
+                "original_title": "In heatwave-baked France, chaos grips air-conditioner shoppers",
+                "name": "SCMP",
+            },
+        }
+        sources = self._resolve(tmp_path, index, ["A1", "A2"])
+        assert len(sources) == 2
+
+    def test_compound_hyphen_titles_are_not_truncated_or_merged(self, tmp_path):
+        """Regression: only the exact ' - <Source>' suffix is stripped, never a 'US-China'
+        style compound. Two distinct headlines that share such a compound must NOT merge."""
+        index = {
+            "A1": {
+                "url": "https://a.com",
+                "source_id": "reuters",
+                "bias": "center",
+                "original_title": "Israel-Gaza ceasefire talks resume in Cairo",
+                "name": "Reuters",
+            },
+            "A2": {
+                "url": "https://b.com",
+                "source_id": "bbc_world",
+                "bias": "center",
+                "original_title": "Israel-Gaza ceasefire talks stall amid new disputes",
+                "name": "BBC World",
+            },
+        }
+        sources = self._resolve(tmp_path, index, ["A1", "A2"])
+        assert len(sources) == 2
+        # and the compound survives into the story that IS a repost of a suffixed wire title
+        index2 = {
+            "B1": {
+                "url": "https://c.com",
+                "source_id": "reuters",
+                "bias": "center",
+                "original_title": "Tensions rise in US-China trade dispute - Reuters",
+                "name": "Reuters",
+                "wire": True,
+            },
+            "B2": {
+                "url": "https://d.com",
+                "source_id": "straits_times",
+                "bias": "center",
+                "original_title": "Tensions rise in US-China trade dispute",
+                "name": "Straits Times",
+            },
+        }
+        sources2 = self._resolve(tmp_path, index2, ["B1", "B2"])
+        assert [s["source_id"] for s in sources2] == ["reuters"]  # suffix stripped, compound matched
+
+    def test_no_wire_keeps_first_listed(self, tmp_path):
+        """No wire present: keep the first-listed source (SELECT's editorial order). We do NOT
+        guess which outlet is the reposter -- no hardcoded syndicator list."""
+        index = {
+            "A1": {
+                "url": "https://nyt.com",
+                "source_id": "nyt_world",
+                "bias": "lean-left",
+                "original_title": "After a bitter split, European leaders play nice with Trump",
+                "name": "NYT",
+            },
+            "A2": {
+                "url": "https://st.com",
+                "source_id": "straits_times",
+                "bias": "center",
+                "original_title": "After a bitter split, European leaders play nice with Trump",
+                "name": "Straits Times",
+            },
+        }
+        sources = self._resolve(tmp_path, index, ["A1", "A2"])
+        assert [s["source_id"] for s in sources] == ["nyt_world"]
+
+    def test_wire_wins_regardless_of_position(self, tmp_path):
+        """The wire (reuters, perspective==wire_service in sources.json) is canonical even when
+        listed last -- attribution follows the origin, not the ordering."""
+        index = {
+            "A1": {
+                "url": "https://st.com",
+                "source_id": "straits_times",
+                "bias": "center",
+                "original_title": "Oil tankers burn near Iraq after strikes",
+                "name": "Straits Times",
+            },
+            "A2": {
+                "url": "https://reuters.com",
+                "source_id": "reuters",
+                "bias": "center",
+                "original_title": "Oil tankers burn near Iraq after strikes - Reuters",
+                "name": "Reuters",
+                "wire": True,
+            },
+        }
+        sources = self._resolve(tmp_path, index, ["A1", "A2"])
+        assert [s["source_id"] for s in sources] == ["reuters"]
+
     def test_drops_unresolved_ids(self, tmp_path):
         index = {"A1": {"url": "https://x.com", "source_id": "x", "bias": "center", "original_title": "T", "name": "X"}}
         self._write_index(tmp_path, index)
@@ -408,9 +563,11 @@ class TestPrepareArticleIndex:
         assert (output_dir / "article_index.json").exists()
 
     @staticmethod
-    def _run_prepare(tmp_path, fetched):
+    def _run_prepare(tmp_path, fetched, perspectives=None):
         """Write ``fetched`` ({source_id: [article, ...]}) to per-source files, run
-        prepare_claude_input over those sources, and return the resulting article_index."""
+        prepare_claude_input over those sources, and return the resulting article_index.
+        ``perspectives`` optionally maps source_id -> perspective (default 'x')."""
+        perspectives = perspectives or {}
         fetched_dir = tmp_path / "fetched"
         fetched_dir.mkdir()
         sources = []
@@ -424,7 +581,7 @@ class TestPrepareArticleIndex:
                     "url": f"https://{source_id}.example/rss",
                     "bias": "center",
                     "factuality": "high",
-                    "perspective": "x",
+                    "perspective": perspectives.get(source_id, "x"),
                 }
             )
 
@@ -442,6 +599,20 @@ class TestPrepareArticleIndex:
 
         with open(tmp_path / "claude_input" / "article_index.json") as f:
             return json.load(f)
+
+    def test_captures_wire_flag_from_perspective(self, tmp_path):
+        """article_index carries wire=True iff the source's perspective is 'wire_service'
+        (the data-driven signal the render layer uses to pick a canonical among reposts)."""
+        index = self._run_prepare(
+            tmp_path,
+            {
+                "reuters": [{"title": "Wire story", "url": "https://reuters.example/a"}],
+                "bbc": [{"title": "Outlet story", "url": "https://bbc.example/b"}],
+            },
+            perspectives={"reuters": "wire_service"},
+        )
+        by_src = {v["source_id"]: v["wire"] for v in index.values()}
+        assert by_src == {"reuters": True, "bbc": False}
 
     def test_dedups_identical_urls_within_run(self, tmp_path):
         """A feed listing the same URL multiple times (al-monitor emits each article

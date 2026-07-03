@@ -3,6 +3,7 @@
 import json
 import logging
 import os
+import re
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -10,6 +11,55 @@ from config import CLAUDE_INPUT_DIR, DATA_DIR, OUTPUT_DIR
 from render import extract_headlines, render_digest
 
 logger = logging.getLogger(__name__)
+
+
+def _source_priority(src: dict) -> int:
+    # 0 = wire origin (canonical); 1 = everyone else. The 'wire' flag is data-driven
+    # (sources.json perspective == 'wire_service', captured into article_index at prepare time)
+    # -- no hardcoded outlet names, no reposter blocklist. Ties resolve to the first-listed
+    # source (SELECT's editorial order), since min() is stable; we do NOT guess who reposts wire.
+    return 0 if src.get("wire") else 1
+
+
+def _repost_key(title: str, source_name: str) -> str:
+    """Normalize an RSS title for verbatim-repost matching, then lowercase and drop
+    punctuation. The only suffix stripped is the exact ' - <Source>' that Google-News-fetched
+    feeds (Reuters, Nikkei Asia) append -- matched against the source's OWN name, so we never
+    truncate real title content (a 'US-China' compound, a WSJ 'Opinion | ...' clause). Reuters'
+    '... - Reuters' thus collapses onto a reposter's bare copy of the same wire story."""
+    title = title or ""
+    suffix = f" - {source_name}"
+    if source_name and title.lower().endswith(suffix.lower()):
+        title = title[: -len(suffix)]
+    title = re.sub(r"[^a-z0-9 ]", " ", title.lower())
+    return re.sub(r"\s+", " ", title).strip()
+
+
+def collapse_reposts(sources: list[dict]) -> list[dict]:
+    """Within one story's resolved source list, collapse verbatim reposts (identical
+    normalized title) to a single source-priority canonical, preserving order otherwise.
+
+    Distinct headlines are left untouched -- that is genuine multi-source coverage, not a
+    duplicate link. Only near-identical wire copy is collapsed (see A4 in
+    docs/2026-07-02-dedup-poc-findings.md)."""
+    keyed = [(_repost_key(s.get("original_title", ""), s.get("name", "")), s) for s in sources]
+
+    groups: dict[str, list[dict]] = {}
+    for key, src in keyed:
+        if key:
+            groups.setdefault(key, []).append(src)
+
+    collapsed = []
+    emitted: set[str] = set()
+    for key, src in keyed:
+        if not key:  # untitled: never merge, keep in place
+            collapsed.append(src)
+            continue
+        if key in emitted:
+            continue
+        emitted.add(key)
+        collapsed.append(min(groups[key], key=_source_priority))
+    return collapsed
 
 
 def load_selections(selections_file: Path) -> dict:
@@ -88,6 +138,7 @@ def resolve_article_ids(selections: dict) -> dict:
                 "bias": meta["bias"],
                 "source_id": meta["source_id"],
                 "original_title": meta["original_title"],
+                "wire": meta.get("wire", False),
             }
         except KeyError as e:
             logger.warning("Incomplete metadata for %s (missing %s)", article_id, e)
@@ -105,7 +156,7 @@ def resolve_article_ids(selections: dict) -> dict:
                 if resolved:
                     resolved_sources.append(resolved)
             if resolved_sources:
-                item["sources"] = resolved_sources
+                item["sources"] = collapse_reposts(resolved_sources)
                 resolved_items.append(item)
             else:
                 logger.warning("Dropped %s story with no resolved sources: %s", tier, item.get("headline", "?"))

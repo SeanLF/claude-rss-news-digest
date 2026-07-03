@@ -151,6 +151,9 @@ def prepare_claude_input(sources: list[dict], dry_run: bool = False, article_lim
                     "bias": source["bias"],
                     "original_title": title,
                     "name": source["name"],
+                    # captured here (sources.json is loaded) so the render layer can pick the
+                    # wire origin as the canonical link among reposts without re-reading it
+                    "wire": source.get("perspective") == "wire_service",
                 }
 
                 # CSV row: no URL (Claude sees article_id instead)
