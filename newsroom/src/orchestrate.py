@@ -43,6 +43,7 @@ import claude_cli
 import cluster_extractjoin
 import config
 import fulltext
+import gnews
 from claude_agent_sdk import ThinkingConfig
 from retry import with_retry_async
 from usage import usage_row_from_sdk
@@ -539,6 +540,16 @@ async def orchestrate_selections(
         # no thread pool spun up) and internally by fulltext itself.
         if label == "select" and config.FULLTEXT_ENABLED:
             await _run_fulltext_best_effort(claude_input_dir)
+        # Kick off Google-News link resolution in the background here (URLs are only needed at the
+        # final HTML injection, not by WRITE/COHERENCE), so its ~70-100s overlaps those stages
+        # instead of blocking render. Fire-and-forget; render joins the cache.
+        if label == "select" and config.GNEWS_RESOLVE_ENABLED:
+            gnews.prefetch_selected(
+                claude_input_dir,
+                timeout=config.GNEWS_RESOLVE_TIMEOUT_S,
+                delay=config.GNEWS_RESOLVE_DELAY_S,
+                deadline=config.GNEWS_RESOLVE_DEADLINE_S,
+            )
 
     total = sum(r["api_cost_usd"] for r in usage_rows)
     logger.info("Selection complete: %d stages, $%.4f API-equivalent", len(usage_rows), total)

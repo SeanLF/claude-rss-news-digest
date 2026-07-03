@@ -16,10 +16,12 @@ import json
 import logging
 import random
 import re
+import threading
 import time
 import urllib.error
 import urllib.parse
 import urllib.request
+from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
@@ -27,6 +29,14 @@ logger = logging.getLogger(__name__)
 class GnewsRateLimited(Exception):
     """Google returned 429 -- an IP-level throttle with no Retry-After. The caller should stop
     resolving for the rest of the run and fall back to raw GN URLs rather than deepen the block."""
+
+
+# Resolved-URL cache keyed by art_id, shared between the background prefetch thread and the
+# render-time resolve() so each token is fetched at most once per run. Stores None for a token
+# that was attempted and failed, so we don't retry it.
+_cache: dict[str, str | None] = {}
+_cache_lock = threading.Lock()
+_prefetch_thread: threading.Thread | None = None
 
 
 _UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Safari/537.36"
@@ -93,15 +103,9 @@ def _http(url: str, *, data: bytes | None = None, timeout: int, delay: float = 0
         return r.read().decode("utf-8", "replace")
 
 
-def resolve(url: str, *, timeout: int = 15, delay: float = 0.0) -> str | None:
-    """Resolve one Google News URL to the publisher URL, or None on any failure (best-effort).
-    Returns None for non-GN URLs too, so callers can pass anything and fall back on None.
-    Raises GnewsRateLimited on HTTP 429 so the caller can stop the batch."""
-    if not is_gnews_url(url):
-        return None
-    art_id = _extract_art_id(url)
-    if not art_id:
-        return None
+def _fetch(art_id: str, timeout: int, delay: float) -> str | None:
+    """The actual two-request decode for one art_id. Returns the publisher URL or None on any
+    failure; raises GnewsRateLimited on HTTP 429 so the caller can stop the batch."""
     try:
         html = _http(f"https://news.google.com/articles/{art_id}", timeout=timeout, delay=delay)
         sig, ts = _SIG_RE.search(html), _TS_RE.search(html)
@@ -123,3 +127,90 @@ def resolve(url: str, *, timeout: int = 15, delay: float = 0.0) -> str | None:
     except Exception as e:  # best-effort; never propagate a resolution failure
         logger.info("gnews: resolve failed for %s: %s: %s", art_id[:16], type(e).__name__, e)
         return None
+
+
+def resolve(url: str, *, timeout: int = 15, delay: float = 0.0) -> str | None:
+    """Resolve one Google News URL to the publisher URL, or None on any failure (best-effort).
+    Returns None for non-GN URLs too. Serves from the run cache when warm (e.g. prefetched),
+    otherwise fetches and caches. Raises GnewsRateLimited on HTTP 429."""
+    if not is_gnews_url(url):
+        return None
+    art_id = _extract_art_id(url)
+    if not art_id:
+        return None
+    with _cache_lock:
+        if art_id in _cache:
+            return _cache[art_id]
+    result = _fetch(art_id, timeout, delay)  # may raise GnewsRateLimited (deliberately not cached)
+    with _cache_lock:
+        _cache[art_id] = result
+    return result
+
+
+def prefetch_selected(claude_input_dir: Path, *, timeout: int, delay: float, deadline: int) -> None:
+    """Fire-and-forget: resolve the SELECTED stories' Google-News links on a background daemon
+    thread so resolution overlaps the URL-agnostic stages (WRITE/COHERENCE) instead of blocking
+    render. Serial + paced (rate-limit safe), bounded by ``deadline``. Best-effort: any failure
+    (missing files, 429, bug) just leaves the cache partial and render falls back to raw GN URLs."""
+    global _prefetch_thread
+    try:
+        selected = json.loads((claude_input_dir / "selected.json").read_text(encoding="utf-8"))
+        index = json.loads((claude_input_dir / "article_index.json").read_text(encoding="utf-8"))
+        if not isinstance(selected, dict) or not isinstance(index, dict):
+            return
+        urls: list[str] = []
+        seen: set[str] = set()
+        for tier in ("must_know", "should_know"):
+            for story in selected.get(tier) or []:
+                if not isinstance(story, dict):
+                    continue
+                for aid in story.get("article_ids") or []:
+                    entry = index.get(aid)
+                    url = entry.get("url") if isinstance(entry, dict) else None
+                    if url and is_gnews_url(url) and url not in seen:
+                        seen.add(url)
+                        urls.append(url)
+    except Exception as e:  # broad by design: prefetch must never reach the orchestrator
+        logger.info("gnews: prefetch skipped (%s: %s)", type(e).__name__, e)
+        return
+    if not urls:
+        return
+
+    def _work() -> None:
+        end = time.monotonic() + deadline
+        resolved = 0
+        for url in urls:
+            if time.monotonic() > end:
+                logger.info("gnews: prefetch deadline reached (%d resolved)", resolved)
+                return
+            try:
+                if resolve(url, timeout=timeout, delay=delay):
+                    resolved += 1
+            except GnewsRateLimited:
+                logger.info("gnews: prefetch stopped on 429")
+                return
+
+    logger.info("gnews: prefetching %d selected links in the background", len(urls))
+    _prefetch_thread = threading.Thread(target=_work, daemon=True, name="gnews-prefetch")
+    _prefetch_thread.start()
+
+
+def wait_for_prefetch(timeout: float) -> bool:
+    """Join the background prefetch (if any). Returns True when it's finished (or there was none),
+    False if it is still running after ``timeout`` -- in which case render must serve cache-only
+    rather than issue synchronous fetches that would race the live thread against Google."""
+    t = _prefetch_thread
+    if t is None:
+        return True
+    t.join(timeout)
+    return not t.is_alive()
+
+
+def cached(url: str) -> str | None:
+    """The resolved URL for a GN link if already in the run cache, else None. Never fetches --
+    used at render when a prefetch is still in flight, so we read without racing it."""
+    art_id = _extract_art_id(url)
+    if not art_id:
+        return None
+    with _cache_lock:
+        return _cache.get(art_id)

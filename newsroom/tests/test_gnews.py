@@ -20,6 +20,16 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 import gnews
 
 
+@pytest.fixture(autouse=True)
+def _clear_gnews_state():
+    """The resolved-URL cache and prefetch handle are module-global -- reset around each test."""
+    gnews._cache.clear()
+    gnews._prefetch_thread = None
+    yield
+    gnews._cache.clear()
+    gnews._prefetch_thread = None
+
+
 class TestIsGnewsUrl:
     def test_true_for_gnews_article(self):
         assert gnews.is_gnews_url("https://news.google.com/rss/articles/CBMiABC?oc=5") is True
@@ -102,6 +112,14 @@ class TestResolveBestEffort:
         monkeypatch.setattr(gnews, "_http", http500)
         assert gnews.resolve("https://news.google.com/rss/articles/CBMiABC?oc=5") is None
 
+    def test_resolve_caches_per_art_id(self, monkeypatch):
+        fetched = []
+        monkeypatch.setattr(gnews, "_fetch", lambda art, t, d: fetched.append(art) or "https://pub/x")
+        u = "https://news.google.com/rss/articles/CBMiSAME?oc=5"
+        assert gnews.resolve(u) == "https://pub/x"
+        assert gnews.resolve(u) == "https://pub/x"  # second call served from cache
+        assert len(fetched) == 1
+
     def test_happy_path_resolves(self, monkeypatch):
         page = '<c-wiz data-n-a-id="x" data-n-a-sg="SIG" data-n-a-ts="1700000000">...</c-wiz>'
         be = ")]}'\n" + json.dumps(
@@ -131,15 +149,17 @@ class TestResolveGnewsLinksWiring:
         digest._resolve_gnews_links(sel)
         assert sel["must_know"][0]["sources"][0]["url"] == "https://www.reuters.com/real"
 
-    def test_caches_per_art_id(self, monkeypatch):
+    def test_two_sources_same_article_fetch_once(self, monkeypatch):
         import digest
 
-        calls = []
-        monkeypatch.setattr("gnews.resolve", lambda url, timeout=15, delay=0: calls.append(url) or "https://pub/x")
-        # same GN article id twice -> resolve called once
+        fetched = []
+        monkeypatch.setattr(gnews, "_fetch", lambda art, t, d: fetched.append(art) or "https://pub/x")
+        # two shown sources point at the same GN article -> the module cache fetches it once
         u = "https://news.google.com/rss/articles/CBMiSAME?oc=5"
-        digest._resolve_gnews_links(self._selections(u, u))
-        assert len(calls) == 1
+        sel = self._selections(u, u)
+        digest._resolve_gnews_links(sel)
+        assert len(fetched) == 1
+        assert all(s["url"] == "https://pub/x" for s in sel["must_know"][0]["sources"])
 
     def test_stops_batch_on_rate_limit_keeping_raw_urls(self, monkeypatch):
         import digest
@@ -165,6 +185,29 @@ class TestResolveGnewsLinksWiring:
         sel = self._selections("https://news.google.com/rss/articles/CBMiA?oc=5")
         digest._resolve_gnews_links(sel)
         assert sel["must_know"][0]["sources"][0]["url"].startswith("https://news.google.com")
+
+    def test_uses_cache_only_while_prefetch_in_flight(self, monkeypatch):
+        """If the background prefetch hasn't finished, render must read cache-only, never issue a
+        synchronous fetch that would race the live thread against Google."""
+        import digest
+
+        class _StillRunning:
+            def join(self, timeout):
+                pass
+
+            def is_alive(self):
+                return True
+
+        monkeypatch.setattr(gnews, "_prefetch_thread", _StillRunning())
+        monkeypatch.setattr("gnews.resolve", lambda *a, **k: pytest.fail("must not fetch while prefetch runs"))
+        warm = "https://news.google.com/rss/articles/CBMiWARM?oc=5"
+        cold = "https://news.google.com/rss/articles/CBMiCOLD?oc=5"
+        gnews._cache[gnews._extract_art_id(warm)] = "https://pub/warm"
+        sel = self._selections(warm, cold)
+        digest._resolve_gnews_links(sel)
+        urls = [s["url"] for s in sel["must_know"][0]["sources"]]
+        assert urls[0] == "https://pub/warm"  # warmed link upgraded from cache
+        assert urls[1].startswith("https://news.google.com")  # cold link left raw (no racing fetch)
 
     def test_noop_when_disabled(self, monkeypatch):
         import config
@@ -205,6 +248,38 @@ class TestResolveGnewsLinksWiring:
         with patch("digest.CLAUDE_INPUT_DIR", tmp_path):
             out = digest.resolve_article_ids(sel)  # must not raise
         assert out["must_know"][0]["sources"][0]["url"].startswith("https://news.google.com")
+
+
+class TestPrefetch:
+    """Background prefetch after SELECT warms the cache so render is a cache hit (off critical path)."""
+
+    def _write(self, tmp_path, selected, index):
+        (tmp_path / "selected.json").write_text(json.dumps(selected))
+        (tmp_path / "article_index.json").write_text(json.dumps(index))
+
+    def test_prefetch_warms_cache_for_selected_links(self, tmp_path, monkeypatch):
+        gn = "https://news.google.com/rss/articles/CBMiPRE?oc=5"
+        self._write(tmp_path, {"must_know": [{"article_ids": ["A1"]}], "should_know": []}, {"A1": {"url": gn}})
+        fetched = []
+        monkeypatch.setattr(gnews, "_fetch", lambda art, t, d: fetched.append(art) or "https://pub/real")
+        gnews.prefetch_selected(tmp_path, timeout=1, delay=0, deadline=5)
+        gnews.wait_for_prefetch(5)
+        assert fetched == [gnews._extract_art_id(gn)]
+        assert gnews.resolve(gn) == "https://pub/real"  # render is now a pure cache hit
+        assert len(fetched) == 1
+
+    def test_prefetch_missing_files_is_noop(self, tmp_path):
+        gnews.prefetch_selected(tmp_path, timeout=1, delay=0, deadline=5)  # no selected.json -> no crash
+        gnews.wait_for_prefetch(1)
+        assert gnews._prefetch_thread is None
+
+    def test_prefetch_malformed_shape_is_noop(self, tmp_path, monkeypatch):
+        # well-formed JSON, wrong shape (tier not a list, story not a dict) must not crash
+        self._write(tmp_path, {"must_know": "nope", "should_know": [42]}, {"A1": {"url": "x"}})
+        monkeypatch.setattr(gnews, "_fetch", lambda *a: pytest.fail("should not fetch"))
+        gnews.prefetch_selected(tmp_path, timeout=1, delay=0, deadline=5)  # no crash
+        gnews.wait_for_prefetch(1)
+        assert gnews._prefetch_thread is None
 
 
 @pytest.mark.skipif(not __import__("os").environ.get("GNEWS_LIVE"), reason="live network canary; run with GNEWS_LIVE=1")

@@ -190,26 +190,29 @@ def _resolve_gnews_links(selections: dict) -> None:
         for src in item.get("sources", [])
         if gnews.is_gnews_url(src.get("url", ""))
     ]
-    cache: dict[str, str | None] = {}
+    # Prefer the background prefetch started after SELECT. If it has finished, resolve() is a cache
+    # hit for prefetched links and a synchronous fetch for anything not warmed (e.g. --write-only,
+    # which never ran orchestrate). If it is STILL running, read cache-only so we never issue a
+    # fetch that races the live thread against Google.
+    prefetch_done = gnews.wait_for_prefetch(config.GNEWS_RESOLVE_DEADLINE_S)
     upgraded = 0
     deadline = time.monotonic() + config.GNEWS_RESOLVE_DEADLINE_S
     for src in gn_sources:
-        art_id = gnews._extract_art_id(src["url"])
-        if not art_id:
-            continue
-        if art_id not in cache:
+        if prefetch_done:
             if time.monotonic() > deadline:
                 logger.warning("gnews: resolve deadline reached, keeping raw GN URLs for the rest")
                 break
             try:
-                cache[art_id] = gnews.resolve(
+                resolved = gnews.resolve(
                     src["url"], timeout=config.GNEWS_RESOLVE_TIMEOUT_S, delay=config.GNEWS_RESOLVE_DELAY_S
                 )
             except gnews.GnewsRateLimited:
                 logger.warning("gnews: rate-limited (429), stopping link resolution for this run")
                 break
-        if cache[art_id]:
-            src["url"] = cache[art_id]
+        else:
+            resolved = gnews.cached(src["url"])  # prefetch still in flight -- don't race it
+        if resolved:
+            src["url"] = resolved
             upgraded += 1
     if upgraded:
         logger.info("gnews: upgraded %d Google-News links to publisher URLs", upgraded)
