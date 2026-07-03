@@ -612,6 +612,7 @@ mod tests {
             source_url: None,
             resend_api_key: None,
             resend_audience_id: None,
+            feedback_email: None,
             http_client: reqwest::Client::new(),
         }
     }

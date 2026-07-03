@@ -9,8 +9,8 @@ mod stats;
 mod thread;
 
 pub use digest::{
-    DIGEST_NAV_CSS, DIGEST_NAV_HTML, FAVICON_SVG, REDUCED_MOTION_CSS, SKIP_LINK_CSS,
-    SKIP_LINK_HTML, digest_og_tags, web_footer_html,
+    DIGEST_NAV_CSS, FAVICON_SVG, PROXY_TRANSLATE_HIDE_SCRIPT, REDUCED_MOTION_CSS, SKIP_LINK_CSS,
+    SKIP_LINK_HTML, digest_nav_html, digest_og_tags, web_footer_html,
 };
 pub use feedback::render_feedback_thanks;
 pub use index::{IndexParams, render_index};

@@ -69,6 +69,9 @@ services:
       - SOURCE_URL
       - RESEND_API_KEY
       - RESEND_AUDIENCE_ID
+      # Sending address -> web "hit reply" mailto target; unset just hides the line.
+      - RESEND_FROM
+      - DIGEST_DOMAIN
     labels:
       - dev.orbstack.domains=${ORBSTACK_DOMAIN:-}
 

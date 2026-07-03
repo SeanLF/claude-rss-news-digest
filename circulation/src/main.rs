@@ -4,6 +4,7 @@ mod search;
 mod stats;
 mod templates;
 mod thread;
+mod translate;
 mod util;
 
 use axum::Router;
@@ -37,6 +38,9 @@ pub struct AppState {
     pub source_url: Option<String>,
     pub resend_api_key: Option<String>,
     pub resend_audience_id: Option<String>,
+    /// Address that reader feedback goes to (the digest's sending address,
+    /// `RESEND_FROM`). Powers the web `mailto:` suggestion line; absent -> no line.
+    pub feedback_email: Option<String>,
     pub http_client: Client,
 }
 
@@ -106,6 +110,7 @@ async fn main() {
     let source_url = std::env::var("SOURCE_URL").ok();
     let resend_api_key = std::env::var("RESEND_API_KEY").ok();
     let resend_audience_id = std::env::var("RESEND_AUDIENCE_ID").ok();
+    let feedback_email = std::env::var("RESEND_FROM").ok();
     let http_client = Client::new();
 
     let state = Arc::new(AppState {
@@ -116,6 +121,7 @@ async fn main() {
         source_url,
         resend_api_key,
         resend_audience_id,
+        feedback_email,
         http_client,
     });
 
@@ -144,6 +150,7 @@ async fn main() {
         .route(routes::SEARCH, get(search::search))
         .route(routes::FEEDBACK, get(handlers::feedback))
         .route(routes::TODAY, get(handlers::today))
+        .route("/{date}/translate", get(translate::translate_redirect))
         .route("/{date}", get(handlers::get_digest))
         .layer(TraceLayer::new_for_http())
         .with_state(state);

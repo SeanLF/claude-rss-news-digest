@@ -94,6 +94,17 @@ header time {
   margin: 0 6px;
 }
 
+/* Translate control -- terracotta, matches the on-site 文A affordance (mockup 03). */
+.header-links a.translate-link {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.translate-link .glyph {
+  font-weight: 700;
+  letter-spacing: -0.03em;
+}
+
 @media (max-width: 480px) {
   header {
     flex-direction: column;
@@ -274,6 +285,17 @@ footer a {
 
 .footer-links {
   margin: 8px 0;
+}
+
+.footer-translate,
+.footer-suggest {
+  margin: 4px 0;
+  color: var(--text-muted);
+}
+
+/* Keep the translate affordance terracotta everywhere, not footer-link blue. */
+.footer-translate a {
+  color: var(--accent);
 }
 
 .not-covered {

@@ -492,6 +492,10 @@ def replace_placeholders(
         content = content.replace("{{SUBSCRIBE_URL}}", subscribe_url)
     else:
         content = re.sub(r'\s*<nav class="header-links">.*?</nav>', "", content, flags=re.DOTALL)
+        # The footer translate link needs {{HOMEPAGE_URL}}; with no domain there is
+        # no route to point at, so drop the whole line rather than ship a dangling
+        # placeholder. The "just hit reply" line has no URL and stays.
+        content = re.sub(r'\s*<p class="footer-translate email-only">.*?</p>', "", content, flags=re.DOTALL)
 
     # Optional: archive URL for "Past digests" link
     if archive_url and is_safe_url(archive_url):

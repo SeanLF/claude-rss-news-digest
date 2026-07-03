@@ -13,9 +13,9 @@ use crate::check_database_health;
 use crate::feed::{DigestRow, render_atom_feed};
 use crate::routes;
 use crate::templates::{
-    DIGEST_NAV_CSS, DIGEST_NAV_HTML, FAVICON_SVG, IndexParams, REDUCED_MOTION_CSS, SKIP_LINK_CSS,
-    SKIP_LINK_HTML, Source, digest_og_tags, render_feedback_thanks, render_index, render_sources,
-    web_footer_html,
+    DIGEST_NAV_CSS, FAVICON_SVG, IndexParams, PROXY_TRANSLATE_HIDE_SCRIPT, REDUCED_MOTION_CSS,
+    SKIP_LINK_CSS, SKIP_LINK_HTML, Source, digest_nav_html, digest_og_tags, render_feedback_thanks,
+    render_index, render_sources, web_footer_html,
 };
 use crate::util::{
     escape_html, format_date, format_month_year, is_valid_date, log_row_error, year_month,
@@ -122,12 +122,13 @@ pub async fn index(
     } else {
         ""
     };
-    let subscribe_teaser = if subscriptions_enabled {
-        digests.first().map_or(String::new(), |(latest_date, _)| {
-            format!(
-                r#"<p class="subscribe-teaser"><a href="/{latest_date}">Open the latest digest</a> to see what you'd receive daily.</p>"#
-            )
-        })
+    let subscribe_teaser = if subscriptions_enabled && !digests.is_empty() {
+        // Link the stable /today route rather than baking today's date -- it stays
+        // correct as new digests land.
+        format!(
+            r#"<p class="subscribe-teaser"><a href="{}">Open the latest digest</a> to see what you'd receive daily.</p>"#,
+            routes::TODAY
+        )
     } else {
         String::new()
     };
@@ -567,7 +568,7 @@ pub async fn get_digest(
         &state.digest_name,
         &image_url,
     );
-    let head_inject = format!("{FAVICON_SVG}\n  {og_tags}");
+    let head_inject = format!("{FAVICON_SVG}\n  {og_tags}\n  {PROXY_TRANSLATE_HIDE_SCRIPT}");
 
     // Build web footer links (subscribe replaces unsubscribe)
     let (subscribe_url, archive_url) = match &state.digest_domain {
@@ -579,6 +580,8 @@ pub async fn get_digest(
         &archive_url,
         routes::SOURCES,
         &state.privacy_url(),
+        &date,
+        state.feedback_email.as_deref(),
     );
 
     // Inject elements into stored HTML (warn on miss -- indicates template drift)
@@ -593,7 +596,10 @@ pub async fn get_digest(
     let html = inject(
         &html,
         "<body>",
-        &format!("<body>{SKIP_LINK_HTML}{DIGEST_NAV_HTML}<main id=\"main\">"),
+        &format!(
+            "<body>{SKIP_LINK_HTML}{}<main id=\"main\">",
+            digest_nav_html(&date)
+        ),
         &date,
     );
     // Insert web links before footer-meta (same position as email links)
@@ -710,6 +716,7 @@ mod feed_tests {
             source_url: None,
             resend_api_key: None,
             resend_audience_id: None,
+            feedback_email: None,
             http_client: Client::new(),
         })
     }
@@ -877,6 +884,7 @@ mod feedback_tests {
             source_url: None,
             resend_api_key: None,
             resend_audience_id: None,
+            feedback_email: None,
             http_client: reqwest::Client::new(),
         })
     }
