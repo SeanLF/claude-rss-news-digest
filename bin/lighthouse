@@ -1,0 +1,108 @@
+#!/usr/bin/env python3
+"""Lighthouse gate — assert a11y / best-practices / SEO scores on rendered pages.
+
+Serves a directory of self-contained HTML and Lighthouses each page, or (once the
+templates are ported) points at a running server with --url. A pre-deploy gate:
+slow (~10-20s/page) and needs headless Chrome, so it belongs in deploy-check, not
+per-commit CI (that's what bin/a11y-check is for).
+
+Usage:
+    bin/lighthouse                       # serve scratch/chrome-mockups, require 100
+    bin/lighthouse --dir DIR --min 95
+    bin/lighthouse --url http://localhost:8081/sources --url http://localhost:8081/stats
+
+Needs the Lighthouse CLI (`npx lighthouse` once installs it under ~/.npm/_npx).
+"""
+import argparse
+import glob
+import http.server
+import json
+import os
+import socketserver
+import subprocess
+import sys
+import tempfile
+import threading
+from pathlib import Path
+
+CATEGORIES = ["accessibility", "best-practices", "seo"]
+
+
+def find_lighthouse_cli():
+    hits = sorted(glob.glob(os.path.expanduser("~/.npm/_npx/*/node_modules/lighthouse/cli/index.js")))
+    if not hits:
+        sys.exit("error: Lighthouse CLI not found. Run `npx lighthouse` once to install it.")
+    return hits[0]
+
+
+def serve(directory):
+    def handler(*a, **k):
+        return http.server.SimpleHTTPRequestHandler(*a, directory=directory, **k)
+    httpd = socketserver.TCPServer(("127.0.0.1", 0), handler)
+    threading.Thread(target=httpd.serve_forever, daemon=True).start()
+    return httpd, httpd.server_address[1]
+
+
+def lighthouse(url, cli, out_dir, idx):
+    """Returns {category: score} or None if the Lighthouse run itself failed."""
+    out = os.path.join(out_dir, f"report-{idx}.json")  # unique per page — never reuse a stale report
+    if os.path.exists(out):
+        os.remove(out)
+    result = subprocess.run(
+        ["node", cli, url, "--quiet", "--output=json", f"--output-path={out}",
+         "--only-categories=" + ",".join(CATEGORIES),
+         "--chrome-flags=--headless=new --no-sandbox"],
+        check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+    )
+    if result.returncode != 0 or not os.path.exists(out):
+        return None  # a failed run is a gate failure, not a silently-reused stale/missing report
+    with open(out) as fh:
+        cats = json.load(fh)["categories"]
+    return {c: round(cats[c]["score"] * 100) for c in cats}
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--dir", default="scratch/chrome-mockups", help="directory of *.html to serve+test")
+    ap.add_argument("--url", action="append", help="test these URLs directly (skip the built-in server)")
+    ap.add_argument("--min", type=int, default=100, help="minimum passing score (default 100)")
+    args = ap.parse_args()
+
+    cli = find_lighthouse_cli()
+    tmp = tempfile.mkdtemp()
+    httpd = None
+
+    if args.url:
+        targets = [(u, u) for u in args.url]
+    else:
+        d = Path(args.dir)
+        if not d.is_dir():
+            sys.exit(f"error: {d} is not a directory")
+        httpd, port = serve(str(d))
+        targets = [(f.name, f"http://127.0.0.1:{port}/{f.name}") for f in sorted(d.glob("*.html"))]
+        if not targets:
+            sys.exit(f"error: no .html files in {d}")
+
+    print(f"Lighthouse (min {args.min}) — a11y / best-practices / seo\n")
+    failed = False
+    for i, (label, url) in enumerate(targets):
+        scores = lighthouse(url, cli, tmp, i)
+        if scores is None:
+            failed = True
+            print(f"  [FAIL] {label:30} Lighthouse run errored (no report produced)")
+            continue
+        bad = [c for c, v in scores.items() if v < args.min]
+        failed = failed or bool(bad)
+        mark = "FAIL" if bad else " ok "
+        print(f"  [{mark}] {label:30} " + "  ".join(f"{c.split('-')[0][:4]}={v}" for c, v in scores.items()))
+
+    if httpd:
+        httpd.shutdown()
+    if failed:
+        print(f"\nLighthouse gate FAILED (below {args.min}).")
+        sys.exit(1)
+    print(f"\nLighthouse gate passed (all >= {args.min}).")
+
+
+if __name__ == "__main__":
+    main()

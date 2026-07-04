@@ -2,7 +2,7 @@
 # Run `make` or `make help` to see available targets
 
 .DEFAULT_GOAL := help
-.PHONY: ci ci-fix ci-full test eval eval-stages deploy deploy-dry migrate migrate-status \
+.PHONY: ci ci-fix ci-full test eval eval-stages a11y lighthouse deploy deploy-dry migrate migrate-status \
         ssh db-clone usage usage-daily versions circulation prompt help
 
 ## CI
@@ -20,6 +20,10 @@ eval: ## Run the offline eval-floor regression gate (no model calls)
 	bin/eval-regression
 eval-stages: ## Grade each subagent's recorded output (per-stage L1, no model calls)
 	bin/eval-stages
+a11y: ## Fast structural a11y invariant check (no browser; suitable per-commit)
+	bin/a11y-check
+lighthouse: ## Lighthouse a11y/BP/SEO gate on the design mockups (pre-deploy; needs headless Chrome)
+	bin/lighthouse
 
 ## Deploy
 deploy: ## Deploy to production (build, push, terraform, migrate)

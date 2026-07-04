@@ -1,0 +1,95 @@
+/*
+ * Canonical design tokens — single source of truth for the news-digest visual system.
+ *
+ * This file is the CODE source of truth; docs/design-system.md is the human one.
+ * It replaces the six duplicated :root blocks in circulation/src/templates/*.rs and
+ * the hand-copied hexes in newsroom/templates/digest.css.
+ *
+ * PORT WIRING (Path B — not yet done):
+ *   - circulation (Rust): include_str!("../../design/tokens.css"), composed into each
+ *     page's inline <style> at render time (DRY source, per-page inlined output = best
+ *     Lighthouse: no render-blocking external CSS, no unused-CSS flag).
+ *   - newsroom (Python): read at render; resolve_css_variables() inlines to literal hex
+ *     for email from this one source.
+ *   - A parity canary test asserts both consumers resolve identical hex (self-expiring).
+ *
+ * Two token families share one core, on purpose (the documented "editorial content vs
+ * app chrome" divergence): the DIGEST keeps solid hairlines + flat severity; the CHROME
+ * (index/sources/stats/threads/thread-detail/feedback) adds panels, alpha hairlines,
+ * status axis, and soft radius. The SHARED CORE below is byte-identical for both.
+ */
+
+/* ─── SHARED CORE (identical for digest + chrome) ─────────────────────────── */
+:root {
+  --bg:        #fafaf8;   /* page ground. chrome aliases this as --paper */
+  --ink:       #191917;   /* headlines, emphasis, top rule */
+  --ink2:      #3b3a36;   /* body copy */
+  --muted:     #6f6d65;   /* meta, eyebrows, dateline, bias codes */
+  --accent:    #b1352a;   /* NON-TEXT marks only: borders, ticks, focus, live-dot */
+  --accent-ink:#8f2a20;   /* accent TEXT/links (AA-safe): the "Digest" splash, labels */
+  --bias-l:    #5f7391;   /* source bias spectrum — low-sat slate  (left)   */
+  --bias-c:    #928f86;   /* ...                     grey   (center) */
+  --bias-r:    #b0604e;   /* ...                     terracotta (right) */
+
+  --serif:"Source Serif 4", Georgia, "Times New Roman", serif;
+  --sans:-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+  --mono:ui-monospace, "SF Mono", Menlo, Monaco, monospace;
+}
+
+/* ─── CHROME additions (app surfaces only) ───────────────────────────────── */
+:root {
+  --paper:      var(--bg);
+  --panel:      #ffffff;             /* raised card / segmented-control pill */
+  --panel-2:    #f4f3ee;            /* recessed track */
+  --line:       rgba(25,25,23,.12); /* alpha hairline — one token works over any bg */
+  --line-strong:rgba(25,25,23,.22);
+  --wash:       rgba(25,25,23,.035);/* hover / today-row tint */
+  --accent-wash:rgba(177,53,42,.06);
+  --ok:         #2f9b5e;  --ok-ink:  #2f9b5e;  /* status axis — RAG, chrome-only */
+  --warn:       #a8760c;  --warn-ink:#a8760c;
+  --r-input:    6px;      /* inputs / buttons / segmented control */
+  --r-card:     8px;      /* cards */
+}
+
+/* ─── DIGEST additions (editorial content only) ──────────────────────────── */
+:root {
+  --hair:#dddcd4; /* SOLID hairline — the digest's flat-wire severity (not alpha) */
+}
+
+/* ─── DARK (system) ──────────────────────────────────────────────────────── */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg:#16150f; --ink:#eceae1; --ink2:#cbc9bd; --muted:#9d9a8e;
+    --accent:#e2675b; --accent-ink:#ec7d72;
+    --bias-l:#8194b3; --bias-c:#a5a196; --bias-r:#cf7a68;
+    --panel:#1f1e16; --panel-2:#1a1912;
+    --line:rgba(236,234,225,.13); --line-strong:rgba(236,234,225,.24); --wash:rgba(236,234,225,.05);
+    --accent-wash:rgba(226,103,91,.09);
+    --ok:#46c184; --ok-ink:#46c184; --warn:#d9b34d; --warn-ink:#d9b34d;
+    --hair:#2d2b22;
+  }
+}
+
+/* ─── DARK (explicit toggle) ─────────────────────────────────────────────── */
+:root[data-theme="dark"] {
+  --bg:#16150f; --ink:#eceae1; --ink2:#cbc9bd; --muted:#9d9a8e;
+  --accent:#e2675b; --accent-ink:#ec7d72;
+  --bias-l:#8194b3; --bias-c:#a5a196; --bias-r:#cf7a68;
+  --panel:#1f1e16; --panel-2:#1a1912;
+  --line:rgba(236,234,225,.13); --line-strong:rgba(236,234,225,.24); --wash:rgba(236,234,225,.05);
+  --accent-wash:rgba(226,103,91,.09);
+  --ok:#46c184; --ok-ink:#46c184; --warn:#d9b34d; --warn-ink:#d9b34d;
+  --hair:#2d2b22;
+}
+
+/* ─── LIGHT (explicit toggle — re-assert light over a dark system pref) ───── */
+:root[data-theme="light"] {
+  --bg:#fafaf8; --ink:#191917; --ink2:#3b3a36; --muted:#6f6d65;
+  --accent:#b1352a; --accent-ink:#8f2a20;
+  --bias-l:#5f7391; --bias-c:#928f86; --bias-r:#b0604e;
+  --panel:#ffffff; --panel-2:#f4f3ee;
+  --line:rgba(25,25,23,.12); --line-strong:rgba(25,25,23,.22); --wash:rgba(25,25,23,.035);
+  --accent-wash:rgba(177,53,42,.06);
+  --ok:#2f9b5e; --ok-ink:#2f9b5e; --warn:#a8760c; --warn-ink:#a8760c;
+  --hair:#dddcd4;
+}

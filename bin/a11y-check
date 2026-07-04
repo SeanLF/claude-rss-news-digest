@@ -1,0 +1,121 @@
+#!/usr/bin/env python3
+"""Structural accessibility invariants — fast, no browser.
+
+Catches the a11y regressions a per-commit check should catch instantly (this would
+have caught a missing <main> landmark at introduction instead of at deploy). It is
+NOT a substitute for Lighthouse (bin/lighthouse) — it asserts the cheap structural
+invariants that survive a static HTML parse:
+
+  - exactly one <h1>
+  - a <main> landmark
+  - <html lang="...">
+  - a non-empty <title>
+  - every <img> has an alt attribute (alt="" is valid for decorative)
+  - every <button>, and every <a href>, has an accessible name (text / aria-label / title)
+  - no positive tabindex
+
+Usage:
+    bin/a11y-check                       # scratch/chrome-mockups/*.html
+    bin/a11y-check path/to/file.html ...
+"""
+import glob
+import sys
+from html.parser import HTMLParser
+from pathlib import Path
+
+VOID = {"img", "input", "br", "hr", "meta", "link"}
+
+
+class A11yParser(HTMLParser):
+    def __init__(self):
+        super().__init__()
+        self.h1 = self.main = 0
+        self.lang = None
+        self.title_text = ""
+        self._in_title = False
+        self._svg_depth = 0  # a <title> inside <svg> is an icon label, not the document title
+        self.issues = []
+        self._named = []  # stack of [tag, attrs, accumulated_text] for a/button
+
+    def handle_starttag(self, tag, attrs):
+        a = dict(attrs)
+        if tag == "html":
+            self.lang = a.get("lang")
+        elif tag == "h1":
+            self.h1 += 1
+        elif tag == "main":
+            self.main += 1
+        elif tag == "svg":
+            self._svg_depth += 1
+        elif tag == "title" and self._svg_depth == 0:
+            self._in_title = True
+        elif tag == "img" and "alt" not in a:
+            self.issues.append("<img> without an alt attribute")
+        ti = a.get("tabindex", "")
+        if ti.lstrip("-").isdigit() and int(ti) > 0:
+            self.issues.append(f"positive tabindex on <{tag}>")
+        if tag in ("a", "button"):
+            self._named.append([tag, a, ""])
+
+    def handle_endtag(self, tag):
+        if tag == "svg":
+            self._svg_depth = max(0, self._svg_depth - 1)
+        if tag == "title":
+            self._in_title = False
+        if tag in ("a", "button") and self._named:
+            t, a, text = self._named.pop()
+            name = text.strip() or a.get("aria-label", "").strip() or a.get("title", "").strip()
+            interactive = t == "button" or "href" in a
+            if interactive and not name:
+                self.issues.append(f"<{t}> without an accessible name")
+
+    def handle_data(self, data):
+        if self._in_title:
+            self.title_text += data
+        for frame in self._named:  # text inside nested elements still names the a/button
+            frame[2] += data
+
+
+def check(path):
+    p = A11yParser()
+    p.feed(Path(path).read_text())
+    issues = list(p.issues)
+    if p.h1 != 1:
+        issues.append(f"expected exactly one <h1>, found {p.h1}")
+    if p.main < 1:
+        issues.append("no <main> landmark")
+    if not p.lang:
+        issues.append("<html> missing lang attribute")
+    if not p.title_text.strip():
+        issues.append("no non-empty <title>")
+    # de-dup while preserving order
+    seen, uniq = set(), []
+    for i in issues:
+        if i not in seen:
+            seen.add(i); uniq.append(i)
+    return uniq
+
+
+def main():
+    args = sys.argv[1:]
+    files = args or sorted(glob.glob("scratch/chrome-mockups/*.html"))
+    if not files:
+        sys.exit("error: no HTML files to check")
+    failed = False
+    for f in files:
+        issues = check(f)
+        if issues:
+            failed = True
+            print(f"  [FAIL] {Path(f).name}")
+            for i in issues:
+                print(f"         - {i}")
+        else:
+            print(f"  [ ok ] {Path(f).name}")
+    if failed:
+        print("\na11y invariants FAILED.")
+        sys.exit(1)
+    print("\na11y invariants passed.")
+
+
+if __name__ == "__main__":
+    main()
