@@ -22,8 +22,9 @@ left.** Read these in order before touching code:
 6. Visual reference: `scratch/chrome-mockups/*.html` (gitignored; regen via `build.py`). `cssdiff.js`
    is the cross-page consistency gate. The mockups are placeholder-data; `design-system.md` is durable.
 
-**Already real code — now all COMMITTED** on branch `design/chrome-redesign-port-handover` (tip
-`1a1a7a2`, base `main` = `d04f9ad`). The earlier "uncommitted in the working tree" note is stale.
+**Already real code — now all COMMITTED** on branch `design/chrome-redesign-port-handover` (base
+`main` = `d04f9ad`; run `git log --oneline main..HEAD` for the current stack). The earlier "uncommitted
+in the working tree" note is stale.
 - `circulation/src/archive.rs` — `fetch_archive` (validated data layer) + `row_html` (renders one issue
   `<li>` with the bias `aria-label` split + HTML-escaping) + `archive_fragment` (`GET /archive?before=`
   HTML fragment) + 5 passing tests, clippy clean. **Verified against the real `data/digest.db`.**
