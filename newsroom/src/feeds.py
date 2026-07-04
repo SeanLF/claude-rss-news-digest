@@ -21,18 +21,6 @@ from config import MAX_RETRIES, RETRY_DELAY
 
 logger = logging.getLogger(__name__)
 
-# Cache for source name -> id mapping
-_source_name_to_id_cache: dict[str, str] | None = None
-
-
-def get_source_id_by_name(name: str, sources_file: Path) -> str | None:
-    """Map display name (e.g., 'BBC World') to source_id (e.g., 'bbc_world')."""
-    global _source_name_to_id_cache
-    if _source_name_to_id_cache is None:
-        sources = load_sources(sources_file)
-        _source_name_to_id_cache = {s["name"].lower(): s["id"] for s in sources}
-    return _source_name_to_id_cache.get(name.lower())
-
 
 @dataclass
 class FetchResult:

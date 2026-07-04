@@ -139,13 +139,13 @@ def parse_extract_items(text: str) -> list[dict]:
         except ValueError:
             obj = None
         if isinstance(obj, dict) and isinstance(obj.get("items"), list):
-            return obj["items"]
+            return [it for it in obj["items"] if isinstance(it, dict)]
     start, end = text.find("["), text.rfind("]")
     if 0 <= start < end:
         try:
             arr = json.loads(text[start : end + 1])
             if isinstance(arr, list):
-                return arr
+                return [it for it in arr if isinstance(it, dict)]
         except ValueError:
             pass
     return []

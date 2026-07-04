@@ -200,6 +200,13 @@ def test_parse_garbage_returns_empty():
     assert cej.parse_extract_items("") == []
 
 
+def test_parse_drops_non_dict_items():
+    # A malformed batch mixing dicts with scalars/null must not crash the fold
+    # (which does item.get(...)); non-dict elements are filtered out.
+    assert cej.parse_extract_items('{"items": [{"article_id": "A1"}, "A2", null, 3]}') == [{"article_id": "A1"}]
+    assert cej.parse_extract_items('["A1", {"article_id": "A2"}]') == [{"article_id": "A2"}]
+
+
 # --------------------------------------------------------------------------- #
 # run_extractjoin_stage -- async, mocked SDK.
 # --------------------------------------------------------------------------- #

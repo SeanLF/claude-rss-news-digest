@@ -37,6 +37,11 @@ pub fn format_date(date_str: &str) -> String {
     let year: i32 = parts[0].parse().unwrap_or(2026);
     let month: u32 = parts[1].parse().unwrap_or(1);
     let day: u32 = parts[2].parse().unwrap_or(1);
+    // Guard the MONTH_NAMES index below: a malformed month (e.g. "13") would
+    // otherwise panic, and with panic="abort" that kills the worker.
+    if !(1..=12).contains(&month) {
+        return date_str.to_string();
+    }
 
     let days = [
         "Sunday",
@@ -184,6 +189,13 @@ mod tests {
             assert_eq!(format_date("2026-01-24"), "Saturday, January 24");
             assert_eq!(format_date("2025-12-25"), "Thursday, December 25");
             assert_eq!(format_date("2026-07-04"), "Saturday, July 4");
+        }
+
+        #[test]
+        fn malformed_month_returns_raw_instead_of_panicking() {
+            // month 13 would index MONTH_NAMES out of bounds -> panic (abort).
+            assert_eq!(format_date("2026-13-01"), "2026-13-01");
+            assert_eq!(format_date("2026-00-01"), "2026-00-01");
         }
 
         #[test]

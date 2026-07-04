@@ -64,7 +64,7 @@ def validate_selections(payload: Any) -> list[str]:
     """Validate payload against SELECTIONS_SCHEMA. Returns list of error messages."""
     validator = Draft7Validator(SELECTIONS_SCHEMA)
     errors = []
-    for error in sorted(validator.iter_errors(payload), key=lambda e: e.path):
+    for error in sorted(validator.iter_errors(payload), key=lambda e: [str(p) for p in e.path]):
         path = ".".join(str(p) for p in error.path) or "(root)"
         if error.validator == "type":
             errors.append(f"{path}: expected {error.validator_value}, got {type(error.instance).__name__}")

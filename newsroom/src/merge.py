@@ -293,6 +293,10 @@ def assemble_selections(claude_input_dir: Path) -> Path:
         coherence = json.loads(coherence_path.read_text())
     except (OSError, json.JSONDecodeError) as e:
         raise RuntimeError(f"coherence_report.json unreadable: {e}") from e
+    if not isinstance(draft, dict):
+        raise RuntimeError(f"draft_selections.json must be a JSON object, got {type(draft).__name__}")
+    if not isinstance(coherence, dict):
+        raise RuntimeError(f"coherence_report.json must be a JSON object, got {type(coherence).__name__}")
     cluster_map = _load_cluster_map(claude_input_dir)
 
     results = coherence.get("results", [])
