@@ -34,7 +34,8 @@ def run_in_docker() -> int:
     args = sys.argv[1:]
     fix_mode = "--fix" in args
     full_mode = "--full" in args
-    ci_args = [a for a in args if a not in ("--full",)]
+    # Pass --full through so the Python CI container runs the dependency audit (pip-audit).
+    ci_args = list(args)
 
     # In quiet mode, capture output and only show on failure
     capture = {"stdout": subprocess.PIPE, "stderr": subprocess.STDOUT} if QUIET else {}
@@ -144,6 +145,26 @@ def run_checks(fix_mode: bool, full_mode: bool) -> int:
 
     steps.append(("Types: Python", py_cmd("mypy", "--config-file", "newsroom/pyproject.toml", "newsroom/src/run.py", "newsroom/src/merge.py", "newsroom/src/schema.py"), None))
     steps.append(("Security: Python", py_cmd("bandit", "-c", "newsroom/pyproject.toml", "-r", "newsroom/src/run.py", "newsroom/src/merge.py", "newsroom/src/schema.py", "-q"), None))
+
+    # Dependency vulnerability scan (pip-audit, only with --full) -- mirrors Rust's cargo audit.
+    # Audits the installed environment (prod pins lxml, floats the rest to latest). pip-audit is
+    # not baked into the CI image; install it inline into the system env the same way the image
+    # installs its other tools (uv pip install --system), then run it via `python3 -m`.
+    if full_mode:
+        pip_audit = ["python3", "-m", "pip_audit"]
+
+        def has_pip_audit() -> bool:
+            return subprocess.run([*pip_audit, "--version"], capture_output=True).returncode == 0
+
+        if not has_pip_audit():
+            subprocess.run(
+                ["uv", "pip", "install", "--system", "--break-system-packages", "pip-audit"],
+                capture_output=True,
+            )
+        if has_pip_audit():
+            steps.append(("Security: Python deps", pip_audit, None))
+        else:
+            print(f"{YELLOW}Skipping pip-audit (could not install pip-audit){RESET}")
 
     # Tests (if newsroom/tests/ exists)
     if (ROOT / "newsroom" / "tests").exists():

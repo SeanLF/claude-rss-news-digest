@@ -176,8 +176,10 @@ def inline_styles(html_content: str) -> str:
             cssutils_logging_level=50,  # Suppress warnings
         )
     except ImportError:
+        logger.warning("premailer not available; sending email with un-inlined styles")
         return html_content
-    except Exception:
+    except Exception as exc:
+        logger.warning("premailer failed to inline styles (%s); sending email un-inlined", exc)
         return html_content
 
 

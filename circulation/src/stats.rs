@@ -324,3 +324,146 @@ pub async fn stats_html(
     let html = render_stats(name, days, &data);
     Ok(Html(html))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::atomic::{AtomicU32, Ordering};
+
+    static COUNTER: AtomicU32 = AtomicU32::new(0);
+
+    /// Throwaway on-disk sqlite with the stats-relevant schema (mirrors the archive/thread test
+    /// fixtures). Columns match the production tables the queries touch; caller seeds rows via
+    /// `inserts` (an SQL batch, using `datetime('now', ...)` to place rows in/out of the window).
+    fn seed_db(inserts: &str) -> String {
+        let n = COUNTER.fetch_add(1, Ordering::SeqCst);
+        let path = std::env::temp_dir()
+            .join(format!("stats_test_{}_{n}.db", std::process::id()))
+            .to_string_lossy()
+            .into_owned();
+        let _ = std::fs::remove_file(&path);
+        let conn = Connection::open(&path).unwrap();
+        conn.execute_batch(
+            "CREATE TABLE source_health (source_id TEXT NOT NULL, success INTEGER NOT NULL, recorded_at DATETIME);
+             CREATE TABLE shown_narratives (headline TEXT, tier TEXT, source_id TEXT, shown_at DATETIME);
+             CREATE TABLE digest_runs (id INTEGER PRIMARY KEY, run_at DATETIME, articles_kept INTEGER, articles_emailed INTEGER, completed_at DATETIME);
+             CREATE TABLE run_usage (run_id INTEGER, api_cost_usd REAL);
+             CREATE TABLE dedup_log (similarity REAL, logged_at DATETIME);",
+        )
+        .unwrap();
+        if !inserts.is_empty() {
+            conn.execute_batch(inserts).unwrap();
+        }
+        drop(conn);
+        path
+    }
+
+    #[test]
+    fn happy_path_aggregates_across_the_window() {
+        // In-window rows use datetime('now'); the '-40 days' rows must be excluded by the 30-day window.
+        let path = seed_db(
+            "INSERT INTO source_health (source_id, success, recorded_at) VALUES
+                ('bbc', 1, datetime('now')),
+                ('bbc', 1, datetime('now')),
+                ('bbc', 0, datetime('now')),
+                ('bbc', 0, datetime('now','-40 days')),   -- out of window: must not count
+                ('reuters', 1, datetime('now')),
+                ('dead_feed', 0, datetime('now'));         -- fetched but never selected
+
+             INSERT INTO shown_narratives (headline, tier, source_id, shown_at) VALUES
+                ('h1', 'must_know', 'bbc', datetime('now')),
+                ('h2', 'must_know', 'bbc', datetime('now')),
+                ('h3', 'should_know', 'reuters', datetime('now')),
+                ('h4', 'must_know', NULL, datetime('now')),          -- null source_id: excluded from usage
+                ('h5', 'must_know', 'bbc', datetime('now','-40 days')); -- out of window: excluded
+
+             INSERT INTO digest_runs (id, run_at, articles_kept, articles_emailed, completed_at) VALUES
+                (1, '2026-07-01T10:00:00', 10, 8, '2026-07-01T10:05:00'),
+                (2, '2026-07-02T10:00:00', 5, 5, '2026-07-02T10:05:00'),
+                (3, '2026-07-03T10:00:00', 7, 0, NULL);              -- not completed: excluded
+
+             INSERT INTO run_usage (run_id, api_cost_usd) VALUES
+                (1, 1.0),
+                (1, 0.5);                                            -- run 2 has no usage rows
+
+             INSERT INTO dedup_log (similarity, logged_at) VALUES
+                (0.4, datetime('now')),
+                (0.6, datetime('now')),
+                (0.8, datetime('now')),
+                (0.99, datetime('now','-40 days'));                 -- out of window: excluded",
+        );
+
+        let data = fetch_stats_data(&path, 30).unwrap();
+        std::fs::remove_file(&path).ok();
+
+        assert_eq!(data.period_days, 30);
+
+        // Source health: grouped per source, ordered by source_id; rate is round(successes/total*100).
+        assert_eq!(data.source_health.len(), 3);
+        let bbc = &data.source_health[0];
+        assert_eq!(bbc.source_id, "bbc");
+        assert_eq!(bbc.total_fetches, 3); // the -40d row is excluded
+        assert_eq!(bbc.successes, 2);
+        assert_eq!(bbc.success_rate_pct, 67.0); // round(2/3*100)
+        let dead = &data.source_health[1];
+        assert_eq!(dead.source_id, "dead_feed");
+        assert_eq!(dead.success_rate_pct, 0.0);
+        assert_eq!(data.source_health[2].source_id, "reuters");
+        assert_eq!(data.source_health[2].success_rate_pct, 100.0);
+
+        // Source usage: non-null source_id in window, grouped by (source,tier), ordered by count DESC.
+        assert_eq!(data.source_usage.len(), 2);
+        assert_eq!(data.source_usage[0].source_id, "bbc");
+        assert_eq!(data.source_usage[0].tier, "must_know");
+        assert_eq!(data.source_usage[0].count, 2);
+        assert_eq!(data.source_usage[1].source_id, "reuters");
+        assert_eq!(data.source_usage[1].count, 1);
+
+        // Recent runs: completed only, newest first; api_cost is SUM(run_usage) or None when absent.
+        assert_eq!(data.recent_runs.len(), 2); // run 3 excluded (completed_at NULL)
+        assert_eq!(data.recent_runs[0].run_at, "2026-07-02T10:00:00");
+        assert_eq!(data.recent_runs[0].articles_kept, 5);
+        assert_eq!(data.recent_runs[0].api_cost_usd, None); // no run_usage rows -> SUM is NULL
+        assert_eq!(data.recent_runs[1].run_at, "2026-07-01T10:00:00");
+        assert_eq!(data.recent_runs[1].articles_emailed, 8);
+        assert_eq!(data.recent_runs[1].api_cost_usd, Some(1.5)); // 1.0 + 0.5
+
+        // Dedup: aggregates over in-window rows only.
+        let d = data.dedup_stats.expect("dedup stats present");
+        assert_eq!(d.filtered_count, 3);
+        assert!((d.avg_similarity - 0.6).abs() < 1e-9);
+        assert_eq!(d.min_similarity, 0.4);
+        assert_eq!(d.max_similarity, 0.8);
+
+        // Never-selected: in source_health window but absent from shown_narratives window.
+        assert_eq!(data.never_selected, vec!["dead_feed".to_string()]);
+    }
+
+    #[test]
+    fn empty_db_yields_zeroes_and_no_dedup() {
+        let path = seed_db("");
+        let data = fetch_stats_data(&path, 30).unwrap();
+        std::fs::remove_file(&path).ok();
+
+        assert!(data.source_health.is_empty());
+        assert!(data.source_usage.is_empty());
+        assert!(data.recent_runs.is_empty());
+        assert!(data.never_selected.is_empty());
+        assert!(data.dedup_stats.is_none()); // COUNT(*)=0 -> None (never reads the NULL AVG/MIN/MAX)
+    }
+
+    #[test]
+    fn dedup_out_of_window_returns_none_not_panic() {
+        // Rows exist but all fall outside the window: COUNT(*) is 0, so AVG/MIN/MAX come back NULL.
+        // The null-guard must return None rather than try to read NULL into f64 (which would error).
+        let path = seed_db(
+            "INSERT INTO dedup_log (similarity, logged_at) VALUES
+                (0.5, datetime('now','-40 days')),
+                (0.7, datetime('now','-99 days'));",
+        );
+        let data = fetch_stats_data(&path, 30).unwrap();
+        std::fs::remove_file(&path).ok();
+
+        assert!(data.dedup_stats.is_none());
+    }
+}
