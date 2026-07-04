@@ -92,23 +92,26 @@ below were **deliberately left for this port** because they're coupled to the ch
   re-consumed by new templates; extract **`open_ro(db_path)`** (READ_ONLY connect + busy_timeout
   boilerplate is copy-pasted ~8 sites).
 
-**Modern techniques to reach for (all buildless/vanilla — consistent with the constraints above;
-detail + current support status in `docs/standards/{css,javascript,html,rust,email-rendering}.md`).
-These are implementation choices for the *settled* design, not design changes; the progressive-
-enhancement ones are optional — don't gold-plate:**
-- **Chrome / CSS:** `@scope` for the cross-page chrome contract (native scoped styling, no specificity
-  wars — serves the exact goal); `light-dark()` + `color-scheme` to simplify the 3-state theme toggle;
-  `text-wrap: balance`/`pretty` for headline polish. If the design has tooltips/menus/popovers, CSS
-  **anchor positioning** (Baseline 2026) pairs with the Popover API — no JS, replaces Floating UI.
-- **The load-more / HTML-over-the-wire fragment swap:** wrap the `<li>` insertion in same-document
-  **View Transitions** (`document.startViewTransition`, Baseline) for a smooth swap; **Speculation
-  Rules** (prerender/prefetch) give instant archive/pagination nav. Both optional PE, no build.
-- **Translate language picker:** the customizable **`<select>`** (`appearance: base-select`,
-  `@supports`-gated) styles it natively without JS.
-- **Circulation (Rust):** add **`tracing`** (the server has no structured logging today); unify handlers
-  behind one **`AppError: IntoResponse`** (thins every rewritten handler); `cargo-nextest` for CI.
+**Modern techniques worth adopting — but ONLY where they map to a surface this project actually has
+(each below was verified against the code). Buildless/vanilla, consistent with the constraints;
+implementation choices for the settled design, not design changes; the PE ones are optional. Detail in
+`docs/standards/`:**
+- **The load-more / HTML-over-the-wire fragment swap (exists — the ~30-line load-more):** wrap the
+  `<li>` insertion in same-document **View Transitions** (`document.startViewTransition`, Baseline) for
+  a smooth swap. Optional PE, no build.
+- **The 3-state theme toggle (exists):** `light-dark()` + `color-scheme` can replace dual light/dark
+  selectors. An option, not a mandate.
+- **Story headlines (exist):** `text-wrap: balance`/`pretty` — cheap editorial polish for a news list.
+- **Circulation (Rust):** add **`tracing`** (the server has no structured logging today) and unify
+  handlers behind one **`AppError: IntoResponse`** (the scan found inconsistent error types) — both
+  thin every rewritten handler.
 - **Digest email port:** keep table layout (classic Word-engine Outlook lives to ~2029); verify the
   one-click-unsubscribe (RFC 8058) headers on a real send. See `email-rendering.md`.
+
+*Explicitly NOT suggested (verified inapplicable): customizable `<select>` and CSS anchor positioning —
+there is no `<select>` picker and no popovers/menus/tooltips in the app. The translate feature is a
+header/`?lang=` redirect to a Google-Translate proxy, not a dropdown. `@scope` / Speculation Rules were
+dropped as speculative against the settled chrome/nav approach.*
 
 **Still-open STANDALONE item (not coupled; NOT yet fixed — needs its own focused pass):**
 `run.py --resume` (and `--write-only`) route through `_render_record_deliver`, which skips
