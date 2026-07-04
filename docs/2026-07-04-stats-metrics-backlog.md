@@ -84,3 +84,43 @@ Amigó et al. 2009 (B-Cubed / clustering eval); Vrijenhoek et al. RADio RecSys'2
 Hosanagar Mgmt Sci'09 (concentration); NIST TDT (latency/Cdet); Google/Yahoo 2024 bulk-sender
 (deliverability); NN/g + Postmark/beehiiv (vanity metrics, MPP kills opens). Full per-claim cites in
 the session research syntheses.
+
+## Geographic lens (added 2026-07-04 — Sean's Q)
+
+**Add: source-origin geographic diversity** — the geographic analog of the bias-balance metric
+("all sides" is geographic as well as political). CHEAP (sources.json join + a region map, no new
+instrumentation), same pattern as bias-balance.
+
+**Data reality:** the `perspective` field in sources.json is NOT usable raw — 19 distinct values over
+35 sources, mostly singletons, and it **mixes geography with topic** (`tech`, `global_tech`,
+`wire_service`, `western_finance` aren't places). Regroup into coarse regions (N.America / Europe /
+Middle East / Asia-Pacific / Africa / Global) via an explicit map, exactly like L/C/R bias bucketing.
+
+**Caveat (state it on the stats page):** this is **source-origin** diversity (where outlets are
+based), NOT **story-geography** (where the news happened). The latter — "is the digest covering global
+events or just Western ones?" — needs per-story geo-tagging we don't have (would be a real BUILD, a
+newsroom pipeline change). Source-origin is a proxy: a diverse source base *tends* toward diverse
+coverage but doesn't guarantee it. Don't over-claim it as "coverage geography."
+
+### Geographic lens — how to show it (UX) + the story
+
+**The story it tells:** "Whose eyes are you seeing the world through?" — "all sides" is geographic, not
+just political. And the honest finding the data will show: the source base **skews Western/Anglo**
+(perspective counts: western 6 + american 4 + british/canadian/german/french ≈ Anglo-Euro heavy; vs a
+thinner non-Western spread — middle_east 2, asian 3, israeli 2, japanese/filipino/indian/singaporean/
+south_african/asia_pacific singletons). Surface that skew honestly, the way the bias page states the
+factuality floor. Don't sell diversity we don't have.
+
+**UI (grounded in the design skill):**
+- **A sorted region breakdown, NOT a map.** Coarse buckets (N.America / Europe / Middle East /
+  Asia-Pacific / Africa / Global), each a row: region label (mono) + count + a **muted bar**, sorted
+  desc. A choropleth world map for ~6 source-count buckets is over-engineered, hard to compare small
+  values, and a11y-hostile — reject it (design-skill "honest skips").
+- **Monochrome, not the bias colours, not RAG.** Geography is categorical, not an alarm/ordinal axis
+  (§1: one alarm axis, reserve hue). Colour is already spent on the bias spectrum → geography stays a
+  single muted hue / greyscale bar, with the **count as the redundant text** (never colour-only).
+- **One headline number:** a geographic concentration/diversity measure (reuse the HHI/Gini already
+  planned for source concentration) — "how concentrated is the source base geographically" — + the
+  regional breakdown beneath it + a one-line honest caption naming the Western skew.
+- Same redundant-coding + table-craft rules as the rest of stats (mono label, tabular-nums count,
+  alpha-hairline, no zebra).

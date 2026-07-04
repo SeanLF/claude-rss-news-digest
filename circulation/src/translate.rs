@@ -9,11 +9,12 @@
 use std::sync::Arc;
 
 use axum::{
-    extract::{Path, State},
+    extract::{Path, Query, State},
     http::{HeaderMap, StatusCode, header::ACCEPT_LANGUAGE},
     response::Redirect,
 };
 use rusqlite::{Connection, OpenFlags};
+use serde::Deserialize;
 
 use crate::AppState;
 use crate::util::is_valid_date;
@@ -35,6 +36,33 @@ fn is_valid_lang_tag(tag: &str) -> bool {
     !tag.is_empty()
         && tag.len() <= MAX_LANG_TAG_LEN
         && tag.chars().all(|c| c.is_ascii_alphanumeric() || c == '-')
+}
+
+/// Optional `?lang=` override on the translate routes. Lets a *shared* link pin
+/// the target language (`/today/translate?lang=fr`) instead of depending on the
+/// recipient's `Accept-Language` -- essential for a link the sender chooses the
+/// language of.
+#[derive(Debug, Default, Deserialize)]
+pub struct TranslateQuery {
+    pub lang: Option<String>,
+}
+
+/// Validate a caller-supplied `?lang=` tag for safe splicing into a redirect
+/// `Location`. Returns the tag only when URL-safe (see [`is_valid_lang_tag`]) and
+/// non-English -- `tl=en` is Google's picker-less-error case (spec §9), so an
+/// English override is treated as "no override" and falls back to detection.
+pub fn valid_query_lang(tag: &str) -> Option<&str> {
+    let base = tag.split('-').next().unwrap_or("");
+    (is_valid_lang_tag(tag) && !base.eq_ignore_ascii_case("en")).then_some(tag)
+}
+
+/// Resolve the translate target: an explicit, valid `?lang=` wins; otherwise fall
+/// back to `Accept-Language` detection ([`pick_target_lang`]).
+fn resolve_target_lang(query_lang: Option<&str>, accept_language: Option<&str>) -> String {
+    query_lang
+        .and_then(valid_query_lang)
+        .map(str::to_string)
+        .unwrap_or_else(|| pick_target_lang(accept_language))
 }
 
 /// Pick the Google Translate target language from an `Accept-Language` header.
@@ -73,6 +101,7 @@ fn proxy_host(domain: &str) -> String {
 /// language (spec §3).
 pub async fn translate_redirect(
     Path(date): Path<String>,
+    Query(query): Query<TranslateQuery>,
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
 ) -> Result<Redirect, (StatusCode, &'static str)> {
@@ -94,7 +123,10 @@ pub async fn translate_redirect(
         return Ok(Redirect::temporary(&format!("/{date}")));
     };
 
-    let lang = pick_target_lang(headers.get(ACCEPT_LANGUAGE).and_then(|v| v.to_str().ok()));
+    let lang = resolve_target_lang(
+        query.lang.as_deref(),
+        headers.get(ACCEPT_LANGUAGE).and_then(|v| v.to_str().ok()),
+    );
     let host = proxy_host(domain);
     // Direct .goog URL only (the translate.google.com front-door resolves tl=en
     // for English-first browsers -> Google's picker-less error). See spec §2.
@@ -230,6 +262,7 @@ mod tests {
         let state = state_with_digest("2026-07-03", Some("news-digest.seanfloyd.dev"));
         let resp = translate_redirect(
             Path("2026-07-03".to_string()),
+            Query(TranslateQuery::default()),
             State(state),
             headers_with_lang(Some("es-ES,es;q=0.9,en;q=0.8")),
         )
@@ -248,6 +281,7 @@ mod tests {
         let state = state_with_digest("2026-07-03", Some("example.com"));
         let resp = translate_redirect(
             Path("2026-07-03".to_string()),
+            Query(TranslateQuery::default()),
             State(state),
             headers_with_lang(Some("en-US,en;q=0.9")),
         )
@@ -266,6 +300,7 @@ mod tests {
         let state = state_with_digest("2026-07-03", Some("example.com"));
         let resp = translate_redirect(
             Path("2026-07-03".to_string()),
+            Query(TranslateQuery::default()),
             State(state),
             headers_with_lang(Some("en-CA")),
         )
@@ -282,6 +317,7 @@ mod tests {
         let state = state_with_digest("2026-07-03", Some("example.com"));
         let err = translate_redirect(
             Path("not-a-date".to_string()),
+            Query(TranslateQuery::default()),
             State(state),
             headers_with_lang(Some("fr")),
         )
@@ -295,6 +331,7 @@ mod tests {
         let state = state_with_digest("2026-07-03", Some("example.com"));
         let err = translate_redirect(
             Path("2026-07-02".to_string()),
+            Query(TranslateQuery::default()),
             State(state),
             headers_with_lang(Some("fr")),
         )
@@ -309,6 +346,7 @@ mod tests {
         let state = state_with_digest("2026-07-03", None);
         let resp = translate_redirect(
             Path("2026-07-03".to_string()),
+            Query(TranslateQuery::default()),
             State(state),
             headers_with_lang(Some("fr")),
         )
@@ -317,5 +355,50 @@ mod tests {
         .into_response();
 
         assert_eq!(location(resp), "/2026-07-03");
+    }
+
+    #[tokio::test]
+    async fn query_lang_override_wins_over_accept_language() {
+        // A shared `/{date}/translate?lang=de` renders in German even for a
+        // French-preferring recipient -- the sender chose the language.
+        let state = state_with_digest("2026-07-03", Some("example.com"));
+        let resp = translate_redirect(
+            Path("2026-07-03".to_string()),
+            Query(TranslateQuery {
+                lang: Some("de".to_string()),
+            }),
+            State(state),
+            headers_with_lang(Some("fr-FR,fr;q=0.9")),
+        )
+        .await
+        .expect("expected redirect")
+        .into_response();
+
+        assert_eq!(
+            location(resp),
+            "https://example-com.translate.goog/2026-07-03?_x_tr_sl=en&_x_tr_tl=de&_x_tr_hl=de"
+        );
+    }
+
+    #[test]
+    fn resolve_target_lang_prefers_valid_query_else_header() {
+        // Valid non-en override wins.
+        assert_eq!(resolve_target_lang(Some("de"), Some("fr")), "de");
+        // English / malformed override is ignored -> header detection.
+        assert_eq!(resolve_target_lang(Some("en-US"), Some("es,en")), "es");
+        assert_eq!(resolve_target_lang(Some("f r"), Some("it")), "it");
+        // No override -> header; no header -> default.
+        assert_eq!(resolve_target_lang(None, Some("pt-BR")), "pt-BR");
+        assert_eq!(resolve_target_lang(None, None), DEFAULT_LANG);
+    }
+
+    #[test]
+    fn valid_query_lang_rejects_english_and_unsafe() {
+        assert_eq!(valid_query_lang("fr"), Some("fr"));
+        assert_eq!(valid_query_lang("zh-TW"), Some("zh-TW"));
+        assert_eq!(valid_query_lang("en"), None);
+        assert_eq!(valid_query_lang("en-GB"), None);
+        assert_eq!(valid_query_lang("fr;drop"), None);
+        assert_eq!(valid_query_lang(""), None);
     }
 }

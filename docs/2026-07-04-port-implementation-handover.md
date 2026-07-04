@@ -10,6 +10,14 @@ Nothing here is in production yet. All design artifacts are uncommitted; `scratc
 
 ## 0. Orientation
 
+> **Design is fully decided (2026-07-04).** Companion decision docs: the archive/index slice +
+> settled interaction model (`docs/superpowers/specs/2026-07-04-archive-endpoint-index-realdata-design.md`,
+> HTML-over-the-wire — later sections supersede the early JSON ones); error/empty/loading states
+> (`docs/2026-07-04-states-error-empty-loading-design.md`); final stats + geographic lens
+> (`docs/2026-07-04-stats-design-final.md`). Kickoff prompt for a fresh implementation session:
+> `docs/2026-07-04-implementation-session-prompt.md`.
+
+
 - **Two consumers.** `circulation/` (Rust/Axum) renders the app chrome + injects chrome around the
   stored digest blob. `newsroom/` (Python) renders the digest blob itself (also the email).
 - **The design's core principle:** app *chrome* (index/sources/stats/threads/thread-detail/feedback)
@@ -49,9 +57,15 @@ and `resolve_css_variables` (`render.py:134-163`) inlines vars to literal hex **
    static route** — none exists today. Do NOT base64-inline fonts in production (the mockups only do
    that for self-containment).
 3. **Newsroom:** point `{{STYLES}}` at `tokens.css` + the digest component CSS; keep `resolve_css_variables`
-   for email; the digest **web** view references the same hashed font URL so all surfaces share one
-   cached download; email keeps the Georgia fallback.
-4. **Parity canary test:** assert both consumers resolve identical token hex (self-expiring).
+   for email. Newsroom's CSS references only the **family name** (`--serif: "Source Serif 4", …`) — it
+   never needs to know the font URL.
+4. **Digest-blob font — injected, no coupling (we own both sides).** The stored blob is served by
+   circulation, which **already injects a `<style>` before `</head>`** (`handlers.rs:586`, where
+   `DIGEST_NAV_CSS` goes). Circulation knows the content-hashed font path at startup, so it **injects the
+   `@font-face`** (family → hashed `/assets/fonts/…woff2`) right there; the blob just uses the family name.
+   **Email** never gets that injection → falls back to Georgia (correct). No hardcoded URL in newsroom, no
+   render-time coupling. Same seam is where the **theme no-flash script** injects for the digest.
+5. **Parity canary test:** assert both consumers resolve identical token hex (self-expiring).
 
 ## 3. Per-surface port
 
@@ -64,13 +78,13 @@ bar + footer + toggle from the contract in design-system.md — build those once
 - **Target (`chrome_v12`):** chrome top bar + masthead + a search box + a Recent/This year/All
   segmented control + an **issue-numbered running-order list** with month dividers + a subscribe card
   + the shared footer.
-- **Work:** rewrite `render_index` to the new layout. **MVP reuses the existing all-rows query** — 200
-  text rows is an acceptable page (no new endpoint needed). The segment and any calendar are **client-side
-  filters over the already-loaded rows** (no API). See §5 for the index decision.
-- **MVP vs mockup gap:** the mockup shows a per-issue **source count + bias-spread bar**, but the current
-  query returns only `date + preheader`. So the MVP list row = date + preheader (as today, restyled);
-  the per-issue source-count/bias needs a query addition (count + L/C/R split of `shown_narratives` per
-  `run_id`) — an enhancement, not MVP. Say which you want before building the row.
+- **Work (SUPERSEDED by the archive spec — follow that):** rewrite `render_index` to the new layout,
+  rendering real rows via `archive::row_html` (built + tested) from `archive::fetch_archive`. The
+  per-issue source-count + bias-spread bar are **already computed** by the endpoint (no "MVP gap" — that
+  earlier note is void). Load-more + the Recent/This year/All segment + date-jump follow the **settled
+  interaction model** (server-scoped queries, HTML-over-the-wire, no client-side filtering) in
+  `docs/superpowers/specs/2026-07-04-archive-endpoint-index-realdata-design.md` → "Interaction model";
+  the error/empty/skeleton states are in `docs/2026-07-04-states-error-empty-loading-design.md`.
 
 ### 3b. Digest-view — `GET /{date}` (`handlers.rs:529`, chrome injected by `templates/digest.rs`)
 - **Current:** stored HTML blob (the *old* design) from `newsroom/render.py`, with circulation injecting
@@ -181,27 +195,37 @@ bar + footer + toggle from the contract in design-system.md — build those once
 | Stats (backlog metrics) | stats | new queries / columns / webhooks | **BUILD** (separate track) |
 | Fonts | all | `/assets/fonts/*.woff2` | **BUILD** (new static route) |
 
-## 5. Open decisions — recommendations + what needs Sean's call
+## 5. Decisions (resolved 2026-07-04; each reversible)
 
-- **Index archive (~200 issues, growing daily).** RECOMMENDATION: MVP = server-render **all** issues in
-  the new running-order list (month dividers), with the Recent/This year/All segment and a calendar
-  date-jump implemented **client-side** over the loaded rows (no new endpoint). Defer `/archive.json`
-  load-more until issue count makes the full page heavy (not yet). **Not** month accordions (research
-  leans editorial-list) and **not** numbered pagination (clunky for a reverse-chron feed). *Confirm the
-  MVP-client-side vs build-the-JSON-endpoint-now call.*
-- **Search.** RECOMMENDATION: MVP = restyle the existing full-page `GET /search` into the new chrome
-  (rows: date · tier · headline · → issue). Enrichment (source/snippet), story-anchor deep-links, and
-  live search-as-you-type are enhancements, each needing the "BUILD" work above.
-- **Thread per-fact sources — BUILD it (revised).** Deterministic, no token spend, and it restores the
-  credibility mechanism. Resolve A-ids at installment-write time (article_index is in hand then) and
-  persist `{url, outlet, bias}`; circulation renders numbered links. Going-forward only (article_index
-  is overwritten per run → no backfill), which is fine since threads are ongoing. Do it in the newsroom
-  port pass. (Earlier "defer" was too hasty — the resolution is cheap *at write time*, only impossible
-  *retroactively*.)
-- **Thread story-so-far:** latest-delta (MVP, free) vs a synthesized overview field (newsroom work).
-- **Stats metrics rethink:** a separate track (backlog doc); the restyle can ship on the current five.
-- **Digest footer:** stays reader/email-focused (Past digests · Sources · Threads · Privacy · Subscribe
-  · translate · feedback) — NOT the app-chrome footer. Deliberate (it's the *document's* footer).
+These were open; now settled (Sean delegated: "make the informed decision, we can revert later").
+
+- **Archive / index model — DECIDED.** The home page **is** the archive (issue-numbered running order,
+  not a landing). Interaction: **server-rendered recent page + `/archive.json` load-more** (the endpoint
+  is built; `GET /archive.json?before=&limit=`). The **segment** (Recent / This year / All) filters the
+  list — **"All" is the show-everything, so there is no separate "Browse the full archive" link** (it was
+  redundant; the mockup now shows a **Load more** affordance instead). A native **date-jump** input is
+  the calendar. **Not** month accordions, **not** numbered pagination.
+- **Calendar date-jump — DECIDED.** MVP: native `<input type="date">`, any date (404 on a miss). v2:
+  restrict selectable days to real issue-dates via `/dates.json`.
+- **Per-issue bias bar + source count — DECIDED: keep.** It's the per-issue "all sides at a glance" trust
+  signal; real data shows meaningful splits; the endpoint already computes it (`bias_l/c/r`, `source_count`).
+- **Search — DECIDED.** MVP = restyle the existing full-page `GET /search` (rows: date · tier · headline ·
+  → issue), mockup `search_v1`. Enrichment (source/snippet), story-anchor deep-links, and live
+  search-as-you-type are **deferred** (not designed yet).
+- **Thread per-fact sources — DECIDED: build.** Deterministic, no token spend. Resolve the `A###` ids at
+  installment-write time (article_index is in hand then), persist `{url, outlet, bias}`, render numbered
+  links. Going-forward only (article_index overwritten per run → no backfill), fine for ongoing threads.
+- **Thread story-so-far — DECIDED: MVP reuses the latest installment's delta** as the standfirst; add a
+  synthesized overview field only if that reads poorly.
+- **Stats — DECIDED.** Restyle the current five metrics + wire the period toggle (7d/30d/all via
+  `?period=`). The backlog's *new* metrics are a **phased track**, shown as honest "Planned" roadmap
+  tiles until instrumented (some need new columns/webhooks).
+- **Digest footer — DECIDED: stays reader/email-focused** (Past digests · Sources · Threads · Privacy ·
+  Subscribe · translate · feedback), NOT the app-chrome footer — it's the *document's* footer.
+
+**Still genuinely undecided (need Sean, not guessable):** none blocking a start. The only latent one is
+whether the archive should *eventually* split into a dedicated `/archive` surface once issue count grows
+large (currently home-is-the-archive is fine at ~200); revisit at ~500+.
 
 ## 6. Assumptions (stated so they can be checked)
 

@@ -1,3 +1,4 @@
+mod archive;
 mod feed;
 mod handlers;
 mod search;
@@ -142,6 +143,7 @@ async fn main() {
         .route(routes::FEED, get(handlers::feed))
         .route(routes::STATS, get(stats::stats_html))
         .route(&format!("{}.json", routes::STATS), get(stats::stats_json))
+        .route("/archive", get(archive::archive_fragment))
         .route(routes::THREADS, get(thread::threads_index))
         .route(
             &format!("{}/{{id}}", routes::THREAD),
@@ -150,6 +152,7 @@ async fn main() {
         .route(routes::SEARCH, get(search::search))
         .route(routes::FEEDBACK, get(handlers::feedback))
         .route(routes::TODAY, get(handlers::today))
+        .route("/today/translate", get(handlers::today_translate))
         .route("/{date}/translate", get(translate::translate_redirect))
         .route("/{date}", get(handlers::get_digest))
         .layer(TraceLayer::new_for_http())

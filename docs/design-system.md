@@ -369,7 +369,9 @@ source/snippet columns (they don't exist in the query). Empty/no-query states: a
 - **No month accordions, no numbered pagination** (research §5 leans editorial running-order; pagination
   is clunky for a reverse-chron feed). Server-side `/archive.json` load-more is deferred until the
   archive is genuinely heavy — not at 200 rows.
-- The "Browse the full archive" affordance = the segment's **All** (don't ship a separate redundant link).
+- **No separate "Browse the full archive" link** — the segment's **All** is the show-everything; the list
+  ends with a **Load more** affordance (secondary outline button) that pages older issues via
+  `/archive.json`. (Resolved 2026-07-04 — the earlier dual "All" + "browse archive" was redundant.)
 
 **Enforce with the diff, not the eye.** `scratch/chrome-mockups/cssdiff.js` reads `getComputedStyle`
 for every shared chrome element across all pages and reports only diverging properties (`node

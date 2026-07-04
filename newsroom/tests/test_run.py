@@ -2,7 +2,6 @@
 
 import csv
 import json
-import logging
 import sys
 from pathlib import Path
 from unittest.mock import patch
@@ -10,7 +9,6 @@ from unittest.mock import patch
 # Add src/ to path so we can import modules
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
-import digest as digest_module
 from config import DEDUP_SIMILARITY_THRESHOLD
 from dedup import TfidfMatcher, tokenize
 from digest import resolve_article_ids
@@ -22,7 +20,6 @@ from render import (
     is_safe_url,
     minify_css,
     render_article,
-    render_story_feedback_html,
     resolve_css_variables,
     slugify,
     strip_html,
@@ -212,56 +209,6 @@ class TestCrossDayThresholdIsBackstop:
         matcher = TfidfMatcher([title])
         _, score = matcher.find_most_similar(title)
         assert score >= DEDUP_SIMILARITY_THRESHOLD  # genuine cross-day repeat still filtered
-
-
-class TestRenderStoryFeedbackHtml:
-    """One-click HTTP feedback links (replaces the old digest-level mailto)."""
-
-    def test_no_mailto(self):
-        result = render_story_feedback_html("digest.example.com", "2026-07-01", "some-story")
-        assert "mailto:" not in result
-
-    def test_builds_up_and_down_links(self):
-        result = render_story_feedback_html("digest.example.com", "2026-07-01", "some-story")
-        assert 'href="https://digest.example.com/feedback?d=2026-07-01&s=some-story&v=up"' in result
-        assert 'href="https://digest.example.com/feedback?d=2026-07-01&s=some-story&v=down"' in result
-
-    def test_empty_without_domain(self):
-        assert render_story_feedback_html("", "2026-07-01", "some-story") == ""
-
-    def test_empty_without_date(self):
-        assert render_story_feedback_html("digest.example.com", "", "some-story") == ""
-
-
-class TestWriteDigestFeedbackDomainWarning:
-    """write_digest should flag a misconfigured DIGEST_DOMAIN loudly, since the
-    old digest-level mailto fallback is gone -- silence here means a digest
-    ships with no feedback affordance at all."""
-
-    def _stub_write_digest_deps(self, monkeypatch, tmp_path):
-        monkeypatch.setattr(digest_module, "OUTPUT_DIR", tmp_path / "output")
-        monkeypatch.setattr(digest_module, "DATA_DIR", tmp_path)
-        monkeypatch.setattr(digest_module, "attach_thread_context", lambda selections: selections)
-        monkeypatch.setattr(digest_module, "render_digest", lambda *args, **kwargs: "<html></html>")
-        monkeypatch.setattr(digest_module, "extract_headlines", lambda selections: [])
-
-    def test_warns_when_digest_domain_missing(self, tmp_path, monkeypatch, caplog):
-        monkeypatch.delenv("DIGEST_DOMAIN", raising=False)
-        self._stub_write_digest_deps(monkeypatch, tmp_path)
-
-        with caplog.at_level(logging.WARNING, logger="digest"):
-            digest_module.write_digest({"must_know": [], "should_know": []}, Path("template.html"))
-
-        assert "DIGEST_DOMAIN" in caplog.text
-
-    def test_no_warning_when_digest_domain_set(self, tmp_path, monkeypatch, caplog):
-        monkeypatch.setenv("DIGEST_DOMAIN", "digest.example.com")
-        self._stub_write_digest_deps(monkeypatch, tmp_path)
-
-        with caplog.at_level(logging.WARNING, logger="digest"):
-            digest_module.write_digest({"must_know": [], "should_know": []}, Path("template.html"))
-
-        assert "DIGEST_DOMAIN" not in caplog.text
 
 
 class TestResolveArticleIds:
@@ -821,24 +768,14 @@ class TestRenderArticleSources:
         assert "CNN" in result
         assert " · " in result
 
-    def test_no_feedback_links_without_domain(self):
-        # digest_domain defaults to "" -- no domain configured means no feedback links,
-        # matching the existing no-op behaviour of ARCHIVE_URL/AUTHOR_URL etc.
+    def test_no_per_story_feedback_rendered(self):
+        # Per-story "Useful? Yes/No" links were removed (hostile UX in email, low
+        # signal on web) -- guard that they never render again.
         article = self._article([{"name": "BBC", "url": "https://bbc.com/news/1", "bias": "center"}])
         result = render_article(article, slug="test", include_reporting_varies=False)
         assert "story-feedback" not in result
         assert "/feedback?" not in result
-
-    def test_feedback_links_present_when_domain_configured(self):
-        article = self._article([{"name": "BBC", "url": "https://bbc.com/news/1", "bias": "center"}])
-        result = render_article(
-            article,
-            slug="test-slug",
-            include_reporting_varies=False,
-            digest_domain="digest.example.com",
-            date_url="2026-07-01",
-        )
-        assert 'href="https://digest.example.com/feedback?d=2026-07-01&s=test-slug&v=up"' in result
+        assert "Useful?" not in result
 
 
 class TestRenderArticleWhyItMatters:

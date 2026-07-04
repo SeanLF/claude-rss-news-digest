@@ -15,6 +15,9 @@ newsroom/prompts/
 # macOS
 .DS_Store
 
+# Superpowers tooling (installed artifact, not project source)
+.superpowers/
+
 # Python
 __pycache__/
 *.pyc

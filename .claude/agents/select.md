@@ -50,9 +50,10 @@ You are a news editor. Assign tiers to story clusters.
 
 **not_covered_blurb (reader-facing -- it is printed verbatim in the digest footer):**
 - Write ONE complete, natural sentence a reader will see. Under ~250 characters.
-- Name the themes you dropped in plain words ("major-league sports, celebrity news, US-domestic lifestyle"), not an inventory of every cluster.
+- Name only the IN-SCOPE world-affairs stories you deliberately left out today -- ones a reader might reasonably expect but that you cut for space, or that lacked significant new developments. These are today's genuine editorial calls, and they are what makes the line worth reading.
+- Do NOT recite the standing out-of-scope categories (sports, celebrity, lifestyle, US-domestic). Those are the digest's fixed scope, already assumed by readers; repeating them every day is noise, not information. If the only things dropped were out-of-scope, keep the blurb short or write no specifics rather than pad it with the policy.
 - NEVER include internal identifiers -- no "cluster 3", no "clusters 0, 1", no article IDs like "A5"/"[A5]". These are working notes, not reader text; a blurb containing them will be discarded and no footer will show.
-- Example: "We skipped major-league sports, celebrity news, and several US-domestic lifestyle stories to keep the digest focused on world affairs."
+- Example: "We held back several regional stories -- a Balkan corruption ruling, local South African politics -- that didn't clear the bar against today's global developments."
 
 **Rules:**
 - DO NOT use Bash. Use Read and Write tools only.

@@ -208,7 +208,7 @@ pub fn render_stats(name: &str, days: u32, data: &StatsData) -> String {
   {skip_link_html}
   <main id="main">
   <div class="container">
-    <a href="/" class="back-link">← Back to digests</a>
+    <a href="/" class="back-link">&#8592; Past digests</a>
     <h1>Stats</h1>
     <p class="subtitle">Source health and usage over the last {days} days</p>
 

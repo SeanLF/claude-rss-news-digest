@@ -2,7 +2,7 @@ use axum::{
     Form, Json,
     extract::{Path, Query, State},
     http::StatusCode,
-    response::{Html, IntoResponse, Redirect},
+    response::{Html, IntoResponse, Redirect, Response},
 };
 use rusqlite::{Connection, OpenFlags};
 use serde::{Deserialize, Serialize};
@@ -138,28 +138,26 @@ pub async fn index(
             .trim_start_matches("https://")
             .trim_start_matches("http://");
         nav_links.push(format!(
-            r#"<a href="{url}" class="meta-link">🌐 {display}</a>"#
+            r#"<a href="{url}" class="meta-link">{display}</a>"#
         ));
     }
     nav_links.push(format!(
-        r#"<a href="{}" class="meta-link">📰 Sources</a>"#,
+        r#"<a href="{}" class="meta-link">Sources</a>"#,
         routes::SOURCES
     ));
     nav_links.push(format!(
-        r#"<a href="{}" class="meta-link">🧵 Threads</a>"#,
+        r#"<a href="{}" class="meta-link">Threads</a>"#,
         routes::THREADS
     ));
     let privacy_url = state.privacy_url();
     nav_links.push(format!(
-        r#"<a href="{privacy_url}" class="meta-link">🔒 Privacy</a>"#
+        r#"<a href="{privacy_url}" class="meta-link">Privacy</a>"#
     ));
     if let Some(url) = &state.source_url {
-        nav_links.push(format!(
-            r#"<a href="{url}" class="meta-link">📦 GitHub</a>"#
-        ));
+        nav_links.push(format!(r#"<a href="{url}" class="meta-link">GitHub</a>"#));
     }
     nav_links.push(format!(
-        r#"<a href="{}" class="meta-link">📊 Stats</a>"#,
+        r#"<a href="{}" class="meta-link">Stats</a>"#,
         routes::STATS
     ));
     let meta_links = format!(
@@ -645,6 +643,38 @@ pub async fn today(
     Ok(Redirect::temporary(&format!("/{date}")))
 }
 
+/// `/today/translate` -> 307 to the latest digest's `/{date}/translate`, so the
+/// stable `today` alias also covers the translate affordance (a shareable
+/// "translate the latest digest" entrypoint). Mirrors `today`; the follow-up hop
+/// re-runs Accept-Language detection with the browser's own headers.
+pub async fn today_translate(
+    State(state): State<Arc<AppState>>,
+    Query(query): Query<crate::translate::TranslateQuery>,
+) -> Result<Redirect, (StatusCode, &'static str)> {
+    let conn = Connection::open_with_flags(&state.db_path, OpenFlags::SQLITE_OPEN_READ_ONLY)
+        .map_err(|_| (StatusCode::SERVICE_UNAVAILABLE, "Digest unavailable"))?;
+
+    let date: String = conn
+        .query_row(
+            "SELECT date FROM digests ORDER BY date DESC LIMIT 1",
+            [],
+            |row| row.get(0),
+        )
+        .map_err(|_| (StatusCode::NOT_FOUND, "No digests yet"))?;
+
+    // Forward a valid `?lang=` so a shared `/today/translate?lang=fr` keeps its
+    // language across the hop to the resolved date. Validated here (not spliced
+    // raw) so nothing untrusted reaches the Location header.
+    let suffix = query
+        .lang
+        .as_deref()
+        .and_then(crate::translate::valid_query_lang)
+        .map(|l| format!("?lang={l}"))
+        .unwrap_or_default();
+
+    Ok(Redirect::temporary(&format!("/{date}/translate{suffix}")))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -801,6 +831,75 @@ mod feed_tests {
         let (status, _) = result.expect_err("expected 404 when no digests");
         assert_eq!(status, StatusCode::NOT_FOUND);
     }
+
+    #[tokio::test]
+    async fn today_translate_redirects_to_latest_translate_route() {
+        let state = state_with_digests(&[
+            ("2026-06-11", "First story"),
+            ("2026-06-12", "Second story"),
+        ]);
+
+        let response = today_translate(State(state), Query(Default::default()))
+            .await
+            .unwrap()
+            .into_response();
+
+        // 307 to the newest digest's per-date translate route.
+        assert_eq!(response.status(), StatusCode::TEMPORARY_REDIRECT);
+        assert_eq!(
+            response.headers().get("location").unwrap(),
+            "/2026-06-12/translate"
+        );
+    }
+
+    #[tokio::test]
+    async fn today_translate_forwards_valid_lang_override() {
+        let state = state_with_digests(&[("2026-06-12", "Second story")]);
+
+        let query = crate::translate::TranslateQuery {
+            lang: Some("fr".to_string()),
+        };
+        let response = today_translate(State(state), Query(query))
+            .await
+            .unwrap()
+            .into_response();
+
+        assert_eq!(
+            response.headers().get("location").unwrap(),
+            "/2026-06-12/translate?lang=fr"
+        );
+    }
+
+    #[tokio::test]
+    async fn today_translate_drops_invalid_lang_override() {
+        let state = state_with_digests(&[("2026-06-12", "Second story")]);
+
+        // English (picker-less-error case) and malformed tags are ignored, not spliced.
+        for bad in ["en", "en-US", "fr;evil", "  "] {
+            let query = crate::translate::TranslateQuery {
+                lang: Some(bad.to_string()),
+            };
+            let response = today_translate(State(state.clone()), Query(query))
+                .await
+                .unwrap()
+                .into_response();
+            assert_eq!(
+                response.headers().get("location").unwrap(),
+                "/2026-06-12/translate",
+                "lang={bad:?} should be dropped"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn today_translate_returns_404_when_no_digests_exist() {
+        let state = state_with_digests(&[]);
+
+        let result = today_translate(State(state), Query(Default::default())).await;
+
+        let (status, _) = result.expect_err("expected 404 when no digests");
+        assert_eq!(status, StatusCode::NOT_FOUND);
+    }
 }
 
 /// Record a one-click per-story feedback vote (GET /feedback?d=&s=&v=up|down).
@@ -811,12 +910,13 @@ mod feed_tests {
 pub async fn feedback(
     State(state): State<Arc<AppState>>,
     Query(query): Query<FeedbackQuery>,
-) -> Result<Html<String>, (StatusCode, &'static str)> {
-    let date = query
-        .d
-        .as_deref()
-        .filter(|d| is_valid_date(d))
-        .ok_or((StatusCode::BAD_REQUEST, "Invalid or missing date"))?;
+) -> Result<Response, (StatusCode, &'static str)> {
+    let Some(date) = query.d.as_deref().filter(|d| is_valid_date(d)) else {
+        // A bare or malformed /feedback (typed URL, stale link, scanner without
+        // params) is not a real vote. Send the reader to a generic feedback
+        // channel rather than a raw 400 -- the web parallel to "just hit reply".
+        return Ok(feedback_fallback(&state));
+    };
     let vote = query
         .v
         .as_deref()
@@ -859,11 +959,18 @@ pub async fn feedback(
         )
     })?;
 
-    Ok(Html(render_feedback_thanks(
-        &state.digest_name,
-        date,
-        story,
-    )))
+    Ok(Html(render_feedback_thanks(&state.digest_name, date, story)).into_response())
+}
+
+/// Where a paramless/invalid `/feedback` hit lands: a prefilled feedback `mailto:`
+/// when a feedback address is configured, else the homepage. Keeps the one page a
+/// reader might reach without a valid vote link from dead-ending on a raw 400.
+fn feedback_fallback(state: &AppState) -> Response {
+    match state.feedback_email.as_deref() {
+        Some(email) => Redirect::temporary(&format!("mailto:{email}?subject=Digest%20feedback"))
+            .into_response(),
+        None => Redirect::temporary("/").into_response(),
+    }
 }
 
 #[cfg(test)]
@@ -873,9 +980,9 @@ mod feedback_tests {
 
     static COUNTER: AtomicU64 = AtomicU64::new(0);
 
-    /// Build an AppState pointed at `db_path` -- every other field is a fixed
-    /// stub, irrelevant to the feedback handler under test.
-    fn build_state(db_path: impl Into<String>) -> Arc<AppState> {
+    /// Build an AppState pointed at `db_path` with an optional feedback address --
+    /// every other field is a fixed stub, irrelevant to the feedback handler.
+    fn build_state(db_path: impl Into<String>, feedback_email: Option<String>) -> Arc<AppState> {
         Arc::new(AppState {
             db_path: db_path.into(),
             digest_name: "Test Digest".to_string(),
@@ -884,14 +991,13 @@ mod feedback_tests {
             source_url: None,
             resend_api_key: None,
             resend_audience_id: None,
-            feedback_email: None,
+            feedback_email,
             http_client: reqwest::Client::new(),
         })
     }
 
-    /// Build an AppState backed by a throwaway sqlite file with just the
-    /// story_feedback table -- enough for the handler under test.
-    fn test_state() -> (Arc<AppState>, String) {
+    /// Create a throwaway sqlite file with just the `story_feedback` table.
+    fn make_feedback_db() -> String {
         let n = COUNTER.fetch_add(1, Ordering::SeqCst);
         let path = std::env::temp_dir()
             .join(format!("feedback_test_{}_{n}.sqlite", std::process::id()))
@@ -909,8 +1015,19 @@ mod feedback_tests {
             );",
         )
         .expect("create test schema");
+        path
+    }
 
-        (build_state(path.clone()), path)
+    /// AppState backed by a throwaway feedback DB, no feedback email configured.
+    fn test_state() -> (Arc<AppState>, String) {
+        let path = make_feedback_db();
+        (build_state(path.clone(), None), path)
+    }
+
+    /// Same, but with a feedback `mailto:` address configured.
+    fn test_state_with_feedback_email(email: &str) -> (Arc<AppState>, String) {
+        let path = make_feedback_db();
+        (build_state(path.clone(), Some(email.to_string())), path)
     }
 
     fn feedback_count(path: &str) -> i64 {
@@ -936,7 +1053,12 @@ mod feedback_tests {
         )
         .await;
 
-        let Html(body) = result.expect("expected success");
+        let response = result.expect("expected success").into_response();
+        assert_eq!(response.status(), StatusCode::OK);
+        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let body = String::from_utf8(bytes.to_vec()).unwrap();
         assert!(body.contains("Thanks"));
         assert!(body.contains("some-story-slug"));
         assert!(body.contains("/2026-07-01"));
@@ -959,29 +1081,56 @@ mod feedback_tests {
     }
 
     #[tokio::test]
-    async fn invalid_date_rejected_without_insert() {
+    async fn invalid_date_falls_back_without_insert() {
+        // A malformed date is not a real vote -> graceful fallback (home here, no
+        // feedback_email), never a recorded row.
         let (state, path) = test_state();
-        let result = feedback(
+        let response = feedback(
             State(state),
             query(Some("not-a-date"), Some("story"), Some("up")),
         )
-        .await;
+        .await
+        .expect("fallback should not error")
+        .into_response();
 
-        let err = result.expect_err("expected rejection");
-        assert_eq!(err.0, StatusCode::BAD_REQUEST);
+        assert_eq!(response.status(), StatusCode::TEMPORARY_REDIRECT);
+        assert_eq!(response.headers().get("location").unwrap(), "/");
         assert_eq!(feedback_count(&path), 0);
         std::fs::remove_file(&path).ok();
     }
 
     #[tokio::test]
-    async fn missing_date_rejected_without_insert() {
+    async fn missing_date_falls_back_to_home_without_insert() {
+        // A bare /feedback (no valid date) is not a vote: no feedback_email
+        // configured -> redirect home, no row written.
         let (state, path) = test_state();
-        let result = feedback(State(state), query(None, Some("story"), Some("up"))).await;
+        let response = feedback(State(state), query(None, Some("story"), Some("up")))
+            .await
+            .expect("fallback should not error")
+            .into_response();
 
-        assert_eq!(
-            result.expect_err("expected rejection").0,
-            StatusCode::BAD_REQUEST
-        );
+        assert_eq!(response.status(), StatusCode::TEMPORARY_REDIRECT);
+        assert_eq!(response.headers().get("location").unwrap(), "/");
+        assert_eq!(feedback_count(&path), 0);
+        std::fs::remove_file(&path).ok();
+    }
+
+    #[tokio::test]
+    async fn missing_date_redirects_to_mailto_when_configured() {
+        let (state, path) = test_state_with_feedback_email("hi@example.com");
+        let response = feedback(State(state), query(None, None, None))
+            .await
+            .expect("fallback should not error")
+            .into_response();
+
+        assert_eq!(response.status(), StatusCode::TEMPORARY_REDIRECT);
+        let loc = response
+            .headers()
+            .get("location")
+            .unwrap()
+            .to_str()
+            .unwrap();
+        assert!(loc.starts_with("mailto:hi@example.com"), "got {loc}");
         assert_eq!(feedback_count(&path), 0);
         std::fs::remove_file(&path).ok();
     }
@@ -1040,7 +1189,7 @@ mod feedback_tests {
 
     #[tokio::test]
     async fn db_open_failure_returns_500_not_fake_success() {
-        let state = build_state("/nonexistent/does-not-exist.sqlite");
+        let state = build_state("/nonexistent/does-not-exist.sqlite", None);
         let result = feedback(
             State(state),
             query(Some("2026-07-01"), Some("story"), Some("up")),
@@ -1068,7 +1217,11 @@ mod feedback_tests {
         )
         .await;
 
-        let Html(body) = result.expect("expected success");
+        let response = result.expect("expected success").into_response();
+        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let body = String::from_utf8(bytes.to_vec()).unwrap();
         assert!(!body.contains("<script>alert"));
         assert!(body.contains("&lt;script&gt;"));
         std::fs::remove_file(&path).ok();
