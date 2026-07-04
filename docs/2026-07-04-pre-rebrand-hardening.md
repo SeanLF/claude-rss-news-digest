@@ -41,10 +41,15 @@ Prod is **very likely already safe** — not the 7 live vulns the raw report sug
   scan for residual `{{...}}` and raise (several strip regexes hard-match exact template copy).
 
 **HIGH (silent failure / correctness):**
-- **`run.py:444-454` `--resume` skips archival + thread processing** — a resumed digest ships to
-  subscribers but never lands in `/archive` or thread/dedup state. Move the archive +
-  `_process_story_threads` block into `_render_record_deliver` so both paths converge. (Needs a
-  side-effect test.)
+- **`run.py` `--resume` (and `--write-only`) skip archival + thread processing** — both route through
+  `_render_record_deliver` (222), which runs `save_digest` + `record_shown_headlines` but NOT the
+  `archive_selections`/`archive_clusters`/`archive_run_artifacts` + `_process_story_threads` block the
+  full path runs at `502-507`. So a resumed digest ships and its blob is saved, but the archive
+  artifact tables and thread-continuity/dedup state miss that day. **Fix is not a plain block-move:**
+  `--resume` can re-run (guarded only by `has_completed_run_today`), so the converged archival must be
+  **idempotent**; and decide whether `--write-only` (re-render from existing selections) should archive
+  at all. Needs a **side-effect test** asserting resume triggers archival + threads exactly once. Left
+  standalone (not rebrand-coupled) — deserves a focused pass, not an end-of-session rush.
 - **`render.py:180` `inline_styles` swallows every exception with no log** — email ships un-inlined
   (broken styling) invisibly. Add `logger.warning` before the fallback.
 - **`digest.py:121-166` `resolve_article_ids` drops unresolved stories with only a warning** — a stale

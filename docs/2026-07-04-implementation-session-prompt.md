@@ -67,3 +67,53 @@ holds the committed docs/tooling at c210306):**
 
 Start with the foundation, then the index (off the already-proven endpoint). Don't gold-plate; ship
 each surface verified before the next.
+
+---
+
+**Pre-rebrand hardening (read `docs/2026-07-04-pre-rebrand-hardening.md`).** A scan before this port
+already shipped the standalone fixes (db.py FK pragmas; cluster/merge/util robustness) and the safe
+pre-rebrand items (pip-audit in ci-full; inline_styles logging; `fetch_stats_data` tests). The items
+below were **deliberately left for this port** because they're coupled to the chrome/template rewrite
+— do each as you touch its surface:
+
+- **Route all brand strings through `DIGEST_NAME` FIRST** — scattered in `render.py`/`broadcast.py`,
+  several bypass it (`render.py:389`, `broadcast.py:116/159/168/191/201/230…`, medal emojis
+  `render.py:371`). Doing this first makes the rename one edit, not grep-and-pray.
+- **Placeholder safety in `render.py`** — `{{MUST_KNOW}}`/`{{SHOULD_KNOW}}` fill (`329`) has no
+  existence check (mirror `replace_placeholders:403`), and several strip regexes (`437-486`) hard-match
+  exact template copy. After replacement, scan for residual `{{…}}` and raise. A renamed placeholder
+  otherwise ships a zero-article digest silently — exactly what a template rewrite triggers.
+- **Index rewrite:** extract `fetch_index_page` (or reuse `archive::fetch_archive`) — `handlers.rs:56`
+  mixes query + inline HTML, duplicates the digest-list query (3 forms), and loads ALL digests unbounded
+  per request. Paginate the first render (the `/archive` load-more endpoint already exists).
+- **`get_digest` (`handlers.rs:586`):** replace the 5 sequential `inject()` string splices with
+  structured composition rather than porting the splice chain forward.
+- **`Tier` enum** for `"must_know"/"should_know"` before the archive/stats/search structs are
+  re-consumed by new templates; extract **`open_ro(db_path)`** (READ_ONLY connect + busy_timeout
+  boilerplate is copy-pasted ~8 sites).
+
+**Modern techniques to reach for (all buildless/vanilla — consistent with the constraints above;
+detail + current support status in `docs/standards/{css,javascript,html,rust,email-rendering}.md`).
+These are implementation choices for the *settled* design, not design changes; the progressive-
+enhancement ones are optional — don't gold-plate:**
+- **Chrome / CSS:** `@scope` for the cross-page chrome contract (native scoped styling, no specificity
+  wars — serves the exact goal); `light-dark()` + `color-scheme` to simplify the 3-state theme toggle;
+  `text-wrap: balance`/`pretty` for headline polish. If the design has tooltips/menus/popovers, CSS
+  **anchor positioning** (Baseline 2026) pairs with the Popover API — no JS, replaces Floating UI.
+- **The load-more / HTML-over-the-wire fragment swap:** wrap the `<li>` insertion in same-document
+  **View Transitions** (`document.startViewTransition`, Baseline) for a smooth swap; **Speculation
+  Rules** (prerender/prefetch) give instant archive/pagination nav. Both optional PE, no build.
+- **Translate language picker:** the customizable **`<select>`** (`appearance: base-select`,
+  `@supports`-gated) styles it natively without JS.
+- **Circulation (Rust):** add **`tracing`** (the server has no structured logging today); unify handlers
+  behind one **`AppError: IntoResponse`** (thins every rewritten handler); `cargo-nextest` for CI.
+- **Digest email port:** keep table layout (classic Word-engine Outlook lives to ~2029); verify the
+  one-click-unsubscribe (RFC 8058) headers on a real send. See `email-rendering.md`.
+
+**Still-open STANDALONE item (not coupled; NOT yet fixed — needs its own focused pass):**
+`run.py --resume` (and `--write-only`) route through `_render_record_deliver`, which skips
+`archive_selections`/`archive_clusters`/`archive_run_artifacts` + `_process_story_threads` that the
+full path runs (`run.py:502-507`). A resumed digest delivers to subscribers but misses the archive
+artifact tables and thread-continuity state. Fixing it means converging the paths **idempotently**
+(resume can re-run) with a **side-effect test**, and deciding whether `--write-only` should archive
+too. See the hardening doc.
