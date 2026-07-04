@@ -30,6 +30,25 @@ def _db_path() -> Path:
     return _state.db_path
 
 
+def _connect(db_path: Path | str) -> sqlite3.Connection:
+    """Open a SQLite connection with hardening pragmas applied per-connection.
+
+    - ``foreign_keys=ON``: SQLite leaves FK enforcement OFF by default, so the
+      run_id foreign keys added in migrations are otherwise silently unenforced.
+    - ``busy_timeout``: wait out a concurrent writer instead of erroring
+      immediately with "database is locked" -- the web server (circulation) and
+      the batch pipeline share this one file.
+
+    WAL journal mode is deliberately NOT set here: it would leave uncommitted
+    data in a ``-wal`` sidecar that ``bin/db-clone``'s raw copy of the ``.db``
+    file would miss. Enable it only together with a WAL-aware clone/checkpoint.
+    """
+    conn = sqlite3.connect(db_path)
+    conn.execute("PRAGMA busy_timeout = 5000")
+    conn.execute("PRAGMA foreign_keys = ON")
+    return conn
+
+
 def is_recording() -> bool:
     """Whether this run persists to the DB (False under --dry-run/--no-record)."""
     return _state.recording
@@ -72,7 +91,7 @@ def get_last_run_time() -> datetime | None:
     if not _state.db_path or not _state.db_path.exists():
         return None
     try:
-        with sqlite3.connect(_state.db_path) as conn:
+        with _connect(_state.db_path) as conn:
             cursor = conn.execute("SELECT MAX(run_at) FROM digest_runs WHERE completed_at IS NOT NULL")
             result = cursor.fetchone()[0]
             if result:
@@ -93,7 +112,7 @@ def start_run(*, recording: bool = True, broadcasting: bool = True, alerting: bo
 
     try:
         git_sha = os.environ.get("GIT_SHA")
-        with sqlite3.connect(_db_path()) as conn:
+        with _connect(_db_path()) as conn:
             cursor = conn.execute(
                 "INSERT INTO digest_runs (articles_kept, articles_emailed, git_sha) VALUES (NULL, NULL, ?)",
                 (git_sha,),
@@ -119,7 +138,7 @@ def complete_run(articles_kept: int, articles_emailed: int = 0):
     if not _state.recording or _state.run_id is None:
         return
     try:
-        with sqlite3.connect(_db_path()) as conn:
+        with _connect(_db_path()) as conn:
             conn.execute(
                 "UPDATE digest_runs SET articles_kept = ?, articles_emailed = ?, completed_at = datetime('now', 'utc'), status = 'completed' WHERE id = ?",
                 (articles_kept, articles_emailed, _state.run_id),
@@ -146,7 +165,7 @@ def abort_run(error: str | None = None):
 def _fail_run(run_id: int, error: str | None):
     """Mark a run failed, preserving its rows. Best-effort: never raises."""
     try:
-        with sqlite3.connect(_db_path()) as conn:
+        with _connect(_db_path()) as conn:
             conn.execute(
                 "UPDATE digest_runs SET status = 'failed', error = ? WHERE id = ?",
                 (error, run_id),
@@ -168,7 +187,7 @@ def has_completed_run_today(*, on_error: bool = True) -> bool:
     if not _state.db_path or not _state.db_path.exists():
         return False
     try:
-        with sqlite3.connect(_state.db_path) as conn:
+        with _connect(_state.db_path) as conn:
             cursor = conn.execute(
                 "SELECT COUNT(*) FROM digest_runs WHERE date(run_at) = date('now') AND completed_at IS NOT NULL"
             )
@@ -197,7 +216,7 @@ def get_previous_headlines(days: int = 7) -> list[dict]:
     if not _state.db_path or not _state.db_path.exists():
         return []
     try:
-        with sqlite3.connect(_state.db_path) as conn:
+        with _connect(_state.db_path) as conn:
             cursor = conn.execute(
                 """
                 SELECT COALESCE(original_title, headline) as headline,
@@ -223,7 +242,7 @@ def get_yesterday_digest_headlines() -> list[dict]:
     if not _state.db_path or not _state.db_path.exists():
         return []
     try:
-        with sqlite3.connect(_state.db_path) as conn:
+        with _connect(_state.db_path) as conn:
             cursor = conn.execute(
                 """
                 SELECT headline, tier
@@ -254,7 +273,7 @@ def record_shown_headlines(headlines: list[dict]):
     if not headlines or not isinstance(headlines[0], dict):
         return
     try:
-        with sqlite3.connect(_db_path()) as conn:
+        with _connect(_db_path()) as conn:
             conn.executemany(
                 "INSERT INTO shown_narratives (headline, tier, source_id, original_title, cluster_id, run_id) VALUES (?, ?, ?, ?, ?, ?)",
                 [
@@ -283,7 +302,7 @@ def record_source_health(results: list[tuple[str, bool, str | None, int, int]]):
     if not results:
         return
     try:
-        with sqlite3.connect(_db_path()) as conn:
+        with _connect(_db_path()) as conn:
             conn.executemany(
                 "INSERT INTO source_health (source_id, success, error_message, articles_fetched, articles_kept, run_id) VALUES (?, ?, ?, ?, ?, ?)",
                 [(*r, _state.run_id) for r in results],
@@ -297,7 +316,7 @@ def get_consecutive_failures(source_id: str, limit: int = 10) -> int:
     if not _state.db_path or not _state.db_path.exists():
         return 0
     try:
-        with sqlite3.connect(_state.db_path) as conn:
+        with _connect(_state.db_path) as conn:
             cursor = conn.execute(
                 """
                 SELECT success FROM source_health
@@ -323,7 +342,7 @@ def get_failing_sources(min_consecutive: int = 3) -> list[tuple[str, int]]:
     if not _state.db_path or not _state.db_path.exists():
         return []
     try:
-        with sqlite3.connect(_state.db_path) as conn:
+        with _connect(_state.db_path) as conn:
             cursor = conn.execute("""
                 SELECT DISTINCT source_id FROM source_health
                 WHERE recorded_at > datetime('now', '-7 days')
@@ -349,7 +368,7 @@ def log_dedup_action(
     if not _state.recording:
         return
     try:
-        with sqlite3.connect(_db_path()) as conn:
+        with _connect(_db_path()) as conn:
             conn.execute(
                 """INSERT INTO dedup_log
                    (article_title, article_source_id, matched_headline, similarity, threshold, action, run_id)
@@ -367,7 +386,7 @@ def archive_articles(articles: list[dict]):
     if not articles:
         return
     try:
-        with sqlite3.connect(_db_path()) as conn:
+        with _connect(_db_path()) as conn:
             conn.executemany(
                 """INSERT INTO fetched_articles (run_id, source_id, title, url, published, summary)
                    VALUES (?, ?, ?, ?, ?, ?)""",
@@ -385,7 +404,7 @@ def archive_selections(selections_json: str):
     if not _state.recording:
         return
     try:
-        with sqlite3.connect(_db_path()) as conn:
+        with _connect(_db_path()) as conn:
             conn.execute(
                 "INSERT INTO selections (run_id, selections_json) VALUES (?, ?)",
                 (_state.run_id, selections_json),
@@ -403,7 +422,7 @@ def archive_clusters(clusters_json: str):
     if not _state.recording:
         return
     try:
-        with sqlite3.connect(_db_path()) as conn:
+        with _connect(_db_path()) as conn:
             conn.execute(
                 "INSERT INTO cluster_runs (run_id, clusters_json) VALUES (?, ?)",
                 (_state.run_id, clusters_json),
@@ -460,7 +479,7 @@ def archive_run_artifacts(claude_input_dir: Path, models: dict[str, str] | None 
             rows.append((_state.run_id, "models.json", json.dumps(models, sort_keys=True)))
         if not rows:
             return
-        with sqlite3.connect(_db_path()) as conn:
+        with _connect(_db_path()) as conn:
             conn.executemany(
                 "INSERT INTO run_artifacts (run_id, artifact_name, content) VALUES (?, ?, ?)",
                 rows,
@@ -477,7 +496,7 @@ def get_run_artifacts(run_id: int) -> dict[str, str]:
     if not _state.db_path or not _state.db_path.exists():
         return {}
     try:
-        with sqlite3.connect(_state.db_path) as conn:
+        with _connect(_state.db_path) as conn:
             cursor = conn.execute(
                 "SELECT artifact_name, content FROM run_artifacts WHERE run_id = ? ORDER BY artifact_name",
                 (run_id,),
@@ -500,7 +519,7 @@ def record_usage(usage_rows: list[dict]):
     if not usage_rows:
         return
     try:
-        with sqlite3.connect(_db_path()) as conn:
+        with _connect(_db_path()) as conn:
             conn.executemany(
                 """INSERT INTO run_usage
                    (run_id, subagent, model, input_tokens, output_tokens,
@@ -568,7 +587,7 @@ def save_digest(digest_path: Path, preheader: str = ""):
     web_html = prepare_for_web(html_content)
 
     try:
-        with sqlite3.connect(_db_path()) as conn:
+        with _connect(_db_path()) as conn:
             conn.execute(
                 """INSERT INTO digests (date, html, preheader, run_id) VALUES (?, ?, ?, ?)
                    ON CONFLICT(date) DO UPDATE SET
@@ -593,7 +612,7 @@ def get_broadcast(date_str: str) -> tuple[str | None, str | None] | None:
     must not look like "nothing was sent" (that would invite a double-send), so a
     read failure raises and the caller fails closed.
     """
-    with sqlite3.connect(_db_path()) as conn:
+    with _connect(_db_path()) as conn:
         row = conn.execute(
             "SELECT broadcast_id, broadcast_status FROM digests WHERE date = ?",
             (date_str,),
@@ -612,7 +631,7 @@ def record_broadcast(date_str: str, broadcast_id: str | None, status: str | None
     if not _state.recording:
         return
     try:
-        with sqlite3.connect(_db_path()) as conn:
+        with _connect(_db_path()) as conn:
             cursor = conn.execute(
                 "UPDATE digests SET broadcast_id = ?, broadcast_status = ?, "
                 "broadcast_recipients = COALESCE(?, broadcast_recipients) WHERE date = ?",
@@ -634,7 +653,7 @@ def record_broadcast(date_str: str, broadcast_id: str | None, status: str | None
 def broadcast_recipients(date_str: str) -> int:
     """Recipient count recorded for a date's broadcast (0 if unknown)."""
     try:
-        with sqlite3.connect(_db_path()) as conn:
+        with _connect(_db_path()) as conn:
             row = conn.execute("SELECT broadcast_recipients FROM digests WHERE date = ?", (date_str,)).fetchone()
         return row[0] if row and row[0] is not None else 0
     except sqlite3.Error as e:
@@ -645,7 +664,7 @@ def broadcast_recipients(date_str: str) -> int:
 def delete_run(run_id: int):
     """Delete a run and all associated data across all tables."""
     try:
-        with sqlite3.connect(_db_path()) as conn:
+        with _connect(_db_path()) as conn:
             for table in [
                 "fetched_articles",
                 "selections",
