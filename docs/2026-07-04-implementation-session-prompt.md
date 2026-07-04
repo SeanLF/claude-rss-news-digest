@@ -22,13 +22,17 @@ left.** Read these in order before touching code:
 6. Visual reference: `scratch/chrome-mockups/*.html` (gitignored; regen via `build.py`). `cssdiff.js`
    is the cross-page consistency gate. The mockups are placeholder-data; `design-system.md` is durable.
 
-**Already real code (uncommitted in the working tree; branch `design/chrome-redesign-port-handover`
-holds the committed docs/tooling at c210306):**
+**Already real code — now all COMMITTED** on branch `design/chrome-redesign-port-handover` (tip
+`1a1a7a2`, base `main` = `d04f9ad`). The earlier "uncommitted in the working tree" note is stale.
 - `circulation/src/archive.rs` — `fetch_archive` (validated data layer) + `row_html` (renders one issue
   `<li>` with the bias `aria-label` split + HTML-escaping) + `archive_fragment` (`GET /archive?before=`
   HTML fragment) + 5 passing tests, clippy clean. **Verified against the real `data/digest.db`.**
-- `/archive` route in `main.rs`.
-- Committed: `design/tokens.css`, `bin/lighthouse`, `bin/a11y-check`, `make lighthouse`/`make a11y`.
+- `/archive` route in `main.rs`; `design/tokens.css`, `bin/lighthouse`, `bin/a11y-check`,
+  `make lighthouse`/`make a11y`.
+- These landed inside `7617756`, a **WIP checkpoint that bundles two half-integrated streams welded in
+  `main.rs`/`handlers.rs`**: the chrome/archive port AND a translation/feedback stream. If you want clean
+  per-stream history before landing, re-split it (rebase — it's no longer HEAD); otherwise just build
+  forward. Tree is clean, all CI-green.
 
 **Build order:**
 1. **Foundation:** `include_str!` `design/tokens.css` into circulation (collapse the 6 duplicated
@@ -59,8 +63,9 @@ holds the committed docs/tooling at c210306):**
 **Two reconciliations (implementer picks, not decisions):**
 - End-detection: the states doc proposes a hidden `.more-sentinel[data-next-before]`; the segment doc
   uses `data-date` on `<li>` + row-count. Pick one.
-- Sean has **uncommitted WIP** in `handlers.rs`/`main.rs`/`stats.rs`/`translate.rs`/newsroom (a
-  translation/feedback stream) — keep your changes clear of it or coordinate before committing.
+- The translation/feedback stream (`handlers.rs`/`main.rs`/`stats.rs`/`translate.rs`/newsroom) is now
+  **committed** (in the `7617756` checkpoint), not uncommitted — build forward without clobbering it;
+  it shares `main.rs`/`handlers.rs` with the chrome-port you'll be rewriting.
 
 **Gates before claiming done:** `make ci` (fmt/clippy/test), `make lighthouse` (=100), `make a11y`,
 `node cssdiff.js` (no drift), and for any surface: run it against `data/digest.db` and look at it.
