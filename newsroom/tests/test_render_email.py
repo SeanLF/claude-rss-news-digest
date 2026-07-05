@@ -105,3 +105,24 @@ def test_production_default_keeps_the_merge_tag(monkeypatch):
     monkeypatch.setenv("DIGEST_DOMAIN", "example.com")
     out = render_email.render_email(SELECTIONS)  # default unsubscribe_url
     assert "{{{RESEND_UNSUBSCRIBE_URL}}}" in out  # left for Resend to fill per-recipient
+
+
+def test_email_colours_are_the_light_tokens_single_source():
+    """render_email's colour constants must equal the light values in tokens.css.
+
+    Guards the DRY: a future edit to design/tokens.css light --* values flows through
+    to the email instead of drifting from a hardcoded copy. Fonts are intentionally
+    NOT shared (email uses web-safe stacks), so only colours are asserted.
+    """
+    from render import light_tokens
+
+    tokens = light_tokens(REPO / "design" / "tokens.css")
+    assert tokens, "tokens.css must parse to a non-empty light-mode token map"
+    assert tokens["bg"] == render_email.BG
+    assert tokens["ink"] == render_email.INK
+    assert tokens["ink2"] == render_email.INK2
+    assert tokens["muted"] == render_email.MUTED
+    assert tokens["hair"] == render_email.HAIR
+    assert tokens["accent"] == render_email.ACCENT
+    assert tokens["accent-ink"] == render_email.ACCENT_INK
+    assert {"l": tokens["bias-l"], "c": tokens["bias-c"], "r": tokens["bias-r"]} == render_email.BIAS

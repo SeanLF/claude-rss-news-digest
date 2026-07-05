@@ -186,6 +186,28 @@ def resolve_css_variables(css: str) -> str:
     return css
 
 
+def light_tokens(tokens_file: Path | None = None) -> dict[str, str]:
+    """Parse the light-mode design tokens from ``tokens_file`` (default config.TOKENS_FILE).
+
+    Single source of truth for colours shared by the web CSS and the MJML email
+    renderer (render_email). Returns ``{"bg": "#fafaf8", "ink": "#191917", ...}``
+    -- the light values from the plain ``:root {…}`` blocks, reusing the same
+    dark-strip + :root extraction logic as resolve_css_variables() so email
+    literals can't drift from the canonical tokens. Missing file -> empty dict
+    (production always ships tokens.css; callers fail loud on a missing key).
+    """
+    path = tokens_file or config.TOKENS_FILE
+    if not path.exists():
+        logger.warning("Tokens file not found: %s -- light_tokens() returning empty", path)
+        return {}
+    css = _strip_media_block(path.read_text(), "prefers-color-scheme")
+    tokens: dict[str, str] = {}
+    for block in re.findall(r":root\s*\{([^}]+)\}", css):  # plain :root only, not :root[...]
+        for match in re.finditer(r"--([a-z0-9-]+)\s*:\s*([^;]+);", block):
+            tokens[match.group(1)] = match.group(2).strip()
+    return tokens
+
+
 def inline_styles(html_content: str) -> str:
     """Inline CSS styles for email compatibility using premailer."""
     try:

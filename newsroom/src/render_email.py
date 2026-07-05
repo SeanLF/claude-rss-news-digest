@@ -12,6 +12,7 @@ import html
 import logging
 import os
 from datetime import UTC, datetime
+from pathlib import Path
 
 import db
 from mjml import mjml2html
@@ -22,21 +23,32 @@ from render import (
     calculate_reading_time,
     extract_preheader,
     format_story_counts,
+    light_tokens,
     slugify,
 )
 
 logger = logging.getLogger(__name__)
 
-# Design tokens resolved to email-safe light-mode literals. Serif -> Georgia (custom
-# web fonts are unreliable in email); mono/sans -> web-safe stacks.
-BG = "#fafaf8"
-INK = "#191917"
-INK2 = "#3b3a36"
-MUTED = "#6f6d65"
-HAIR = "#dddcd4"
-ACCENT = "#b1352a"
-ACCENT_INK = "#8f2a20"
-BIAS = {"l": "#5f7391", "c": "#928f86", "r": "#b0604e"}
+# Colours are derived from the light-mode values in design/tokens.css (the single
+# source of truth shared with the web CSS) so email literals can't drift. Fonts are
+# NOT shared: email needs web-safe stacks (Georgia/Arial/Courier), not the web's
+# Source Serif etc. -- custom web fonts are unreliable in email.
+#
+# config.TOKENS_FILE (/app/design/tokens.css) is the canonical path and exists in
+# the container. On a dev host / CI running tests outside the image that path is
+# absent, so fall back to the repo-root copy resolved relative to this file
+# (<repo>/newsroom/src/render_email.py -> parents[2] == <repo>) -- keeping the
+# module importable everywhere with REAL token values rather than KeyError-ing.
+# Production always resolves via the config path above.
+_T = light_tokens() or light_tokens(Path(__file__).resolve().parents[2] / "design" / "tokens.css")
+BG = _T["bg"]  # #fafaf8
+INK = _T["ink"]  # #191917
+INK2 = _T["ink2"]  # #3b3a36
+MUTED = _T["muted"]  # #6f6d65
+HAIR = _T["hair"]  # #dddcd4
+ACCENT = _T["accent"]  # #b1352a
+ACCENT_INK = _T["accent-ink"]  # #8f2a20
+BIAS = {"l": _T["bias-l"], "c": _T["bias-c"], "r": _T["bias-r"]}  # #5f7391 / #928f86 / #b0604e
 SERIF = "Georgia, 'Times New Roman', serif"
 SANS = "Arial, Helvetica, sans-serif"
 MONO = "'Courier New', monospace"
