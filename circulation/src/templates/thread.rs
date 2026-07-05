@@ -198,8 +198,11 @@ h1{font-family:var(--serif); font-weight:600; font-size:30px; line-height:1.15; 
 @media (min-width:760px){ h1{font-size:34px;} }
 .sofar{font-family:var(--serif); font-size:18px; line-height:1.55; color:var(--ink2); margin:0; text-wrap:pretty;}
 .sofar .lead{font-family:var(--mono); font-size:10px; letter-spacing:.12em; text-transform:uppercase; font-weight:600; color:var(--muted); margin-right:8px;}
-.ledger{border:1px solid var(--line); border-left:3px solid var(--accent); border-radius:var(--r-card); background:var(--panel); padding:20px 24px; margin:0 0 40px;}
-.ledger-label{font-family:var(--mono); font-size:10px; letter-spacing:.12em; text-transform:uppercase; font-weight:600; color:var(--accent-ink); margin:0 0 14px;}
+/* An editorial block, not an alert box: a full-width hairline rule + mono label, matching the
+   page's ruled-section language. The label keeps the lone accent as a live-tracking signal. */
+.ledger{border-top:1px solid var(--line); padding:24px 0 0; margin:0 0 44px;}
+.ledger-label{display:flex; align-items:center; gap:8px; font-family:var(--mono); font-size:10px; letter-spacing:.12em; text-transform:uppercase; font-weight:600; color:var(--accent-ink); margin:0 0 16px;}
+.ledger-label::before{content:""; width:6px; height:6px; border-radius:50%; background:var(--accent); flex:none;}
 .qlist{list-style:none; margin:0; padding:0;}
 .qlist li{position:relative; padding:0 0 0 20px; margin:0 0 12px; color:var(--ink2); font-size:16px; line-height:1.5; text-wrap:pretty;}
 .qlist li:last-child{margin-bottom:0;}
