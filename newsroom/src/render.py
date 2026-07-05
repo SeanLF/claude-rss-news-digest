@@ -261,8 +261,7 @@ def prepare_for_email(html_content: str) -> str:
     html_content = with_meta
     # Physically drop web-only blocks. Gmail unwraps <details>/<summary> and promotes
     # their children, discarding the display:none that hides the web-only source table
-    # -- so it leaks into the email. Removing the block outright is the only reliable
-    # fix; the email keeps its own .email-only static source line.
+    # -- so it leaks into the email. Removing the block outright is the only reliable fix.
     html_content = re.sub(r"<details\b[^>]*\bweb-only\b[^>]*>.*?</details>", "", html_content, flags=re.DOTALL)
     html_content = inline_styles(html_content)
 
@@ -666,13 +665,11 @@ def replace_placeholders(
         content = content.replace("{{HOMEPAGE_URL}}", homepage_url)
         content = content.replace("{{SUBSCRIBE_URL}}", subscribe_url)
     else:
-        # No domain -> no route for the Subscribe link, the top view-in-browser /
-        # translate line (both HOMEPAGE_URL), or the footer reply prompt; drop them
-        # whole rather than ship a dangling placeholder. These email-only surfaces
-        # only matter for a real send, which always sets the domain (prod).
+        # No domain -> no route for the Subscribe link or the per-story
+        # "view sources online" HOMEPAGE_URL anchors; drop/blank them rather than
+        # ship a dangling placeholder. These surfaces only matter for a real send,
+        # which always sets the domain (prod).
         content = _strip_nav_link(content, "SUBSCRIBE_URL", "Subscribe")
-        content = re.sub(r'\s*<p class="footer-actions email-only">.*?</p>', "", content, flags=re.DOTALL)
-        content = re.sub(r'\s*<p class="webview email-only">.*?</p>', "", content, flags=re.DOTALL)
         # Blank any HOMEPAGE_URL still in body (the per-story "view sources online"
         # links) so they degrade to a bare #anchor rather than trip the residual sweep.
         content = content.replace("{{HOMEPAGE_URL}}", "")
