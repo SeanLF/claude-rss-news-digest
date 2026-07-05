@@ -34,8 +34,12 @@ const INDEX_CSS: &str = r#"
 .seg button[aria-pressed="true"]{background:var(--panel); color:var(--ink); font-weight:600; border-color:var(--line-strong); box-shadow:0 1px 2px rgba(25,25,23,.10);}
 .seg button:focus-visible{outline:2px solid var(--accent); outline-offset:2px;}
 
-/* date jump */
-.datejump{display:inline-flex; align-items:center; gap:8px; font-family:var(--sans); font-size:12px; color:var(--muted); margin-top:10px;}
+/* browse row: period segment + date jump grouped (search stands alone above — it's a
+   different action, a full-text jump to /search, not a list-scope control) */
+.browse{display:flex; align-items:center; gap:16px; flex-wrap:wrap; margin-top:12px;}
+
+/* date jump — pushed to the row's right; the segment sits at the left */
+.datejump{display:inline-flex; align-items:center; gap:8px; font-family:var(--sans); font-size:12px; color:var(--muted); margin-left:auto;}
 .datejump input{font-family:var(--sans); font-size:12px; color:var(--ink); background:var(--panel);
   border:1px solid var(--line); border-radius:var(--r-input); padding:5px 8px; min-height:24px;}
 .datejump input:focus-visible{outline:2px solid var(--accent); outline-offset:1px; border-color:var(--accent);}
@@ -239,11 +243,13 @@ pub fn render_index(p: &IndexParams) -> String {
       <form class="search" role="search" action="{search}" method="get">
         <input type="search" name="q" placeholder="Search past headlines&hellip;" aria-label="Search past headlines">
       </form>
+    </div>
+    <div class="browse">
       <div class="seg" role="group" aria-label="Filter by period">
         {all}{year}{recent}
       </div>
+      <label class="datejump"><span>Jump to</span><input type="date" id="dateJump" min="{min}" max="{max}" aria-label="Jump to a date"></label>
     </div>
-    <label class="datejump"><span>Jump to</span><input type="date" id="dateJump" min="{min}" max="{max}" aria-label="Jump to a date"></label>
     <div class="listhead"><span>Issue</span><span>In this issue</span><span class="r">Sources</span></div>"#,
             search = p.search_url,
             all = segment_button("all", p.segment, "All"),
