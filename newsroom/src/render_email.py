@@ -2,8 +2,8 @@
 
 Separate from render.py's web rendering: the web serves clean semantic HTML; the
 email is authored as MJML and compiled to Outlook-hardened tables by mrml. Both are
-driven by the same ``selections`` data + shared design tokens. This replaces the
-prepare_for_email path on the send side.
+driven by the same ``selections`` data + shared design tokens. This is the sole
+email renderer -- the old premailer ``prepare_for_email`` path has been removed.
 
 See docs/2026-07-05-mjml-email-migration.md.
 """

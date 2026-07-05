@@ -182,8 +182,8 @@ def send_test_digest(html: str, to_addr: str, *, subject_prefix: str = "[TEST] "
     ever touching the production audience. Reuses ``send_broadcast``'s from/subject
     conventions, prefixed (default "[TEST] ") so the QA send is unmistakable.
 
-    ``html`` MUST already be the email-prepared HTML (caller runs
-    ``prepare_for_email`` first); this function does not re-prepare it. Returns the
+    ``html`` MUST already be the rendered MJML email (caller runs
+    ``render_email`` first); this function does not re-render it. Returns the
     Resend email id. Raises on API error -- this is a real send, so a failure must
     surface, never be swallowed.
     """

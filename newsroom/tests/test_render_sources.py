@@ -10,7 +10,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
-from render import _bias_bucket, prepare_for_email, render_article, replace_placeholders
+from render import _bias_bucket, render_article, replace_placeholders
 
 # ---------------------------------------------------------------------------
 # Bias bucketing
@@ -240,19 +240,3 @@ def test_residual_sweep_allows_any_triple_brace_tag(tmp_path):
     digest, styles = _prep(tmp_path, extra="<p>Hi {{{FIRST_NAME}}}</p>")
     replace_placeholders(digest, {"must_know": [], "should_know": []}, styles)
     assert "{{{FIRST_NAME}}}" in digest.read_text()
-
-
-def test_prepare_for_email_strips_web_only_source_table():
-    # Legacy fallback path (run.py --test-send from a rendered file): Gmail unwraps
-    # <details> and drops display:none, leaking the source table, so prepare_for_email
-    # removes any web-only <details> block outright.
-    html = (
-        "<html><head><style>body{color:#000}</style></head><body>"
-        '<details class="srcbox web-only"><summary>x</summary>'
-        "<table><tr><td>LEAKED_TABLE</td></tr></table></details>"
-        "<p>keep me</p>"
-        "</body></html>"
-    )
-    out = prepare_for_email(html)
-    assert "LEAKED_TABLE" not in out  # web-only <details> physically removed
-    assert "keep me" in out  # surrounding content survives

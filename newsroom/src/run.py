@@ -57,7 +57,7 @@ from feeds_cli import validate_feeds_cli
 from healthcheck import ping as healthcheck_ping
 from merge import assemble_selections
 from prepare import prepare_claude_input
-from render import extract_preheader, prepare_for_email, replace_placeholders
+from render import extract_preheader, replace_placeholders
 from render_email import render_email
 from utils import check_internet, setup_logging, validate_env
 
@@ -330,11 +330,10 @@ def _parse_test_send_addrs(values: list[str]) -> list[str]:
 def _render_test_email_html(selections_path: str | None) -> str:
     """Produce the exact email-ready HTML the production send would deliver.
 
-    Mirrors the production input to send_broadcast: the rendered digest HTML file
-    run through prepare_for_email. With ``selections_path`` it re-renders from that
-    selections fixture (same resolve/render/replace path as _render_record_deliver);
-    without it, it reads the most-recent already-rendered digest. Never records a
-    run, never touches the audience, never creates a broadcast.
+    Mirrors the production input to send_broadcast: MJML from render_email. With
+    ``selections_path`` it renders that selections file; without, it falls back to the
+    latest run's selections.json (CLAUDE_INPUT_DIR). Never records a run, never touches
+    the audience, never creates a broadcast.
     """
     # Resend only substitutes {{{RESEND_UNSUBSCRIBE_URL}}} in a Broadcast; this QA
     # path uses a single Emails.send, so point unsubscribe somewhere harmless for
@@ -342,23 +341,32 @@ def _render_test_email_html(selections_path: str | None) -> str:
     domain = os.environ.get("DIGEST_DOMAIN", "example.com")
     unsub = f"https://{domain}/unsubscribe"
 
-    if selections_path:
-        # MJML email path (mjml-python/mrml) -- the new email renderer.
-        from render_email import render_email
+    # Both branches render via the production MJML renderer (render_email); the old
+    # premailer prepare_for_email path is gone. With --selections use that file; without,
+    # fall back to the latest run's selections.json (CLAUDE_INPUT_DIR) -- NOT the rendered
+    # web-digest file, which is a different artifact and can't feed the MJML renderer.
+    from render_email import render_email
 
-        selections = resolve_article_ids(load_selections(Path(selections_path)))
-        logger.info(
-            "Test-send: rendering %d/%d stories via MJML",
-            len(selections.get("must_know", [])),
-            len(selections.get("should_know", [])),
+    source = Path(selections_path) if selections_path else CLAUDE_INPUT_DIR / "selections.json"
+    if not source.exists():
+        raise FileNotFoundError(f"No selections to test-send ({source}). Run a render first or pass --selections PATH.")
+    if not selections_path and not (CLAUDE_INPUT_DIR / "article_index.json").exists():
+        # The latest run's selections.json carries opaque {article_id}s; without the sibling
+        # index they can't resolve to url/name/bias and render_email would ship blank sources.
+        # Fail loud, matching the production/resume paths (an explicit --selections may be
+        # already-resolved, so it is not subject to this check).
+        raise FileNotFoundError(
+            f"No article_index.json beside {source} -- can't resolve sources. "
+            "Run a full render, or pass an already-resolved --selections PATH."
         )
-        return render_email(selections, unsubscribe_url=unsub)
-
-    latest = find_latest_digest()
-    if not latest:
-        raise FileNotFoundError("No digest found to test-send. Run a render first or pass --selections PATH.")
-    logger.info("Test-send source digest: %s", latest.name)
-    return prepare_for_email(latest.read_text().replace("{{{RESEND_UNSUBSCRIBE_URL}}}", unsub))
+    selections = resolve_article_ids(load_selections(source))
+    logger.info(
+        "Test-send: rendering %d/%d stories via MJML from %s",
+        len(selections.get("must_know", [])),
+        len(selections.get("should_know", [])),
+        source.name,
+    )
+    return render_email(selections, unsubscribe_url=unsub)
 
 
 def main():
@@ -401,10 +409,10 @@ Examples:
         "--test-send",
         metavar="ADDR",
         action="append",
-        help="QA: render the digest, prepare_for_email, and send it to ADDR via Resend "
+        help="QA: render the MJML email (render_email) and send it to ADDR via Resend "
         "Emails.send (single-recipient) -- NOT the audience broadcast. Repeatable or "
         "comma-separated. Never records a run or touches the audience. Honours --dry-run "
-        "(renders but does not send) and --selections PATH.",
+        "(renders but does not send) and --selections PATH (else the latest selections.json).",
     )
     parser.add_argument(
         "--selections",

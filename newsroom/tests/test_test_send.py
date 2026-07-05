@@ -24,12 +24,22 @@ def _env(monkeypatch):
 
 
 @pytest.fixture
-def rendered_digest(tmp_path, monkeypatch):
-    """A pre-rendered digest on disk that find_latest_digest returns."""
-    digest = tmp_path / "digest-2026-07-05-0900Z.html"
-    digest.write_text("<html><style>:root{--x:red}a{color:var(--x)}</style><body>Digest</body></html>")
-    monkeypatch.setattr(run, "find_latest_digest", lambda: digest)
-    return digest
+def latest_selections(tmp_path, monkeypatch):
+    """The latest run's selections.json that the no-``--selections`` fallback renders via MJML.
+
+    A resolved fixture (sources carry name/url/bias, no bare article_id) so resolve_article_ids
+    is a no-op and no article_index.json is needed.
+    """
+    import shutil
+
+    ci = tmp_path / "claude_input"
+    ci.mkdir()
+    shutil.copy(Path(__file__).parent / "fixtures" / "kitchensink_selections.json", ci / "selections.json")
+    # The fallback requires the sibling index (real selections carry opaque ids); kitchensink
+    # is already resolved so an empty index satisfies the guard and resolve is a no-op.
+    (ci / "article_index.json").write_text("{}")
+    monkeypatch.setattr(run, "CLAUDE_INPUT_DIR", ci)
+    return ci / "selections.json"
 
 
 def _guard_no_audience(monkeypatch):
@@ -60,8 +70,8 @@ class TestParseAddrs:
         assert run._parse_test_send_addrs(["", " , ", "a@x.com"]) == ["a@x.com"]
 
 
-def test_dry_run_renders_and_prepares_but_never_sends(monkeypatch, rendered_digest, capsys):
-    """--test-send --dry-run reaches render + prepare_for_email but performs no send."""
+def test_dry_run_renders_but_never_sends(monkeypatch, latest_selections, capsys):
+    """--test-send --dry-run reaches the MJML render (render_email) but performs no send."""
     _guard_no_audience(monkeypatch)
     sends = []
     monkeypatch.setattr(run, "send_test_digest", lambda *a, **k: sends.append(a) or "should_not_be_called")
@@ -73,13 +83,12 @@ def test_dry_run_renders_and_prepares_but_never_sends(monkeypatch, rendered_dige
     assert sends == []  # dry-run must NOT call the sender
     out = capsys.readouterr().out
     assert "would send test digest to qa@example.com" in out
-    # prepare_for_email ran: the CSS var was resolved out of the reported HTML
     assert "no send performed" in out
 
 
-def test_real_send_calls_emails_per_address_not_broadcast(monkeypatch, rendered_digest, capsys):
+def test_real_send_calls_emails_per_address_not_broadcast(monkeypatch, latest_selections, capsys):
     """Without --dry-run each address gets one Emails.send via send_test_digest;
-    the audience/broadcast flow is never reached, and prepared HTML is passed through."""
+    the audience/broadcast flow is never reached, and the MJML render is passed through."""
     _guard_no_audience(monkeypatch)
     calls = []
 
@@ -94,21 +103,34 @@ def test_real_send_calls_emails_per_address_not_broadcast(monkeypatch, rendered_
 
     assert rc == 0
     assert [addr for _, addr in calls] == ["a@x.com", "b@x.com"]
-    # HTML handed to the sender is exactly prepare_for_email(file) -- prepared, not raw.
-    from render import prepare_for_email
-
-    expected_html = prepare_for_email(rendered_digest.read_text())
-    assert calls[0][0] == expected_html
-    assert calls[0][0] != rendered_digest.read_text()  # the file was transformed, not passed through
+    # HTML handed to the sender is the MJML render (render_email): Outlook ghost tables
+    # (mso conditionals) prove it went through MJML, and both addresses get the same render.
+    sent = calls[0][0]
+    assert "<html" in sent.lower() and "mso" in sent.lower()
+    assert calls[0][0] == calls[1][0]  # rendered once, sent to each address
     out = capsys.readouterr().out
     assert "Sent test digest to a@x.com: email_1" in out
     assert "Sent test digest to b@x.com: email_2" in out
 
 
-def test_no_digest_and_no_selections_fails_loud(monkeypatch):
-    """With nothing to render, the path raises rather than silently sending nothing."""
+def test_no_selections_available_fails_loud(tmp_path, monkeypatch):
+    """No selections.json and no --selections -> raise rather than silently sending nothing."""
     _guard_no_audience(monkeypatch)
-    monkeypatch.setattr(run, "find_latest_digest", lambda: None)
+    monkeypatch.setattr(run, "CLAUDE_INPUT_DIR", tmp_path)  # empty dir -> no selections.json
+    monkeypatch.setattr(run, "send_test_digest", lambda *a, **k: pytest.fail("should not send"))
+    monkeypatch.setattr(sys, "argv", ["run.py", "--test-send", "qa@example.com", "--dry-run"])
+    with pytest.raises(FileNotFoundError):
+        run.main()
+
+
+def test_fallback_without_article_index_fails_loud(tmp_path, monkeypatch):
+    """selections.json present but no sibling article_index.json -> raise rather than ship
+    blank sources (the ids can't resolve). An explicit --selections is exempt (may be resolved)."""
+    _guard_no_audience(monkeypatch)
+    ci = tmp_path / "claude_input"
+    ci.mkdir()
+    (ci / "selections.json").write_text('{"must_know": [], "should_know": []}')  # no article_index.json
+    monkeypatch.setattr(run, "CLAUDE_INPUT_DIR", ci)
     monkeypatch.setattr(run, "send_test_digest", lambda *a, **k: pytest.fail("should not send"))
     monkeypatch.setattr(sys, "argv", ["run.py", "--test-send", "qa@example.com", "--dry-run"])
     with pytest.raises(FileNotFoundError):

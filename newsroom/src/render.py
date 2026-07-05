@@ -208,66 +208,6 @@ def light_tokens(tokens_file: Path | None = None) -> dict[str, str]:
     return tokens
 
 
-def inline_styles(html_content: str) -> str:
-    """Inline CSS styles for email compatibility using premailer."""
-    try:
-        from premailer import transform
-
-        return transform(
-            html_content,
-            remove_classes=False,
-            keep_style_tags=True,  # Keep for clients that support <style>
-            strip_important=False,
-            cssutils_logging_level=50,  # Suppress warnings
-        )
-    except ImportError:
-        logger.warning("premailer not available; sending email with un-inlined styles")
-        return html_content
-    except Exception as exc:
-        # Un-inlined HTML degrades in Word-engine clients (Outlook) for the whole list;
-        # error-level so a systematic premailer break is Sentry-visible, not swallowed.
-        logger.error("premailer failed to inline styles (%s); sending email un-inlined", exc)
-        return html_content
-
-
-def prepare_for_email(html_content: str) -> str:
-    """Prepare HTML for email delivery.
-
-    Resolves CSS variables to light mode values and inlines styles.
-    Email clients don't support CSS variables or prefers-color-scheme.
-    """
-
-    def resolve_style_block(match):
-        css = match.group(1)
-        resolved_css = resolve_css_variables(css)
-        minified_css = minify_css(resolved_css)
-        return f"<style>{minified_css}</style>"
-
-    html_content = re.sub(r"<style>(.*?)</style>", resolve_style_block, html_content, flags=re.DOTALL)
-    # Email-only: declare light-only. The CSS was resolved to light hex, so a
-    # client force-inverting for dark mode would mangle the accent/bias colours
-    # unpredictably; these metas ask Apple Mail/Gmail to keep it light. Injected
-    # here (not in the template) so the WEB view keeps its own light/dark toggle.
-    with_meta = html_content.replace(
-        "<head>",
-        '<head>\n  <meta name="color-scheme" content="light">\n  <meta name="supported-color-schemes" content="light">',
-        1,
-    )
-    if with_meta == html_content:
-        # Fail loud: a template refactor that drops the bare `<head>` literal would
-        # silently strip these metas, re-exposing the light-only palette to dark-mode
-        # auto-inversion in every send -- invisible degradation on a shipped artifact.
-        logger.error("prepare_for_email: no <head> found; color-scheme metas NOT injected")
-    html_content = with_meta
-    # Physically drop web-only blocks. Gmail unwraps <details>/<summary> and promotes
-    # their children, discarding the display:none that hides the web-only source table
-    # -- so it leaks into the email. Removing the block outright is the only reliable fix.
-    html_content = re.sub(r"<details\b[^>]*\bweb-only\b[^>]*>.*?</details>", "", html_content, flags=re.DOTALL)
-    html_content = inline_styles(html_content)
-
-    return html_content
-
-
 # =============================================================================
 # Article Rendering
 # =============================================================================
@@ -586,8 +526,9 @@ def replace_placeholders(
 
     # Load CSS: tokens.css (the :root token source) PREPENDED to digest.css so
     # the component rules' var(--…) resolve. Kept un-inlined here (variables +
-    # dark-mode media query intact) for the browser; email inlining happens later
-    # in prepare_for_email(). tokens.css is optional so unit tests that pass only
+    # dark-mode media query intact) for the browser; the email is rendered
+    # separately via MJML (render_email), not by inlining this HTML. tokens.css is
+    # optional so unit tests that pass only
     # a bare styles_file still render (with a warning), but production ships it.
     if not styles_file.exists():
         raise RuntimeError(f"Styles file not found: {styles_file}")
