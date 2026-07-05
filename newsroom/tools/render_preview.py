@@ -1,9 +1,8 @@
 """Fast local render + screenshot preview for the digest template/CSS.
 
-No Docker: renders a selections fixture through the REAL template + tokens.css +
-digest.css and emits the true artifacts a reader gets --
-  - EMAIL: prepare_for_email (vars -> light, premailer-inlined, web-only stripped)
-  - WEB:   prepare_for_web + the .email-only/.web-only flip, light and dark
+No Docker: renders a selections fixture through the REAL renderers a reader gets --
+  - EMAIL: render_email (MJML/mrml -- the exact production + --test-send path)
+  - WEB:   the web template + tokens.css + digest.css via prepare_for_web, light and dark
 -- then screenshots each at desktop and mobile widths with headless Chrome.
 
     make preview                          # kitchen-sink fixture, every visual state
@@ -14,9 +13,9 @@ Output: scratch/preview/ (gitignored). Chrome path via $CHROME (defaults to macO
 Google Chrome); screenshots are skipped with a note if Chrome isn't found.
 Pillow (optional, in the venv) trims trailing whitespace from tall shots.
 
-NOTE: the web flip below mirrors circulation's DIGEST_NAV_CSS for preview fidelity
-only. The authoritative email<->web contract is enforced by
-newsroom/tests/test_pipeline_contract.py, not here.
+Fixtures must already be resolved (sources carry name/url/bias, no bare article_id) --
+the same shape render_email and the web render expect. The authoritative email<->web
+contract is enforced by newsroom/tests/test_pipeline_contract.py, not here.
 """
 
 import json
@@ -30,6 +29,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "newsroom" / "src")
 import config
 import db
 import render
+from render_email import render_email
 
 REPO = Path(__file__).resolve().parents[2]
 config.TOKENS_FILE = REPO / "design" / "tokens.css"
@@ -40,9 +40,6 @@ CHROME = os.environ.get("CHROME", "/Applications/Google Chrome.app/Contents/MacO
 OUT = REPO / "scratch" / "preview"
 OUT.mkdir(parents=True, exist_ok=True)
 DEFAULT_FIXTURE = REPO / "newsroom" / "tests" / "fixtures" / "kitchensink_selections.json"
-
-# Mirrors circulation's DIGEST_NAV_CSS visibility flip (preview fidelity only).
-WEB_FLIP = "<style>.email-only{display:none}.web-only{display:block}footer nav .web-only{display:inline}</style>"
 
 
 def main() -> None:
@@ -67,12 +64,14 @@ def main() -> None:
     web_base = db.prepare_for_web(raw)
 
     def web_variant(theme: str) -> str:
-        return web_base.replace("</head>", WEB_FLIP + "</head>").replace(
+        return web_base.replace(
             '<html lang="en">', f'<html lang="en" data-theme="{theme}">'
         )
 
     variants = {
-        "email": render.prepare_for_email(raw),
+        # EMAIL is the real production MJML render (render_email), not derived from the
+        # web `raw` -- one data model, two renderers. WEB stays the template/prepare_for_web path.
+        "email": render_email(fixture),
         "web-light": web_variant("light"),
         "web-dark": web_variant("dark"),
     }
