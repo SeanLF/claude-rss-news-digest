@@ -14,10 +14,10 @@ use crate::check_database_health;
 use crate::feed::{DigestRow, render_atom_feed};
 use crate::routes;
 use crate::templates::{
-    DIGEST_NAV_CSS, FAVICON_SVG, FeedbackParams, IndexParams, PROXY_TRANSLATE_HIDE_SCRIPT,
-    REDUCED_MOTION_CSS, SKIP_LINK_CSS, SKIP_LINK_HTML, Source, SourcesParams, TOGGLE_BTN,
-    chrome_footer, chrome_topbar, digest_nav_html, digest_og_tags, render_feedback, render_index,
-    render_sources, web_footer_html,
+    DIGEST_NAV_CSS, FAVICON_SVG, FeedbackParams, IndexParams, NO_FLASH_SCRIPT,
+    PROXY_TRANSLATE_HIDE_SCRIPT, REDUCED_MOTION_CSS, SKIP_LINK_CSS, SKIP_LINK_HTML, Source,
+    SourcesParams, TOGGLE_BTN, TOGGLE_JS, chrome_footer, chrome_topbar, digest_nav_html,
+    digest_og_tags, render_feedback, render_index, render_sources, web_feedback_html,
 };
 use crate::util::{escape_html, format_day_month_year, is_valid_date, log_row_error};
 
@@ -665,32 +665,27 @@ pub async fn get_digest(
         &state.digest_name,
         &image_url,
     );
-    let head_inject = format!("{FAVICON_SVG}\n  {og_tags}\n  {PROXY_TRANSLATE_HIDE_SCRIPT}");
+    // No-flash theme boot joins the favicon/OG/proxy head bundle so the injected
+    // theme toggle has a stored preference applied before first paint.
+    let head_inject =
+        format!("{FAVICON_SVG}\n  {og_tags}\n  {PROXY_TRANSLATE_HIDE_SCRIPT}\n  {NO_FLASH_SCRIPT}");
 
-    // Build web footer links (subscribe replaces unsubscribe)
-    let (subscribe_url, archive_url) = match &state.digest_domain {
-        Some(d) => (format!("https://{d}/#subscribe"), format!("https://{d}")),
-        None => ("/#subscribe".to_string(), "/".to_string()),
-    };
-    let web_footer = web_footer_html(
-        &subscribe_url,
-        &archive_url,
-        routes::SOURCES,
-        &state.privacy_url(),
-        &date,
-        state.feedback_email.as_deref(),
-    );
+    // The digest keeps its OWN <footer> (which already carries a Subscribe link;
+    // the email-only Unsubscribe is hidden by the web flip). The only web-only
+    // footer bit left to fold in is the optional feedback invitation (spec §4).
+    let feedback = web_feedback_html(&date, state.feedback_email.as_deref());
 
     // Foundation plumbing: circulation owns the served font, so it injects the @font-face
-    // (family -> the content-hashed /assets route) into the WEB view's head here. This is
-    // INERT today -- the stored blob (newsroom/templates/digest.css) still renders in Georgia
-    // and references no "Source Serif 4"/`--serif`; the rule is declared-but-unmatched until
-    // the digest body port switches the digest CSS to `var(--serif)` (task #6), at which point
-    // the web view resolves the family to this hashed route with no hardcoded URL in newsroom.
-    // The email render never passes through this handler, so it stays on Georgia by design.
+    // (family -> the content-hashed /assets route) into the WEB view's head here. Now ACTIVE:
+    // the ported digest CSS renders in `var(--serif)` ("Source Serif 4", Georgia, ...), so the
+    // web view resolves the family to this hashed route with no hardcoded URL in newsroom. The
+    // email render never passes through this handler, so it stays on the Georgia fallback.
     let font_face = crate::assets::font_face(&state.font_url);
 
-    // Inject elements into stored HTML (warn on miss -- indicates template drift)
+    // Inject web chrome into the stored blob (warn on miss -- indicates template drift).
+    // The new digest template already ships `<main id="main">` and its own `<footer>`, so we
+    // do NOT inject a second main/footer -- only the head bundle, the top bar (inside `.paper`,
+    // above the masthead, matching the mockup), the web-only feedback line, and the toggle JS.
     let html = inject(
         &html,
         "</head>",
@@ -699,32 +694,35 @@ pub async fn get_digest(
         ),
         &date,
     );
+    // Skip link first in <body> (before the preheader / paper) -- the first focusable element.
+    let html = inject(&html, "<body>", &format!("<body>{SKIP_LINK_HTML}"), &date);
+    // Top utility bar inside `.paper`, above the masthead (same column as the content).
     let html = inject(
         &html,
-        "<body>",
-        &format!(
-            "<body>{SKIP_LINK_HTML}{}<main id=\"main\">",
-            digest_nav_html(&date)
-        ),
+        r#"<div class="paper">"#,
+        &format!(r#"<div class="paper">{}"#, digest_nav_html(&date)),
         &date,
     );
-    // Insert web links before footer-meta (same position as email links)
-    let html = if html.contains(r#"<p class="footer-meta">"#) {
+    // Web-only feedback line inside the digest's own footer (before the meta rows, else at end).
+    let html = if feedback.is_empty() {
+        html
+    } else if html.contains(r#"<p class="footer-meta">"#) {
         inject(
             &html,
             r#"<p class="footer-meta">"#,
-            &format!("{web_footer}\n    <p class=\"footer-meta\">"),
+            &format!("{feedback}\n    <p class=\"footer-meta\">"),
             &date,
         )
     } else {
         inject(
             &html,
             "</footer>",
-            &format!("{web_footer}\n  </footer>"),
+            &format!("{feedback}\n  </footer>"),
             &date,
         )
     };
-    let html = inject(&html, "</body>", "</main></body>", &date);
+    // Theme-toggle cycle JS at end of body (drives the injected `#themeBtn`).
+    let html = inject(&html, "</body>", &format!("{TOGGLE_JS}</body>"), &date);
 
     Ok(Html(html))
 }

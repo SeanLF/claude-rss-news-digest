@@ -9,10 +9,12 @@ mod sources;
 mod stats;
 mod thread;
 
-pub use chrome::{TOGGLE_BTN, footer as chrome_footer, topbar as chrome_topbar};
+pub use chrome::{
+    NO_FLASH_SCRIPT, TOGGLE_BTN, TOGGLE_JS, footer as chrome_footer, topbar as chrome_topbar,
+};
 pub use digest::{
     DIGEST_NAV_CSS, FAVICON_SVG, PROXY_TRANSLATE_HIDE_SCRIPT, REDUCED_MOTION_CSS, SKIP_LINK_CSS,
-    SKIP_LINK_HTML, digest_nav_html, digest_og_tags, web_footer_html,
+    SKIP_LINK_HTML, digest_nav_html, digest_og_tags, web_feedback_html,
 };
 pub use feedback::{FeedbackParams, render_feedback};
 pub use index::{IndexParams, render_index};
