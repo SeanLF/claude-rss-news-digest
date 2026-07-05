@@ -47,7 +47,14 @@ a{color:var(--accent-ink);}
   display:inline-flex; align-items:center; gap:6px; min-height:24px;}
 .toggle:hover{color:var(--accent-ink); border-color:var(--accent);}
 .toggle:focus-visible{outline:2px solid var(--accent); outline-offset:2px;}
-.tglyph{font-size:13px; line-height:1;}
+/* two stacked glyphs: current (rest) crossfades to next-state (hover) — a visual echo of the
+   "Switch to {next}" title. At rest only .tg-cur shows, so the control still reads as status. */
+.tglyphs{position:relative; display:inline-flex; flex:none; width:1em; height:1em; font-size:13px; line-height:1;}
+.tglyph{position:absolute; inset:0; display:flex; align-items:center; justify-content:center; line-height:1;
+  transition:opacity .2s ease, transform .2s ease;}
+.tg-next{opacity:0; transform:translateY(35%);}
+.toggle:hover .tg-cur{opacity:0; transform:translateY(-35%);}
+.toggle:hover .tg-next{opacity:1; transform:translateY(0);}
 @media (max-width:420px){ .tword{display:none;} }
 
 /* footer */
@@ -94,7 +101,7 @@ pub const FAVICON: &str = r##"<link rel="icon" href="data:image/svg+xml,%3Csvg x
 pub const NO_FLASH_SCRIPT: &str = "<script>(function(){try{var t=localStorage.getItem('theme');if(t==='light'||t==='dark')document.documentElement.setAttribute('data-theme',t);}catch(e){}})();</script>";
 
 /// The theme-toggle button (glyph + word; word hides ≤420px, `aria-label` set live by the JS).
-pub const TOGGLE_BTN: &str = r#"<button class="toggle" id="themeBtn" type="button" aria-label="Theme"><span class="tglyph" aria-hidden="true">◐</span><span class="tword">System</span></button>"#;
+pub const TOGGLE_BTN: &str = r#"<button class="toggle" id="themeBtn" type="button" aria-label="Theme"><span class="tglyphs" aria-hidden="true"><span class="tglyph tg-cur">◐</span><span class="tglyph tg-next">☀</span></span><span class="tword">System</span></button>"#;
 
 /// The 3-state cycle System → Light → Dark → System. localStorage-persisted; live-follows the OS
 /// while in system mode. Belongs at end of `<body>`.
@@ -103,9 +110,9 @@ pub const TOGGLE_JS: &str = r#"<script>(function(){
   var root=document.documentElement,ORDER=['system','light','dark'],
       ICON={system:'◐',light:'☀',dark:'☾'},WORD={system:'System',light:'Light',dark:'Dark'};
   function cur(){try{var t=localStorage.getItem('theme');return(t==='light'||t==='dark')?t:'system';}catch(e){return'system';}}
-  function paint(s){var g=btn.querySelector('.tglyph'),w=btn.querySelector('.tword');
-    if(g)g.textContent=ICON[s];if(w)w.textContent=WORD[s];
+  function paint(s){var gc=btn.querySelector('.tg-cur'),gn=btn.querySelector('.tg-next'),w=btn.querySelector('.tword');
     var nx=ORDER[(ORDER.indexOf(s)+1)%3];
+    if(gc)gc.textContent=ICON[s];if(gn)gn.textContent=ICON[nx];if(w)w.textContent=WORD[s];
     btn.setAttribute('aria-label','Theme: '+WORD[s]+'. Activate to switch to '+WORD[nx]+'.');
     btn.setAttribute('title','Switch to '+WORD[nx]);}
   function apply(s){if(s==='system'){root.removeAttribute('data-theme');try{localStorage.removeItem('theme');}catch(e){}}
