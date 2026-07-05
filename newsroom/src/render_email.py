@@ -55,15 +55,38 @@ MONO = "'Courier New', monospace"
 SIDE = "28px"  # matches .paper horizontal padding
 MONO_UP = 'letter-spacing="1px" text-transform="uppercase"'  # mj-text attrs for mono meta
 
+# The common mj-text attribute values, pushed into <mj-attributes> so each _txt only
+# emits the attrs that DIFFER from these. font-family's default comes from <mj-all>
+# (SERIF); the rest from an <mj-text> defaults block built from this same map. One
+# source for both the defaults block and _txt's omit-if-equal check means they can't
+# drift -- a mismatch would silently change the compiled email.
+_TXT_DEFAULTS = {
+    "font-family": SERIF,
+    "font-size": "18px",
+    "color": INK2,
+    "line-height": "1.6",
+    "align": "left",
+    "padding": "0",
+}
+
 
 def _txt(
     content: str, *, size=18, color=INK2, font=SERIF, lh="1.6", weight=None, align="left", padding="0", extra=""
 ) -> str:
-    w = f' font-weight="{weight}"' if weight else ""
-    return (
-        f'<mj-text font-family="{font}" font-size="{size}px" color="{color}" '
-        f'line-height="{lh}" align="{align}" padding="{padding}"{w} {extra}>{content}</mj-text>'
-    )
+    vals = {
+        "font-family": font,
+        "font-size": f"{size}px",
+        "color": color,
+        "line-height": lh,
+        "align": align,
+        "padding": padding,
+    }
+    attrs = " ".join(f'{k}="{v}"' for k, v in vals.items() if v != _TXT_DEFAULTS[k])
+    if weight:
+        attrs += f' font-weight="{weight}"'
+    if extra:
+        attrs += f" {extra}"
+    return f"<mj-text {attrs}>{content}</mj-text>"
 
 
 def _link(url: str, text: str, color: str = ACCENT_INK) -> str:
@@ -150,9 +173,7 @@ def _sources(article: dict, slug: str, homepage_url: str) -> str:
         f'<a href="{html.escape(link)}" style="font-family:{SANS};font-size:12px;'
         f'text-transform:none;letter-spacing:0;color:{ACCENT_INK};">view {src_word} online</a>'
     )
-    text = _txt(
-        label, size=10, color=MUTED, font=MONO, padding="0", extra='letter-spacing="1px" text-transform="uppercase"'
-    )
+    text = _txt(label, size=10, color=MUTED, font=MONO, extra='letter-spacing="1px" text-transform="uppercase"')
     return f'<mj-section padding="16px {SIDE} 0"><mj-column>{bar}{text}</mj-column></mj-section>'
 
 
@@ -187,25 +208,19 @@ def _story(article: dict, slug: str, homepage_url: str) -> str:
     # eyebrow stays glued to the headline, not floated into its own section above it.
     parts = [
         _section(
-            _txt(headline, size=25, color=INK, font=SERIF, lh="1.24", weight="600", padding="0 0 12px")
+            _txt(headline, size=25, color=INK, lh="1.24", weight="600", padding="0 0 12px")
             + _eyebrow_thread(thread)
-            + _txt(body, size=18, color=INK, font=SERIF),
+            + _txt(body, color=INK),
             padding=f"24px {SIDE} 0",
         )
     ]
     if why:
-        parts.append(
-            _section(
-                _eyebrow("Why it matters") + _txt(why, size=18, color=INK2), padding=f"16px {SIDE} 0", border_left=True
-            )
-        )
+        parts.append(_section(_eyebrow("Why it matters") + _txt(why), padding=f"16px {SIDE} 0", border_left=True))
     varies = article.get("reporting_varies", [])
     if varies:
         rows = "".join(
             _txt(
                 f'<b style="color:{INK};">{html.escape(v.get("source", ""))}:</b> {html.escape(v.get("angle", ""))}',
-                size=18,
-                color=INK2,
                 padding="8px 0 0",
             )
             for v in varies
@@ -224,9 +239,9 @@ def _brief(article: dict, slug: str, homepage_url: str, is_first: bool = False) 
     # headline -> eyebrow -> summary, same order as the story tier and the mockup
     # (mockup `.brief .eyebrow{margin-bottom:4px}` -> the eyebrow gets a 4px bottom pad).
     inner = (
-        _txt(headline, size=20, color=INK, font=SERIF, lh="1.3", weight="600", padding="0 0 4px")
+        _txt(headline, size=20, color=INK, lh="1.3", weight="600", padding="0 0 4px")
         + _eyebrow_thread(thread, pad="0 0 4px")
-        + _txt(body, size=18, color=INK2)
+        + _txt(body)
     )
     # The first brief needs a top gap from the section header (later briefs get it
     # from the separator); stories already carry their own top padding.
@@ -276,7 +291,6 @@ def render_email(selections: dict, unsubscribe_url: str = "{{{RESEND_UNSUBSCRIBE
                 color=MUTED,
                 font=MONO,
                 align="center",
-                padding="0",
                 extra='letter-spacing="1px" text-transform="uppercase"',
             ),
             padding=f"24px {SIDE} 0",
@@ -291,7 +305,6 @@ def render_email(selections: dict, unsubscribe_url: str = "{{{RESEND_UNSUBSCRIBE
         color=INK,
         weight="600",
         lh="1",
-        padding="0",
     )
     issue = _txt(
         f"{issue_label}Filed {filed}",
@@ -300,7 +313,6 @@ def render_email(selections: dict, unsubscribe_url: str = "{{{RESEND_UNSUBSCRIBE
         font=MONO,
         align="right",
         lh="1.55",
-        padding="0",
         extra=MONO_UP,
     )
     body.append(
@@ -332,7 +344,6 @@ def render_email(selections: dict, unsubscribe_url: str = "{{{RESEND_UNSUBSCRIBE
                 f"&#160;&#160;Written by Claude, an assistant that can make mistakes - verify anything important against the linked sources. "
                 f'Political leanings from <a href="{archive}/sources" style="color:{ACCENT_INK};">independent media assessors</a>.',
                 size=12,
-                color=INK2,
                 font=SANS,
             ),
             padding=f"12px {SIDE}",
@@ -375,9 +386,11 @@ def render_email(selections: dict, unsubscribe_url: str = "{{{RESEND_UNSUBSCRIBE
     )
     body.append(f'<mj-section padding="0 {SIDE}"><mj-column>{footer_inner}</mj-column></mj-section>')
 
+    text_defaults = " ".join(f'{k}="{v}"' for k, v in _TXT_DEFAULTS.items() if k != "font-family")
     mjml = (
         "<mjml><mj-head>"
-        '<mj-attributes><mj-all font-family="' + SERIF + '" /></mj-attributes>'
+        '<mj-attributes><mj-all font-family="' + SERIF + '" />'
+        f"<mj-text {text_defaults} /></mj-attributes>"
         "<mj-preview>" + html.escape(preheader) + "</mj-preview>"
         "</mj-head>"
         f'<mj-body background-color="{BG}" width="660px">' + "".join(body) + "</mj-body></mjml>"
