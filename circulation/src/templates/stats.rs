@@ -33,8 +33,6 @@ section{margin-top:44px;}
 .sec-h{display:flex; align-items:baseline; gap:12px; border-bottom:1px solid var(--ink); padding-bottom:8px;}
 .sec-h h2{font-family:var(--sans); font-weight:700; font-size:11px; letter-spacing:.16em; text-transform:uppercase; color:var(--ink); margin:0;}
 .sec-h .ct{font-family:var(--mono); font-size:11px; color:var(--muted); margin-left:auto; font-variant-numeric:tabular-nums;}
-.planned-badge{font-family:var(--mono); font-size:9px; letter-spacing:.1em; text-transform:uppercase; color:var(--warn-ink);
-  border:1px solid var(--line-strong); border-radius:3px; padding:2px 6px;}
 .note{font-family:var(--serif); font-size:14px; color:var(--muted); line-height:1.6; margin:14px 0 0;}
 .note code{font-family:var(--mono); font-size:12px; color:var(--ink2);}
 .stats{display:flex; flex-wrap:wrap; gap:14px 40px; margin-top:16px;}
@@ -46,19 +44,11 @@ section{margin-top:44px;}
 .bal{margin-top:20px;}
 .balrow{display:grid; grid-template-columns:76px 1fr; gap:14px; align-items:center; margin-bottom:8px;}
 .balrow .rl{font-family:var(--mono); font-size:10px; letter-spacing:.06em; text-transform:uppercase; color:var(--muted); text-align:right;}
-.sbar{display:grid; grid-template-columns:repeat(7,1fr); height:22px; border-radius:5px; overflow:hidden; border:1px solid var(--line);}
-.sbar .z{display:block;}
-.sbar .e-l{background:color-mix(in srgb, var(--bias-l) 12%, var(--paper));}
-.sbar .e-r{background:color-mix(in srgb, var(--bias-r) 12%, var(--paper));}
+.sbar{display:flex; height:22px; border-radius:5px; overflow:hidden; border:1px solid var(--line);}
+.sbar span{display:block;}
 .sbar .on-l{background:var(--bias-l);} .sbar .on-c{background:var(--bias-c);} .sbar .on-r{background:var(--bias-r);}
-.balnums{display:grid; grid-template-columns:76px 1fr; margin:2px 0;}
-.balnums .sp{grid-column:2; display:grid; grid-template-columns:repeat(7,1fr);}
-.balnums .sp span{text-align:center; font-family:var(--mono); font-size:11px; color:var(--ink2); font-variant-numeric:tabular-nums;}
-.balnums.cat .sp span{color:var(--muted);}
-.ballabels{display:grid; grid-template-columns:76px 1fr;}
-.ballabels .sp{grid-column:2; display:grid; grid-template-columns:repeat(7,1fr); margin-top:6px;}
-.ballabels .sp span{text-align:center; font-family:var(--mono); font-size:8.5px; letter-spacing:.04em; text-transform:uppercase; color:var(--muted); padding:0 1px; line-height:1.3;}
-.ballabels .sp span.on{color:var(--ink2);}
+.ballegend{font-family:var(--mono); font-size:10px; letter-spacing:.04em; text-transform:uppercase; color:var(--muted); margin:3px 0 16px 90px;}
+.ballegend .ll{color:var(--bias-l);} .ballegend .cc{color:var(--bias-c);} .ballegend .rr{color:var(--bias-r);}
 /* concentration share bars */
 .shares{margin-top:16px; display:flex; flex-direction:column; gap:8px;}
 .share{display:grid; grid-template-columns:130px 1fr 42px; gap:12px; align-items:center;}
@@ -85,12 +75,9 @@ td.time{font-family:var(--mono); font-size:12.5px; color:var(--ink2); white-spac
 .rate.warn{color:var(--warn-ink);} .rate.warn .ic{color:var(--warn);}
 .rate.bad{color:var(--accent-ink);} .rate.bad .ic{color:var(--accent);}
 td.rate-cell{text-align:right;}
-/* planned roadmap */
-.planned{border:1px dashed var(--line-strong); border-radius:var(--r-card); padding:18px 20px; margin-top:14px; background:color-mix(in srgb, var(--warn) 4%, transparent);}
-.planned .stats .v{color:var(--muted);}
 @media (max-width:560px){
   .balrow{grid-template-columns:1fr;} .balrow .rl{text-align:left;}
-  .ballabels{grid-template-columns:1fr;} .ballabels .sp{grid-column:1;}
+  .ballegend{margin-left:0;}
   .share{grid-template-columns:100px 1fr 40px;}
 }
 "#;
@@ -122,19 +109,15 @@ fn tile(value_html: &str, value_cls: &str, label: &str, sub: &str) -> String {
     )
 }
 
-/// A 7-cell spectrum bar row (row-label + saturated l/c/r cells, faded extremes).
-fn spectrum_row(label: &str, aria: &str) -> String {
+/// A PROPORTIONAL bias bar — l/c/r segment widths are their percentages (a real shipped-vs-catalog
+/// comparison, not a fixed legend) — plus a colour-keyed legend line.
+fn spectrum_row(label: &str, pct: [i64; 3], aria: &str) -> String {
     format!(
-        r#"<div class="balrow"><span class="rl">{label}</span><div class="sbar" role="img" aria-label="{aria}"><span class="z e-l"></span><span class="z e-l"></span><span class="z on-l"></span><span class="z on-c"></span><span class="z on-r"></span><span class="z e-r"></span><span class="z e-r"></span></div></div>"#
-    )
-}
-
-/// The 7-cell number row above/below a spectrum bar (only l/c/r columns carry text).
-fn spectrum_nums(pct: [i64; 3], cat: bool) -> String {
-    let cls = if cat { "balnums cat" } else { "balnums" };
-    format!(
-        r#"<div class="{cls}"><div class="sp"><span></span><span></span><span>{}%</span><span>{}%</span><span>{}%</span><span></span><span></span></div></div>"#,
-        pct[0], pct[1], pct[2]
+        r#"<div class="balrow"><span class="rl">{label}</span><div class="sbar" role="img" aria-label="{aria}"><span class="on-l" style="width:{l}%"></span><span class="on-c" style="width:{c}%"></span><span class="on-r" style="width:{r}%"></span></div></div>
+<p class="ballegend"><span class="ll">{l}% lean-left</span> · <span class="cc">{c}% centre</span> · <span class="rr">{r}% lean-right</span></p>"#,
+        l = pct[0],
+        c = pct[1],
+        r = pct[2],
     )
 }
 
@@ -157,7 +140,10 @@ fn balance_section(m: &StatsMetrics) -> String {
             bal_verdict,
             bal_cls,
             "Selection vs shelf",
-            &format!("JSD {:.2} — curation isn't the skew", m.jsd)
+            &format!(
+                "<span title=\"Jensen–Shannon divergence: distance from shipped mix to the catalog (0 = identical)\">JSD</span> {:.2} — curation isn't the skew",
+                m.jsd
+            )
         ),
         tile(
             &format!("{} of 7", m.buckets_sourced),
@@ -185,18 +171,13 @@ fn balance_section(m: &StatsMetrics) -> String {
   <div class="sec-h"><h2>Balance</h2><span class="ct">shipped vs catalog</span></div>
   <div class="stats">{tiles}</div>
   <div class="bal">
-    {ship_nums}
     {ship_row}
     {cat_row}
-    {cat_nums}
-    <div class="ballabels"><div class="sp"><span>Far left</span><span>Left</span><span class="on">Lean left</span><span class="on">Centre</span><span class="on">Lean right</span><span>Right</span><span>Far right</span></div></div>
   </div>
-  <p class="note">Selection closely tracks the catalog, so the digest is balanced <em>relative to what it can draw from</em>. The spectrum stops at lean-left &rarr; lean-right <b style="color:var(--ink2);font-weight:600;">by design</b>: the digest holds a factuality floor &mdash; no low-rated sources &mdash; and the political extremes skew low-factuality, so they're excluded on <b style="color:var(--ink2);font-weight:600;">quality, not omitted by accident</b>. A wider spectrum would mean lowering that bar.</p>
+  <p class="note">The two bars compare the shipped mix against the catalog it draws from — they track closely, so the digest is balanced <em>relative to its shelf</em>. Only lean-left &rarr; lean-right appear <b style="color:var(--ink2);font-weight:600;">by design</b>: a factuality floor excludes low-rated sources, and the political extremes skew low-factuality — so they're out on <b style="color:var(--ink2);font-weight:600;">quality, not omitted by accident</b>.</p>
 </section>"##,
-        ship_nums = spectrum_nums(m.shipped_pct, false),
-        ship_row = spectrum_row("Shipped", &shipped_aria),
-        cat_row = spectrum_row("Catalog", &catalog_aria),
-        cat_nums = spectrum_nums(m.catalog_pct, true),
+        ship_row = spectrum_row("Shipped", m.shipped_pct, &shipped_aria),
+        cat_row = spectrum_row("Catalog", m.catalog_pct, &catalog_aria),
     )
 }
 
@@ -223,7 +204,7 @@ fn concentration_section(m: &StatsMetrics, never: &[String], days: u32) -> Strin
         tile(
             &format!("{:.2}", m.hhi),
             hhi_cls,
-            "Concentration (HHI)",
+            "Concentration <span title=\"Herfindahl–Hirschman Index: how concentrated sourcing is; low = well spread\">(HHI)</span>",
             &format!("{hhi_desc} · eff. {:.0} sources", m.effective_n)
         ),
         tile(
@@ -375,50 +356,56 @@ fn cost_section(data: &StatsData) -> String {
     )
 }
 
-fn dedup_section(data: &StatsData) -> String {
-    let filtered = data
-        .dedup_stats
-        .as_ref()
-        .map(|d| d.filtered_count)
+fn geographic_section(m: &StatsMetrics) -> String {
+    if m.regions.is_empty() {
+        return String::new();
+    }
+    let total: i64 = m.regions.iter().map(|(_, c)| c).sum();
+    let top = m.regions.first().map(|(_, c)| *c).unwrap_or(1).max(1);
+    let rows: String = m
+        .regions
+        .iter()
+        .map(|(name, c)| {
+            let pct = if total > 0 {
+                *c as f64 / total as f64 * 100.0
+            } else {
+                0.0
+            };
+            format!(
+                r#"<div class="share"><span class="sn">{name}</span><span class="track"><span class="fill" style="width:{bar:.0}%"></span></span><span class="pc">{pct:.0}%</span></div>"#,
+                bar = *c as f64 / top as f64 * 100.0,
+            )
+        })
+        .collect();
+    let top_pct = m
+        .regions
+        .first()
+        .map(|(_, c)| if total > 0 { c * 100 / total } else { 0 })
         .unwrap_or(0);
-    let per_run = if data.cost.runs > 0 {
-        filtered as f64 / data.cost.runs as f64
-    } else {
-        0.0
-    };
-    format!(
-        r##"<section>
-  <div class="sec-h"><h2>Dedup</h2><span class="ct">TF-IDF title filter</span></div>
-  <div class="stats">{tile}</div>
-  <div class="planned">
-    <div style="display:flex; align-items:center; gap:10px; margin-bottom:10px;"><span class="planned-badge">Planned</span><span style="font-family:var(--mono); font-size:11px; color:var(--muted);">precision · recall · F1 + threshold sweep</span></div>
-    <p class="note" style="margin:0;">The old <em>avg-similarity</em> metric was <b style="color:var(--ink2);font-weight:600;">cut</b> — it's blind to false negatives and rewards false positives, so it can't tell a good threshold from a broken one. The real signal needs a labelled ~200-pair set near the boundary, scored with B-Cubed F.</p>
-  </div>
-</section>"##,
-        tile = tile(
-            &filtered.to_string(),
+    let tiles = format!(
+        "{}{}",
+        tile(
+            &format!("{:.1}", m.geo_effective),
             "",
-            "Filtered this period",
-            &format!("~{per_run:.1} / run")
+            "Effective regions",
+            &format!("of 6 · geo-HHI {:.2}", m.geo_hhi)
         ),
+        tile(
+            m.regions.first().map(|(n, _)| n.as_str()).unwrap_or(""),
+            "",
+            "Top region",
+            &format!("{top_pct}% of stories")
+        ),
+    );
+    format!(
+        r#"<section>
+  <div class="sec-h"><h2>Geographic origin</h2><span class="ct">source vantage, not story location</span></div>
+  <div class="stats">{tiles}</div>
+  <div class="shares">{rows}</div>
+  <p class="note">Region reflects each <em>source's</em> vantage point, not where the story happened. The catalog skews Western — true story-geography would need per-story geo-tagging.</p>
+</section>"#
     )
 }
-
-/// The two fully-planned roadmap blocks (no fake numbers — placeholders + the data-need note).
-const PLANNED_SECTIONS: &str = r##"<section>
-  <div class="sec-h"><h2>Freshness</h2><span class="planned-badge">Planned</span><span class="ct">publish &rarr; send</span></div>
-  <div class="planned">
-    <div class="stats"><span class="st"><span class="v">—</span><span class="l">Median lag</span></span><span class="st"><span class="v">—</span><span class="l">p90 lag · must-know</span></span></div>
-    <p class="note" style="margin-top:14px;">Timeliness is a daily digest's whole value. Cheap to add: the article <code>published</code> time already flows through the pipeline &mdash; it just needs persisting as one column on <code>shown_narratives</code>.</p>
-  </div>
-</section>
-<section>
-  <div class="sec-h"><h2>Delivery &amp; engagement</h2><span class="planned-badge">Planned</span><span class="ct">needs Resend webhooks</span></div>
-  <div class="planned">
-    <div class="stats"><span class="st"><span class="v">—</span><span class="l">Bounce rate</span></span><span class="st"><span class="v">—</span><span class="l">Complaint rate</span></span><span class="st"><span class="v">—</span><span class="l">Click-through</span></span><span class="st"><span class="v">—</span><span class="l">Unsubscribe rate</span></span></div>
-    <p class="note" style="margin-top:14px;">A hard deliverability floor you currently can't see. Needs a Resend webhook endpoint + an events table. Raw <em>opens</em> deliberately excluded — MPP inflates them; raw <em>subscriber count</em> excluded — vanity.</p>
-  </div>
-</section>"##;
 
 fn period_toggle(days: u32) -> String {
     let opt = |d: u32, label: &str| {
@@ -465,11 +452,10 @@ pub fn render_stats(p: &StatsParams) -> String {
     {toggle}
     <main id="main">
     {balance}
+    {geo}
     {concentration}
     {health}
     {cost}
-    {dedup}
-    {planned}
     </main>
     {footer}
 </div></div>
@@ -480,11 +466,10 @@ pub fn render_stats(p: &StatsParams) -> String {
         topbar = p.topbar_html,
         toggle = period_toggle(p.days),
         balance = balance_section(m),
+        geo = geographic_section(m),
         concentration = concentration_section(m, &p.data.never_selected, p.days),
         health = source_health_section(p.data),
         cost = cost_section(p.data),
-        dedup = dedup_section(p.data),
-        planned = PLANNED_SECTIONS,
         footer = p.footer_html,
         toggle_js = chrome::TOGGLE_JS,
     )
@@ -582,26 +567,27 @@ mod tests {
         assert_eq!(html.matches("<h1").count(), 1);
         for h in [
             "Balance",
+            "Geographic origin",
             "Concentration",
             "Source health",
             "Cost",
-            "Dedup",
-            "Freshness",
-            "Delivery",
         ] {
             assert!(
                 html.contains(&format!("<h2>{h}")) || html.contains(&format!(">{h}")),
                 "missing {h}"
             );
         }
+        // dropped sections: dedup + fully-planned tiles are gone
+        assert!(!html.contains("planned-badge"));
+        assert!(!html.contains("<h2>Dedup"));
         // period toggle: 30 days current
         assert!(html.contains(r#"<a href="?days=30" aria-current="true">30 days</a>"#));
         assert!(html.contains(r#"<a href="?days=7" aria-current="false">7 days</a>"#));
         // RAG: worst-first ordering puts the 68% "down" row before the 99% "ok" row
         assert!(html.find("68%").unwrap() < html.find("99%").unwrap());
         assert!(html.contains(r#"<span class="rate bad">"#));
-        // planned tiles present, no fake numbers
-        assert_eq!(html.matches(r#"class="planned-badge">Planned"#).count(), 3);
+        // proportional balance bars (widths from the mix, not a fixed 7-cell legend)
+        assert!(html.contains(r#"<span class="on-l" style="width:"#));
         // masthead statline
         assert!(html.contains("<b>30</b> runs &middot; <b>47</b> subscribers"));
     }

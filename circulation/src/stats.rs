@@ -321,24 +321,31 @@ pub struct StatsMetrics {
     pub sources_used: i64,  // distinct catalog sources shipped in the window
     pub catalog_total: i64, // |sources.json|
     pub coverage_pct: i64,
+    // Geographic (source-origin regions, from sources.json `region`)
+    pub regions: Vec<(String, i64)>, // (region, shipped count) sorted desc
+    pub geo_hhi: f64,                // concentration across region shares
+    pub geo_effective: f64,          // effective region count = 1/geo_hhi
 }
 
 /// id -> display name, from the compiled-in `sources.json` (for the source-health table).
 pub fn source_names() -> HashMap<String, String> {
     sources_meta()
         .into_iter()
-        .map(|(id, (_, _, name))| (id, name))
+        .map(|(id, (_, _, name, _))| (id, name))
         .collect()
 }
 
-/// id -> (bias bucket 'l'|'c'|'r', factuality, display name), from the compiled-in `sources.json`.
-fn sources_meta() -> HashMap<String, (char, String, String)> {
-    #[derive(serde::Deserialize)]
+/// id -> (bias bucket 'l'|'c'|'r', factuality, display name, origin `region`), from `sources.json`.
+/// `region` is an explicit per-source field in sources.json (source-origin vantage, not story location).
+fn sources_meta() -> HashMap<String, (char, String, String, String)> {
+    #[derive(serde::Deserialize, Default)]
     struct Raw {
         id: String,
         name: String,
         bias: String,
         factuality: String,
+        #[serde(default)]
+        region: String,
     }
     let raw: Vec<Raw> = serde_json::from_str(include_str!("../sources.json")).unwrap_or_default();
     raw.into_iter()
@@ -348,7 +355,12 @@ fn sources_meta() -> HashMap<String, (char, String, String)> {
                 "lean-right" | "right" | "far-right" => 'r',
                 _ => 'c',
             };
-            (s.id, (bucket, s.factuality, s.name))
+            let region = if s.region.is_empty() {
+                "Global".to_string()
+            } else {
+                s.region
+            };
+            (s.id, (bucket, s.factuality, s.name, region))
         })
         .collect()
 }
@@ -417,12 +429,13 @@ pub fn compute_metrics(data: &StatsData) -> StatsMetrics {
     }
     let total_shipped: i64 = per_source.values().sum();
 
-    // Bias mix + factuality over sources with known metadata.
+    // Bias mix + factuality + region over sources with known metadata.
     let mut shipped_lcr = [0i64; 3];
     let mut fact_high = 0i64;
     let mut fact_known = 0i64;
+    let mut region_counts: HashMap<String, i64> = HashMap::new();
     for (id, &count) in &per_source {
-        if let Some((bucket, factuality, _)) = meta.get(*id) {
+        if let Some((bucket, factuality, _, region)) = meta.get(*id) {
             match bucket {
                 'l' => shipped_lcr[0] += count,
                 'c' => shipped_lcr[1] += count,
@@ -432,12 +445,28 @@ pub fn compute_metrics(data: &StatsData) -> StatsMetrics {
             if matches!(factuality.as_str(), "high" | "very-high") {
                 fact_high += count;
             }
+            *region_counts.entry(region.clone()).or_insert(0) += count;
         }
     }
+    // Geographic: region shares + concentration (geo-HHI), sorted desc.
+    let geo_total: i64 = region_counts.values().sum();
+    let mut regions: Vec<(String, i64)> = region_counts.into_iter().collect();
+    regions.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+    let geo_hhi: f64 = if geo_total > 0 {
+        regions
+            .iter()
+            .map(|(_, c)| {
+                let s = *c as f64 / geo_total as f64;
+                s * s
+            })
+            .sum()
+    } else {
+        0.0
+    };
 
     // Catalog bias distribution (the full sources.json shelf).
     let mut catalog_lcr = [0i64; 3];
-    for (bucket, _, _) in meta.values() {
+    for (bucket, _, _, _) in meta.values() {
         match bucket {
             'l' => catalog_lcr[0] += 1,
             'c' => catalog_lcr[1] += 1,
@@ -468,7 +497,7 @@ pub fn compute_metrics(data: &StatsData) -> StatsMetrics {
         .map(|(id, count)| SourceShare {
             name: meta
                 .get(*id)
-                .map(|(_, _, name)| name.clone())
+                .map(|(_, _, name, _)| name.clone())
                 .unwrap_or_else(|| (*id).to_string()),
             share_pct: if total_shipped > 0 {
                 *count as f64 / total_shipped as f64 * 100.0
@@ -511,6 +540,9 @@ pub fn compute_metrics(data: &StatsData) -> StatsMetrics {
         } else {
             0
         },
+        regions,
+        geo_hhi,
+        geo_effective: if geo_hhi > 0.0 { 1.0 / geo_hhi } else { 0.0 },
     }
 }
 
