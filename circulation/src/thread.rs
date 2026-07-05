@@ -42,6 +42,36 @@ pub struct ThreadSummary {
     pub summary: String,
 }
 
+/// True when the error is SQLite's "no such table" -- the shape a stale DB clone takes (e.g.
+/// `digest-cloud.db` predates the thread_* tables). Callers degrade to an empty state instead of
+/// 503-ing, so `make circulation` against a partial clone renders an empty threads page.
+fn is_missing_table(e: &rusqlite::Error) -> bool {
+    e.to_string().contains("no such table")
+}
+
+/// Prepare `sql`, mapping any real failure to a 500. SQLite's "no such table" instead yields
+/// `Ok(None)` so the caller can degrade a stale/partial DB clone to an empty result (see
+/// `is_missing_table`) rather than 503-ing.
+fn prepare_or_degrade<'c>(
+    conn: &'c Connection,
+    sql: &str,
+) -> Result<Option<rusqlite::Statement<'c>>, (StatusCode, String)> {
+    match conn.prepare(sql) {
+        Ok(stmt) => Ok(Some(stmt)),
+        // Log rather than swallow silently: `{e}` names the actual missing table, so a stale
+        // clone reads as "no such table: thread_*" while an unexpectedly-absent core table
+        // (e.g. a half-applied migration) still leaves a visible signal instead of a blank page.
+        Err(e) if is_missing_table(&e) => {
+            tracing::warn!("degrading to empty result -- {e} (stale/partial DB clone?)");
+            Ok(None)
+        }
+        Err(e) => Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Query error: {e}"),
+        )),
+    }
+}
+
 /// Fetch one thread's header + full history, newest-first. `Ok(None)` means no such thread.
 pub fn fetch_thread(
     db_path: &str,
@@ -50,19 +80,29 @@ pub fn fetch_thread(
     let conn = Connection::open_with_flags(db_path, OpenFlags::SQLITE_OPEN_READ_ONLY)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {e}")))?;
 
-    let head: Option<(String, String)> = conn
+    let head: Option<(String, String)> = match conn
         .query_row(
             "SELECT label, status FROM threads WHERE id = ?1",
             [thread_id],
             |row| Ok((row.get(0)?, row.get(1)?)),
         )
         .optional()
-        .map_err(|e| {
-            (
+    {
+        Ok(head) => head,
+        // Stale clone without the thread tables: treat as "no such thread" rather than 503.
+        Err(e) if is_missing_table(&e) => {
+            tracing::warn!(
+                "thread {thread_id}: treating as unknown -- {e} (stale/partial DB clone?)"
+            );
+            return Ok(None);
+        }
+        Err(e) => {
+            return Err((
                 StatusCode::INTERNAL_SERVER_ERROR,
                 format!("Query error: {e}"),
-            )
-        })?;
+            ));
+        }
+    };
 
     let Some((label, status)) = head else {
         return Ok(None);
@@ -70,45 +110,41 @@ pub fn fetch_thread(
 
     // digest_date via digests.run_id (the actual FK), not a date-string join -- avoids any
     // timezone/format drift between digest_runs.run_at and digests.date.
-    let mut stmt = conn
-        .prepare(
-            "SELECT date(dr.run_at), d.date, COALESCE(ti.cluster_story, ''), ti.content
+    // Partial clone missing the installments table: header with no history, not a 503.
+    let entries: Vec<ThreadEntry> = match prepare_or_degrade(
+        &conn,
+        "SELECT date(dr.run_at), d.date, COALESCE(ti.cluster_story, ''), ti.content
              FROM thread_installments ti
              JOIN digest_runs dr ON dr.id = ti.run_id
              LEFT JOIN digests d ON d.run_id = ti.run_id
              WHERE ti.thread_id = ?1
              ORDER BY ti.run_id DESC",
-        )
-        .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("Query error: {e}"),
-            )
-        })?;
-
-    let entries: Vec<ThreadEntry> = stmt
-        .query_map([thread_id], |row| {
-            Ok((
-                row.get::<_, String>(0)?,
-                row.get::<_, Option<String>>(1)?,
-                row.get::<_, String>(2)?,
-                row.get::<_, Option<String>>(3)?,
-            ))
-        })
-        .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("Query error: {e}"),
-            )
-        })?
-        .filter_map(|r| log_row_error(r, "thread_installments"))
-        .map(|(day, digest_date, cluster_story, content)| ThreadEntry {
-            day,
-            digest_date,
-            headline: cluster_story,
-            facts: facts_from_content(content.as_deref()),
-        })
-        .collect();
+    )? {
+        Some(mut stmt) => stmt
+            .query_map([thread_id], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, Option<String>>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, Option<String>>(3)?,
+                ))
+            })
+            .map_err(|e| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    format!("Query error: {e}"),
+                )
+            })?
+            .filter_map(|r| log_row_error(r, "thread_installments"))
+            .map(|(day, digest_date, cluster_story, content)| ThreadEntry {
+                day,
+                digest_date,
+                headline: cluster_story,
+                facts: facts_from_content(content.as_deref()),
+            })
+            .collect(),
+        None => Vec::new(),
+    };
 
     let open_questions = fetch_open_questions(&conn, thread_id)?;
     Ok(Some(ThreadDetail {
@@ -130,18 +166,16 @@ fn fetch_open_questions(
     conn: &Connection,
     thread_id: i64,
 ) -> Result<Vec<String>, (StatusCode, String)> {
-    let mut stmt = conn
-        .prepare(
-            "SELECT question FROM thread_questions
+    // Partial clone without the questions table: no ledger, not a 503.
+    let Some(mut stmt) = prepare_or_degrade(
+        conn,
+        "SELECT question FROM thread_questions
              WHERE thread_id = ?1 AND status = 'open'
              ORDER BY raised_run_id DESC, id DESC LIMIT ?2",
-        )
-        .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("Query error: {e}"),
-            )
-        })?;
+    )?
+    else {
+        return Ok(Vec::new());
+    };
     let qs = stmt
         .query_map(rusqlite::params![thread_id, LEDGER_MAX as i64], |row| {
             row.get::<_, String>(0)
@@ -163,21 +197,19 @@ pub fn fetch_thread_summaries(db_path: &str) -> Result<Vec<ThreadSummary>, (Stat
     let conn = Connection::open_with_flags(db_path, OpenFlags::SQLITE_OPEN_READ_ONLY)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {e}")))?;
 
-    let mut stmt = conn
-        .prepare(
-            "SELECT t.id, t.label, t.status, t.updated_at,
+    // Stale clone without the thread tables: render an empty threads index, not a 503.
+    let Some(mut stmt) = prepare_or_degrade(
+        &conn,
+        "SELECT t.id, t.label, t.status, t.updated_at,
                     (SELECT COUNT(*) FROM thread_installments ti WHERE ti.thread_id = t.id) AS update_count,
                     (SELECT ti.content FROM thread_installments ti
                      WHERE ti.thread_id = t.id ORDER BY ti.run_id DESC LIMIT 1) AS latest_content
              FROM threads t
              ORDER BY CASE WHEN t.status = 'active' THEN 0 ELSE 1 END, t.updated_at DESC",
-        )
-        .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("Query error: {e}"),
-            )
-        })?;
+    )?
+    else {
+        return Ok(Vec::new());
+    };
 
     let summaries = stmt
         .query_map([], |row| {

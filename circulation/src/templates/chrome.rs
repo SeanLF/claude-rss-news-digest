@@ -107,7 +107,7 @@ pub const TOGGLE_JS: &str = r#"<script>(function(){
     if(g)g.textContent=ICON[s];if(w)w.textContent=WORD[s];
     var nx=ORDER[(ORDER.indexOf(s)+1)%3];
     btn.setAttribute('aria-label','Theme: '+WORD[s]+'. Activate to switch to '+WORD[nx]+'.');
-    btn.setAttribute('title','Theme: '+WORD[s]);}
+    btn.setAttribute('title','Switch to '+WORD[nx]);}
   function apply(s){if(s==='system'){root.removeAttribute('data-theme');try{localStorage.removeItem('theme');}catch(e){}}
     else{root.setAttribute('data-theme',s);try{localStorage.setItem('theme',s);}catch(e){}}paint(s);}
   btn.addEventListener('click',function(){apply(ORDER[(ORDER.indexOf(cur())+1)%3]);});

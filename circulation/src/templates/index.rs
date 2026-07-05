@@ -28,10 +28,10 @@ const INDEX_CSS: &str = r#"
 .search input::placeholder{color:var(--muted);}
 .search input:focus-visible{outline:2px solid var(--accent); outline-offset:-1px; border-color:var(--accent);}
 .seg{display:inline-flex; gap:2px; background:var(--wash); border:1px solid var(--line); border-radius:var(--r-input); padding:3px;}
-.seg button{font-family:var(--sans); font-size:12px; color:var(--muted); background:transparent; border:none;
-  padding:7px 14px; cursor:pointer; border-radius:4px;}
+.seg button{font-family:var(--sans); font-size:12px; color:var(--muted); background:transparent; border:1px solid transparent;
+  padding:6px 14px; cursor:pointer; border-radius:4px;}
 .seg button:hover{color:var(--ink2);}
-.seg button[aria-pressed="true"]{background:var(--panel); color:var(--ink); font-weight:600; box-shadow:0 1px 2px rgba(25,25,23,.10);}
+.seg button[aria-pressed="true"]{background:var(--panel); color:var(--ink); font-weight:600; border-color:var(--line-strong); box-shadow:0 1px 2px rgba(25,25,23,.10);}
 .seg button:focus-visible{outline:2px solid var(--accent); outline-offset:2px;}
 
 /* date jump */

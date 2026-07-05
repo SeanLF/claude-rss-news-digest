@@ -69,7 +69,7 @@ ul.srcs li a.row:focus-visible{outline:2px solid var(--accent); outline-offset:-
 a.row:hover .nm{color:var(--accent-ink);}
 .nm .feeds{font-family:var(--mono); font-size:11px; font-weight:400; color:var(--muted); letter-spacing:0;}
 .persp{display:block; font-family:var(--sans); font-size:12.5px; color:var(--muted); margin-top:3px;}
-.fact{display:inline-flex; align-items:center; gap:9px; white-space:nowrap;}
+.fact{display:grid; grid-template-columns:14px 70px; align-items:center; gap:9px; white-space:nowrap;}
 .meter{display:inline-flex; gap:2px; align-items:flex-end; height:12px;}
 .meter i{display:block; width:3px; background:var(--ink2);}
 .meter i:nth-child(1){height:6px;} .meter i:nth-child(2){height:9px;} .meter i:nth-child(3){height:12px;}
