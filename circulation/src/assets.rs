@@ -14,9 +14,6 @@ use axum::response::IntoResponse;
 
 /// Canonical design tokens — the single source of truth, `include_str!`'d from the repo-root
 /// `design/tokens.css` (the same file newsroom reads). Follows the `sources.json` precedent.
-// Consumed once the chrome pages are rewritten to compose `head_style` (build order §2 phase 2);
-// the tests below already exercise it, so the allow is scoped, not a blanket module opt-out.
-#[allow(dead_code)]
 pub const TOKENS_CSS: &str = include_str!("../../design/tokens.css");
 
 /// Vendored variable woff2 (Source Serif 4, weights 380–640, latin subset). Served as bytes,
@@ -51,8 +48,6 @@ pub fn font_face(font_url: &str) -> String {
 
 /// Compose a page's inline `<style>`: the `@font-face`, then the shared tokens, then the page's
 /// own CSS. One inlined critical sheet per page — the DRY-source / inlined-output model.
-// Consumed by the chrome page rewrites (build order §2 phase 2); exercised by the tests below.
-#[allow(dead_code)]
 pub fn head_style(page_css: &str, font_url: &str) -> String {
     format!(
         "<style>{ff}{tokens}{page}</style>",

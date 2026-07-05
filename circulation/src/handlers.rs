@@ -9,17 +9,17 @@ use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
 use crate::AppState;
+use crate::archive;
 use crate::check_database_health;
 use crate::feed::{DigestRow, render_atom_feed};
 use crate::routes;
 use crate::templates::{
     DIGEST_NAV_CSS, FAVICON_SVG, IndexParams, PROXY_TRANSLATE_HIDE_SCRIPT, REDUCED_MOTION_CSS,
-    SKIP_LINK_CSS, SKIP_LINK_HTML, Source, digest_nav_html, digest_og_tags, render_feedback_thanks,
-    render_index, render_sources, web_footer_html,
+    SKIP_LINK_CSS, SKIP_LINK_HTML, Source, TOGGLE_BTN, chrome_footer, chrome_topbar,
+    digest_nav_html, digest_og_tags, render_feedback_thanks, render_index, render_sources,
+    web_footer_html,
 };
-use crate::util::{
-    escape_html, format_date, format_month_year, is_valid_date, log_row_error, year_month,
-};
+use crate::util::{escape_html, format_day_month_year, is_valid_date, log_row_error};
 
 /// Most recent digests included in the Atom feed.
 const FEED_ENTRY_LIMIT: u32 = 30;
@@ -31,7 +31,14 @@ pub struct SubscribeForm {
 
 #[derive(Deserialize, Default)]
 pub struct IndexQuery {
+    /// `?subscribed=1` — show the subscribe-success notice (form hidden).
     pub subscribed: Option<String>,
+    /// `?subscribe_error=1` — show the subscribe-failure notice (form kept for retry).
+    pub subscribe_error: Option<String>,
+    /// `?before=<date>` — a discrete older page (the no-JS load-more fallback).
+    pub before: Option<String>,
+    /// `?year=YYYY` — the "This year" scope rendered as a full page.
+    pub year: Option<i64>,
 }
 
 /// Query params for GET /feedback -- all optional so extraction never fails;
@@ -52,133 +59,211 @@ struct ResendContact {
     email: String,
 }
 
-/// Index page - lists recent digests
-pub async fn index(
-    State(state): State<Arc<AppState>>,
-    Query(query): Query<IndexQuery>,
-) -> Result<Html<String>, (StatusCode, &'static str)> {
-    let conn = Connection::open_with_flags(&state.db_path, OpenFlags::SQLITE_OPEN_READ_ONLY)
-        .map_err(|_| (StatusCode::SERVICE_UNAVAILABLE, "Service unavailable"))?;
+/// The subscribe-success notice (semantic OK axis, redundant glyph+word).
+const SUBSCRIBED_NOTICE: &str = r#"<p class="notice ok" role="status"><span class="ni" aria-hidden="true">✓</span> Subscribed. The next issue will land in your inbox.</p>"#;
+/// The subscribe-failure notice (accent = the bad state; assertive; form kept for retry).
+const SUBSCRIBE_ERROR_NOTICE: &str = r#"<p class="notice bad" role="alert"><span class="ni" aria-hidden="true">✕</span> That didn't go through — something failed on our end. Please try again.</p>"#;
 
-    // Get list of available digests (most recent first)
-    let mut stmt = conn
-        .prepare("SELECT date, COALESCE(preheader, '') FROM digests ORDER BY date DESC")
-        .map_err(|_| (StatusCode::SERVICE_UNAVAILABLE, "Service unavailable"))?;
+/// Brand with the accent word (the last whitespace token) wrapped in `<em>`, e.g. `News <em>Digest</em>`.
+fn brand_html(name: &str) -> String {
+    match name.trim().rsplit_once(char::is_whitespace) {
+        Some((head, last)) => format!("{} <em>{}</em>", escape_html(head), escape_html(last)),
+        None => format!("<em>{}</em>", escape_html(name.trim())),
+    }
+}
 
-    let digests: Vec<(String, String)> = stmt
-        .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
-        .map_err(|_| (StatusCode::SERVICE_UNAVAILABLE, "Service unavailable"))?
-        .filter_map(|r| log_row_error(r, "digests"))
-        .collect();
-
-    // Build digest list HTML with collapsible month groups
-    let mut links = String::new();
-    let mut current_month = String::new();
-    let mut is_first_month = true;
-    for (d, preheader) in &digests {
-        let ym = year_month(d).to_string();
-        if ym != current_month {
-            // Close previous month group
-            if !current_month.is_empty() {
-                links.push_str("</ul></details>");
-            }
-            let month_label = format_month_year(&ym);
-            let open_attr = if is_first_month { " open" } else { "" };
-            links.push_str(&format!(
-                r#"<details{open_attr}><summary class="month-heading">{month_label}</summary><ul>"#
-            ));
-            current_month = ym;
-            is_first_month = false;
+/// Group an integer with thousands separators: 3140 -> "3,140".
+fn thousands(n: i64) -> String {
+    let s = n.abs().to_string();
+    let mut out = String::new();
+    for (i, ch) in s.chars().enumerate() {
+        if i > 0 && (s.len() - i).is_multiple_of(3) {
+            out.push(',');
         }
-        let formatted = format_date(d);
-        let preheader_html = if preheader.is_empty() {
-            String::new()
-        } else {
-            let escaped = escape_html(preheader);
-            format!(r#"<span class="preheader-text">{escaped}</span>"#)
-        };
-        links.push_str(&format!(
-            r#"<li><a href="/{d}"><span class="date-text">{formatted}</span>{preheader_html}</a></li>"#
-        ));
+        out.push(ch);
     }
-    // Close last month group
-    if !current_month.is_empty() {
-        links.push_str("</ul></details>");
-    }
+    if n < 0 { format!("-{out}") } else { out }
+}
 
-    let name = &state.digest_name;
-    let success_msg = if query.subscribed.is_some() {
-        r#"<div class="success-msg">Thanks for subscribing! You'll receive the next digest.</div>"#
-    } else {
-        ""
-    };
-    let subscriptions_enabled =
-        state.resend_api_key.is_some() && state.resend_audience_id.is_some();
-    let subscribe_form = if subscriptions_enabled {
-        r#"<form method="post" action="/subscribe" class="subscribe-form">
-        <input type="email" name="email" placeholder="your@email.com" required aria-label="Email address">
-        <button type="submit">Subscribe</button>
-      </form>"#
-    } else {
-        ""
-    };
-    let subscribe_teaser = if subscriptions_enabled && !digests.is_empty() {
-        // Link the stable /today route rather than baking today's date -- it stays
-        // correct as new digests land.
+/// The load-more region: the degradable `<a>` (present only when more pages exist; JS intercepts it,
+/// no-JS navigates to the discrete `/?before=` page) plus the persistent aria-live status node.
+fn loadmore_region(has_more: bool, next_before: &str) -> String {
+    let link = if has_more {
         format!(
-            r#"<p class="subscribe-teaser"><a href="{}">Open the latest digest</a> to see what you'd receive daily.</p>"#,
-            routes::TODAY
+            r#"<a class="btn secondary" id="loadMore" rel="next" href="/?before={next_before}">Load older issues</a>"#
         )
     } else {
         String::new()
     };
-    let mut nav_links: Vec<String> = Vec::new();
-    if let Some(url) = &state.homepage_url {
-        let display = url
+    format!(
+        r#"<div class="loadmore" id="loadmore">{link}<p class="loadmore-status" role="status" aria-live="polite"></p></div>"#
+    )
+}
+
+/// Wrap rendered rows in the index `<ul>` carrying the aria-live "N of TOTAL" denominator.
+fn index_list(rows: &str, total: i64) -> String {
+    format!(r#"<ul class="index" id="index" data-total="{total}">{rows}</ul>"#)
+}
+
+/// Index / home — the archive as an issue-numbered running order (`chrome_v12`).
+pub async fn index(
+    State(state): State<Arc<AppState>>,
+    Query(query): Query<IndexQuery>,
+) -> Result<Html<String>, (StatusCode, &'static str)> {
+    let unavailable = |_| (StatusCode::SERVICE_UNAVAILABLE, "Service unavailable");
+    let meta = archive::index_meta(&state.db_path).map_err(unavailable)?;
+    let subscriptions_enabled =
+        state.resend_api_key.is_some() && state.resend_audience_id.is_some();
+
+    let notice_html = if query.subscribed.is_some() {
+        SUBSCRIBED_NOTICE
+    } else if query.subscribe_error.is_some() {
+        SUBSCRIBE_ERROR_NOTICE
+    } else {
+        ""
+    };
+
+    // Scope: empty archive → year → discrete ?before= page → the default All first page.
+    let (list_html, loadmore_html, segment, has_issues) = if meta.total == 0 {
+        let tail = if subscriptions_enabled {
+            " — subscribe below and it'll be in your inbox."
+        } else {
+            "."
+        };
+        (
+            format!(
+                r#"<p class="empty">No issues published yet. The first digest lands after the next morning run{tail}</p>"#
+            ),
+            String::new(),
+            "all",
+            false,
+        )
+    } else if let Some(y) = query.year {
+        let page =
+            archive::fetch_archive(&state.db_path, None, Some(y), 100).map_err(unavailable)?;
+        (
+            index_list(&archive::rows_html(&page.issues, None), meta.total),
+            loadmore_region(false, ""),
+            "year",
+            true,
+        )
+    } else if let Some(before) = query.before.as_deref() {
+        let page =
+            archive::fetch_archive(&state.db_path, Some(before), None, 30).map_err(unavailable)?;
+        let region = loadmore_region(page.has_more, page.next_before.as_deref().unwrap_or(""));
+        // No-JS discrete page: offer a way back to the newest issues.
+        let back = r#"<p style="text-align:center;margin-top:16px"><a href="/">↑ Back to the newest issues</a></p>"#;
+        (
+            index_list(&archive::rows_html(&page.issues, None), meta.total),
+            format!("{region}{back}"),
+            "all",
+            true,
+        )
+    } else {
+        let page = archive::fetch_archive(&state.db_path, None, None, 30).map_err(unavailable)?;
+        (
+            index_list(
+                &archive::rows_html(&page.issues, meta.newest_date.as_deref()),
+                meta.total,
+            ),
+            loadmore_region(page.has_more, page.next_before.as_deref().unwrap_or("")),
+            "all",
+            true,
+        )
+    };
+
+    // Masthead
+    let since = meta
+        .first_date
+        .as_deref()
+        .map(format_day_month_year)
+        .unwrap_or_default();
+    let masthead_stat = format!(
+        "<b>{}</b> issues &middot; since {} &middot; <b>{}</b> stories",
+        meta.total,
+        since,
+        thousands(meta.total_stories)
+    );
+    let brand = brand_html(&state.digest_name);
+
+    // Top bar: nav (index omits Archive, its own section) + right cluster.
+    let nav: &[(&str, &str)] = &[
+        (routes::SOURCES, "Sources"),
+        (routes::THREADS, "Threads"),
+        (routes::STATS, "Stats"),
+    ];
+    let mut right = String::new();
+    if subscriptions_enabled {
+        right.push_str(r##"<a class="sublink" href="#subscribe">Subscribe</a>"##);
+    }
+    right.push_str(&format!(
+        r#"<a class="pill" href="{}/translate"><span class="g" aria-hidden="true">文A</span> Translate</a>"#,
+        routes::TODAY
+    ));
+    right.push_str(TOGGLE_BTN);
+    let topbar_html = chrome_topbar(nav, &right);
+
+    // Footer links (config-dependent).
+    let privacy_url = state.privacy_url();
+    let mut footer_links: Vec<(&str, &str)> = vec![
+        ("/", "Archive"),
+        (routes::SOURCES, "Sources"),
+        (routes::THREADS, "Threads"),
+        (routes::STATS, "Stats"),
+        (routes::FEED, "RSS"),
+    ];
+    if let Some(gh) = &state.source_url {
+        footer_links.push((gh.as_str(), "GitHub"));
+    }
+    footer_links.push((privacy_url.as_str(), "Privacy"));
+    if let Some(home) = &state.homepage_url {
+        let label = home
             .trim_start_matches("https://")
             .trim_start_matches("http://");
-        nav_links.push(format!(
-            r#"<a href="{url}" class="meta-link">{display}</a>"#
-        ));
+        footer_links.push((home.as_str(), label));
     }
-    nav_links.push(format!(
-        r#"<a href="{}" class="meta-link">Sources</a>"#,
-        routes::SOURCES
-    ));
-    nav_links.push(format!(
-        r#"<a href="{}" class="meta-link">Threads</a>"#,
-        routes::THREADS
-    ));
-    let privacy_url = state.privacy_url();
-    nav_links.push(format!(
-        r#"<a href="{privacy_url}" class="meta-link">Privacy</a>"#
-    ));
-    if let Some(url) = &state.source_url {
-        nav_links.push(format!(r#"<a href="{url}" class="meta-link">GitHub</a>"#));
-    }
-    nav_links.push(format!(
-        r#"<a href="{}" class="meta-link">Stats</a>"#,
-        routes::STATS
-    ));
-    let meta_links = format!(
-        r#"<nav aria-label="Site navigation"><p class="meta-links">{}</p></nav>"#,
-        nav_links.join(" · ")
+    let footer_html = chrome_footer(
+        &footer_links,
+        "An automated daily briefing. Curated by Claude, filed by a human. &copy; Sean Floyd",
     );
-    let og_description = "Daily briefing on geopolitics, tech, and privacy. All sides. No fluff.";
+
+    let subscribe_band = if subscriptions_enabled {
+        r#"<section class="subband" id="subscribe">
+      <div class="copy"><h2>Get it in your inbox</h2><p>One briefing each morning. Free, no tracking, unsubscribe anytime.</p></div>
+      <form method="post" action="/subscribe" aria-label="Subscribe">
+        <input type="email" name="email" placeholder="your@email.com" required aria-label="Email address">
+        <button class="btn primary" type="submit">Subscribe</button>
+      </form>
+    </section>"#
+    } else {
+        ""
+    };
+
     let canonical_url = state.base_url();
     let image_url = state.og_image_url();
+    let og_description = "Daily briefing on geopolitics, tech, and privacy. All sides. No fluff.";
 
     let html = render_index(&IndexParams {
-        name,
-        meta_links: &meta_links,
-        success_msg,
-        subscribe_form,
-        subscribe_teaser: &subscribe_teaser,
-        digest_links: &links,
-        og_description,
+        title: &state.digest_name,
+        brand_html: &brand,
+        description: og_description,
         canonical_url: &canonical_url,
+        feed_url: routes::FEED,
         image_url: &image_url,
+        font_url: &state.font_url,
+        topbar_html: &topbar_html,
+        footer_html: &footer_html,
+        kicker: "Geopolitics &middot; Tech &middot; Privacy &middot; All sides, no fluff",
+        masthead_stat: &masthead_stat,
+        notice_html,
+        has_issues,
         search_url: routes::SEARCH,
+        segment,
+        date_min: meta.first_date.as_deref().unwrap_or(""),
+        date_max: meta.newest_date.as_deref().unwrap_or(""),
+        list_html: &list_html,
+        loadmore_html: &loadmore_html,
+        subscribe_band,
     });
     Ok(Html(html))
 }

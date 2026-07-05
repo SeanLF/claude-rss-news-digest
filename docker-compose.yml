@@ -48,6 +48,10 @@ services:
     volumes:
       - ./circulation:/app
       - ./newsroom/sources.json:/app/sources.json:ro
+      # tokens.css is the shared design source `include_str!`'d by src/assets.rs as
+      # ../../design/tokens.css -> /design/tokens.css from /app/src (same bind-mount
+      # technique as sources.json above; prod Dockerfile does `COPY design /design`).
+      - ./design/tokens.css:/design/tokens.css:ro
       - cargo-cache:/usr/local/cargo/registry
     entrypoint: ["sh", "-c"]
     command: ["cargo fmt --check && cargo clippy -- -D warnings && cargo test"]

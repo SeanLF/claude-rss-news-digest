@@ -86,6 +86,21 @@ pub fn format_month_year(ym: &str) -> String {
     ym.to_string()
 }
 
+/// Format "2026-02-06" to "6 Feb 2026" (day, abbreviated month, year) — the masthead dateline style.
+pub fn format_day_month_year(date_str: &str) -> String {
+    const M: [&str; 12] = [
+        "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+    ];
+    let p: Vec<&str> = date_str.split('-').collect();
+    if p.len() != 3 {
+        return date_str.to_string();
+    }
+    match (p[1].parse::<usize>(), p[2].parse::<i64>()) {
+        (Ok(mo), Ok(d)) if (1..=12).contains(&mo) => format!("{d} {} {}", M[mo - 1], p[0]),
+        _ => date_str.to_string(),
+    }
+}
+
 /// Escape HTML special characters for safe rendering
 pub fn escape_html(s: &str) -> String {
     s.replace('&', "&amp;")
