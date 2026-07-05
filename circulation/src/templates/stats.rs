@@ -42,13 +42,19 @@ section{margin-top:44px;}
 .st .s{font-family:var(--sans); font-size:12px; color:var(--ink2); margin-top:2px; display:block;}
 /* balance spectrum */
 .bal{margin-top:20px;}
-.balrow{display:grid; grid-template-columns:76px 1fr; gap:14px; align-items:center; margin-bottom:8px;}
-.balrow .rl{font-family:var(--mono); font-size:10px; letter-spacing:.06em; text-transform:uppercase; color:var(--muted); text-align:right;}
+.balrow{display:grid; grid-template-columns:76px 1fr; gap:14px; align-items:start; margin-bottom:14px;}
+.balrow .rl{font-family:var(--mono); font-size:10px; letter-spacing:.06em; text-transform:uppercase; color:var(--muted); text-align:right; padding-top:6px;}
 .sbar{display:flex; height:22px; border-radius:5px; overflow:hidden; border:1px solid var(--line);}
 .sbar span{display:block;}
 .sbar .on-l{background:var(--bias-l);} .sbar .on-c{background:var(--bias-c);} .sbar .on-r{background:var(--bias-r);}
-.ballegend{font-family:var(--mono); font-size:10px; letter-spacing:.04em; text-transform:uppercase; color:var(--muted); margin:3px 0 16px 90px;}
-.ballegend .ll{color:var(--bias-l);} .ballegend .cc{color:var(--bias-c);} .ballegend .rr{color:var(--bias-r);}
+/* each bucket's % sits directly under its portion of the bar (box width == segment width) */
+.bkeys{display:flex; margin-top:5px; font-family:var(--mono); font-size:10px; font-variant-numeric:tabular-nums;}
+.bkey{text-align:center; white-space:nowrap; overflow:hidden; font-weight:600; color:var(--ink2);}
+/* one shared colour-key legend for both bars (redundant colour + name, legible in greyscale) */
+.ballegend{display:flex; gap:20px; font-family:var(--mono); font-size:10px; letter-spacing:.06em; text-transform:uppercase; color:var(--muted); margin:10px 0 16px 90px;}
+.ballegend .k{display:inline-flex; align-items:center; gap:7px;}
+.ballegend .sw{width:9px; height:9px; border-radius:2px; flex:none;}
+.ballegend .k-l .sw{background:var(--bias-l);} .ballegend .k-c .sw{background:var(--bias-c);} .ballegend .k-r .sw{background:var(--bias-r);}
 /* concentration share bars */
 .shares{margin-top:16px; display:flex; flex-direction:column; gap:8px;}
 .share{display:grid; grid-template-columns:130px 1fr 42px; gap:12px; align-items:center;}
@@ -110,11 +116,11 @@ fn tile(value_html: &str, value_cls: &str, label: &str, sub: &str) -> String {
 }
 
 /// A PROPORTIONAL bias bar — l/c/r segment widths are their percentages (a real shipped-vs-catalog
-/// comparison, not a fixed legend) — plus a colour-keyed legend line.
+/// comparison, not a fixed legend). Each bucket's % sits directly under its portion of the bar;
+/// the bucket names come from the one shared legend `balance_section` places below both bars.
 fn spectrum_row(label: &str, pct: [i64; 3], aria: &str) -> String {
     format!(
-        r#"<div class="balrow"><span class="rl">{label}</span><div class="sbar" role="img" aria-label="{aria}"><span class="on-l" style="width:{l}%"></span><span class="on-c" style="width:{c}%"></span><span class="on-r" style="width:{r}%"></span></div></div>
-<p class="ballegend"><span class="ll">{l}% lean-left</span> · <span class="cc">{c}% centre</span> · <span class="rr">{r}% lean-right</span></p>"#,
+        r#"<div class="balrow"><span class="rl">{label}</span><div class="barwrap"><div class="sbar" role="img" aria-label="{aria}"><span class="on-l" style="width:{l}%"></span><span class="on-c" style="width:{c}%"></span><span class="on-r" style="width:{r}%"></span></div><div class="bkeys"><span class="bkey" style="width:{l}%">{l}%</span><span class="bkey" style="width:{c}%">{c}%</span><span class="bkey" style="width:{r}%">{r}%</span></div></div></div>"#,
         l = pct[0],
         c = pct[1],
         r = pct[2],
@@ -173,6 +179,7 @@ fn balance_section(m: &StatsMetrics) -> String {
   <div class="bal">
     {ship_row}
     {cat_row}
+    <p class="ballegend"><span class="k k-l"><span class="sw"></span>Lean left</span><span class="k k-c"><span class="sw"></span>Centre</span><span class="k k-r"><span class="sw"></span>Lean right</span></p>
   </div>
   <p class="note">The two bars compare the shipped mix against the catalog it draws from — they track closely, so the digest is balanced <em>relative to its shelf</em>. Only lean-left &rarr; lean-right appear <b style="color:var(--ink2);font-weight:600;">by design</b>: a factuality floor excludes low-rated sources, and the political extremes skew low-factuality — so they're out on <b style="color:var(--ink2);font-weight:600;">quality, not omitted by accident</b>.</p>
 </section>"##,
