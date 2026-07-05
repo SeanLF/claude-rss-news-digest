@@ -333,25 +333,29 @@ def _render_test_email_html(selections_path: str | None) -> str:
     without it, it reads the most-recent already-rendered digest. Never records a
     run, never touches the audience, never creates a broadcast.
     """
-    if selections_path:
-        selections = resolve_article_ids(load_selections(Path(selections_path)))
-        preheader = extract_preheader(selections)
-        digest = write_digest(selections, TEMPLATE_FILE)
-        replace_placeholders(digest, selections, STYLES_FILE, preheader)
-    else:
-        latest = find_latest_digest()
-        if not latest:
-            raise FileNotFoundError("No digest found to test-send. Run a render first or pass --selections PATH.")
-        digest = latest
-    logger.info("Test-send source digest: %s", digest.name)
-    raw = digest.read_text()
     # Resend only substitutes {{{RESEND_UNSUBSCRIBE_URL}}} in a Broadcast; this QA
-    # path uses a single Emails.send, which leaves the merge tag literal (some
-    # clients render it as visible text). Point it somewhere harmless for the QA
-    # copy so the footer isn't broken -- production broadcasts fill it per-recipient.
+    # path uses a single Emails.send, so point unsubscribe somewhere harmless for
+    # the QA copy (production broadcasts fill it per-recipient).
     domain = os.environ.get("DIGEST_DOMAIN", "example.com")
-    raw = raw.replace("{{{RESEND_UNSUBSCRIBE_URL}}}", f"https://{domain}/unsubscribe")
-    return prepare_for_email(raw)
+    unsub = f"https://{domain}/unsubscribe"
+
+    if selections_path:
+        # MJML email path (mjml-python/mrml) -- the new email renderer.
+        from render_email import render_email
+
+        selections = resolve_article_ids(load_selections(Path(selections_path)))
+        logger.info(
+            "Test-send: rendering %d/%d stories via MJML",
+            len(selections.get("must_know", [])),
+            len(selections.get("should_know", [])),
+        )
+        return render_email(selections, unsubscribe_url=unsub)
+
+    latest = find_latest_digest()
+    if not latest:
+        raise FileNotFoundError("No digest found to test-send. Run a render first or pass --selections PATH.")
+    logger.info("Test-send source digest: %s", latest.name)
+    return prepare_for_email(latest.read_text().replace("{{{RESEND_UNSUBSCRIBE_URL}}}", unsub))
 
 
 def main():
