@@ -117,6 +117,9 @@ html.translated-rtl .pill,
    (`.web-only{display:none}`); the web archive reverses it. */
 .email-only{display:none;}
 .web-only{display:block;}
+/* footer-nav Subscribe is web-only (redundant in the email, which has Unsubscribe);
+   keep it inline in the nav row rather than the default block flip. */
+footer nav .web-only{display:inline;}
 
 @media (max-width:420px){.tword{display:none;}.toggle{padding:6px 9px;}}
 </style>"#;

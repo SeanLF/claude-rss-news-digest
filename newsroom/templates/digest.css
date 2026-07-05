@@ -27,16 +27,27 @@ a{color:var(--accent-ink);text-decoration:underline;text-underline-offset:2px;te
 /* masthead */
 /* Table layout (not flex): flex mangles in Outlook's Word engine and Gmail. A
    presentation table renders identically in email and browsers. */
-.masthead{width:100%;border-collapse:collapse;border-bottom:2px solid var(--ink);margin:0 0 40px;}
+/* margin:0 so the masthead's 2px rule abuts the notice's 1px top rule as one
+   deliberate double-rule (per mockup); the breathing room lives ABOVE the rule
+   in .mh-dateline's bottom padding. (A 40px margin HERE opened a dead gap
+   between the two rules that read as missing content.) */
+.masthead{width:100%;border-collapse:collapse;border-bottom:2px solid var(--ink);margin:0;}
 .mh-brand{text-align:left;vertical-align:bottom;padding:0 12px 10px 0;}
 .mh-issue{text-align:right;vertical-align:bottom;padding:0 0 10px;white-space:nowrap;
   font-family:var(--mono);font-size:10px;letter-spacing:.08em;color:var(--muted);text-transform:uppercase;line-height:1.55;}
 .brand{font-family:var(--serif);font-weight:600;font-size:27px;letter-spacing:-.01em;line-height:1;margin:0;}
 .brand b{color:var(--accent-ink);font-weight:600;}
 .mh-dateline{font-family:var(--mono);font-size:11px;letter-spacing:.12em;text-transform:uppercase;
-  color:var(--muted);padding:6px 0 12px;}
+  color:var(--muted);padding:6px 0 40px;}
 .mh-dateline .tick{color:var(--accent);font-size:10px;}
 .mh-dateline .sep{color:var(--hair);padding:0 6px;}
+
+/* email-only top utility line (view-in-browser + translate). The web archive
+   has the full topbar instead, so this is hidden there via the .email-only flip. */
+.webview{font-family:var(--mono);font-size:10px;letter-spacing:.1em;text-transform:uppercase;
+  color:var(--muted);text-align:center;margin:0 0 28px;}
+.webview a{color:var(--muted);text-decoration:none;}
+.webview .sep{color:var(--hair);padding:0 6px;}
 
 /* AI notice */
 .notice{font-family:var(--sans);font-size:12px;line-height:1.6;color:var(--ink2);
@@ -117,20 +128,32 @@ footer nav{margin-bottom:8px;}
 .src-table td.nm{color:var(--ink2);}
 .src-table td.ln{font-family:var(--mono);font-size:11px;color:var(--muted);white-space:nowrap;}
 .src-table td.ar a{font-family:var(--mono);font-size:11px;padding:0 4px 0 0;text-decoration:underline;text-underline-offset:2px;}
-/* EMAIL: static glyph + a link out (srcbox is web-only) */
-.spread.email-only{margin:16px 0 0;}
-.spread.email-only a{color:var(--accent-ink);text-decoration:underline;text-underline-offset:2px;font-family:var(--sans);font-size:12px;}
+/* EMAIL: static bias bar + link-out as a presentation table (flex collapses in
+   Gmail/Outlook and knocked the bar/text out of alignment). srcbox is web-only. */
+.srcline{margin:16px 0 0;}
+.srcline .biasbar-e{margin:0 0 8px;}
+/* meta text matches the mono spread-label so the "·" separators are consistent
+   (a bare "·" in the parent serif context rendered as an oversized bullet). */
+.sl-txt{font-family:var(--mono);font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);line-height:1.5;}
+.sl-txt a{font-family:var(--sans);font-size:12px;letter-spacing:0;text-transform:none;color:var(--accent-ink);text-decoration:underline;text-underline-offset:2px;}
+.biasbar-e{table-layout:fixed;border-radius:3px;overflow:hidden;}
+.biasbar-e td{height:4px;line-height:4px;font-size:0;}
+.biasbar-e .l{background:var(--bias-l);}.biasbar-e .c{background:var(--bias-c);}.biasbar-e .r{background:var(--bias-r);}
 
 /* Default = EMAIL state. Circulation flips these for the web archive. */
 .web-only{display:none;}
 
+/* !important so these win in EMAIL: premailer inlines the base rules onto each
+   element (specificity 1000), which would otherwise defeat this media query on
+   phones. On the web nothing is inlined, so !important is inert there. (The
+   min-width block below needs no !important -- it only drives the web view.) */
 @media (max-width:400px){
-  .paper{padding:36px 20px 72px;}
-  .brand{font-size:23px;}
-  .mh-issue{font-size:10px;}
-  .mh-dateline{font-size:10px;letter-spacing:.08em;}
-  .head{font-size:22px;}
-  body{font-size:17px;}
+  .paper{padding:36px 20px 72px !important;}
+  .brand{font-size:23px !important;}
+  .mh-issue{font-size:10px !important;}
+  .mh-dateline{font-size:10px !important;letter-spacing:.08em !important;}
+  .head{font-size:22px !important;}
+  body{font-size:17px !important;}
 }
 
 @media (min-width:760px){

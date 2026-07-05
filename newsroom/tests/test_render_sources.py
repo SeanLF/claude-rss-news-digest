@@ -164,9 +164,11 @@ def test_no_sources_block_when_all_urls_unusable():
     assert "spread" not in out
 
 
-def test_email_line_carries_archive_placeholder_for_view_all_link():
+def test_email_line_links_view_all_to_this_issues_dated_page():
+    # HOMEPAGE_URL (the dated /DATE page), NOT ARCHIVE_URL (the undated index) --
+    # the #slug anchor lives on the dated page.
     out = render_article(_article([{"name": "AJ", "bias": "left", "url": "https://aj.com/a"}]), slug="my-slug")
-    assert '<a href="{{ARCHIVE_URL}}#my-slug">view all 1 source online</a>' in out
+    assert '<a href="{{HOMEPAGE_URL}}#my-slug">view all 1 source online</a>' in out
 
 
 # ---------------------------------------------------------------------------

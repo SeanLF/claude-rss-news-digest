@@ -440,6 +440,15 @@ Examples:
             if missing:
                 logger.error("Cannot test-send, missing: %s", ", ".join(missing))
                 return 1
+        # Wire the DB (read-only) so the QA render resolves the real edition
+        # number, exactly as the production paths do -- this is the ONE render
+        # path that otherwise skips db.init, which is why the masthead showed
+        # "No. —". apply_migrations=False keeps it a pure read: a QA send must
+        # never migrate the production database. Gated on the file existing so a
+        # host run without the data dir just falls back to a blank edition line
+        # (get_issue_number returns None) instead of failing.
+        if DB_PATH.exists():
+            db.init(DB_PATH, MIGRATIONS_DIR, apply_migrations=False)
         html = _render_test_email_html(args.selections)
         for addr in addrs:
             if args.dry_run:

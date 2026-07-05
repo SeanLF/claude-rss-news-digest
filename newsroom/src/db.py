@@ -569,21 +569,29 @@ def record_usage(usage_rows: list[dict]):
 
 
 def prepare_for_web(html_str: str) -> str:
-    """Strip email-only elements from digest HTML for web serving."""
-    from bs4 import BeautifulSoup
+    """Physically strip email-only elements from digest HTML before storing it
+    for web serving.
+
+    Circulation's injected CSS also flips ``.email-only{display:none}`` for the
+    archive, but removing the nodes here is belt-and-suspenders: the stored blob
+    never carries the per-recipient ``{{{RESEND_UNSUBSCRIBE_URL}}}`` merge tag,
+    the view-in-browser line, the static email source line, or the inbox-preview
+    preheader -- so a CSS regression can't expose any of it on the web. Web-only
+    surfaces (the source ``<details>``, the footer Subscribe link) are left for
+    circulation's flip to reveal.
+    """
+    from bs4 import BeautifulSoup, Comment
 
     soup = BeautifulSoup(html_str, "html.parser")
 
-    for sel in ("nav.header-links", "div.feedback"):
-        for el in soup.select(sel):
-            el.decompose()
+    # Drop every email-only node plus the preheader/spacer (inbox-preview only).
+    for el in soup.select(".email-only, .preheader"):
+        el.decompose()
 
-    # Remove footer paragraphs containing an Unsubscribe link
-    for a in soup.select("a"):
-        if a.string == "Unsubscribe":
-            p = a.find_parent("p")
-            if p:
-                p.decompose()
+    # Drop MSO conditional comments (the Outlook-only width wrapper) -- inert on
+    # the web and just noise in the archive source.
+    for c in soup.find_all(string=lambda t: isinstance(t, Comment) and "[if mso" in t):
+        c.extract()
 
     return str(soup)
 

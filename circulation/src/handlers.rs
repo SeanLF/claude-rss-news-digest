@@ -667,8 +667,12 @@ pub async fn get_digest(
     );
     // No-flash theme boot joins the favicon/OG/proxy head bundle so the injected
     // theme toggle has a stored preference applied before first paint.
-    let head_inject =
-        format!("{FAVICON_SVG}\n  {og_tags}\n  {PROXY_TRANSLATE_HIDE_SCRIPT}\n  {NO_FLASH_SCRIPT}");
+    // color-scheme lets the browser theme form controls/scrollbars for both modes
+    // (the web archive has a real light/dark toggle, unlike the light-only email).
+    let color_scheme = r#"<meta name="color-scheme" content="light dark">"#;
+    let head_inject = format!(
+        "{color_scheme}\n  {FAVICON_SVG}\n  {og_tags}\n  {PROXY_TRANSLATE_HIDE_SCRIPT}\n  {NO_FLASH_SCRIPT}"
+    );
 
     // The digest keeps its OWN <footer> (which already carries a Subscribe link;
     // the email-only Unsubscribe is hidden by the web flip). The only web-only

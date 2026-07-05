@@ -8,18 +8,26 @@
 </head>
 <body>
   <span class="preheader">{{PREHEADER}}</span>
+  <!-- Spacer: invisible chars consume the inbox-snippet budget so trailing visible
+       content (the view-in-browser line) can't bleed into the preview after the preheader. -->
+  <span class="preheader">&#847;&zwnj;&nbsp;&#847;&zwnj;&nbsp;&#847;&zwnj;&nbsp;&#847;&zwnj;&nbsp;&#847;&zwnj;&nbsp;&#847;&zwnj;&nbsp;&#847;&zwnj;&nbsp;&#847;&zwnj;&nbsp;&#847;&zwnj;&nbsp;&#847;&zwnj;&nbsp;&#847;&zwnj;&nbsp;&#847;&zwnj;&nbsp;&#847;&zwnj;&nbsp;&#847;&zwnj;&nbsp;&#847;&zwnj;&nbsp;&#847;&zwnj;&nbsp;&#847;&zwnj;&nbsp;&#847;&zwnj;&nbsp;&#847;&zwnj;&nbsp;&#847;&zwnj;&nbsp;&#847;&zwnj;&nbsp;&#847;&zwnj;&nbsp;&#847;&zwnj;&nbsp;&#847;&zwnj;&nbsp;&#847;&zwnj;&nbsp;&#847;&zwnj;&nbsp;&#847;&zwnj;&nbsp;&#847;&zwnj;&nbsp;&#847;&zwnj;&nbsp;&#847;&zwnj;&nbsp;</span>
+  <!-- Outlook desktop (Word engine) ignores max-width, so .paper would render full
+       window-width. This MSO-only table constrains it; every other client ignores
+       the conditional comment and uses .paper's max-width unchanged. -->
+  <!--[if mso]><table role="presentation" align="center" width="660" cellpadding="0" cellspacing="0"><tr><td style="padding:0;"><![endif]-->
   <div class="paper">
+  <p class="webview email-only"><a href="{{HOMEPAGE_URL}}">View in browser</a> <span class="sep" aria-hidden="true">·</span> <a href="{{HOMEPAGE_URL}}/translate"><span class="g" aria-hidden="true">文A</span> Translate</a></p>
   <table role="presentation" class="masthead" width="100%" cellpadding="0" cellspacing="0">
     <tr>
       <td class="mh-brand"><h1 class="brand">Sean's Daily <b>Digest</b></h1></td>
-      <td class="mh-issue">No. {{ISSUE_NO}}<br>Filed {{FILED_TIME}}</td>
+      <td class="mh-issue">{{ISSUE_LABEL}}Filed {{FILED_TIME}}</td>
     </tr>
     <tr>
       <td colspan="2" class="mh-dateline"><span class="tick" aria-hidden="true">■</span> <time datetime="{{DATE_ISO}}">{{DATE}}</time> <span class="sep" aria-hidden="true">/</span> {{READING_TIME}} <span class="sep" aria-hidden="true">/</span> {{STORY_COUNT}}</td>
     </tr>
   </table>
   <main id="main">
-  <p class="notice"><span class="tag">AI-written</span>Written by Claude, an assistant that can make mistakes — verify anything important against the linked sources. Political leanings from <a href="{{ARCHIVE_URL}}/sources">independent media assessors</a>.</p>
+  <p class="notice"><span class="tag">AI-written</span>Written by Claude, an assistant that can make mistakes - verify anything important against the linked sources. Political leanings from <a href="{{ARCHIVE_URL}}/sources">independent media assessors</a>.</p>
   <section aria-labelledby="s-mk"><div class="section"><span class="num" aria-hidden="true">01</span><h2 class="name" id="s-mk">Must Know</h2><span class="rule" aria-hidden="true"></span></div>
 {{MUST_KNOW}}
   </section>
@@ -28,12 +36,13 @@
   </section>
   </main>
   <footer>
-    <nav aria-label="Digest footer"><a href="{{ARCHIVE_URL}}">Past digests</a> · <a href="{{ARCHIVE_URL}}/sources">Sources</a> · <a href="{{PRIVACY_URL}}">Privacy</a> · <a href="{{SUBSCRIBE_URL}}">Subscribe</a><span class="email-only"> · <a href="{{{RESEND_UNSUBSCRIBE_URL}}}">Unsubscribe</a></span></nav>
-    <p class="footer-actions email-only"><a href="{{HOMEPAGE_URL}}/translate">Read this in another language</a> · Reply with feedback</p>
+    <nav aria-label="Digest footer"><a href="{{ARCHIVE_URL}}">Past digests</a> · <a href="{{ARCHIVE_URL}}/sources">Sources</a> · <a href="{{PRIVACY_URL}}">Privacy</a><span class="web-only"> · <a href="{{SUBSCRIBE_URL}}">Subscribe</a></span><span class="email-only"> · <a href="{{{RESEND_UNSUBSCRIBE_URL}}}">Unsubscribe</a></span></nav>
+    <p class="footer-actions email-only">Reply to this email with feedback.</p>
     <p class="not-covered">{{NOT_COVERED}}</p>
     <p class="footer-meta">{{AUTHOR_PLUG}}</p>
     <p class="footer-meta generated-at">{{GENERATED_AT}}</p>
   </footer>
   </div>
+  <!--[if mso]></td></tr></table><![endif]-->
 </body>
 </html>

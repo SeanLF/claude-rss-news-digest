@@ -173,8 +173,15 @@ def resolve_css_variables(css: str) -> str:
 
     css = re.sub(r"var\(--([a-z0-9-]+)\)", replace_var, css)
 
-    # Remove :root blocks - not supported in email
-    css = re.sub(r":root\s*\{[^}]+\}", "", css)
+    # Remove :root blocks - not supported in email, and dead weight once resolved.
+    # Also drop the explicit-toggle :root[data-theme=...]{…} blocks (tokens.css:74+):
+    # they ship the dark/light palette as inert declarations no email element can
+    # match (the email <html> has no data-theme), so strip them rather than bloat
+    # every send. The optional [..] attribute is what the plain pattern above misses.
+    # NB: `[^}]*` assumes each :root block is brace-balanced -- a stray `{` typo in
+    # tokens.css would let this consume the next rule. tokens.css is the trusted,
+    # tested source, so that's acceptable; don't point this at untrusted CSS.
+    css = re.sub(r":root(?:\[[^\]]*\])?\s*\{[^}]*\}", "", css)
 
     return css
 
@@ -215,6 +222,21 @@ def prepare_for_email(html_content: str) -> str:
         return f"<style>{minified_css}</style>"
 
     html_content = re.sub(r"<style>(.*?)</style>", resolve_style_block, html_content, flags=re.DOTALL)
+    # Email-only: declare light-only. The CSS was resolved to light hex, so a
+    # client force-inverting for dark mode would mangle the accent/bias colours
+    # unpredictably; these metas ask Apple Mail/Gmail to keep it light. Injected
+    # here (not in the template) so the WEB view keeps its own light/dark toggle.
+    with_meta = html_content.replace(
+        "<head>",
+        '<head>\n  <meta name="color-scheme" content="light">\n  <meta name="supported-color-schemes" content="light">',
+        1,
+    )
+    if with_meta == html_content:
+        # Fail loud: a template refactor that drops the bare `<head>` literal would
+        # silently strip these metas, re-exposing the light-only palette to dark-mode
+        # auto-inversion in every send -- invisible degradation on a shipped artifact.
+        logger.error("prepare_for_email: no <head> found; color-scheme metas NOT injected")
+    html_content = with_meta
     # Physically drop web-only blocks. Gmail unwraps <details>/<summary> and promotes
     # their children, discarding the display:none that hides the web-only source table
     # -- so it leaks into the email. Removing the block outright is the only reliable
@@ -341,11 +363,32 @@ def _render_sources_block(outlets: list[dict], slug: str) -> str:
         '<th scope="col">Outlet</th><th scope="col">Leaning</th><th scope="col">Articles</th>'
         f"</tr></thead><tbody>{rows}</tbody></table></details>"
     )
-    # {{ARCHIVE_URL}} is filled (or emptied) by replace_placeholders.
+    # Email biasbar: a presentation table, NOT flex. Gmail/Outlook drop
+    # display:flex, which collapsed the segments and knocked the bar and text
+    # out of alignment. Proportional cells carry the l/c/r colours by class
+    # (inlined to light-mode hex in prepare_for_email); aria-hidden decoration.
+    bar_cells = "".join(
+        f'<td class="seg {b}" width="{round(100 * counts[b] / total)}%" height="4"></td>'
+        for b in _BUCKET_ORDER
+        if counts[b]
+    )
+    email_bar = (
+        f'<table role="presentation" class="biasbar-e" width="120" cellpadding="0" '
+        f'cellspacing="0" aria-hidden="true"><tr>{bar_cells}</tr></table>'
+    )
+    # HOMEPAGE_URL is this issue's dated page (https://domain/DATE); the story
+    # anchor #slug lives there. (ARCHIVE_URL is the undated archive index -- linking
+    # there dropped the date and the anchor resolved against the wrong page.)
+    # {{HOMEPAGE_URL}} is filled (or emptied) by replace_placeholders.
+    # Bar STACKED above the meta line: an inline bar+text row misaligned
+    # vertically and cramped/wrapped on narrow mobile widths. Stacking sidesteps
+    # both -- the bar is a short rule, the meta text flows full-width beneath it.
     email_line = (
-        f'<div class="spread email-only">{biasbar}'
-        f'<span class="spread-label">{spread_label}</span> · '
-        f'<a href="{{{{ARCHIVE_URL}}}}#{slug}">view all {total} {src_word} online</a></div>'
+        '<div class="srcline email-only">'
+        f"{email_bar}"
+        f'<div class="sl-txt"><span class="spread-label">{spread_label}</span>'
+        f' · <a href="{{{{HOMEPAGE_URL}}}}#{slug}">view all {total} {src_word} online</a></div>'
+        "</div>"
     )
     return details + email_line
 
@@ -383,7 +426,7 @@ def render_article(
     sources_block = _render_sources_block(_collect_outlets(article), slug)
 
     if is_brief:
-        parts = ['<article class="brief">', f"<h3>{headline}{anchor}</h3>"]
+        parts = [f'<article class="brief" id="{slug}">', f"<h3>{headline}{anchor}</h3>"]
         if eyebrow:
             parts.append(eyebrow)
         parts.append(f'<p class="summary">{body}</p>')
@@ -392,7 +435,7 @@ def render_article(
         return "\n".join(parts)
 
     cls = ' class="first"' if is_first else ""
-    parts = [f"<article{cls}>", f'<h3 class="head">{headline}{anchor}</h3>']
+    parts = [f'<article{cls} id="{slug}">', f'<h3 class="head">{headline}{anchor}</h3>']
     if eyebrow:
         parts.append(eyebrow)
     parts.append(f'<p class="lede">{body}</p>')
@@ -538,9 +581,10 @@ def replace_placeholders(
     archive_url = os.environ.get("ARCHIVE_URL", "")
 
     # Edition number ("No. N") from the digest count. None when no DB is wired
-    # (e.g. unit tests) -- render then shows an em dash rather than crashing.
+    # -- render then drops the whole "No." line rather than shipping a stray
+    # "No. —". Production (and now --test-send) wire the DB, so a real number shows.
     issue_no = db.get_issue_number(date_url)
-    issue_str = str(issue_no) if issue_no is not None else "—"
+    issue_label = f"No. {issue_no}<br>" if issue_no is not None else ""
 
     # Load CSS: tokens.css (the :root token source) PREPENDED to digest.css so
     # the component rules' var(--…) resolve. Kept un-inlined here (variables +
@@ -571,7 +615,7 @@ def replace_placeholders(
     content = content.replace("{{DIGEST_NAME}}", html.escape(digest_name))
     content = content.replace("{{DATE}}", date_str)
     content = content.replace("{{DATE_ISO}}", date_url)
-    content = content.replace("{{ISSUE_NO}}", issue_str)
+    content = content.replace("{{ISSUE_LABEL}}", issue_label)
     content = content.replace("{{FILED_TIME}}", filed_time)
     content = content.replace("{{READING_TIME}}", calculate_reading_time(selections))
     content = content.replace("{{STORY_COUNT}}", story_count_str)
@@ -623,13 +667,16 @@ def replace_placeholders(
         content = content.replace("{{HOMEPAGE_URL}}", homepage_url)
         content = content.replace("{{SUBSCRIBE_URL}}", subscribe_url)
     else:
-        # No domain -> no route for the Subscribe link or the translate line;
-        # drop them whole rather than ship a dangling placeholder. The
-        # "Reply with feedback" text has no URL, so it survives inside the
-        # footer-actions line only if that line survives -- but the line's sole
-        # link is HOMEPAGE_URL, so we drop the whole line. (Prod sets the domain.)
+        # No domain -> no route for the Subscribe link, the top view-in-browser /
+        # translate line (both HOMEPAGE_URL), or the footer reply prompt; drop them
+        # whole rather than ship a dangling placeholder. These email-only surfaces
+        # only matter for a real send, which always sets the domain (prod).
         content = _strip_nav_link(content, "SUBSCRIBE_URL", "Subscribe")
         content = re.sub(r'\s*<p class="footer-actions email-only">.*?</p>', "", content, flags=re.DOTALL)
+        content = re.sub(r'\s*<p class="webview email-only">.*?</p>', "", content, flags=re.DOTALL)
+        # Blank any HOMEPAGE_URL still in body (the per-story "view sources online"
+        # links) so they degrade to a bare #anchor rather than trip the residual sweep.
+        content = content.replace("{{HOMEPAGE_URL}}", "")
 
     # Optional: archive URL for "Past digests" link
     if archive_url and is_safe_url(archive_url):

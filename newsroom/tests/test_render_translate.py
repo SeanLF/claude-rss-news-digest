@@ -1,10 +1,12 @@
-"""Tests for the Translate + Subscribe footer links in render.replace_placeholders.
+"""Tests for the view-in-browser / Translate line + Subscribe link in
+render.replace_placeholders.
 
-The email template carries an email-only footer-actions line whose translate href
-is {{HOMEPAGE_URL}}/translate, plus a Subscribe link ({{SUBSCRIBE_URL}}) in the
-footer nav. With a configured DIGEST_DOMAIN both resolve to per-date routes;
-without one the translate line and the Subscribe link are stripped (no leftover
-placeholder), while the footer nav's other links survive.
+The email template carries an email-only top "webview" line whose view-in-browser
+href is {{HOMEPAGE_URL}} and translate href is {{HOMEPAGE_URL}}/translate, plus a
+Subscribe link ({{SUBSCRIBE_URL}}) in the footer nav. With a configured
+DIGEST_DOMAIN these resolve to per-date routes; without one the webview line and
+the Subscribe link are stripped (no leftover placeholder), while the footer nav's
+other links survive.
 """
 
 import sys
@@ -20,9 +22,10 @@ TEMPLATE = """<!DOCTYPE html>
 <head><style>{{STYLES}}</style></head>
 <body>
   <h1>{{DIGEST_NAME}} - {{DATE}}</h1>
+  <p class="webview email-only"><a href="{{HOMEPAGE_URL}}">View in browser</a> · <a href="{{HOMEPAGE_URL}}/translate"><span class="g" aria-hidden="true">文A</span> Translate</a></p>
   <footer>
-    <nav aria-label="Digest footer"><a href="{{ARCHIVE_URL}}">Past digests</a> · <a href="{{PRIVACY_URL}}">Privacy</a> · <a href="{{SUBSCRIBE_URL}}">Subscribe</a> · <a href="{{{RESEND_UNSUBSCRIBE_URL}}}">Unsubscribe</a></nav>
-    <p class="footer-actions email-only"><a href="{{HOMEPAGE_URL}}/translate">Read this in another language</a> · Reply with feedback</p>
+    <nav aria-label="Digest footer"><a href="{{ARCHIVE_URL}}">Past digests</a> · <a href="{{PRIVACY_URL}}">Privacy</a><span class="web-only"> · <a href="{{SUBSCRIBE_URL}}">Subscribe</a></span><span class="email-only"> · <a href="{{{RESEND_UNSUBSCRIBE_URL}}}">Unsubscribe</a></span></nav>
+    <p class="footer-actions email-only">Reply to this email with feedback.</p>
     <p class="footer-meta generated-at">{{GENERATED_AT}}</p>
   </footer>
 </body>
@@ -50,12 +53,13 @@ class TestTranslateAndSubscribeLines:
         replace_placeholders(digest_path, {"must_know": [], "should_know": []}, styles_path)
 
         content = digest_path.read_text()
+        assert f'href="https://example.com/{_today()}">View in browser</a>' in content
         assert f"https://example.com/{_today()}/translate" in content
         assert "https://example.com/#subscribe" in content
         assert "{{HOMEPAGE_URL}}" not in content
         assert "{{SUBSCRIBE_URL}}" not in content
         # Reply text survives (it lives in the footer-actions line).
-        assert "Reply with feedback" in content
+        assert "Reply to this email with feedback" in content
 
     def test_translate_and_subscribe_stripped_without_domain(self, tmp_path, monkeypatch):
         monkeypatch.delenv("DIGEST_DOMAIN", raising=False)
@@ -64,9 +68,11 @@ class TestTranslateAndSubscribeLines:
         replace_placeholders(digest_path, {"must_know": [], "should_know": []}, styles_path)
 
         content = digest_path.read_text()
-        # No leftover placeholders; the translate line and Subscribe link are gone.
+        # No leftover placeholders; the webview line and Subscribe link are gone.
         assert "{{HOMEPAGE_URL}}" not in content
         assert "{{SUBSCRIBE_URL}}" not in content
+        assert "webview" not in content
+        assert "View in browser" not in content
         assert "footer-actions" not in content
         assert "Subscribe" not in content
         # The triple-brace Resend token is left intact for send-time substitution.

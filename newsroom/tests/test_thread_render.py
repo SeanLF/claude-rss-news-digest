@@ -65,12 +65,12 @@ def test_delta_is_html_escaped():
 
 def test_brief_uses_summary_class_and_no_why():
     out = render.render_article(BASE, slug="x", is_brief=True)
-    assert '<article class="brief">' in out
+    assert '<article class="brief" id="x">' in out
     assert '<p class="summary">' in out
     assert "why" not in out  # briefs carry no why-it-matters block
     assert 'class="head"' not in out  # brief h3 has no .head class
 
 
 def test_first_story_gets_first_class():
-    assert render.render_article(BASE, slug="x", is_first=True).startswith('<article class="first">')
-    assert render.render_article(BASE, slug="x").startswith("<article>")
+    assert render.render_article(BASE, slug="x", is_first=True).startswith('<article class="first" id="x">')
+    assert render.render_article(BASE, slug="x").startswith('<article id="x">')
