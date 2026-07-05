@@ -1,6 +1,14 @@
 # MJML email migration — design
 
-**Status:** planned (PoC done, greenlit 2026-07-05)
+**Status:** DONE 2026-07-05 (Phases 1, 1.5, 2 all committed on
+`design/chrome-redesign-port-handover`: dd7fac9, 99d0a42, a3d4a74). Not deployed
+— run `make deploy-dry` / a `--no-email` full run to confirm the production MJML
+render before the real subscriber send (deploy is Sean-gated).
+
+**Remaining follow-up (not done):** DRY the two renderers — a single source for the
+design tokens (render_email hardcodes hex; web uses tokens.css) and shared copy/labels;
+and prune two now-dead `.email-only` strip regexes + a stale comment in
+render.replace_placeholders/prepare_for_email (harmless no-ops today).
 **Problem:** one hand-authored template + CSS serves BOTH the HTML email and the
 persistent web archive. Email-safety (table layouts, `&nbsp;` glue, `!important`,
 MSO wrapper, Outlook.com quirks) has degraded the shared source and coupled the two
