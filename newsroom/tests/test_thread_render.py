@@ -71,7 +71,8 @@ def test_brief_uses_summary_class_and_no_why():
     assert 'class="head"' not in out  # brief h3 has no .head class
 
 
-def test_first_story_has_no_separator_others_do():
-    # The first item in a section has no leading separator; the rest get a .artsep.
-    assert render.render_article(BASE, slug="x", is_first=True).startswith('<article id="x">')
-    assert render.render_article(BASE, slug="x").startswith('<table role="presentation" class="artsep"')
+def test_first_story_gets_first_class_others_dont():
+    # The first story in a section is class="first" (CSS suppresses its top rule);
+    # every other story is a plain <article> that gets the border+margin.
+    assert render.render_article(BASE, slug="x", is_first=True).startswith('<article class="first" id="x">')
+    assert render.render_article(BASE, slug="x").startswith('<article id="x">')

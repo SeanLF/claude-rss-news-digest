@@ -1,12 +1,14 @@
-"""End-to-end contract between the digest template and its two consumers.
+"""Contract between the web-archive template and circulation's chrome injection.
 
-The template is rendered ONCE, then transformed two ways that must stay in sync:
-  - newsroom `prepare_for_email`: resolve vars to light, inline, strip web-only.
-  - circulation serves the `prepare_for_web` blob and injects its web chrome by
-    string-matching a fixed set of needles -- and only logs a warning on a miss,
-    so a renamed class silently ships an archive page with no topbar / toggle /
-    skip link. Nothing else in CI renders the REAL template through both paths, so
-    the two sides can drift arbitrarily and stay green. This test is that guard.
+The digest template is rendered, then stored for web serving via
+``db.prepare_for_web``. Circulation splices its web chrome (topbar, skip link,
+theme toggle, feedback line) into that blob by string-matching a fixed set of
+needles -- and only logs a warning on a miss, so a renamed class silently ships
+an archive page with no topbar / toggle / skip link. Nothing else in CI renders
+the REAL template through prepare_for_web, so this test is that guard.
+
+(The email is rendered separately via render_email/MJML, so there is no longer a
+shared-template email<->web flip to guard here.)
 
 If you intentionally rename one of these structural hooks, update BOTH the
 template and circulation/src/handlers.rs, then this test.
@@ -42,11 +44,11 @@ CIRCULATION_FEEDBACK_NEEDLE = '<p class="footer-meta">'
 CIRCULATION_FEEDBACK_FALLBACK = "</footer>"
 
 SELECTIONS = {
-    "preheader": "Contract-test preheader that should survive into the email head.",
+    "preheader": "Contract-test preheader.",
     "must_know": [
         {
             "headline": "Contract test story with a source",
-            "summary": "One source so the source block renders on both channels.",
+            "summary": "One source so the source block renders.",
             "why_it_matters": "Exercises the why-it-matters block.",
             "sources": [{"name": "Reuters", "bias": "center", "url": "https://www.reuters.com/world/contract-test"}],
         }
@@ -69,8 +71,8 @@ SELECTIONS = {
 
 @pytest.fixture
 def rendered(tmp_path, monkeypatch):
-    """The real template + CSS, fully placeholder-filled (domain configured so the
-    email-only view-in-browser/unsubscribe surfaces are present, not stripped)."""
+    """The real template + CSS, fully placeholder-filled (domain configured so
+    the Subscribe link resolves rather than being stripped)."""
     monkeypatch.setattr(config, "TOKENS_FILE", REPO / "design" / "tokens.css")
     monkeypatch.setenv("DIGEST_DOMAIN", "example.com")
     monkeypatch.setenv("ARCHIVE_URL", "https://example.com")
@@ -80,35 +82,6 @@ def rendered(tmp_path, monkeypatch):
     path.write_text(render.render_digest(SELECTIONS, TEMPLATE))
     render.replace_placeholders(path, SELECTIONS, STYLES, preheader=SELECTIONS["preheader"])
     return path.read_text()
-
-
-class TestEmailPrep:
-    def test_strips_web_only_source_table(self, rendered):
-        email = render.prepare_for_email(rendered)
-        assert 'class="srcbox' not in email  # the web-only <details> source table
-        assert "<details" not in email
-
-    def test_declares_light_only_color_scheme(self, rendered):
-        email = render.prepare_for_email(rendered)
-        assert '<meta name="color-scheme" content="light">' in email
-        assert '<meta name="supported-color-schemes" content="light">' in email
-
-    def test_no_root_or_data_theme_blocks_leak(self, rendered):
-        email = render.prepare_for_email(rendered)
-        assert ":root" not in email  # resolved + stripped, incl. :root[data-theme]
-        assert "data-theme" not in email
-
-    def test_outlook_width_wrapper_survives_inlining(self, rendered):
-        email = render.prepare_for_email(rendered)
-        assert "[if mso]" in email  # MSO-only width table survived premailer
-
-    def test_no_unresolved_placeholders(self, rendered):
-        import re
-
-        email = render.prepare_for_email(rendered)
-        scan = re.sub(r"<style>.*?</style>", "", email, flags=re.DOTALL)
-        scan = re.sub(r"\{\{\{[^{}]+\}\}\}", "", scan)  # Resend per-recipient merge tags
-        assert re.search(r"\{\{[A-Z][A-Z0-9_]*\}\}", scan) is None
 
 
 class TestWebPrep:
@@ -123,24 +96,6 @@ class TestWebPrep:
         web = db.prepare_for_web(rendered)
         assert 'id="main"' in web  # circulation's skip link points at #main
 
-    def test_email_only_content_removed(self, rendered):
+    def test_source_details_present_for_the_archive(self, rendered):
         web = db.prepare_for_web(rendered)
-        assert 'class="email-only"' not in web
-        assert 'class="webview' not in web  # view-in-browser line (the element, not its CSS rule)
-        assert "RESEND_UNSUBSCRIBE_URL" not in web  # per-recipient merge tag never on the web
-        assert 'class="srcline' not in web  # the email static source line
-        assert 'class="preheader"' not in web  # inbox-preview text/spacer
-        assert "[if mso" not in web  # Outlook wrapper is email-only noise
-
-    def test_web_only_content_survives_for_the_flip(self, rendered):
-        web = db.prepare_for_web(rendered)
-        assert 'class="web-only"' in web  # footer Subscribe, revealed by circulation's flip
-        assert 'class="srcbox' in web  # the source <details> the flip reveals
-
-
-def test_flip_class_names_are_the_contract(rendered):
-    """render.py emits exactly `email-only`/`web-only`; circulation's DIGEST_NAV_CSS
-    flips those same names. If either side renames them, the archive silently shows
-    email-only content or hides web-only content."""
-    assert "email-only" in rendered
-    assert "web-only" in rendered
+        assert 'class="srcbox' in web  # the web source <details> table

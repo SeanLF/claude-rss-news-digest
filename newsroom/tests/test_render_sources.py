@@ -72,7 +72,6 @@ def test_spread_label_singularizes_source_word():
     single = render_article(_article([{"name": "AJ", "bias": "left", "url": "https://aj.com/a"}]), slug="x")
     assert "1 source" in single
     assert "1 sources" not in single
-    assert "view source online" in single
 
     multi = render_article(
         _article(
@@ -84,7 +83,6 @@ def test_spread_label_singularizes_source_word():
         slug="x",
     )
     assert "2 sources" in multi
-    assert "view sources online" in multi
 
 
 # ---------------------------------------------------------------------------
@@ -162,13 +160,6 @@ def test_no_sources_block_when_all_urls_unusable():
     )
     assert "srcbox" not in out
     assert "spread" not in out
-
-
-def test_email_line_links_view_all_to_this_issues_dated_page():
-    # HOMEPAGE_URL (the dated /DATE page), NOT ARCHIVE_URL (the undated index) --
-    # the #slug anchor lives on the dated page.
-    out = render_article(_article([{"name": "AJ", "bias": "left", "url": "https://aj.com/a"}]), slug="my-slug")
-    assert '<a href="{{HOMEPAGE_URL}}#my-slug">view source online</a>' in out
 
 
 # ---------------------------------------------------------------------------
@@ -252,16 +243,16 @@ def test_residual_sweep_allows_any_triple_brace_tag(tmp_path):
 
 
 def test_prepare_for_email_strips_web_only_source_table():
-    # Gmail unwraps <details> and drops the display:none, leaking the source table.
-    # prepare_for_email must remove the web-only block outright; the email-only
-    # static line stays.
+    # Legacy fallback path (run.py --test-send from a rendered file): Gmail unwraps
+    # <details> and drops display:none, leaking the source table, so prepare_for_email
+    # removes any web-only <details> block outright.
     html = (
         "<html><head><style>body{color:#000}</style></head><body>"
         '<details class="srcbox web-only"><summary>x</summary>'
         "<table><tr><td>LEAKED_TABLE</td></tr></table></details>"
-        '<div class="spread email-only">3 sources &middot; view all 3 sources online</div>'
+        "<p>keep me</p>"
         "</body></html>"
     )
     out = prepare_for_email(html)
     assert "LEAKED_TABLE" not in out  # web-only <details> physically removed
-    assert "view all 3 sources online" in out  # email-only static line kept
+    assert "keep me" in out  # surrounding content survives

@@ -323,9 +323,8 @@ def _collect_outlets(article: dict) -> list[dict]:
     return result
 
 
-def _render_sources_block(outlets: list[dict], slug: str) -> str:
-    """Render the shared bias glyph as a web-only <details> source table plus an
-    email-only static line ("N sources · a left · … · view all N online").
+def _render_sources_block(outlets: list[dict]) -> str:
+    """Render the bias glyph as a <details> source table for the web archive.
 
     Bias-bar segments and the spread label emit ONLY non-empty buckets, in
     l/c/r order. The "source(s)" word is singularized; bucket counts are plain.
@@ -357,57 +356,13 @@ def _render_sources_block(outlets: list[dict], slug: str) -> str:
         )
 
     details = (
-        f'<details class="srcbox web-only"><summary class="spread">{biasbar}'
+        f'<details class="srcbox"><summary class="spread">{biasbar}'
         f'<span class="spread-label">{spread_label}</span></summary>'
         '<table class="src-table"><thead><tr>'
         '<th scope="col">Outlet</th><th scope="col">Leaning</th><th scope="col">Articles</th>'
         f"</tr></thead><tbody>{rows}</tbody></table></details>"
     )
-    # Email biasbar: a presentation table, NOT flex. Gmail/Outlook drop
-    # display:flex, which collapsed the segments and knocked the bar and text
-    # out of alignment. Proportional cells carry the l/c/r colours by class
-    # (inlined to light-mode hex in prepare_for_email); aria-hidden decoration.
-    bar_cells = "".join(
-        f'<td class="seg {b}" width="{round(100 * counts[b] / total)}%" height="4"></td>'
-        for b in _BUCKET_ORDER
-        if counts[b]
-    )
-    email_bar = (
-        f'<table role="presentation" class="biasbar-e" width="120" cellpadding="0" '
-        f'cellspacing="0" aria-hidden="true"><tr>{bar_cells}</tr></table>'
-    )
-    # HOMEPAGE_URL is this issue's dated page (https://domain/DATE); the story
-    # anchor #slug lives there. (ARCHIVE_URL is the undated archive index -- linking
-    # there dropped the date and the anchor resolved against the wrong page.)
-    # {{HOMEPAGE_URL}} is filled (or emptied) by replace_placeholders.
-    # Bar STACKED above the meta line: an inline bar+text row misaligned
-    # vertically and cramped/wrapped on narrow mobile widths. Stacking sidesteps
-    # both -- the bar is a short rule, the meta text flows full-width beneath it.
-    email_line = (
-        '<div class="srcline email-only">'
-        f"{email_bar}"
-        f'<div class="sl-txt"><span class="spread-label">{spread_label}</span>'
-        f' · <a href="{{{{HOMEPAGE_URL}}}}#{slug}">view {src_word} online</a></div>'
-        "</div>"
-    )
-    return details + email_line
-
-
-def _article_separator(is_brief: bool) -> str:
-    """Inter-item gap + hairline as a presentation table BETWEEN articles.
-
-    Not a border/margin on <article>: Outlook.com strips CSS from HTML5 elements,
-    so the rule and spacing vanished there. Two spacer rows -- a gap, then the
-    rule (a cell top-border) with a gap below it -- render everywhere. Heights use
-    the `height` attribute (Outlook-honored) alongside the CSS.
-    """
-    top, bot = (16, 16) if is_brief else (32, 24)
-    return (
-        '<table role="presentation" class="artsep" width="100%" cellpadding="0" cellspacing="0">'
-        f'<tr><td height="{top}" style="height:{top}px;line-height:0;font-size:0;">&nbsp;</td></tr>'
-        f'<tr><td class="artsep-rule" height="{bot}" style="height:{bot}px;line-height:0;font-size:0;">&nbsp;</td></tr>'
-        "</table>"
-    )
+    return details
 
 
 def render_article(
@@ -421,8 +376,9 @@ def render_article(
 
     Stories emit the .head/.lede/.why/.varies markup; briefs emit the compact
     .brief h3/.summary markup with no why/varies. Both carry the shared sources
-    block. Every item except the first in its section is preceded by a `.artsep`
-    separator (gap + hairline); the first gets none.
+    block. The first story in its section gets `class="first"` (CSS suppresses
+    its top rule/margin); the first brief is handled by the `.section + .brief`
+    CSS rule.
     """
     raw_headline = article.get("headline", "")
     headline = html.escape(raw_headline)
@@ -441,10 +397,9 @@ def render_article(
     delta = (thread.get("delta") or "").strip()
     body = html.escape(delta) if delta else summary
 
-    sources_block = _render_sources_block(_collect_outlets(article), slug)
+    sources_block = _render_sources_block(_collect_outlets(article))
 
-    # Separator emitted before the article; see _article_separator.
-    parts: list[str] = [] if is_first else [_article_separator(is_brief)]
+    parts: list[str] = []
 
     if is_brief:
         parts += [f'<article class="brief" id="{slug}">', f"<h3>{headline}{anchor}</h3>"]
@@ -455,7 +410,8 @@ def render_article(
         parts.append("</article>")
         return "\n".join(parts)
 
-    parts += [f'<article id="{slug}">', f'<h3 class="head">{headline}{anchor}</h3>']
+    cls = ' class="first"' if is_first else ""
+    parts += [f'<article{cls} id="{slug}">', f'<h3 class="head">{headline}{anchor}</h3>']
     if eyebrow:
         parts.append(eyebrow)
     parts.append(f'<p class="lede">{body}</p>')
@@ -498,7 +454,7 @@ def render_digest(selections: dict, template_file: Path) -> str:
         used_slugs.add(deduped)
         return deduped
 
-    # Render must_know (stories). First one gets no leading separator.
+    # Render must_know (stories). The first gets class="first" (no top rule/margin).
     must_know_html = "\n".join(
         render_article(
             article,
@@ -508,16 +464,15 @@ def render_digest(selections: dict, template_file: Path) -> str:
         for i, article in enumerate(selections.get("must_know", []))
     )
 
-    # Render should_know (briefs). First one gets no leading separator (it follows
-    # the section header).
+    # Render should_know (briefs). The first brief's top rule/margin is suppressed
+    # by the `.section + .brief` CSS rule, so no is_first flag is needed here.
     should_know_html = "\n".join(
         render_article(
             article,
             slug=unique_slug(article.get("headline", "")),
             is_brief=True,
-            is_first=(i == 0),
         )
-        for i, article in enumerate(selections.get("should_know", []))
+        for article in selections.get("should_know", [])
     )
 
     # Fill template

@@ -1,20 +1,20 @@
-/* Digest email/web component styles.
+/* Digest web-archive component styles.
+ *
+ * These styles drive ONLY the web archive (served by the Rust circulation
+ * server). The digest email is rendered separately as MJML via
+ * newsroom/src/render_email.py, so this file no longer carries email-safety
+ * hacks (presentation-table section rules, &nbsp; glue, !important, MSO
+ * wrappers, .email-only/.web-only flips).
  *
  * Design tokens (:root --bg/--ink/--hair/--accent/… + the Source Serif 4
  * @font-face) live in design/tokens.css and are PREPENDED to this file at
  * render time (render.replace_placeholders). Do NOT redefine :root here.
  *
- * Default visibility is the EMAIL state: `.web-only{display:none}` and
- * `.email-only` shown. Circulation's DIGEST_NAV_CSS flips this for the web
- * archive (`.email-only{display:none}; .web-only{display:block}`) and injects
- * the top-bar nav / font-face. The web-nav chrome (topbar, translate pill,
- * theme toggle, skip link) is therefore NOT defined here.
+ * Circulation injects the web-nav chrome (topbar, translate pill, theme
+ * toggle, skip link) at serve time, so that is NOT defined here.
  *
  * Ported from scratch/chrome-mockups/digest_v1.html.
  */
-
-/* preheader: email inbox-preview text, never visually rendered */
-.preheader{display:none;}
 
 *{box-sizing:border-box;}
 body{margin:0;background:var(--bg);color:var(--ink);
@@ -42,13 +42,6 @@ a{color:var(--accent-ink);text-decoration:underline;text-underline-offset:2px;te
 .mh-dateline .tick{color:var(--accent);font-size:10px;}
 .mh-dateline .sep{color:var(--hair);padding:0 6px;}
 
-/* email-only top utility line (view-in-browser + translate). The web archive
-   has the full topbar instead, so this is hidden there via the .email-only flip. */
-.webview{font-family:var(--mono);font-size:10px;letter-spacing:.1em;text-transform:uppercase;
-  color:var(--muted);text-align:center;margin:0 0 28px;}
-.webview a{color:var(--muted);text-decoration:none;}
-.webview .sep{color:var(--hair);padding:0 6px;}
-
 /* AI notice */
 .notice{font-family:var(--sans);font-size:12px;line-height:1.6;color:var(--ink2);
   border-top:1px solid var(--ink);border-bottom:1px solid var(--hair);
@@ -56,28 +49,15 @@ a{color:var(--accent-ink);text-decoration:underline;text-underline-offset:2px;te
 .notice .tag{font-family:var(--mono);font-size:10px;letter-spacing:.12em;text-transform:uppercase;
   color:var(--accent-ink);font-weight:600;margin-right:8px;white-space:nowrap;}
 
-/* section rule -- a presentation table, NOT flex: Gmail/Outlook drop display:flex,
-   gap, and flex:1, which jammed the number into the name and collapsed the rule. */
-.section{width:100%;border-collapse:collapse;margin:0 0 24px;}
-/* The label shrinks to its content (a modest padding-right is the only gap before
-   the rule). It can't wrap because the section name is glued with &nbsp; -- Outlook.com
-   ignores `nowrap`, but a non-breaking space has no wrap opportunity anywhere. */
-.sec-label{white-space:nowrap;vertical-align:middle;padding-right:14px;}
-.section .num{font-family:var(--mono);font-size:12px;font-weight:600;color:var(--accent-ink);letter-spacing:.08em;padding-right:12px;}
-.section .name{font-family:var(--sans);font-size:11px;font-weight:700;letter-spacing:.18em;text-transform:uppercase;color:var(--ink);margin:0;display:inline;}
-/* rule = a block <span> background (renders in both Gmail and Outlook), vertically
-   centred with the label; the cell fills the remaining width. */
-.sec-rule{width:100%;vertical-align:middle;}
-.sec-rule span{display:block;height:1px;line-height:1px;font-size:0;background:var(--ink);}
+/* section rule */
+.section{display:flex;align-items:center;gap:12px;margin:0 0 24px;}
+.section .num{font-family:var(--mono);font-size:12px;font-weight:600;color:var(--accent-ink);letter-spacing:.08em;}
+.section .name{font-family:var(--sans);font-size:11px;font-weight:700;letter-spacing:.18em;text-transform:uppercase;color:var(--ink);margin:0;}
+.section .rule{flex:1;height:1px;background:var(--ink);}
 
 /* story */
-/* Inter-article gap + hairline live in a `.artsep` table BETWEEN articles (emitted
-   by render_article), NOT as border/margin on <article>: Outlook.com drops CSS on
-   HTML5 elements like <article>, so the rule and spacing vanished there. */
-article{margin:0;}
-.artsep{width:100%;border-collapse:collapse;}
-.artsep td{font-size:0;line-height:0;}
-.artsep .artsep-rule{border-top:1px solid var(--hair);}
+article{border-top:1px solid var(--hair);padding-top:24px;margin-top:32px;}
+article.first{border-top:0;padding-top:0;margin-top:0;}
 .eyebrow{font-family:var(--mono);font-size:11px;letter-spacing:.08em;text-transform:uppercase;
   color:var(--muted);margin:0 0 12px;}
 .eyebrow .loc{color:var(--accent-ink);font-weight:600;}
@@ -96,21 +76,15 @@ p{margin:12px 0;color:var(--ink2);text-wrap:pretty;}
 .varies b{color:var(--ink);font-weight:600;}
 
 /* should-know: compact */
-.brief{margin:0;}
+.brief{border-top:1px solid var(--hair);padding-top:16px;margin-top:16px;}
+.section + .brief{border-top:0;padding-top:0;margin-top:0;}
 .brief h3{font-family:var(--serif);font-weight:600;font-size:20px;line-height:1.3;letter-spacing:-.01em;margin:0 0 4px;}
 .brief p.summary{margin:0;color:var(--ink2);}
 .brief .eyebrow{margin-bottom:4px;}
 
-/* separation from the last story lives in a .artsep table before <footer> (Outlook
-   drops border/margin on <footer>, same as <article>). */
-footer{font-family:var(--sans);font-size:12px;color:var(--muted);line-height:1.7;}
+footer{margin-top:56px;border-top:1px solid var(--hair);padding-top:16px;font-family:var(--sans);font-size:12px;color:var(--muted);line-height:1.7;}
 footer a{color:var(--accent-ink);}
-/* Explicit font-size on the nav AND its links: Outlook.com doesn't inherit the
-   <footer> font-size into the (unstyled) <nav>, so the links rendered at the
-   browser default 16px ("huge"). The footer <p>s carry their own size already. */
-footer nav{margin-bottom:8px;font-size:12px;}
-footer nav a{font-size:12px;}
-.footer-actions{margin:0 0 8px;font-size:12px;color:var(--muted);}
+footer nav{margin-bottom:8px;}
 .footer-meta{font-size:11px;color:var(--muted);margin:0;}
 .not-covered{font-size:11px;color:var(--muted);margin:0 0 8px;}
 .generated-at{font-size:11px;color:var(--muted);margin:8px 0 0;}
@@ -125,7 +99,7 @@ footer nav a{font-size:12px;}
 .section-gap{margin-top:48px;}
 @media (prefers-reduced-motion:reduce){.anchor{transition:none;}}
 
-/* bias glyph (shared by the web summary + the email static line) */
+/* bias glyph (the web summary that reveals the source table) */
 .spread{display:flex;align-items:center;gap:8px;flex-wrap:wrap;line-height:1;}
 .biasbar{display:flex;height:4px;width:150px;border-radius:3px;overflow:hidden;background:var(--hair);flex:none;}
 .biasbar .seg{height:100%;}
@@ -145,32 +119,14 @@ footer nav a{font-size:12px;}
 .src-table td.nm{color:var(--ink2);}
 .src-table td.ln{font-family:var(--mono);font-size:11px;color:var(--muted);white-space:nowrap;}
 .src-table td.ar a{font-family:var(--mono);font-size:11px;padding:0 4px 0 0;text-decoration:underline;text-underline-offset:2px;}
-/* EMAIL: static bias bar + link-out as a presentation table (flex collapses in
-   Gmail/Outlook and knocked the bar/text out of alignment). srcbox is web-only. */
-.srcline{margin:16px 0 0;}
-.srcline .biasbar-e{margin:0 0 8px;}
-/* meta text matches the mono spread-label so the "·" separators are consistent
-   (a bare "·" in the parent serif context rendered as an oversized bullet). */
-.sl-txt{font-family:var(--mono);font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);line-height:1.5;}
-.sl-txt a{font-family:var(--sans);font-size:12px;letter-spacing:0;text-transform:none;color:var(--accent-ink);text-decoration:underline;text-underline-offset:2px;}
-.biasbar-e{table-layout:fixed;border-radius:3px;overflow:hidden;}
-.biasbar-e td{height:4px;line-height:4px;font-size:0;}
-.biasbar-e .l{background:var(--bias-l);}.biasbar-e .c{background:var(--bias-c);}.biasbar-e .r{background:var(--bias-r);}
 
-/* Default = EMAIL state. Circulation flips these for the web archive. */
-.web-only{display:none;}
-
-/* !important so these win in EMAIL: premailer inlines the base rules onto each
-   element (specificity 1000), which would otherwise defeat this media query on
-   phones. On the web nothing is inlined, so !important is inert there. (The
-   min-width block below needs no !important -- it only drives the web view.) */
 @media (max-width:400px){
-  .paper{padding:32px 14px 64px !important;}
-  .brand{font-size:23px !important;}
-  .mh-issue{font-size:10px !important;}
-  .mh-dateline{font-size:10px !important;letter-spacing:.08em !important;}
-  .head{font-size:22px !important;}
-  body{font-size:17px !important;}
+  .paper{padding:36px 20px 72px;}
+  .brand{font-size:23px;}
+  .mh-issue{font-size:10px;}
+  .mh-dateline{font-size:10px;letter-spacing:.08em;}
+  .head{font-size:22px;}
+  body{font-size:17px;}
 }
 
 @media (min-width:760px){
