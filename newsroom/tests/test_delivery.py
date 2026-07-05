@@ -48,7 +48,7 @@ def test_deliver_skips_when_db_shows_accepted(monkeypatch, tmp_path):
     # "delivered to nobody"). The count lives on the date-keyed digests row.
     monkeypatch.setattr(run.db, "broadcast_recipients", lambda _date: 42, raising=False)
     sends = _no_send(monkeypatch)
-    assert run._deliver(_digest(tmp_path)) == 42
+    assert run._deliver(_digest(tmp_path), "<html>email</html>") == 42
     assert sends["n"] == 0
 
 
@@ -63,7 +63,7 @@ def test_deliver_reprobes_uncertain_broadcast_and_skips_if_delivered(monkeypatch
     monkeypatch.setattr(run, "probe_status", lambda _bid: "sent", raising=False)
     monkeypatch.setattr(run, "resend_existing", lambda _bid: "sent", raising=False)
     sends = _no_send(monkeypatch)
-    assert run._deliver(_digest(tmp_path)) == 7  # reports the prior delivery's count, not 0
+    assert run._deliver(_digest(tmp_path), "<html>email</html>") == 7  # reports the prior delivery's count, not 0
     assert sends["n"] == 0, "must not create a second broadcast when the old one delivered"
     assert recorded == {"id": "bc_old", "status": "sent"}
 
@@ -78,7 +78,7 @@ def test_deliver_resends_existing_draft_when_not_delivered(monkeypatch, tmp_path
     resent = {"id": None}
     monkeypatch.setattr(run, "resend_existing", lambda bid: resent.__setitem__("id", bid) or "sent", raising=False)
     sends = _no_send(monkeypatch)
-    run._deliver(_digest(tmp_path))
+    run._deliver(_digest(tmp_path), "<html>email</html>")
     assert sends["n"] == 0, "must reuse the existing draft, not create a new broadcast"
     assert resent["id"] == "bc_old"
     assert recorded == {"id": "bc_old", "status": "sent"}

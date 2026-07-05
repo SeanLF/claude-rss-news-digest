@@ -7,7 +7,6 @@ import logging
 import os
 import time
 from datetime import UTC, datetime
-from pathlib import Path
 from typing import NamedTuple
 
 import resend
@@ -101,23 +100,23 @@ def get_audience_contact_count(audience_id: str) -> int:
         return 0
 
 
-def send_broadcast(digest_path: Path, prepare_for_email_fn, on_created=None) -> BroadcastResult:
+def send_broadcast(email_html: str, on_created=None) -> BroadcastResult:
     """Create and send a digest broadcast via Resend.
 
-    Returns a BroadcastResult (recipients, broadcast_id, status) so the caller can
-    persist the id/status and make a later retry idempotent. ``on_created`` (if
-    given) is called with the broadcast id the instant the draft is created --
-    BEFORE the send is attempted -- so a send that fails still leaves the id
-    persisted for a resume to recover (the 2026-06-16 gap where the id lived only
-    in the logs and a manual retry risked a double-send).
+    ``email_html`` is the already-email-ready HTML (the caller renders it via
+    render_email/MJML). Returns a BroadcastResult (recipients, broadcast_id, status)
+    so the caller can persist the id/status and make a later retry idempotent.
+    ``on_created`` (if given) is called with the broadcast id the instant the draft
+    is created -- BEFORE the send is attempted -- so a send that fails still leaves
+    the id persisted for a resume to recover (the 2026-06-16 gap where the id lived
+    only in the logs and a manual retry risked a double-send).
     """
     resend.api_key = os.environ["RESEND_API_KEY"]
     from_email = os.environ["RESEND_FROM"]
     digest_name = os.environ.get("DIGEST_NAME", "News Digest")
     audience_id = os.environ["RESEND_AUDIENCE_ID"]
 
-    content = digest_path.read_text()
-    content = prepare_for_email_fn(content)
+    content = email_html
     date_str = datetime.now(UTC).strftime("%B %d, %Y")
 
     try:

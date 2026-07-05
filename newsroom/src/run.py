@@ -58,6 +58,7 @@ from healthcheck import ping as healthcheck_ping
 from merge import assemble_selections
 from prepare import prepare_claude_input
 from render import extract_preheader, prepare_for_email, replace_placeholders
+from render_email import render_email
 from utils import check_internet, setup_logging, validate_env
 
 logger = logging.getLogger(__name__)
@@ -189,8 +190,11 @@ def _require_fresh_artifacts(claude_input_dir) -> None:
         )
 
 
-def _deliver(digest) -> int:
+def _deliver(digest, email_html) -> int:
     """Broadcast the digest idempotently; return recipients (0 if skipped).
+
+    ``digest`` (the rendered web HTML file) fixes the date/idempotency key; ``email_html``
+    is the MJML-rendered email that actually gets sent.
 
     If this date's digest already has an accepted broadcast (a prior run or a
     resumed attempt recorded one), skip the send so a retry never double-mails
@@ -214,9 +218,7 @@ def _deliver(digest) -> int:
             return db.broadcast_recipients(date_str)
         db.record_broadcast(date_str, existing_id, resend_existing(existing_id))
         return 0  # re-sent a draft; recipient count not returned by the send API
-    result = send_broadcast(
-        digest, prepare_for_email, on_created=lambda bid: db.record_broadcast(date_str, bid, "created")
-    )
+    result = send_broadcast(email_html, on_created=lambda bid: db.record_broadcast(date_str, bid, "created"))
     db.record_broadcast(date_str, result.broadcast_id, result.status, recipients=result.recipients)
     return result.recipients
 
@@ -232,12 +234,13 @@ def _render_record_deliver(selections, *, skip_record: bool, skip_email: bool, u
     preheader = extract_preheader(selections)
     digest = write_digest(selections, TEMPLATE_FILE)
     replace_placeholders(digest, selections, STYLES_FILE, preheader)
+    email_html = render_email(selections)  # MJML email is what gets sent; digest file is the web archive
     db.start_run(recording=not skip_record, broadcasting=not skip_email, alerting=False)
     try:
         if usage_rows is not None:
             db.record_usage(usage_rows)
         db.save_digest(digest, preheader=preheader)
-        recipients = _deliver(digest) if db.should_broadcast() else 0
+        recipients = _deliver(digest, email_html) if db.should_broadcast() else 0
         shown_headlines = read_shown_headlines()
         if shown_headlines:
             db.record_shown_headlines(shown_headlines)
@@ -511,10 +514,18 @@ Examples:
             logger.error("No digest found to send")
             return 1
         logger.info("Sending existing digest: %s", digest.name)
+        # Re-render the MJML email from this run's selections (the digest file is the
+        # web archive, not the email). Guard like --resume: refuse loud if the article
+        # index is gone (sources would silently drop from the email) or the artifacts
+        # are stale (would ship yesterday's stories under today's masthead), rather
+        # than degrade into a broken subscriber send.
+        _require_article_index(CLAUDE_INPUT_DIR)
+        _require_fresh_artifacts(CLAUDE_INPUT_DIR)
+        email_html = render_email(resolve_article_ids(load_selections(CLAUDE_INPUT_DIR / "selections.json")))
         db.start_run(recording=True, broadcasting=True, alerting=False)
         try:
             db.save_digest(digest)
-            recipients = _deliver(digest)
+            recipients = _deliver(digest, email_html)
             shown_headlines = read_shown_headlines()
             if shown_headlines:
                 db.record_shown_headlines(shown_headlines)
@@ -611,10 +622,11 @@ Examples:
         preheader = extract_preheader(selections)
         digest = write_digest(selections, TEMPLATE_FILE)
         replace_placeholders(digest, selections, STYLES_FILE, preheader)
+        email_html = render_email(selections)
         db.save_digest(digest, preheader=preheader)
 
         if db.should_broadcast():
-            recipients = _deliver(digest)
+            recipients = _deliver(digest, email_html)
         else:
             recipients = 0
             logger.info("Skipping broadcast: %s", digest.name)

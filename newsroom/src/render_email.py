@@ -361,5 +361,16 @@ def render_email(selections: dict, unsubscribe_url: str = "{{{RESEND_UNSUBSCRIBE
         f'<mj-body background-color="{BG}" width="660px">' + "".join(body) + "</mj-body></mjml>"
     )
     result = mjml2html(mjml)
-    # mjml-python returns a dict {html, errors} in some versions, or a str.
-    return result["html"] if isinstance(result, dict) else result
+    # mjml-python usually returns a str; some versions return {html, errors}. Fail
+    # LOUD on compile errors or empty output rather than let a broken/empty email
+    # flow to send_broadcast and out to subscribers.
+    if isinstance(result, dict):
+        errors = result.get("errors")
+        if errors:
+            raise RuntimeError(f"MJML compile errors, refusing to send: {errors}")
+        html_out = result.get("html", "")
+    else:
+        html_out = result
+    if not html_out or not html_out.strip():
+        raise RuntimeError("render_email produced empty HTML; refusing to send")
+    return html_out

@@ -59,7 +59,7 @@ def test_send_response_failure_but_accepted_is_delivered(monkeypatch, digest_fil
     """A failed send response is delivery, not failure, if Resend accepted it."""
     _patch_resend(monkeypatch, send=_raise_timeout, get=lambda _id: {"status": accepted_status})
     # Must NOT raise; reports the audience as recipients and the verified status.
-    result = broadcast.send_broadcast(digest_file, lambda html: html)
+    result = broadcast.send_broadcast(digest_file.read_text())
     assert result.recipients == 2
     assert result.broadcast_id == "bc_1"
     assert result.status == accepted_status
@@ -69,7 +69,7 @@ def test_send_failure_not_dispatched_raises(monkeypatch, digest_file):
     """If the broadcast never left 'draft', the timeout is a genuine failure."""
     _patch_resend(monkeypatch, send=_raise_timeout, get=lambda _id: {"status": "draft"})
     with pytest.raises(resend.exceptions.ResendError):
-        broadcast.send_broadcast(digest_file, lambda html: html)
+        broadcast.send_broadcast(digest_file.read_text())
 
 
 def test_send_failure_status_unreadable_raises(monkeypatch, digest_file):
@@ -80,7 +80,7 @@ def test_send_failure_status_unreadable_raises(monkeypatch, digest_file):
 
     _patch_resend(monkeypatch, send=_raise_timeout, get=get_fail)
     with pytest.raises(resend.exceptions.ResendError):
-        broadcast.send_broadcast(digest_file, lambda html: html)
+        broadcast.send_broadcast(digest_file.read_text())
 
 
 def test_happy_path_does_not_check_status(monkeypatch, digest_file):
@@ -92,7 +92,7 @@ def test_happy_path_does_not_check_status(monkeypatch, digest_file):
         return {"status": "sent"}
 
     _patch_resend(monkeypatch, send=lambda params: {"id": "bc_1"}, get=get)
-    result = broadcast.send_broadcast(digest_file, lambda html: html)
+    result = broadcast.send_broadcast(digest_file.read_text())
     assert result.recipients == 2
     assert result.status == "sent"
     assert calls["get"] == 0
@@ -110,7 +110,7 @@ def test_send_broadcast_persists_id_before_sending(monkeypatch, digest_file):
     # 'draft' => genuine failure (not accepted), so send_broadcast re-raises.
     _patch_resend(monkeypatch, send=send, get=lambda _id: {"status": "draft"})
     with pytest.raises(resend.exceptions.ResendError):
-        broadcast.send_broadcast(digest_file, lambda h: h, on_created=lambda bid: events.append(f"created:{bid}"))
+        broadcast.send_broadcast(digest_file.read_text(), on_created=lambda bid: events.append(f"created:{bid}"))
     assert events == ["created:bc_1", "send"]
 
 
