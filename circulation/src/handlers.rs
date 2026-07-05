@@ -1100,3 +1100,56 @@ pub async fn feedback(State(state): State<Arc<AppState>>) -> Html<String> {
         today_url: routes::TODAY,
     }))
 }
+
+#[cfg(test)]
+mod template_seam_tests {
+    //! `get_digest` builds the web view by injecting chrome into newsroom's Python-rendered
+    //! digest blob, matching exact string needles. Those needles live in a *separate crate and
+    //! language* (`newsroom/templates/digest-template.html`), so nothing but this test binds the
+    //! two: if the template drifts, `inject()` silently no-ops (warn-only) and the head bundle,
+    //! top bar, feedback line, and toggle JS just vanish from the archive. This embeds the real
+    //! template at compile time and asserts every needle `get_digest` depends on is present.
+    //!
+    //! Same repo-root reach as `assets::TOKENS_CSS` (`../../design/tokens.css`); the `ci-rust`
+    //! compose service bind-mounts this file into the container the same way it does `tokens.css`.
+
+    const NEWSROOM_TEMPLATE: &str = include_str!("../../newsroom/templates/digest-template.html");
+
+    #[test]
+    fn every_get_digest_injection_needle_is_present_in_the_real_template() {
+        // Keep in lockstep with the `inject(...)` calls in `get_digest`. A drop here means the
+        // corresponding chrome silently disappears from the web archive.
+        for needle in [
+            "</head>",                    // head bundle: OG + favicon + @font-face + no-flash boot
+            "<body>",                     // skip-to-content link
+            r#"<div class="paper">"#,     // top utility bar (nav + translate pill + theme toggle)
+            r#"<p class="footer-meta">"#, // preferred anchor for the web-only feedback line
+            "</footer>",                  // feedback fallback anchor
+            "</body>",                    // theme-toggle cycle JS
+        ] {
+            assert!(
+                NEWSROOM_TEMPLATE.contains(needle),
+                "web injection needle {needle:?} missing from digest-template.html -- get_digest \
+                 would silently drop injected chrome. Reconcile the needle with the template."
+            );
+        }
+    }
+
+    #[test]
+    fn footer_meta_needle_binds_the_plain_row_not_the_generated_at_variant() {
+        // The template carries both `<p class="footer-meta">` and `<p class="footer-meta
+        // generated-at">`. `get_digest` injects the feedback line before the FIRST match; the
+        // exact needle must hit the plain row (which precedes the variant) so the feedback line
+        // lands above both meta rows, not between them.
+        let plain = NEWSROOM_TEMPLATE
+            .find(r#"<p class="footer-meta">"#)
+            .expect("plain footer-meta anchor must exist");
+        let variant = NEWSROOM_TEMPLATE
+            .find(r#"<p class="footer-meta generated-at">"#)
+            .expect("generated-at footer-meta row must exist");
+        assert!(
+            plain < variant,
+            "plain footer-meta must precede the generated-at variant so the feedback line lands first"
+        );
+    }
+}
