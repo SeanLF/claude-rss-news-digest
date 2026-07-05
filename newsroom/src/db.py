@@ -572,13 +572,13 @@ def prepare_for_web(html_str: str) -> str:
     """Physically strip email-only elements from digest HTML before storing it
     for web serving.
 
-    Circulation's injected CSS also flips ``.email-only{display:none}`` for the
-    archive, but removing the nodes here is belt-and-suspenders: the stored blob
-    never carries the per-recipient ``{{{RESEND_UNSUBSCRIBE_URL}}}`` merge tag,
-    the view-in-browser line, the static email source line, or the inbox-preview
-    preheader -- so a CSS regression can't expose any of it on the web. Web-only
-    surfaces (the source ``<details>``, the footer Subscribe link) are left for
-    circulation's flip to reveal.
+    This physical strip is the sole mechanism keeping email-only content off the
+    web archive -- circulation no longer ships an ``.email-only``/``.web-only``
+    visibility flip. The stored blob never carries the per-recipient
+    ``{{{RESEND_UNSUBSCRIBE_URL}}}`` merge tag, the view-in-browser line, the
+    static email source line, or the inbox-preview preheader. Web-only surfaces
+    (e.g. the source ``<details>``) render by default -- the redesigned template
+    marks them normally rather than hiding them behind a flip.
     """
     from bs4 import BeautifulSoup, Comment
 

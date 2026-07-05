@@ -48,8 +48,8 @@ pub const REDUCED_MOTION_CSS: &str = r#"
 pub const SKIP_LINK_HTML: &str = r##"<a href="#main" class="skip-link">Skip to content</a>"##;
 
 /// CSS injected into digest pages for the web archive: the shared top utility bar
-/// (nav + translate pill + theme toggle), the email->web visibility flip, and the
-/// web-only feedback line. The digest keeps its OWN document frame (masthead, body,
+/// (nav + translate pill + theme toggle) and the feedback line. The digest keeps its
+/// OWN document frame (masthead, body,
 /// footer) from `digest.css`, so this deliberately does NOT pull in the app
 /// `CHROME_CSS` (which would collide on `.masthead`/`.brand`/`body`/`a`). It styles
 /// only the injected chrome, using the digest's own tokens (`--hair`, not chrome's
@@ -113,14 +113,6 @@ html.translated-rtl .pill,
     text-underline-offset: 2px;
 }
 
-/* email->web visibility flip: digest.css defaults to the EMAIL state
-   (`.web-only{display:none}`); the web archive reverses it. */
-.email-only{display:none;}
-.web-only{display:block;}
-/* footer-nav Subscribe is web-only (redundant in the email, which has Unsubscribe);
-   keep it inline in the nav row rather than the default block flip. */
-footer nav .web-only{display:inline;}
-
 @media (max-width:420px){.tword{display:none;}.toggle{padding:6px 9px;}}
 </style>"#;
 
@@ -154,11 +146,11 @@ pub fn digest_nav_html(date: &str) -> String {
 }
 
 /// Web-only feedback line folded into the digest's OWN footer (the footer keeps
-/// its Subscribe link and the flip hides the email-only Unsubscribe, so the old
-/// unsubscribe->subscribe swap is now structural -- only the feedback affordance
-/// remains to inject). When `feedback_email` is set, returns a clean invitation
-/// line with a `mailto:` (spec §4), the digest date prefilled in the subject;
-/// otherwise the empty string (nothing injected).
+/// its Subscribe link; the email-only Unsubscribe is physically stripped from the
+/// stored blob by `prepare_for_web`, so the old unsubscribe->subscribe swap is now
+/// structural -- only the feedback affordance remains to inject). When
+/// `feedback_email` is set, returns a clean invitation line with a `mailto:`
+/// (spec §4), the digest date prefilled in the subject; otherwise the empty string.
 pub fn web_feedback_html(date: &str, feedback_email: Option<&str>) -> String {
     // date is a validated YYYY-MM-DD and feedback_email is trusted config
     // (RESEND_FROM), so the mailto is safe to build without extra encoding. Its own
@@ -167,7 +159,7 @@ pub fn web_feedback_html(date: &str, feedback_email: Option<&str>) -> String {
     feedback_email
         .map(|email| {
             format!(
-                r#"<p class="footer-feedback web-only">Got feedback or a suggestion? <a href="mailto:{email}?subject=Digest%20feedback%20-%20{date}">Send a note &rarr;</a></p>"#
+                r#"<p class="footer-feedback">Got feedback or a suggestion? <a href="mailto:{email}?subject=Digest%20feedback%20-%20{date}">Send a note &rarr;</a></p>"#
             )
         })
         .unwrap_or_default()
@@ -265,11 +257,11 @@ mod tests {
     #[test]
     fn web_feedback_adds_mailto_line_when_address_configured() {
         let html = web_feedback_html("2026-07-03", Some("daily-news-digest@seanfloyd.dev"));
-        // A dedicated web-only invitation line with a clear call-to-action and the
-        // date prefilled in the subject.
+        // A dedicated invitation line with a clear call-to-action and the date
+        // prefilled in the subject.
         assert!(
-            html.contains(r#"class="footer-feedback web-only"#),
-            "own web-only line: {html}"
+            html.contains(r#"class="footer-feedback""#),
+            "own feedback line: {html}"
         );
         assert!(html.contains("feedback or a suggestion"));
         assert!(html.contains(r#"mailto:daily-news-digest@seanfloyd.dev?subject="#));
@@ -300,12 +292,5 @@ mod tests {
             !html.contains("mailto:"),
             "no address -> no feedback link: {html}"
         );
-    }
-
-    #[test]
-    fn digest_nav_css_flips_email_web_visibility_for_the_archive() {
-        // digest.css defaults to the EMAIL state; the injected chrome must reverse it.
-        assert!(DIGEST_NAV_CSS.contains(".email-only{display:none;}"));
-        assert!(DIGEST_NAV_CSS.contains(".web-only{display:block;}"));
     }
 }
