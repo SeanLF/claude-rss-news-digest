@@ -89,6 +89,15 @@ def test_thread_delta_and_reporting_varies(html):
     assert "How reporting varies" in html.replace("&#160;", " ").upper() or "REPORTING VARIES" in html.upper()
 
 
+def test_thread_eyebrow_sits_below_headline(html):
+    # Parity with the web render + mockup: the "Ongoing · day N" eyebrow reads like a
+    # dateline UNDER the headline, never above it. Assert ordering by source position.
+    headline_pos = html.index("Ongoing thread story")
+    eyebrow_pos = html.index("day 13")
+    body_pos = html.index("Day 13 delta replaces the summary.")
+    assert headline_pos < eyebrow_pos < body_pos
+
+
 def test_footer_links_are_styled_and_unsubscribe_substituted(html):
     assert "https://example.com/unsubscribe" in html
     assert "{{{RESEND_UNSUBSCRIBE_URL}}}" not in html

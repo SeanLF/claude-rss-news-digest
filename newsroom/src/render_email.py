@@ -156,19 +156,21 @@ def _sources(article: dict, slug: str, homepage_url: str) -> str:
     return f'<mj-section padding="16px {SIDE} 0"><mj-column>{bar}{text}</mj-column></mj-section>'
 
 
-def _eyebrow_thread(thread: dict) -> str:
+def _eyebrow_thread(thread: dict, pad: str = "0 0 12px") -> str:
+    """The "Ongoing · day N" status line -- a bare mj-text concatenated BELOW the
+    headline, INSIDE the headline's column (matches the web render + design-system:
+    the eyebrow reads like a dateline under the head, not above it). Empty string for
+    non-threads / day 1. ``pad`` is the mj-text bottom padding (12px under a story
+    headline, 4px under the tighter brief headline)."""
     if thread.get("day", 0) < 2:
         return ""
-    return _section(
-        _txt(
-            f'<span style="color:{ACCENT_INK};font-weight:600;">Ongoing</span> · day {thread["day"]}',
-            size=11,
-            color=MUTED,
-            font=MONO,
-            padding="0 0 12px",
-            extra='letter-spacing="1px" text-transform="uppercase"',
-        ),
-        padding=f"24px {SIDE} 0",
+    return _txt(
+        f'<span style="color:{ACCENT_INK};font-weight:600;">Ongoing</span> · day {thread["day"]}',
+        size=11,
+        color=MUTED,
+        font=MONO,
+        padding=pad,
+        extra='letter-spacing="1px" text-transform="uppercase"',
     )
 
 
@@ -180,14 +182,17 @@ def _story(article: dict, slug: str, homepage_url: str) -> str:
     body = html.escape(delta) if delta else summary
     why = html.escape(article.get("why_it_matters", "")).strip()
 
-    parts = [_eyebrow_thread(thread)]
-    parts.append(
+    # Order matches the mockup: headline -> eyebrow -> lede (the eyebrow sits under
+    # the head like a dateline). Headline + eyebrow + body share one column so the
+    # eyebrow stays glued to the headline, not floated into its own section above it.
+    parts = [
         _section(
             _txt(headline, size=25, color=INK, font=SERIF, lh="1.24", weight="600", padding="0 0 12px")
+            + _eyebrow_thread(thread)
             + _txt(body, size=18, color=INK, font=SERIF),
-            padding=f"{'0' if thread.get('day', 0) >= 2 else '24px'} {SIDE} 0",
+            padding=f"24px {SIDE} 0",
         )
-    )
+    ]
     if why:
         parts.append(
             _section(
@@ -214,9 +219,14 @@ def _brief(article: dict, slug: str, homepage_url: str, is_first: bool = False) 
     headline = html.escape(article.get("headline", ""))
     summary = html.escape(article.get("summary", ""))
     thread = article.get("thread") or {}
-    body = html.escape((thread.get("delta") or "").strip()) if (thread.get("delta") or "").strip() else summary
-    inner = _txt(headline, size=20, color=INK, font=SERIF, lh="1.3", weight="600", padding="0 0 4px") + _txt(
-        body, size=18, color=INK2
+    delta = (thread.get("delta") or "").strip()
+    body = html.escape(delta) if delta else summary
+    # headline -> eyebrow -> summary, same order as the story tier and the mockup
+    # (mockup `.brief .eyebrow{margin-bottom:4px}` -> the eyebrow gets a 4px bottom pad).
+    inner = (
+        _txt(headline, size=20, color=INK, font=SERIF, lh="1.3", weight="600", padding="0 0 4px")
+        + _eyebrow_thread(thread, pad="0 0 4px")
+        + _txt(body, size=18, color=INK2)
     )
     # The first brief needs a top gap from the section header (later briefs get it
     # from the separator); stories already carry their own top padding.
