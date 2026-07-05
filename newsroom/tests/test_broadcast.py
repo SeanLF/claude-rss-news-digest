@@ -114,6 +114,45 @@ def test_send_broadcast_persists_id_before_sending(monkeypatch, digest_file):
     assert events == ["created:bc_1", "send"]
 
 
+def test_send_test_digest_uses_emails_not_broadcasts(monkeypatch):
+    """QA test-send goes through single-recipient Emails.send with the right
+    to/from/subject/html, and must NEVER touch the Broadcasts/audience flow."""
+    captured = {}
+
+    def emails_send(params):
+        captured.update(params)
+        return {"id": "email_123"}
+
+    def broadcasts_forbidden(*a, **k):
+        raise AssertionError("send_test_digest must not call the Broadcasts API")
+
+    monkeypatch.setattr(broadcast.resend.Emails, "send", emails_send)
+    monkeypatch.setattr(broadcast.resend.Broadcasts, "create", broadcasts_forbidden)
+    monkeypatch.setattr(broadcast.resend.Broadcasts, "send", broadcasts_forbidden)
+
+    email_id = broadcast.send_test_digest("<html>prepared</html>", "qa@example.com")
+
+    assert email_id == "email_123"
+    assert captured["to"] == ["qa@example.com"]
+    assert captured["from"] == "Sean's Digest <d@example.dev>"  # reuses send_broadcast's from convention
+    assert captured["subject"].startswith("[TEST] Sean's Digest – ")  # prefixed so QA is unmistakable
+    assert captured["html"] == "<html>prepared</html>"  # sent verbatim -- NOT re-prepared
+
+
+def test_send_test_digest_respects_subject_prefix(monkeypatch):
+    captured = {}
+    monkeypatch.setattr(broadcast.resend.Emails, "send", lambda params: captured.update(params) or {"id": "e1"})
+    broadcast.send_test_digest("<p>x</p>", "qa@example.com", subject_prefix="[QA] ")
+    assert captured["subject"].startswith("[QA] Sean's Digest – ")
+
+
+def test_send_test_digest_raises_on_api_error(monkeypatch):
+    """A send failure must surface, not be swallowed -- this is a real send."""
+    monkeypatch.setattr(broadcast.resend.Emails, "send", _raise_timeout)
+    with pytest.raises(resend.exceptions.ResendError):
+        broadcast.send_test_digest("<p>x</p>", "qa@example.com")
+
+
 def test_resend_existing_sends_without_creating(monkeypatch):
     """resend_existing sends an already-created broadcast and never creates one."""
     creates = {"n": 0}

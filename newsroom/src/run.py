@@ -12,6 +12,7 @@ import re
 import subprocess
 import sys
 from datetime import UTC, datetime
+from pathlib import Path
 
 import db
 from broadcast import (
@@ -20,6 +21,7 @@ from broadcast import (
     resend_existing,
     send_broadcast,
     send_health_alert,
+    send_test_digest,
     send_test_email,
     send_thread_audit_alert,
 )
@@ -311,6 +313,40 @@ def maybe_update_weekly_recap():
     logger.info("Updated weekly recap: %s", today)
 
 
+def _parse_test_send_addrs(values: list[str]) -> list[str]:
+    """Flatten repeated/comma-separated --test-send values into an ordered, deduped list."""
+    seen: dict[str, None] = {}
+    for value in values:
+        for addr in value.split(","):
+            addr = addr.strip()
+            if addr:
+                seen.setdefault(addr, None)
+    return list(seen)
+
+
+def _render_test_email_html(selections_path: str | None) -> str:
+    """Produce the exact email-ready HTML the production send would deliver.
+
+    Mirrors the production input to send_broadcast: the rendered digest HTML file
+    run through prepare_for_email. With ``selections_path`` it re-renders from that
+    selections fixture (same resolve/render/replace path as _render_record_deliver);
+    without it, it reads the most-recent already-rendered digest. Never records a
+    run, never touches the audience, never creates a broadcast.
+    """
+    if selections_path:
+        selections = resolve_article_ids(load_selections(Path(selections_path)))
+        preheader = extract_preheader(selections)
+        digest = write_digest(selections, TEMPLATE_FILE)
+        replace_placeholders(digest, selections, STYLES_FILE, preheader)
+    else:
+        latest = find_latest_digest()
+        if not latest:
+            raise FileNotFoundError("No digest found to test-send. Run a render first or pass --selections PATH.")
+        digest = latest
+    logger.info("Test-send source digest: %s", digest.name)
+    return prepare_for_email(digest.read_text())
+
+
 def main():
     """Run full digest pipeline."""
     parser = argparse.ArgumentParser(
@@ -347,6 +383,20 @@ Examples:
     parser.add_argument("--force", action="store_true", help="Override duplicate run guard")
     parser.add_argument("--preview", action="store_true", help="Open latest digest in browser")
     parser.add_argument("--test-email", metavar="EMAIL", help="Send test email and exit")
+    parser.add_argument(
+        "--test-send",
+        metavar="ADDR",
+        action="append",
+        help="QA: render the digest, prepare_for_email, and send it to ADDR via Resend "
+        "Emails.send (single-recipient) -- NOT the audience broadcast. Repeatable or "
+        "comma-separated. Never records a run or touches the audience. Honours --dry-run "
+        "(renders but does not send) and --selections PATH.",
+    )
+    parser.add_argument(
+        "--selections",
+        metavar="PATH",
+        help="Selections JSON fixture to render from (with --test-send). Defaults to the latest rendered digest.",
+    )
     parser.add_argument("--validate", action="store_true", help="Test all RSS feeds")
     parser.add_argument("--json", action="store_true", help="Output in JSON format (with --validate)")
     parser.add_argument("--health-check", action="store_true", help="Verify Claude auth is working")
@@ -372,6 +422,33 @@ Examples:
     if args.test_email:
         validate_env(dry_run=True)
         return send_test_email(args.test_email)
+
+    # QA test-send mode: deliver a single rendered digest to arbitrary address(es) via
+    # Emails.send. Deliberately never creates a broadcast, touches the audience, or
+    # records a run -- it exists purely for email-client QA. --dry-run renders + prepares
+    # but stops short of the send so the whole path can be exercised without emailing.
+    if args.test_send:
+        addrs = _parse_test_send_addrs(args.test_send)
+        if not addrs:
+            logger.error("--test-send given no valid addresses")
+            return 1
+        # Deliberately does NOT require RESEND_AUDIENCE_ID: test-send never touches
+        # the audience. Only the Emails.send credentials are needed, and only for a
+        # real send (a --dry-run renders + prepares without any Resend call).
+        if not args.dry_run:
+            missing = [v for v in ("RESEND_API_KEY", "RESEND_FROM") if not os.environ.get(v)]
+            if missing:
+                logger.error("Cannot test-send, missing: %s", ", ".join(missing))
+                return 1
+        html = _render_test_email_html(args.selections)
+        for addr in addrs:
+            if args.dry_run:
+                logger.info("[dry-run] would test-send to %s (%d bytes of email HTML)", addr, len(html))
+                print(f"[dry-run] would send test digest to {addr} ({len(html)} bytes, no send performed)")
+            else:
+                email_id = send_test_digest(html, addr)
+                print(f"Sent test digest to {addr}: {email_id}")
+        return 0
 
     # Validate mode
     if args.validate:

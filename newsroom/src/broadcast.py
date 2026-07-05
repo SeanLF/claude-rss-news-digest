@@ -175,6 +175,43 @@ def send_test_email(to_email: str) -> int:
         return 1
 
 
+def send_test_digest(html: str, to_addr: str, *, subject_prefix: str = "[TEST] ") -> str | None:
+    """Send ONE already-email-prepared digest to a single address for email-client QA.
+
+    Uses Resend's single-recipient ``Emails.send`` -- deliberately NOT the
+    Broadcasts + audience flow -- so it can target an arbitrary address without
+    ever touching the production audience. Reuses ``send_broadcast``'s from/subject
+    conventions, prefixed (default "[TEST] ") so the QA send is unmistakable.
+
+    ``html`` MUST already be the email-prepared HTML (caller runs
+    ``prepare_for_email`` first); this function does not re-prepare it. Returns the
+    Resend email id. Raises on API error -- this is a real send, so a failure must
+    surface, never be swallowed.
+    """
+    resend.api_key = os.environ["RESEND_API_KEY"]
+    from_email = os.environ["RESEND_FROM"]
+    digest_name = os.environ.get("DIGEST_NAME", "News Digest")
+    date_str = datetime.now(UTC).strftime("%B %d, %Y")
+
+    try:
+        response = resend_with_retry(
+            resend.Emails.send,
+            {
+                "from": f"{digest_name} <{from_email}>",
+                "to": [to_addr],
+                "subject": f"{subject_prefix}{digest_name} – {date_str}",
+                "html": html,
+            },
+        )
+    except resend.exceptions.ResendError as e:
+        logger.error("Test digest send to %s failed: %s", to_addr, e)
+        raise
+
+    email_id = response.get("id") if isinstance(response, dict) else getattr(response, "id", None)
+    logger.info("Test digest sent to %s (id=%s)", to_addr, email_id)
+    return email_id
+
+
 def send_thread_audit_alert(audit_failures: int, run_id: int):
     """Alert when the thread faithfulness audit failed-open this run.
 
