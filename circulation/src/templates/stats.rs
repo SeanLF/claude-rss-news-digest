@@ -377,10 +377,18 @@ fn geographic_section(m: &StatsMetrics) -> String {
             )
         })
         .collect();
+    // Round to match the per-region bar rows above ({pct:.0}); integer truncation here would let
+    // the same top-region share display as e.g. 52% in the tile but 53% in its own bar row.
     let top_pct = m
         .regions
         .first()
-        .map(|(_, c)| if total > 0 { c * 100 / total } else { 0 })
+        .map(|(_, c)| {
+            if total > 0 {
+                (*c as f64 / total as f64 * 100.0).round() as i64
+            } else {
+                0
+            }
+        })
         .unwrap_or(0);
     let tiles = format!(
         "{}{}",
