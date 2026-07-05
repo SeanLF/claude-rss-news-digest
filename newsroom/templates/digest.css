@@ -25,16 +25,18 @@ a{color:var(--accent-ink);text-decoration:underline;text-underline-offset:2px;te
 :focus-visible{outline:2px solid var(--accent);outline-offset:3px;}
 
 /* masthead */
-.masthead{display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:8px 16px;
-  border-bottom:2px solid var(--ink);padding-bottom:12px;}
+/* Table layout (not flex): flex mangles in Outlook's Word engine and Gmail. A
+   presentation table renders identically in email and browsers. */
+.masthead{width:100%;border-collapse:collapse;border-bottom:2px solid var(--ink);margin:0 0 40px;}
+.mh-brand{text-align:left;vertical-align:bottom;padding:0 12px 10px 0;}
+.mh-issue{text-align:right;vertical-align:bottom;padding:0 0 10px;white-space:nowrap;
+  font-family:var(--mono);font-size:10px;letter-spacing:.08em;color:var(--muted);text-transform:uppercase;line-height:1.55;}
 .brand{font-family:var(--serif);font-weight:600;font-size:27px;letter-spacing:-.01em;line-height:1;margin:0;}
 .brand b{color:var(--accent-ink);font-weight:600;}
-.issue{font-family:var(--mono);font-size:10px;letter-spacing:.08em;color:var(--muted);
-  text-align:right;text-transform:uppercase;line-height:1.55;}
-.dateline{font-family:var(--mono);font-size:11px;letter-spacing:.12em;text-transform:uppercase;
-  color:var(--muted);margin:12px 0 40px;display:flex;flex-wrap:wrap;gap:12px;align-items:center;}
-.dateline .tick{color:var(--accent);font-size:10px;}
-.dateline .sep{color:var(--hair);}
+.mh-dateline{font-family:var(--mono);font-size:11px;letter-spacing:.12em;text-transform:uppercase;
+  color:var(--muted);padding:6px 0 12px;}
+.mh-dateline .tick{color:var(--accent);font-size:10px;}
+.mh-dateline .sep{color:var(--hair);padding:0 6px;}
 
 /* AI notice */
 .notice{font-family:var(--sans);font-size:12px;line-height:1.6;color:var(--ink2);
@@ -125,8 +127,8 @@ footer nav{margin-bottom:8px;}
 @media (max-width:400px){
   .paper{padding:36px 20px 72px;}
   .brand{font-size:23px;}
-  .issue{font-size:10px;}
-  .dateline{gap:8px;font-size:10px;letter-spacing:.08em;margin-bottom:32px;}
+  .mh-issue{font-size:10px;}
+  .mh-dateline{font-size:10px;letter-spacing:.08em;}
   .head{font-size:22px;}
   body{font-size:17px;}
 }

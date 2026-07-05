@@ -215,6 +215,11 @@ def prepare_for_email(html_content: str) -> str:
         return f"<style>{minified_css}</style>"
 
     html_content = re.sub(r"<style>(.*?)</style>", resolve_style_block, html_content, flags=re.DOTALL)
+    # Physically drop web-only blocks. Gmail unwraps <details>/<summary> and promotes
+    # their children, discarding the display:none that hides the web-only source table
+    # -- so it leaks into the email. Removing the block outright is the only reliable
+    # fix; the email keeps its own .email-only static source line.
+    html_content = re.sub(r"<details\b[^>]*\bweb-only\b[^>]*>.*?</details>", "", html_content, flags=re.DOTALL)
     html_content = inline_styles(html_content)
 
     return html_content

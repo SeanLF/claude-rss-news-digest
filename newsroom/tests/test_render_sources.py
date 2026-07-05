@@ -10,7 +10,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
-from render import _bias_bucket, render_article, replace_placeholders
+from render import _bias_bucket, prepare_for_email, render_article, replace_placeholders
 
 # ---------------------------------------------------------------------------
 # Bias bucketing
@@ -247,3 +247,19 @@ def test_residual_sweep_allows_any_triple_brace_tag(tmp_path):
     digest, styles = _prep(tmp_path, extra="<p>Hi {{{FIRST_NAME}}}</p>")
     replace_placeholders(digest, {"must_know": [], "should_know": []}, styles)
     assert "{{{FIRST_NAME}}}" in digest.read_text()
+
+
+def test_prepare_for_email_strips_web_only_source_table():
+    # Gmail unwraps <details> and drops the display:none, leaking the source table.
+    # prepare_for_email must remove the web-only block outright; the email-only
+    # static line stays.
+    html = (
+        "<html><head><style>body{color:#000}</style></head><body>"
+        '<details class="srcbox web-only"><summary>x</summary>'
+        "<table><tr><td>LEAKED_TABLE</td></tr></table></details>"
+        '<div class="spread email-only">3 sources &middot; view all 3 sources online</div>'
+        "</body></html>"
+    )
+    out = prepare_for_email(html)
+    assert "LEAKED_TABLE" not in out  # web-only <details> physically removed
+    assert "view all 3 sources online" in out  # email-only static line kept

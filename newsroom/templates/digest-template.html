@@ -9,11 +9,15 @@
 <body>
   <span class="preheader">{{PREHEADER}}</span>
   <div class="paper">
-  <header class="masthead">
-    <h1 class="brand">Sean's Daily <b>Digest</b></h1>
-    <div class="issue">No. {{ISSUE_NO}}<br>Filed {{FILED_TIME}}</div>
-  <div class="dateline"><span class="tick" aria-hidden="true">■</span><time datetime="{{DATE_ISO}}">{{DATE}}</time><span class="sep" aria-hidden="true">/</span><span>{{READING_TIME}}</span><span class="sep" aria-hidden="true">/</span><span>{{STORY_COUNT}}</span></div>
-  </header>
+  <table role="presentation" class="masthead" width="100%" cellpadding="0" cellspacing="0">
+    <tr>
+      <td class="mh-brand"><h1 class="brand">Sean's Daily <b>Digest</b></h1></td>
+      <td class="mh-issue">No. {{ISSUE_NO}}<br>Filed {{FILED_TIME}}</td>
+    </tr>
+    <tr>
+      <td colspan="2" class="mh-dateline"><span class="tick" aria-hidden="true">■</span> <time datetime="{{DATE_ISO}}">{{DATE}}</time> <span class="sep" aria-hidden="true">/</span> {{READING_TIME}} <span class="sep" aria-hidden="true">/</span> {{STORY_COUNT}}</td>
+    </tr>
+  </table>
   <main id="main">
   <p class="notice"><span class="tag">AI-written</span>Written by Claude, an assistant that can make mistakes — verify anything important against the linked sources. Political leanings from <a href="{{ARCHIVE_URL}}/sources">independent media assessors</a>.</p>
   <section aria-labelledby="s-mk"><div class="section"><span class="num" aria-hidden="true">01</span><h2 class="name" id="s-mk">Must Know</h2><span class="rule" aria-hidden="true"></span></div>
