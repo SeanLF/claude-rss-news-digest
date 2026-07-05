@@ -11,15 +11,6 @@ use super::digest::og_image_tags;
 /// [`chrome::CHROME_CSS`]; plain raw string so literal `{}` need no escaping. Bias bars use the
 /// `--bias-*` tokens (not the mockup's hardcoded hex) so they adapt to dark mode.
 const INDEX_CSS: &str = r#"
-/* masthead */
-.masthead{border-bottom:2px solid var(--ink); padding-bottom:16px;}
-.brand{font-family:var(--serif); font-weight:600; font-size:38px; letter-spacing:-.018em; margin:0; line-height:1.02;}
-.brand em{color:var(--accent-ink); font-style:normal;}
-.sub{display:flex; align-items:baseline; justify-content:space-between; gap:20px; margin-top:12px;}
-.kicker{font-family:var(--mono); font-size:11px; letter-spacing:.12em; text-transform:uppercase; color:var(--muted);}
-.stat{font-family:var(--mono); font-size:11px; color:var(--muted); font-variant-numeric:tabular-nums; white-space:nowrap;}
-.stat b{color:var(--ink2); font-weight:600;}
-
 /* notice bar (subscribe success/error) — semantic status axis, redundant glyph+word */
 .notice{font-family:var(--sans); font-size:14px; padding:10px 14px; border-radius:var(--r-input);
   background:var(--panel); border:1px solid var(--line); border-left:3px solid var(--muted);
@@ -102,8 +93,6 @@ li.issue > a:hover .sumline{color:var(--accent-ink);}
 .subband input:focus-visible{outline:2px solid var(--accent); outline-offset:-1px; border-color:var(--accent);}
 
 @media (max-width:560px){
-  .brand{font-size:29px;}
-  .sub{flex-direction:column; gap:6px;}
   .toolbar{flex-direction:column; align-items:stretch;}
   .seg{width:100%;} .seg button{flex:1;}
   .listhead{display:none;}

@@ -56,7 +56,22 @@ a{color:var(--accent-ink);}
 .site-foot .row{display:flex; flex-wrap:wrap; align-items:center;}
 .site-foot .row .sep{color:var(--line-strong); padding:0 8px;}
 
-@media (max-width:560px){ .wrap{padding:22px 18px 56px;} }
+/* masthead — shared: the index's big brand-as-h1 (.brand) and the sub-pages' eyebrow+title
+   (.brandmark + .h1). The .masthead/.sub/.kicker/.stat frame is identical for both. */
+.masthead{border-bottom:2px solid var(--ink); padding-bottom:16px;}
+.brand{font-family:var(--serif); font-weight:600; font-size:38px; letter-spacing:-.018em; margin:0; line-height:1.02;}
+.brand em{color:var(--accent-ink); font-style:normal;}
+.brandmark{display:inline-block; font-family:var(--serif); font-size:15px; font-weight:600; color:var(--ink2);
+  text-decoration:none; letter-spacing:-.005em; margin-bottom:5px;}
+.brandmark em{color:var(--accent-ink); font-style:normal;}
+.brandmark:hover{color:var(--ink);}
+.h1{font-family:var(--serif); font-weight:600; font-size:34px; letter-spacing:-.018em; margin:0; line-height:1.04;}
+.sub{display:flex; align-items:baseline; justify-content:space-between; gap:20px; margin-top:12px;}
+.kicker{font-family:var(--mono); font-size:11px; letter-spacing:.12em; text-transform:uppercase; color:var(--muted);}
+.stat{font-family:var(--mono); font-size:11px; color:var(--muted); font-variant-numeric:tabular-nums; white-space:nowrap;}
+.stat b{color:var(--ink2); font-weight:600;}
+
+@media (max-width:560px){ .wrap{padding:22px 18px 56px;} .brand{font-size:29px;} .h1{font-size:27px;} .sub{flex-direction:column; gap:6px;} }
 
 /* skip link — visible only when focused */
 .skip{position:absolute; left:-9999px; top:0; z-index:10; background:var(--accent-ink); color:#fff;
@@ -132,6 +147,21 @@ pub fn footer(links: &[(&str, &str)], tagline: &str) -> String {
     let row = nav_row(links);
     format!(
         r#"<footer class="site-foot"><div class="row">{row}</div><p style="margin:0;">{tagline}</p></footer>"#
+    )
+}
+
+/// Sub-page masthead: the brand eyebrow (links home) over the page title, then a mono kicker +
+/// right-aligned stat sub-row. `brand_html` is the accented brand (e.g. `News <em>Digest</em>`),
+/// `stat_html` may contain `<b>` figures.
+pub fn sub_masthead(
+    home_url: &str,
+    brand_html: &str,
+    title: &str,
+    kicker: &str,
+    stat_html: &str,
+) -> String {
+    format!(
+        r#"<header class="masthead"><a class="brandmark" href="{home_url}">{brand_html}</a><h1 class="h1">{title}</h1><div class="sub"><span class="kicker">{kicker}</span><span class="stat">{stat_html}</span></div></header>"#
     )
 }
 

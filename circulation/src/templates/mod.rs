@@ -17,6 +17,6 @@ pub use digest::{
 pub use feedback::render_feedback_thanks;
 pub use index::{IndexParams, render_index};
 pub use search::render_search;
-pub use sources::{Source, render_sources};
+pub use sources::{Source, SourcesParams, render_sources};
 pub use stats::render_stats;
 pub use thread::{render_thread, render_threads_index};

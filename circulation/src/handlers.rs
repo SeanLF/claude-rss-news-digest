@@ -15,7 +15,7 @@ use crate::feed::{DigestRow, render_atom_feed};
 use crate::routes;
 use crate::templates::{
     DIGEST_NAV_CSS, FAVICON_SVG, IndexParams, PROXY_TRANSLATE_HIDE_SCRIPT, REDUCED_MOTION_CSS,
-    SKIP_LINK_CSS, SKIP_LINK_HTML, Source, TOGGLE_BTN, chrome_footer, chrome_topbar,
+    SKIP_LINK_CSS, SKIP_LINK_HTML, Source, SourcesParams, TOGGLE_BTN, chrome_footer, chrome_topbar,
     digest_nav_html, digest_og_tags, render_feedback_thanks, render_index, render_sources,
     web_footer_html,
 };
@@ -103,6 +103,56 @@ fn loadmore_region(has_more: bool, next_before: &str) -> String {
 /// Wrap rendered rows in the index `<ul>` carrying the aria-live "N of TOTAL" denominator.
 fn index_list(rows: &str, total: i64) -> String {
     format!(r#"<ul class="index" id="index" data-total="{total}">{rows}</ul>"#)
+}
+
+/// Standard sub-page top bar + footer (every chrome page except the index). The nav leads with
+/// "← Archive", then the section links with `current` ("sources"|"threads"|"stats") omitted — pass
+/// "" to keep them all (detail pages). Right cluster = optional Subscribe sublink + Translate pill +
+/// theme toggle. Footer = the shared link row + a page-specific `tagline`.
+fn sub_chrome(state: &AppState, current: &str, tagline: &str) -> (String, String) {
+    let subscriptions_enabled =
+        state.resend_api_key.is_some() && state.resend_audience_id.is_some();
+    let mut nav: Vec<(&str, &str)> = vec![("/", "&larr; Archive")];
+    for (href, label, key) in [
+        (routes::SOURCES, "Sources", "sources"),
+        (routes::THREADS, "Threads", "threads"),
+        (routes::STATS, "Stats", "stats"),
+    ] {
+        if key != current {
+            nav.push((href, label));
+        }
+    }
+    let mut right = String::new();
+    if subscriptions_enabled {
+        right.push_str(r##"<a class="sublink" href="/#subscribe">Subscribe</a>"##);
+    }
+    right.push_str(&format!(
+        r#"<a class="pill" href="{}/translate"><span class="g" aria-hidden="true">文A</span> Translate</a>"#,
+        routes::TODAY
+    ));
+    right.push_str(TOGGLE_BTN);
+    let topbar = chrome_topbar(&nav, &right);
+
+    let privacy_url = state.privacy_url();
+    let mut links: Vec<(&str, &str)> = vec![
+        ("/", "Archive"),
+        (routes::SOURCES, "Sources"),
+        (routes::THREADS, "Threads"),
+        (routes::STATS, "Stats"),
+        (routes::FEED, "RSS"),
+    ];
+    if let Some(gh) = &state.source_url {
+        links.push((gh.as_str(), "GitHub"));
+    }
+    links.push((privacy_url.as_str(), "Privacy"));
+    if let Some(home) = &state.homepage_url {
+        let label = home
+            .trim_start_matches("https://")
+            .trim_start_matches("http://");
+        links.push((home.as_str(), label));
+    }
+    let footer = chrome_footer(&links, tagline);
+    (topbar, footer)
 }
 
 /// Index / home — the archive as an issue-numbered running order (`chrome_v12`).
@@ -441,46 +491,6 @@ pub async fn sources(
 
     use std::collections::HashMap;
 
-    // MBFC slug mapping (source_id -> mbfc slug)
-    let mbfc_slugs: HashMap<&str, &str> = [
-        ("al_jazeera", "al-jazeera"),
-        ("al_monitor", "al-monitor"),
-        ("ars_technica", "ars-technica"),
-        ("bbc_world", "bbc"),
-        ("cbc_news", "cbc-news-canadian-broadcasting"),
-        ("daily_maverick", "daily-maverick"),
-        ("der_spiegel", "spiegel-online"),
-        ("deutsche_welle", "dw-news"),
-        ("financial_times", "financial-times"),
-        ("globe_and_mail", "the-globe-and-mail"),
-        ("le_monde", "le-monde"),
-        ("nikkei_asia", "nikkei"),
-        ("npr_world", "npr"),
-        ("nyt_world", "new-york-times"),
-        ("rappler", "rappler"),
-        ("rest_of_world", "rest-of-world"),
-        ("reuters", "reuters"),
-        ("straits_times", "the-straits-times"),
-        ("the_diplomat", "the-diplomat"),
-        ("the_guardian", "the-guardian"),
-        ("the_hindu", "the-hindu"),
-        ("the_verge", "the-verge"),
-        ("washington_post", "washington-post"),
-        ("wsj_world", "wall-street-journal"),
-        ("haaretz_middle_east", "haaretz"),
-        ("haaretz_world", "haaretz"),
-        ("scmp_asia", "south-china-morning-post"),
-        ("scmp_china", "south-china-morning-post"),
-        ("scmp_world", "south-china-morning-post"),
-        ("economist_americas", "the-economist"),
-        ("economist_asia", "the-economist"),
-        ("economist_europe", "the-economist"),
-        ("economist_international", "the-economist"),
-        ("economist_middle_east_africa", "the-economist"),
-    ]
-    .into_iter()
-    .collect();
-
     // Deduplicate multi-feed sources: group by (name, bias) and count feeds
     let mut seen: HashMap<String, (RawSource, u32)> = HashMap::new();
     for s in raw {
@@ -531,7 +541,6 @@ pub async fn sources(
     let mut sources: Vec<Source> = seen
         .into_values()
         .map(|(raw, feed_count)| {
-            let mbfc_slug = mbfc_slugs.get(raw.id.as_str()).unwrap_or(&"").to_string();
             let website = website_from_rss(&raw.url, &raw.name);
             // Clean up display name (strip feed suffixes)
             let display_name = match raw.id.as_str() {
@@ -560,7 +569,6 @@ pub async fn sources(
                 factuality: raw.factuality,
                 perspective,
                 feed_count,
-                mbfc_slug,
             }
         })
         .collect();
@@ -568,7 +576,26 @@ pub async fn sources(
     // Sort alphabetically within each bias group
     sources.sort_by_key(|s| s.name.to_lowercase());
 
-    let html = render_sources(&state.digest_name, &sources, state.source_url.as_deref());
+    let (topbar_html, footer_html) = sub_chrome(
+        &state,
+        "sources",
+        "Bias &amp; factuality ratings via Ground News; each row links to the outlet.",
+    );
+    let brand = brand_html(&state.digest_name);
+    let canonical_url = state.base_url();
+    let image_url = state.og_image_url();
+    let html = render_sources(&SourcesParams {
+        title: &state.digest_name,
+        brand_html: &brand,
+        home_url: "/",
+        canonical_url: &canonical_url,
+        feed_url: routes::FEED,
+        image_url: &image_url,
+        font_url: &state.font_url,
+        topbar_html: &topbar_html,
+        footer_html: &footer_html,
+        sources: &sources,
+    });
     Ok(Html(html))
 }
 
