@@ -12,6 +12,8 @@ use crate::assets;
 /// Plain raw string (not a format template) so the literal `{}` need no escaping.
 pub const CHROME_CSS: &str = r#"
 *{box-sizing:border-box;}
+/* on html so rubber-band overscroll past the top/bottom shows the paper ground, not white */
+html{background:var(--paper);}
 body{margin:0;}
 .wrap{background:var(--paper); color:var(--ink); font-family:var(--serif);
   -webkit-font-smoothing:antialiased; min-height:100vh; padding:28px 32px 72px; hanging-punctuation:first last;}
