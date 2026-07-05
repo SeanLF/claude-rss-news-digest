@@ -5,10 +5,13 @@ use axum::{
 };
 use rusqlite::{Connection, OpenFlags};
 use serde::Deserialize;
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use crate::AppState;
-use crate::templates::render_stats;
+use crate::handlers::{brand_html, sub_chrome};
+use crate::routes;
+use crate::templates::{StatsParams, render_stats};
 use crate::util::log_row_error;
 
 #[derive(Deserialize, Default)]
@@ -47,6 +50,16 @@ pub struct DedupStats {
     pub max_similarity: f64,
 }
 
+/// Period cost aggregate (over the whole window, not just the last-10 `recent_runs`).
+#[derive(Clone, Default)]
+pub struct CostSummary {
+    pub runs: i64,
+    pub cost_total: f64,
+    pub kept_total: i64,
+    /// Recipients on the most recent run (the current subscriber count) — the cost/subscriber base.
+    pub recipients_latest: i64,
+}
+
 pub struct StatsData {
     pub period_days: u32,
     pub source_health: Vec<SourceHealth>,
@@ -54,6 +67,7 @@ pub struct StatsData {
     pub recent_runs: Vec<DigestRun>,
     pub dedup_stats: Option<DedupStats>,
     pub never_selected: Vec<String>,
+    pub cost: CostSummary,
 }
 
 /// Fetch stats data from database
@@ -238,6 +252,33 @@ pub fn fetch_stats_data(db_path: &str, days: u32) -> Result<StatsData, (StatusCo
             .collect()
     };
 
+    // Period cost aggregate. Subqueries (not a join) so SUM(articles_kept) isn't multiplied by the
+    // per-run `run_usage` row count. `?1` is reused across all windows. recipients = the latest run's
+    // emailed count (current subscriber base), independent of the window.
+    let cost: CostSummary = conn
+        .query_row(
+            "SELECT
+               (SELECT COUNT(*) FROM digest_runs
+                  WHERE completed_at IS NOT NULL AND run_at >= datetime('now','-'||?1||' days')),
+               (SELECT COALESCE(SUM(articles_kept),0) FROM digest_runs
+                  WHERE completed_at IS NOT NULL AND run_at >= datetime('now','-'||?1||' days')),
+               (SELECT COALESCE(SUM(ru.api_cost_usd),0.0) FROM run_usage ru
+                  JOIN digest_runs dr ON dr.id = ru.run_id
+                  WHERE dr.completed_at IS NOT NULL AND dr.run_at >= datetime('now','-'||?1||' days')),
+               (SELECT COALESCE(articles_emailed,0) FROM digest_runs
+                  WHERE completed_at IS NOT NULL ORDER BY run_at DESC LIMIT 1)",
+            [days],
+            |row| {
+                Ok(CostSummary {
+                    runs: row.get(0)?,
+                    kept_total: row.get(1)?,
+                    cost_total: row.get(2)?,
+                    recipients_latest: row.get(3).unwrap_or(0),
+                })
+            },
+        )
+        .unwrap_or_default();
+
     Ok(StatsData {
         period_days: days,
         source_health,
@@ -245,7 +286,310 @@ pub fn fetch_stats_data(db_path: &str, days: u32) -> Result<StatsData, (StatusCo
         recent_runs,
         dedup_stats,
         never_selected,
+        cost,
     })
+}
+
+// ─────────────────────── derived metrics (balance / concentration / coverage) ───────────────────────
+
+/// A source's share of shipped narratives, for the concentration bars.
+pub struct SourceShare {
+    pub name: String,
+    /// Absolute share of all shipped narratives (count / total), as a percentage.
+    pub share_pct: f64,
+    /// Bar length relative to the top source (top = 100), as a percentage.
+    pub bar_pct: f64,
+}
+
+/// The computed editorial-health metrics for the stats page. All derived from `source_usage`
+/// (shipped narratives over the window) joined to `sources.json` (bias/factuality/name) + the cost
+/// aggregate — SELECTs over existing data, no new columns.
+#[derive(Default)]
+pub struct StatsMetrics {
+    // Balance (over sources with a KNOWN bias — the l/c/r catalog)
+    pub shipped_pct: [i64; 3], // l, c, r — rounded, sum to 100
+    pub catalog_pct: [i64; 3],
+    pub jsd: f64, // Jensen–Shannon divergence (log2, 0..1), shipped vs catalog
+    pub factuality_high_pct: i64, // % of shipped from high/very-high factuality sources
+    pub buckets_sourced: i64, // populated spectrum buckets (of 7; only l/c/r can populate)
+    // Concentration (over ALL shipped sources)
+    pub total_shipped: i64,
+    pub hhi: f64,                      // Σ share² (0..1); low = well spread
+    pub effective_n: f64,              // 1 / HHI
+    pub top_sources: Vec<SourceShare>, // top 5 by count
+    // Coverage
+    pub sources_used: i64,  // distinct catalog sources shipped in the window
+    pub catalog_total: i64, // |sources.json|
+    pub coverage_pct: i64,
+}
+
+/// id -> display name, from the compiled-in `sources.json` (for the source-health table).
+pub fn source_names() -> HashMap<String, String> {
+    sources_meta()
+        .into_iter()
+        .map(|(id, (_, _, name))| (id, name))
+        .collect()
+}
+
+/// id -> (bias bucket 'l'|'c'|'r', factuality, display name), from the compiled-in `sources.json`.
+fn sources_meta() -> HashMap<String, (char, String, String)> {
+    #[derive(serde::Deserialize)]
+    struct Raw {
+        id: String,
+        name: String,
+        bias: String,
+        factuality: String,
+    }
+    let raw: Vec<Raw> = serde_json::from_str(include_str!("../sources.json")).unwrap_or_default();
+    raw.into_iter()
+        .map(|s| {
+            let bucket = match s.bias.as_str() {
+                "far-left" | "left" | "lean-left" => 'l',
+                "lean-right" | "right" | "far-right" => 'r',
+                _ => 'c',
+            };
+            (s.id, (bucket, s.factuality, s.name))
+        })
+        .collect()
+}
+
+/// Normalise counts to a probability vector (sums to 1; all-zero -> all-zero).
+fn normalize3(v: [i64; 3]) -> [f64; 3] {
+    let total: i64 = v.iter().sum();
+    if total == 0 {
+        return [0.0; 3];
+    }
+    [
+        v[0] as f64 / total as f64,
+        v[1] as f64 / total as f64,
+        v[2] as f64 / total as f64,
+    ]
+}
+
+/// KL divergence Σ a·log2(a/b) over a 3-vector, skipping zero terms.
+fn kl3(a: [f64; 3], b: [f64; 3]) -> f64 {
+    (0..3)
+        .map(|i| {
+            if a[i] > 0.0 && b[i] > 0.0 {
+                a[i] * (a[i] / b[i]).log2()
+            } else {
+                0.0
+            }
+        })
+        .sum()
+}
+
+/// Jensen–Shannon divergence (log2 -> range 0..1) between two 3-bucket distributions.
+fn jsd3(p: [i64; 3], q: [i64; 3]) -> f64 {
+    let (p, q) = (normalize3(p), normalize3(q));
+    let m = [
+        (p[0] + q[0]) / 2.0,
+        (p[1] + q[1]) / 2.0,
+        (p[2] + q[2]) / 2.0,
+    ];
+    ((kl3(p, m) + kl3(q, m)) / 2.0).clamp(0.0, 1.0)
+}
+
+/// Round a probability vector to integer percentages that sum to exactly 100 (drift into the largest).
+fn pct3(v: [i64; 3]) -> [i64; 3] {
+    let p = normalize3(v);
+    let mut out = [
+        (p[0] * 100.0).round() as i64,
+        (p[1] * 100.0).round() as i64,
+        (p[2] * 100.0).round() as i64,
+    ];
+    let sum: i64 = out.iter().sum();
+    if sum != 0 && sum != 100 {
+        // absorb the rounding drift into the largest bucket
+        let max_i = (0..3).max_by(|&a, &b| p[a].total_cmp(&p[b])).unwrap();
+        out[max_i] += 100 - sum;
+    }
+    out
+}
+
+pub fn compute_metrics(data: &StatsData) -> StatsMetrics {
+    let meta = sources_meta();
+
+    // Aggregate shipped counts per source across tiers.
+    let mut per_source: HashMap<&str, i64> = HashMap::new();
+    for u in &data.source_usage {
+        *per_source.entry(u.source_id.as_str()).or_insert(0) += u.count;
+    }
+    let total_shipped: i64 = per_source.values().sum();
+
+    // Bias mix + factuality over sources with known metadata.
+    let mut shipped_lcr = [0i64; 3];
+    let mut fact_high = 0i64;
+    let mut fact_known = 0i64;
+    for (id, &count) in &per_source {
+        if let Some((bucket, factuality, _)) = meta.get(*id) {
+            match bucket {
+                'l' => shipped_lcr[0] += count,
+                'c' => shipped_lcr[1] += count,
+                _ => shipped_lcr[2] += count,
+            }
+            fact_known += count;
+            if matches!(factuality.as_str(), "high" | "very-high") {
+                fact_high += count;
+            }
+        }
+    }
+
+    // Catalog bias distribution (the full sources.json shelf).
+    let mut catalog_lcr = [0i64; 3];
+    for (bucket, _, _) in meta.values() {
+        match bucket {
+            'l' => catalog_lcr[0] += 1,
+            'c' => catalog_lcr[1] += 1,
+            _ => catalog_lcr[2] += 1,
+        }
+    }
+
+    // Concentration: HHI over all shipped sources.
+    let hhi: f64 = if total_shipped > 0 {
+        per_source
+            .values()
+            .map(|&c| {
+                let s = c as f64 / total_shipped as f64;
+                s * s
+            })
+            .sum()
+    } else {
+        0.0
+    };
+
+    // Top 5 sources by count.
+    let mut ranked: Vec<(&str, i64)> = per_source.iter().map(|(&k, &v)| (k, v)).collect();
+    ranked.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(b.0)));
+    let top_count = ranked.first().map(|(_, c)| *c).unwrap_or(0);
+    let top_sources: Vec<SourceShare> = ranked
+        .iter()
+        .take(5)
+        .map(|(id, count)| SourceShare {
+            name: meta
+                .get(*id)
+                .map(|(_, _, name)| name.clone())
+                .unwrap_or_else(|| (*id).to_string()),
+            share_pct: if total_shipped > 0 {
+                *count as f64 / total_shipped as f64 * 100.0
+            } else {
+                0.0
+            },
+            bar_pct: if top_count > 0 {
+                *count as f64 / top_count as f64 * 100.0
+            } else {
+                0.0
+            },
+        })
+        .collect();
+
+    // Coverage: distinct catalog sources shipped vs the full catalog.
+    let sources_used = per_source
+        .keys()
+        .filter(|id| meta.contains_key(**id))
+        .count() as i64;
+    let catalog_total = meta.len() as i64;
+
+    StatsMetrics {
+        shipped_pct: pct3(shipped_lcr),
+        catalog_pct: pct3(catalog_lcr),
+        jsd: jsd3(shipped_lcr, catalog_lcr),
+        factuality_high_pct: if fact_known > 0 {
+            (fact_high as f64 / fact_known as f64 * 100.0).round() as i64
+        } else {
+            0
+        },
+        buckets_sourced: shipped_lcr.iter().filter(|&&c| c > 0).count() as i64,
+        total_shipped,
+        hhi,
+        effective_n: if hhi > 0.0 { 1.0 / hhi } else { 0.0 },
+        top_sources,
+        sources_used,
+        catalog_total,
+        coverage_pct: if catalog_total > 0 {
+            (sources_used as f64 / catalog_total as f64 * 100.0).round() as i64
+        } else {
+            0
+        },
+    }
+}
+
+#[cfg(test)]
+mod metrics_tests {
+    use super::*;
+
+    #[test]
+    fn jsd_is_zero_for_identical_and_one_for_disjoint() {
+        assert!((jsd3([3, 5, 2], [30, 50, 20])).abs() < 1e-9); // same distribution
+        assert!((jsd3([1, 0, 0], [0, 1, 0]) - 1.0).abs() < 1e-9); // disjoint -> 1
+        let partial = jsd3([1, 1, 0], [0, 1, 1]);
+        assert!(partial > 0.0 && partial < 1.0);
+    }
+
+    #[test]
+    fn pct3_sums_to_100_absorbing_drift() {
+        assert_eq!(pct3([1, 1, 1]).iter().sum::<i64>(), 100); // 33/33/34
+        assert_eq!(pct3([41, 51, 8]).iter().sum::<i64>(), 100);
+        assert_eq!(pct3([0, 0, 0]), [0, 0, 0]);
+    }
+
+    fn usage(rows: &[(&str, i64)]) -> Vec<SourceUsage> {
+        rows.iter()
+            .map(|(id, c)| SourceUsage {
+                source_id: (*id).to_string(),
+                tier: "must_know".into(),
+                count: *c,
+            })
+            .collect()
+    }
+
+    fn data_with(usage: Vec<SourceUsage>) -> StatsData {
+        StatsData {
+            period_days: 30,
+            source_health: vec![],
+            source_usage: usage,
+            recent_runs: vec![],
+            dedup_stats: None,
+            never_selected: vec![],
+            cost: CostSummary::default(),
+        }
+    }
+
+    #[test]
+    fn hhi_and_effective_n_for_known_shares() {
+        // two real catalog sources, 3:1 split -> shares .75/.25 -> HHI .625, eff-N 1.6
+        let m = compute_metrics(&data_with(usage(&[("reuters", 3), ("bbc_world", 1)])));
+        assert!((m.hhi - 0.625).abs() < 1e-9);
+        assert!((m.effective_n - 1.6).abs() < 1e-9);
+        assert_eq!(m.total_shipped, 4);
+        assert!((m.top_sources[0].share_pct - 75.0).abs() < 1e-9); // reuters top: 3/4
+    }
+
+    #[test]
+    fn balance_buckets_and_factuality_from_real_sources_json() {
+        // al_jazeera=lean-left/mixed, bbc_world=center/high, globe_and_mail=lean-right
+        let m = compute_metrics(&data_with(usage(&[
+            ("al_jazeera", 2),
+            ("bbc_world", 5),
+            ("globe_and_mail", 3),
+        ])));
+        assert_eq!(m.shipped_pct, [20, 50, 30]); // 2/5/3 of 10 -> l, c, r
+        assert_eq!(m.buckets_sourced, 3);
+        assert_eq!(m.shipped_pct.iter().sum::<i64>(), 100);
+        // catalog is the full shelf; must be non-empty in all buckets present in sources.json
+        assert!(m.catalog_total > 0);
+        assert_eq!(m.sources_used, 3);
+        // all three are "high" factuality in sources.json -> 100%
+        assert_eq!(m.factuality_high_pct, 100);
+    }
+
+    #[test]
+    fn factuality_excludes_non_high_sources() {
+        // hacker_news is "unrated"; it should count toward the base but not the high numerator.
+        let m = compute_metrics(&data_with(usage(&[("bbc_world", 3), ("hacker_news", 1)])));
+        // 3 of 4 shipped from a high-factuality source -> 75%
+        assert_eq!(m.factuality_high_pct, 75);
+    }
 }
 
 /// Stats JSON endpoint
@@ -318,10 +662,36 @@ pub async fn stats_html(
     State(state): State<Arc<AppState>>,
     Query(query): Query<StatsQuery>,
 ) -> Result<Html<String>, (StatusCode, String)> {
-    let days = query.days.unwrap_or(30);
+    // Allowlist the period toggle to 7/30/90 (default 30); never interpolate an arbitrary window.
+    let days = match query.days {
+        Some(7) => 7,
+        Some(90) => 90,
+        _ => 30,
+    };
     let data = fetch_stats_data(&state.db_path, days)?;
-    let name = &state.digest_name;
-    let html = render_stats(name, days, &data);
+    let metrics = compute_metrics(&data);
+    let (topbar_html, footer_html) = sub_chrome(
+        &state,
+        "stats",
+        "Balance = shipped source-bias mix vs. the catalog. Cost is API list-price equiv., not billed spend.",
+    );
+    let brand = brand_html(&state.digest_name);
+    let canonical_url = state.base_url();
+    let image_url = state.og_image_url();
+    let html = render_stats(&StatsParams {
+        title: &state.digest_name,
+        brand_html: &brand,
+        home_url: "/",
+        canonical_url: &canonical_url,
+        feed_url: routes::FEED,
+        image_url: &image_url,
+        font_url: &state.font_url,
+        topbar_html: &topbar_html,
+        footer_html: &footer_html,
+        days,
+        data: &data,
+        metrics: &metrics,
+    });
     Ok(Html(html))
 }
 

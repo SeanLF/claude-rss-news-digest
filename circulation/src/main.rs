@@ -183,14 +183,15 @@ async fn main() {
     .unwrap();
 }
 
-/// Required tables for the server to function
+/// Required tables for the server to function. `story_feedback` was dropped here when the per-story
+/// vote was removed product-wide: circulation no longer reads or writes it, so requiring it only
+/// broke startup against DBs that don't have it (e.g. the cloud clone `bin/circulation` runs on).
 const REQUIRED_TABLES: &[&str] = &[
     "digests",
     "digest_runs",
     "source_health",
     "shown_narratives",
     "dedup_log",
-    "story_feedback",
 ];
 
 /// Check database health - returns list of missing tables (empty if healthy).

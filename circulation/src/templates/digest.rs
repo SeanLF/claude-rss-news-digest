@@ -1,8 +1,5 @@
 //! Digest page template - navigation and web-specific elements injected into stored HTML.
 
-/// SVG link icon for section anchor links -- shared across pages.
-pub const ANCHOR_SVG: &str = r#"<svg viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M7.775 3.275a.75.75 0 0 0 1.06 1.06l1.25-1.25a2 2 0 1 1 2.83 2.83l-2.5 2.5a2 2 0 0 1-2.83 0 .75.75 0 0 0-1.06 1.06 3.5 3.5 0 0 0 4.95 0l2.5-2.5a3.5 3.5 0 0 0-4.95-4.95l-1.25 1.25zm-4.69 9.64a2 2 0 0 1 0-2.83l2.5-2.5a2 2 0 0 1 2.83 0 .75.75 0 0 0 1.06-1.06 3.5 3.5 0 0 0-4.95 0l-2.5 2.5a3.5 3.5 0 0 0 4.95 4.95l1.25-1.25a.75.75 0 0 0-1.06-1.06l-1.25 1.25a2 2 0 0 1-2.83 0z"/></svg>"#;
-
 /// Favicon as inline SVG data URI (terracotta document icon)
 pub const FAVICON_SVG: &str = r#"<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%23c45a3b'/%3E%3Cline x1='8' y1='10' x2='24' y2='10' stroke='white' stroke-width='2.5' stroke-linecap='round'/%3E%3Cline x1='8' y1='16' x2='20' y2='16' stroke='white' stroke-width='2.5' stroke-linecap='round' opacity='.7'/%3E%3Cline x1='8' y1='22' x2='16' y2='22' stroke='white' stroke-width='2.5' stroke-linecap='round' opacity='.4'/%3E%3C/svg%3E">"#;
 
@@ -33,33 +30,6 @@ pub const SKIP_LINK_CSS: &str = r#"
     height: auto;
     overflow: visible;
 }"#;
-
-/// Section anchor link CSS -- shared across pages with anchored headings.
-pub const SECTION_ANCHOR_CSS: &str = r#"
-    .section-anchor {
-      position: absolute;
-      left: -1.2em;
-      top: 50%;
-      transform: translateY(-50%);
-      opacity: 0;
-      text-decoration: none;
-      transition: opacity 0.15s ease;
-      color: var(--text-muted);
-      line-height: 1;
-    }
-    .section-anchor svg {
-      width: 0.75em;
-      height: 0.75em;
-      fill: currentColor;
-      display: block;
-    }
-    h2:hover .section-anchor,
-    .section-anchor:focus-visible {
-      opacity: 1;
-    }
-    @media (max-width: 640px) {
-      .section-anchor { display: none; }
-    }"#;
 
 /// Reduced-motion support CSS -- shared across all pages.
 pub const REDUCED_MOTION_CSS: &str = r#"

@@ -18,5 +18,5 @@ pub use feedback::{FeedbackParams, render_feedback};
 pub use index::{IndexParams, render_index};
 pub use search::{SearchParams, render_search};
 pub use sources::{Source, SourcesParams, render_sources};
-pub use stats::render_stats;
+pub use stats::{StatsParams, render_stats};
 pub use thread::{ThreadParams, ThreadsIndexParams, render_thread, render_threads_index};
