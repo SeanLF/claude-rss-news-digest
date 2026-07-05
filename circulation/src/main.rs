@@ -1,4 +1,5 @@
 mod archive;
+mod assets;
 mod feed;
 mod handlers;
 mod search;
@@ -42,6 +43,11 @@ pub struct AppState {
     /// Address that reader feedback goes to (the digest's sending address,
     /// `RESEND_FROM`). Powers the web `mailto:` suggestion line; absent -> no line.
     pub feedback_email: Option<String>,
+    /// Content-hashed URL of the served woff2 (`/assets/fonts/source-serif-4.{sha}.woff2`),
+    /// computed once at startup. Templates emit the `@font-face src` from this; the digest
+    /// blob's web view is injected with the matching `@font-face` so all surfaces share one
+    /// immutable cached download.
+    pub font_url: String,
     pub http_client: Client,
 }
 
@@ -114,6 +120,10 @@ async fn main() {
     let feedback_email = std::env::var("RESEND_FROM").ok();
     let http_client = Client::new();
 
+    // Fingerprint the compiled-in woff2 once; the route path and every `@font-face src`
+    // are built from it so the immutable-cached asset busts whenever the font changes.
+    let font_url = assets::font_url(&assets::font_hash());
+
     let state = Arc::new(AppState {
         db_path,
         digest_name,
@@ -123,6 +133,7 @@ async fn main() {
         resend_api_key,
         resend_audience_id,
         feedback_email,
+        font_url: font_url.clone(),
         http_client,
     });
 
@@ -143,6 +154,7 @@ async fn main() {
         .route(routes::FEED, get(handlers::feed))
         .route(routes::STATS, get(stats::stats_html))
         .route(&format!("{}.json", routes::STATS), get(stats::stats_json))
+        .route(&font_url, get(assets::font))
         .route("/archive", get(archive::archive_fragment))
         .route(routes::THREADS, get(thread::threads_index))
         .route(

@@ -236,6 +236,7 @@ mod tests {
             resend_api_key: None,
             resend_audience_id: None,
             feedback_email: None,
+            font_url: "/assets/fonts/source-serif-4.test.woff2".to_string(),
             http_client: reqwest::Client::new(),
         })
     }

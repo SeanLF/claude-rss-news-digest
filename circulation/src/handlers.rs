@@ -582,12 +582,21 @@ pub async fn get_digest(
         state.feedback_email.as_deref(),
     );
 
+    // Foundation plumbing: circulation owns the served font, so it injects the @font-face
+    // (family -> the content-hashed /assets route) into the WEB view's head here. This is
+    // INERT today -- the stored blob (newsroom/templates/digest.css) still renders in Georgia
+    // and references no "Source Serif 4"/`--serif`; the rule is declared-but-unmatched until
+    // the digest body port switches the digest CSS to `var(--serif)` (task #6), at which point
+    // the web view resolves the family to this hashed route with no hardcoded URL in newsroom.
+    // The email render never passes through this handler, so it stays on Georgia by design.
+    let font_face = crate::assets::font_face(&state.font_url);
+
     // Inject elements into stored HTML (warn on miss -- indicates template drift)
     let html = inject(
         &html,
         "</head>",
         &format!(
-            "{head_inject}\n{DIGEST_NAV_CSS}\n<style>{SKIP_LINK_CSS}\n{REDUCED_MOTION_CSS}</style></head>"
+            "{head_inject}\n{DIGEST_NAV_CSS}\n<style>{font_face}\n{SKIP_LINK_CSS}\n{REDUCED_MOTION_CSS}</style></head>"
         ),
         &date,
     );
@@ -747,6 +756,7 @@ mod feed_tests {
             resend_api_key: None,
             resend_audience_id: None,
             feedback_email: None,
+            font_url: "/assets/fonts/source-serif-4.test.woff2".to_string(),
             http_client: Client::new(),
         })
     }
@@ -795,6 +805,67 @@ mod feed_tests {
 
         assert!(!body.contains("<fight>"));
         assert!(body.contains("Cats &amp; dogs &lt;fight&gt; today"));
+    }
+
+    /// Seed one digest whose stored blob is a full HTML doc (has `</head>`), so the
+    /// `get_digest` head-injection actually fires (the shared fixture uses `<html></html>`).
+    fn state_with_digest_blob(date: &str, html: &str) -> Arc<AppState> {
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let n = TEST_DB_COUNTER.fetch_add(1, Ordering::SeqCst);
+        let path = std::env::temp_dir().join(format!("circulation_blob_test_{nanos}_{n}.db"));
+        let db_path = path.to_str().unwrap().to_string();
+        let conn = Connection::open(&db_path).unwrap();
+        conn.execute(
+            "CREATE TABLE digests (date TEXT PRIMARY KEY, html TEXT NOT NULL, preheader TEXT DEFAULT '')",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO digests (date, html, preheader) VALUES (?1, ?2, '')",
+            [date, html],
+        )
+        .unwrap();
+        drop(conn);
+
+        Arc::new(AppState {
+            db_path,
+            digest_name: "News Digest".to_string(),
+            digest_domain: Some("example.com".to_string()),
+            homepage_url: None,
+            source_url: None,
+            resend_api_key: None,
+            resend_audience_id: None,
+            feedback_email: None,
+            font_url: "/assets/fonts/source-serif-4.deadbeef.woff2".to_string(),
+            http_client: Client::new(),
+        })
+    }
+
+    #[tokio::test]
+    async fn get_digest_injects_font_face_bound_to_the_hashed_url() {
+        let state = state_with_digest_blob(
+            "2026-06-12",
+            "<html><head><title>x</title></head><body>hi</body></html>",
+        );
+        let resp = get_digest(Path("2026-06-12".to_string()), State(state))
+            .await
+            .unwrap();
+        let body = resp.0; // Html(String)
+        // The @font-face binds the family name to the content-hashed /assets route (web view).
+        assert!(body.contains("@font-face"));
+        assert!(body.contains(r#"font-family:"Source Serif 4""#));
+        assert!(
+            body.contains(
+                r#"src:url("/assets/fonts/source-serif-4.deadbeef.woff2") format("woff2")"#
+            )
+        );
+        // Injected inside <head> (before the close tag), not stray in the body.
+        let face_at = body.find("@font-face").unwrap();
+        let head_close = body.find("</head>").unwrap();
+        assert!(face_at < head_close);
     }
 
     #[tokio::test]
@@ -992,6 +1063,7 @@ mod feedback_tests {
             resend_api_key: None,
             resend_audience_id: None,
             feedback_email,
+            font_url: "/assets/fonts/source-serif-4.test.woff2".to_string(),
             http_client: reqwest::Client::new(),
         })
     }

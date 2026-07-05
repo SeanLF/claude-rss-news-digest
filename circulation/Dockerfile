@@ -15,6 +15,12 @@ RUN mkdir src && echo "fn main() {}" > src/main.rs \
 COPY circulation/apple-touch-icon.png circulation/og-image.png ./
 COPY circulation/src ./src
 COPY newsroom/sources.json ./sources.json
+# WORKDIR /app maps to circulation/, so repo-root maps to /. Mirror the local layout so the
+# include_str!/include_bytes! relative paths (../../design, ../assets) resolve identically:
+#   /app/src/assets.rs -> ../../design/tokens.css == /design/tokens.css
+#   /app/src/assets.rs -> ../assets/fonts/*.woff2 == /app/assets/fonts/*.woff2
+COPY design /design
+COPY circulation/assets ./assets
 RUN touch src/main.rs && cargo build --release
 
 # Runtime stage - Alpine for musl compatibility
