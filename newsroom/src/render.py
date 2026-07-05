@@ -13,6 +13,9 @@ from datetime import UTC, datetime
 from pathlib import Path
 from urllib.parse import urlparse
 
+import config
+import db
+
 logger = logging.getLogger(__name__)
 
 # Set CSV field size limit to prevent memory issues with malformed feeds
@@ -140,22 +143,35 @@ def resolve_css_variables(css: str) -> str:
     # Strip dark mode media query first so :root extraction always gets light values
     css = _strip_media_block(css, "prefers-color-scheme")
 
-    # Extract variables from :root (now guaranteed to be light mode)
-    root_match = re.search(r":root\s*\{([^}]+)\}", css)
-    if not root_match:
+    # Extract variables from EVERY light-mode `:root {…}` block. tokens.css splits
+    # the token set across three plain :root blocks (shared core / chrome / digest
+    # -- the digest's --hair lives in the third), so reading only the first would
+    # leave var(--hair) unresolved in email. The `:root\s*\{` pattern matches the
+    # plain blocks but NOT `:root[data-theme=...]{…}` (a `[` sits between :root and
+    # the brace), so the explicit-toggle blocks are intentionally excluded.
+    root_blocks = re.findall(r":root\s*\{([^}]+)\}", css)
+    if not root_blocks:
         return css
 
-    # Parse variables
+    # Parse variables (later blocks win, but the three blocks define disjoint
+    # names). The name class MUST include digits: the design tokens use --ink2,
+    # so an [a-z-]+ class would silently fail to resolve var(--ink2) for email.
     variables = {}
-    for match in re.finditer(r"--([a-z-]+)\s*:\s*([^;]+);", root_match.group(1)):
-        variables[match.group(1)] = match.group(2).strip()
+    for block in root_blocks:
+        for match in re.finditer(r"--([a-z0-9-]+)\s*:\s*([^;]+);", block):
+            variables[match.group(1)] = match.group(2).strip()
 
     # Replace var(--name) with values
     def replace_var(match):
         var_name = match.group(1)
-        return variables.get(var_name, match.group(0))
+        if var_name not in variables:
+            # An unresolved var() ships verbatim and renders as broken CSS in every
+            # inbox -- surface it rather than silently degrading the whole list.
+            logger.warning("unresolved var(--%s) shipping in email CSS", var_name)
+            return match.group(0)
+        return variables[var_name]
 
-    css = re.sub(r"var\(--([a-z-]+)\)", replace_var, css)
+    css = re.sub(r"var\(--([a-z0-9-]+)\)", replace_var, css)
 
     # Remove :root blocks - not supported in email
     css = re.sub(r":root\s*\{[^}]+\}", "", css)
@@ -179,7 +195,9 @@ def inline_styles(html_content: str) -> str:
         logger.warning("premailer not available; sending email with un-inlined styles")
         return html_content
     except Exception as exc:
-        logger.warning("premailer failed to inline styles (%s); sending email un-inlined", exc)
+        # Un-inlined HTML degrades in Word-engine clients (Outlook) for the whole list;
+        # error-level so a systematic premailer break is Sentry-visible, not swallowed.
+        logger.error("premailer failed to inline styles (%s); sending email un-inlined", exc)
         return html_content
 
 
@@ -207,81 +225,187 @@ def prepare_for_email(html_content: str) -> str:
 # =============================================================================
 
 
+def _bias_bucket(bias: str) -> str:
+    """Map a source's political-leaning label to a bias bucket: l / c / r.
+
+    lean-left/left/far-left -> l, lean-right/right/far-right -> r, everything
+    else (center, lean-center, unknown, blank) -> c.
+    """
+    b = bias.strip().lower()
+    if b in ("lean-left", "left", "far-left"):
+        return "l"
+    if b in ("lean-right", "right", "far-right"):
+        return "r"
+    # Everything else buckets center, but surface a genuinely unrecognized label so a
+    # sources.json typo can't silently skew the bias bar toward center unnoticed.
+    if b and b not in _KNOWN_CENTER:
+        logger.warning("unmapped bias label %r bucketed as center", bias)
+    return "c"
+
+
+_BUCKET_ORDER = ("l", "c", "r")
+_BUCKET_WORD = {"l": "left", "c": "center", "r": "right"}
+# Labels that legitimately bucket center (blank = known missing data, not a warn).
+_KNOWN_CENTER = frozenset(
+    {
+        "",
+        "center",
+        "centre",
+        "lean-center",
+        "lean-centre",
+        "center-left",
+        "center-right",
+        "centre-left",
+        "centre-right",
+        "central",
+        "mixed",
+    }
+)
+
+
+def _collect_outlets(article: dict) -> list[dict]:
+    """Group an article's sources by outlet, preserving input order.
+
+    Each returned dict is {name, bias, bucket, urls}. Only URLs that pass the
+    safe-scheme + real-article-path guards are kept; multiple articles from the
+    same outlet collapse into one entry with an ordered url list. Outlets left
+    with zero usable URLs are dropped (nothing for the reader to open).
+    """
+    order: list[dict] = []
+    index: dict[str, dict] = {}
+    for src in article.get("sources", []):
+        name = src.get("name", "")
+        if not name:
+            continue
+        entry = index.get(name)
+        if entry is None:
+            entry = {"name": name, "bias": src.get("bias", ""), "bucket": _bias_bucket(src.get("bias", "")), "urls": []}
+            index[name] = entry
+            order.append(entry)
+        url = src.get("url", "")
+        if url and is_safe_url(url) and _has_article_path(url):
+            entry["urls"].append(url)
+    result = [o for o in order if o["urls"]]
+    # A story that had sources but loses them all to the URL guards ships with no bias
+    # bar, no count, no "view online" link -- total attribution loss. Surface it.
+    if order and not result:
+        logger.warning(
+            "all %d source outlet(s) dropped (no article-path URLs); story ships with no source block",
+            len(order),
+        )
+    return result
+
+
+def _render_sources_block(outlets: list[dict], slug: str) -> str:
+    """Render the shared bias glyph as a web-only <details> source table plus an
+    email-only static line ("N sources · a left · … · view all N online").
+
+    Bias-bar segments and the spread label emit ONLY non-empty buckets, in
+    l/c/r order. The "source(s)" word is singularized; bucket counts are plain.
+    Table rows are ordered left->center->right (input order within a bucket),
+    one row per outlet with numbered article links. All text is html-escaped.
+    """
+    if not outlets:
+        return ""
+
+    counts = {"l": 0, "c": 0, "r": 0}
+    for o in outlets:
+        counts[o["bucket"]] += 1
+    total = len(outlets)
+
+    segs = "".join(f'<span class="seg {b}" style="flex:{counts[b]}"></span>' for b in _BUCKET_ORDER if counts[b])
+    src_word = "source" if total == 1 else "sources"
+    buckets_label = " · ".join(f"{counts[b]} {_BUCKET_WORD[b]}" for b in _BUCKET_ORDER if counts[b])
+    spread_label = f'<span class="n">{total} {src_word}</span> · {buckets_label}'
+    biasbar = f'<span class="biasbar" aria-hidden="true">{segs}</span>'
+
+    ordered = [o for b in _BUCKET_ORDER for o in outlets if o["bucket"] == b]
+    rows = ""
+    for o in ordered:
+        links = " ".join(f'<a href="{html.escape(u)}">{i}</a>' for i, u in enumerate(o["urls"], 1))
+        rows += (
+            f'<tr><td class="nm">{html.escape(o["name"])}</td>'
+            f'<td class="ln">{html.escape(o["bias"])}</td>'
+            f'<td class="ar">{links}</td></tr>'
+        )
+
+    details = (
+        f'<details class="srcbox web-only"><summary class="spread">{biasbar}'
+        f'<span class="spread-label">{spread_label}</span></summary>'
+        '<table class="src-table"><thead><tr>'
+        '<th scope="col">Outlet</th><th scope="col">Leaning</th><th scope="col">Articles</th>'
+        f"</tr></thead><tbody>{rows}</tbody></table></details>"
+    )
+    # {{ARCHIVE_URL}} is filled (or emptied) by replace_placeholders.
+    email_line = (
+        f'<div class="spread email-only">{biasbar}'
+        f'<span class="spread-label">{spread_label}</span> · '
+        f'<a href="{{{{ARCHIVE_URL}}}}#{slug}">view all {total} {src_word} online</a></div>'
+    )
+    return details + email_line
+
+
 def render_article(
     article: dict,
     slug: str,
-    include_reporting_varies: bool = True,
+    *,
+    is_brief: bool = False,
+    is_first: bool = False,
 ) -> str:
-    """Render a single article (must_know or should_know) to HTML."""
-    headline = html.escape(article.get("headline", ""))
+    """Render a single story (must_know) or brief (should_know) to HTML.
+
+    Stories emit the .head/.lede/.why/.varies markup; briefs emit the compact
+    .brief h3/.summary markup with no why/varies. Both carry the shared sources
+    block. The first must-know story gets class="first" (no top rule).
+    """
+    raw_headline = article.get("headline", "")
+    headline = html.escape(raw_headline)
     summary = html.escape(article.get("summary", ""))
     why = html.escape(article.get("why_it_matters", ""))
+    anchor = f'<a class="anchor" href="#{slug}" aria-label="Copy link: {html.escape(raw_headline[:50])}"></a>'
 
-    # Sources line -- group by (name, bias) to avoid repetition
-    groups: dict[tuple[str, str], list[str]] = {}
-    for src in article.get("sources", []):
-        name = html.escape(src.get("name", ""))
-        bias = html.escape(src.get("bias", ""))
-        url = src.get("url", "")
-        if not name:
-            continue
-        key = (name, bias)
-        groups.setdefault(key, [])
-        if url and is_safe_url(url) and _has_article_path(url):
-            groups[key].append(html.escape(url))
-
-    sources_parts = []
-    for (name, bias), urls in groups.items():
-        if len(urls) == 1:
-            sources_parts.append(f'<a href="{urls[0]}">{name}</a> ({bias})')
-        elif len(urls) > 1:
-            numbered = ", ".join(f'<a href="{u}">{i}</a>' for i, u in enumerate(urls, 1))
-            sources_parts.append(f"{name} ({bias}) [{numbered}]")
-        else:
-            sources_parts.append(f"{name} ({bias})")
-    sources_line = " · ".join(sources_parts)
-
-    # Build article HTML. A continuing thread gets a muted "Ongoing · day N" badge on the
-    # headline, and -- when there's a delta -- its summary is REPLACED with "what's new today"
-    # (the top verified facts), so a returning reader sees the new development, not a generic
-    # re-description. Falls back to the WRITE summary on a quiet day (no delta).
+    # A continuing thread shows an "Ongoing · day N" eyebrow, and -- when there's
+    # a delta -- its lede/summary is REPLACED with what's new today (top verified
+    # facts) so a returning reader sees the development, not a generic re-describe.
+    # Falls back to the WRITE summary on a quiet day (no delta).
     thread = article.get("thread") or {}
-    ongoing = ""
+    eyebrow = ""
     if thread.get("day", 0) >= 2:
-        ongoing = f'<span class="thread-badge">Ongoing · day {thread["day"]}</span>'
+        eyebrow = f'<p class="eyebrow"><span class="loc">Ongoing</span> · day {thread["day"]}</p>'
     delta = (thread.get("delta") or "").strip()
     body = html.escape(delta) if delta else summary
 
-    parts = [
-        f'    <article id="{slug}">',
-        f'      <h3><a href="#{slug}" class="anchor" aria-label="Link to this story">{ANCHOR_SVG}</a>{headline}{ongoing}</h3>',
-        f"      <p>{body}</p>",
-    ]
+    sources_block = _render_sources_block(_collect_outlets(article), slug)
+
+    if is_brief:
+        parts = ['<article class="brief">', f"<h3>{headline}{anchor}</h3>"]
+        if eyebrow:
+            parts.append(eyebrow)
+        parts.append(f'<p class="summary">{body}</p>')
+        parts.append(sources_block)
+        parts.append("</article>")
+        return "\n".join(parts)
+
+    cls = ' class="first"' if is_first else ""
+    parts = [f"<article{cls}>", f'<h3 class="head">{headline}{anchor}</h3>']
+    if eyebrow:
+        parts.append(eyebrow)
+    parts.append(f'<p class="lede">{body}</p>')
     # COHERENCE can strip why_it_matters to "" (field-aware graceful degradation
-    # in merge.py, see _why_it_matters_only_failure) when only that field failed
-    # fact-checking, keeping the rest of the story. An empty/whitespace why must
-    # not leave a dangling "Why it matters:" label with no content.
+    # in merge.py) when only that field failed fact-checking; an empty why must
+    # not leave a dangling label with no content.
     if why.strip():
-        parts.append(f'      <p class="why"><strong>Why it matters:</strong> {why}</p>')
-
-    # Optional: reporting_varies (only for must_know)
-    if include_reporting_varies:
-        reporting_varies = article.get("reporting_varies", [])
-        if reporting_varies:
-            parts.append('      <div class="reporting-varies">')
-            parts.append("        <strong>How reporting varies:</strong>")
-            parts.append("        <ul>")
-            for rv in reporting_varies:
-                src = html.escape(rv.get("source", ""))
-                bias = html.escape(rv.get("bias", ""))
-                angle = html.escape(rv.get("angle", ""))
-                parts.append(f"          <li><em>{src}</em> ({bias}): {angle}</li>")
-            parts.append("        </ul>")
-            parts.append("      </div>")
-
-    parts.append(f'      <p class="sources">{sources_line}</p>')
-    parts.append("    </article>")
-
+        parts.append(f'<div class="why"><span class="lbl">Why it matters</span><p>{why}</p></div>')
+    # reporting_varies: must-know only, one <p> per angle.
+    reporting_varies = article.get("reporting_varies", [])
+    if reporting_varies:
+        rv_parts = [
+            f"<p><b>{html.escape(rv.get('source', ''))}:</b> {html.escape(rv.get('angle', ''))}</p>"
+            for rv in reporting_varies
+        ]
+        parts.append(f'<div class="varies"><span class="lbl">How reporting varies</span>{"".join(rv_parts)}</div>')
+    parts.append(sources_block)
+    parts.append("</article>")
     return "\n".join(parts)
 
 
@@ -306,22 +430,22 @@ def render_digest(selections: dict, template_file: Path) -> str:
         used_slugs.add(deduped)
         return deduped
 
-    # Render must_know
+    # Render must_know (stories). First one gets class="first" (no top rule).
     must_know_html = "\n".join(
         render_article(
             article,
             slug=unique_slug(article.get("headline", "")),
-            include_reporting_varies=True,
+            is_first=(i == 0),
         )
-        for article in selections.get("must_know", [])
+        for i, article in enumerate(selections.get("must_know", []))
     )
 
-    # Render should_know
+    # Render should_know (briefs)
     should_know_html = "\n".join(
         render_article(
             article,
             slug=unique_slug(article.get("headline", "")),
-            include_reporting_varies=False,
+            is_brief=True,
         )
         for article in selections.get("should_know", [])
     )
@@ -367,10 +491,24 @@ def extract_preheader(selections: dict) -> str:
 
 
 def format_story_counts(selections: dict) -> str:
-    """Format story counts per section for meta line."""
+    """Format story counts for the dateline meta ("5 must-know · 8 should-know")."""
     must = len(selections.get("must_know", []))
     should = len(selections.get("should_know", []))
-    return f"{must} 🥇 · {should} 🥈"
+    return f"{must} must-know · {should} should-know"
+
+
+def _strip_nav_link(content: str, url_placeholder: str, text: str) -> str:
+    """Remove an optional footer-nav ``<a>`` (whose href is an unconfigured
+    ``{{url_placeholder}}``) plus one adjacent " · " separator, whatever side it
+    sits on -- so no orphan middot or leftover placeholder survives regardless of
+    which sibling links were already stripped. Falls back to removing the bare
+    link when it is the nav's only remaining child.
+    """
+    link = r'<a href="\{\{' + re.escape(url_placeholder) + r'\}\}">' + re.escape(text) + r"</a>"
+    content = re.sub(link + r"\s*·\s*", "", content)  # link first: consume trailing sep
+    content = re.sub(r"\s*·\s*" + link, "", content)  # link later: consume leading sep
+    content = re.sub(link, "", content)  # bare link
+    return content
 
 
 def replace_placeholders(
@@ -388,16 +526,31 @@ def replace_placeholders(
     date_str = now.strftime("%A, %B ") + str(now.day) + now.strftime(", %Y")
     date_url = now.strftime("%Y-%m-%d")
     generated_at = now.strftime("Generated at %H:%M UTC")
+    filed_time = now.strftime("%H:%M UTC")
     digest_name = os.environ.get("DIGEST_NAME", "News Digest")
     digest_domain = os.environ.get("DIGEST_DOMAIN", "")
     source_url = os.environ.get("SOURCE_URL", "")
     archive_url = os.environ.get("ARCHIVE_URL", "")
 
-    # Load CSS: minify but keep variables for dark mode support in browser
+    # Edition number ("No. N") from the digest count. None when no DB is wired
+    # (e.g. unit tests) -- render then shows an em dash rather than crashing.
+    issue_no = db.get_issue_number(date_url)
+    issue_str = str(issue_no) if issue_no is not None else "—"
+
+    # Load CSS: tokens.css (the :root token source) PREPENDED to digest.css so
+    # the component rules' var(--…) resolve. Kept un-inlined here (variables +
+    # dark-mode media query intact) for the browser; email inlining happens later
+    # in prepare_for_email(). tokens.css is optional so unit tests that pass only
+    # a bare styles_file still render (with a warning), but production ships it.
     if not styles_file.exists():
         raise RuntimeError(f"Styles file not found: {styles_file}")
-    css = styles_file.read_text()
-    styles = minify_css(css)  # Keep CSS variables intact
+    css_parts = []
+    if config.TOKENS_FILE.exists():
+        css_parts.append(config.TOKENS_FILE.read_text())
+    else:
+        logger.warning("Tokens file not found: %s -- CSS variables will not resolve", config.TOKENS_FILE)
+    css_parts.append(styles_file.read_text())
+    styles = minify_css("\n".join(css_parts))  # Keep CSS variables intact
 
     content = digest_path.read_text()
 
@@ -412,6 +565,9 @@ def replace_placeholders(
     content = content.replace("{{STYLES}}", styles)
     content = content.replace("{{DIGEST_NAME}}", html.escape(digest_name))
     content = content.replace("{{DATE}}", date_str)
+    content = content.replace("{{DATE_ISO}}", date_url)
+    content = content.replace("{{ISSUE_NO}}", issue_str)
+    content = content.replace("{{FILED_TIME}}", filed_time)
     content = content.replace("{{READING_TIME}}", calculate_reading_time(selections))
     content = content.replace("{{STORY_COUNT}}", story_count_str)
     content = content.replace("{{GENERATED_AT}}", generated_at)
@@ -455,18 +611,20 @@ def replace_placeholders(
     else:
         content = re.sub(r'\s*<p class="footer-meta">\{\{AUTHOR_PLUG\}\}</p>', "", content)
 
-    # Replace HOMEPAGE_URL and SUBSCRIBE_URL for header links
+    # Replace HOMEPAGE_URL (footer translate line) and SUBSCRIBE_URL (footer nav)
     if digest_domain:
         homepage_url = f"https://{digest_domain}/{date_url}"
         subscribe_url = f"https://{digest_domain}/#subscribe"
         content = content.replace("{{HOMEPAGE_URL}}", homepage_url)
         content = content.replace("{{SUBSCRIBE_URL}}", subscribe_url)
     else:
-        content = re.sub(r'\s*<nav class="header-links">.*?</nav>', "", content, flags=re.DOTALL)
-        # The footer translate link needs {{HOMEPAGE_URL}}; with no domain there is
-        # no route to point at, so drop the whole line rather than ship a dangling
-        # placeholder. The "just hit reply" line has no URL and stays.
-        content = re.sub(r'\s*<p class="footer-translate email-only">.*?</p>', "", content, flags=re.DOTALL)
+        # No domain -> no route for the Subscribe link or the translate line;
+        # drop them whole rather than ship a dangling placeholder. The
+        # "Reply with feedback" text has no URL, so it survives inside the
+        # footer-actions line only if that line survives -- but the line's sole
+        # link is HOMEPAGE_URL, so we drop the whole line. (Prod sets the domain.)
+        content = _strip_nav_link(content, "SUBSCRIBE_URL", "Subscribe")
+        content = re.sub(r'\s*<p class="footer-actions email-only">.*?</p>', "", content, flags=re.DOTALL)
 
     # Optional: archive URL for "Past digests" link
     if archive_url and is_safe_url(archive_url):
@@ -481,7 +639,24 @@ def replace_placeholders(
         privacy_url = f"{author_url.rstrip('/')}/privacy"
         content = content.replace("{{PRIVACY_URL}}", html.escape(privacy_url))
     else:
-        content = re.sub(r' · <a href="\{\{PRIVACY_URL\}\}">Privacy</a>', "", content)
+        content = _strip_nav_link(content, "PRIVACY_URL", "Privacy")
+
+    # Residual-placeholder sweep: after every fill, any leftover {{…}} would ship
+    # blank to real subscribers. Exclude the <style> block (minified CSS's braces
+    # are not placeholders) and Resend's triple-brace {{{RESEND_UNSUBSCRIBE_URL}}}
+    # (filled per-recipient at send time). Any remaining {{…}} is a bug -- fail
+    # loud rather than send a broken digest.
+    scan = re.sub(r"<style>.*?</style>", "", content, flags=re.DOTALL)
+    # Drop Resend's triple-brace merge tags generically (any {{{NAME}}}) so adding a
+    # second one later can't false-crash a good send.
+    scan = re.sub(r"\{\{\{[^{}]+\}\}\}", "", scan)
+    # Only UPPER_SNAKE tokens are real placeholders. html.escape() does NOT escape { },
+    # so editorial prose can legitimately carry braces (a story quoting `${{ secrets.X }}`
+    # or Vue/Handlebars `{{ user.name }}`); matching those would abort the entire send and
+    # ship nothing. Restrict the sweep to the actual placeholder convention.
+    leftover = re.search(r"\{\{[A-Z][A-Z0-9_]*\}\}", scan)
+    if leftover:
+        raise RuntimeError(f"Unfilled placeholder in rendered digest: {leftover.group(0)}")
 
     digest_path.write_text(content)
     logger.info("Date: %s", date_str)

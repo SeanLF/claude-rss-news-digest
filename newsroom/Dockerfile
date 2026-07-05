@@ -69,6 +69,10 @@ ENV GIT_SHA=${GIT_SHA}
 COPY --chown=appuser:appuser newsroom/src/ ./src/
 COPY --chown=appuser:appuser newsroom/sources.json ./
 COPY --chown=appuser:appuser newsroom/templates/ ./templates/
+# Canonical design tokens (repo-root design/). Build context is the repo root
+# (docker-compose sets `context: .`), so the source path is design/. Needed at
+# runtime: render prepends design/tokens.css to digest.css for var() resolution.
+COPY --chown=appuser:appuser design/ ./design/
 COPY --chown=appuser:appuser migrations/ ./migrations/
 COPY --chown=appuser:appuser bin/ ./bin/
 COPY --chown=appuser:appuser .claude/agents/ /app/.claude/agents/

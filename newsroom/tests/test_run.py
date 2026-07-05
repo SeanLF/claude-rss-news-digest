@@ -717,10 +717,12 @@ class TestRenderArticleSources:
             "sources": sources,
         }
 
-    def test_single_source_unchanged(self):
+    def test_single_source_row(self):
         article = self._article([{"name": "BBC", "url": "https://bbc.com/news/1", "bias": "center"}])
-        result = render_article(article, slug="test", include_reporting_varies=False)
-        assert '<a href="https://bbc.com/news/1">BBC</a> (center)' in result
+        result = render_article(article, slug="test")
+        assert '<td class="nm">BBC</td>' in result
+        assert '<td class="ln">center</td>' in result
+        assert '<a href="https://bbc.com/news/1">1</a>' in result
 
     def test_grouped_same_source(self):
         article = self._article(
@@ -730,20 +732,21 @@ class TestRenderArticleSources:
                 {"name": "NYT World", "url": "https://nyt.com/c", "bias": "lean-left"},
             ]
         )
-        result = render_article(article, slug="test", include_reporting_varies=False)
-        # Should NOT repeat source name 3 times
-        assert result.count("NYT World") == 1
-        # Should have numbered links
-        assert "[" in result
+        result = render_article(article, slug="test")
+        # One outlet row, three numbered article links.
+        assert result.count('<td class="nm">NYT World</td>') == 1
         assert '<a href="https://nyt.com/a">1</a>' in result
         assert '<a href="https://nyt.com/b">2</a>' in result
         assert '<a href="https://nyt.com/c">3</a>' in result
 
-    def test_bare_url_fallback_plain_text(self):
+    def test_bare_url_outlet_dropped(self):
+        # WaPo's only URL is a bare domain -> the outlet is dropped entirely (a
+        # source the reader cannot open is noise); with no usable outlets there
+        # is no sources block at all.
         article = self._article([{"name": "WaPo", "url": "https://www.washingtonpost.com", "bias": "lean-left"}])
-        result = render_article(article, slug="test", include_reporting_varies=False)
-        assert "WaPo (lean-left)" in result
-        assert "<a" not in result.split("sources")[1]  # no link in sources line
+        result = render_article(article, slug="test")
+        assert "WaPo" not in result
+        assert "srcbox" not in result
 
     def test_mixed_valid_and_bare_urls(self):
         article = self._article(
@@ -752,9 +755,11 @@ class TestRenderArticleSources:
                 {"name": "WaPo", "url": "https://www.washingtonpost.com/", "bias": "lean-left"},
             ]
         )
-        result = render_article(article, slug="test", include_reporting_varies=False)
-        # One valid URL -- should render as single linked source
-        assert '<a href="https://wapo.com/article/1">WaPo</a> (lean-left)' in result
+        result = render_article(article, slug="test")
+        # One valid URL kept (the bare domain dropped), one WaPo row, one link.
+        assert '<td class="nm">WaPo</td>' in result
+        assert '<a href="https://wapo.com/article/1">1</a>' in result
+        assert "washingtonpost.com/" not in result
 
     def test_multiple_different_sources(self):
         article = self._article(
@@ -763,16 +768,16 @@ class TestRenderArticleSources:
                 {"name": "CNN", "url": "https://cnn.com/story/2", "bias": "lean-left"},
             ]
         )
-        result = render_article(article, slug="test", include_reporting_varies=False)
-        assert "BBC" in result
-        assert "CNN" in result
-        assert " · " in result
+        result = render_article(article, slug="test")
+        assert '<td class="nm">BBC</td>' in result
+        assert '<td class="nm">CNN</td>' in result
+        assert "2 sources" in result
 
     def test_no_per_story_feedback_rendered(self):
         # Per-story "Useful? Yes/No" links were removed (hostile UX in email, low
         # signal on web) -- guard that they never render again.
         article = self._article([{"name": "BBC", "url": "https://bbc.com/news/1", "bias": "center"}])
-        result = render_article(article, slug="test", include_reporting_varies=False)
+        result = render_article(article, slug="test")
         assert "story-feedback" not in result
         assert "/feedback?" not in result
         assert "Useful?" not in result
@@ -792,21 +797,21 @@ class TestRenderArticleWhyItMatters:
             "sources": [{"name": "BBC", "url": "https://bbc.com/news/1", "bias": "center"}],
         }
 
-    def test_empty_why_omits_paragraph(self):
-        result = render_article(self._article(""), slug="test", include_reporting_varies=False)
-        assert '<p class="why"' not in result
+    def test_empty_why_omits_block(self):
+        result = render_article(self._article(""), slug="test")
+        assert 'class="why"' not in result
         assert "Why it matters" not in result
 
-    def test_whitespace_only_why_omits_paragraph(self):
-        result = render_article(self._article("   "), slug="test", include_reporting_varies=False)
-        assert '<p class="why"' not in result
+    def test_whitespace_only_why_omits_block(self):
+        result = render_article(self._article("   "), slug="test")
+        assert 'class="why"' not in result
         assert "Why it matters" not in result
 
-    def test_nonempty_why_renders_as_before(self):
-        result = render_article(
-            self._article("It matters because reasons."), slug="test", include_reporting_varies=False
+    def test_nonempty_why_renders_block(self):
+        result = render_article(self._article("It matters because reasons."), slug="test")
+        assert (
+            '<div class="why"><span class="lbl">Why it matters</span><p>It matters because reasons.</p></div>' in result
         )
-        assert '<p class="why"><strong>Why it matters:</strong> It matters because reasons.</p>' in result
         assert "mailto:" not in result
 
 

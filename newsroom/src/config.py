@@ -19,6 +19,10 @@ OUTPUT_DIR = DATA_DIR / "output"
 CLAUDE_INPUT_DIR = DATA_DIR / "claude_input"
 SOURCES_FILE = APP_DIR / "sources.json"
 STYLES_FILE = APP_DIR / "templates" / "digest.css"
+# Canonical design tokens (repo-root design/, copied into the image). The digest
+# email/web CSS references var(--…) from these; render prepends this file to
+# digest.css so resolve_css_variables() can inline the tokens for email.
+TOKENS_FILE = APP_DIR / "design" / "tokens.css"
 TEMPLATE_FILE = APP_DIR / "templates" / "digest-template.html"
 MIGRATIONS_DIR = APP_DIR / "migrations"
 CLAUDE_PROJECTS_DIR = Path.home() / ".claude" / "projects" / "-app"

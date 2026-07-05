@@ -262,6 +262,29 @@ def get_yesterday_digest_headlines() -> list[dict]:
         return []
 
 
+def get_issue_number(date_str: str) -> int | None:
+    """Sequential edition number ("No. N") for the digest dated ``date_str``.
+
+    Mirrors circulation's archive rank (``SELECT COUNT(*) FROM digests WHERE
+    date <= d.date``): once a digest row exists its rank equals that count. At
+    render time the current digest usually is NOT stored yet (save_digest runs
+    after replace_placeholders), so we add 1 to give the forthcoming issue its
+    number; on a same-day re-render the row already exists and the count is
+    already correct. Returns None when the DB is unavailable so render can fall
+    back to a placeholder rather than crash.
+    """
+    if not _state.db_path or not _state.db_path.exists():
+        return None
+    try:
+        with _connect(_state.db_path) as conn:
+            total = conn.execute("SELECT COUNT(*) FROM digests WHERE date <= ?", (date_str,)).fetchone()[0]
+            already_stored = conn.execute("SELECT 1 FROM digests WHERE date = ? LIMIT 1", (date_str,)).fetchone()
+            return total if already_stored else total + 1
+    except sqlite3.Error as e:
+        logger.error("DB error computing issue number: %s", e)
+        return None
+
+
 def record_shown_headlines(headlines: list[dict]):
     """Record headlines that were shown in this digest.
 

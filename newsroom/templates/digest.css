@@ -1,334 +1,144 @@
-/* News Digest Styles
+/* Digest email/web component styles.
  *
- * Source of truth for digest HTML styling.
- * This file is minified and injected into the HTML by run.py.
+ * Design tokens (:root --bg/--ink/--hair/--accent/… + the Source Serif 4
+ * @font-face) live in design/tokens.css and are PREPENDED to this file at
+ * render time (render.replace_placeholders). Do NOT redefine :root here.
  *
- * Colors use CSS custom properties for light/dark mode support.
+ * Default visibility is the EMAIL state: `.web-only{display:none}` and
+ * `.email-only` shown. Circulation's DIGEST_NAV_CSS flips this for the web
+ * archive (`.email-only{display:none}; .web-only{display:block}`) and injects
+ * the top-bar nav / font-face. The web-nav chrome (topbar, translate pill,
+ * theme toggle, skip link) is therefore NOT defined here.
+ *
+ * Ported from scratch/chrome-mockups/digest_v1.html.
  */
 
-:root {
-  --bg: #fafafa;
-  --text: #1a1a1a;
-  --text-secondary: #555;
-  --text-muted: #767676;
-  --border: #ddd;
-  --accent: #c45a3b;
-  --accent-muted: #d4897a;
-  --link: #1a5f7a;
-  --notice-bg: #f5f0eb;
+/* preheader: email inbox-preview text, never visually rendered */
+.preheader{display:none;}
+
+*{box-sizing:border-box;}
+body{margin:0;background:var(--bg);color:var(--ink);
+  font-family:var(--serif);line-height:1.6;font-size:18px;
+  -webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility;}
+.paper{max-width:660px;margin:0 auto;padding:48px 28px 96px;}
+a{color:var(--accent-ink);text-decoration:underline;text-underline-offset:2px;text-decoration-thickness:.6px;}
+:focus-visible{outline:2px solid var(--accent);outline-offset:3px;}
+
+/* masthead */
+.masthead{display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:8px 16px;
+  border-bottom:2px solid var(--ink);padding-bottom:12px;}
+.brand{font-family:var(--serif);font-weight:600;font-size:27px;letter-spacing:-.01em;line-height:1;margin:0;}
+.brand b{color:var(--accent-ink);font-weight:600;}
+.issue{font-family:var(--mono);font-size:10px;letter-spacing:.08em;color:var(--muted);
+  text-align:right;text-transform:uppercase;line-height:1.55;}
+.dateline{font-family:var(--mono);font-size:11px;letter-spacing:.12em;text-transform:uppercase;
+  color:var(--muted);margin:12px 0 40px;display:flex;flex-wrap:wrap;gap:12px;align-items:center;}
+.dateline .tick{color:var(--accent);font-size:10px;}
+.dateline .sep{color:var(--hair);}
+
+/* AI notice */
+.notice{font-family:var(--sans);font-size:12px;line-height:1.6;color:var(--ink2);
+  border-top:1px solid var(--ink);border-bottom:1px solid var(--hair);
+  padding:12px 0;margin:0 0 40px;}
+.notice .tag{font-family:var(--mono);font-size:10px;letter-spacing:.12em;text-transform:uppercase;
+  color:var(--accent-ink);font-weight:600;margin-right:8px;white-space:nowrap;}
+
+/* section rule */
+.section{display:flex;align-items:center;gap:12px;margin:0 0 24px;}
+.section .num{font-family:var(--mono);font-size:12px;font-weight:600;color:var(--accent-ink);letter-spacing:.08em;}
+.section .name{font-family:var(--sans);font-size:11px;font-weight:700;letter-spacing:.18em;text-transform:uppercase;color:var(--ink);margin:0;}
+.section .rule{flex:1;height:1px;background:var(--ink);}
+
+/* story */
+article{border-top:1px solid var(--hair);padding-top:24px;margin-top:32px;}
+article.first{border-top:0;padding-top:0;margin-top:0;}
+.eyebrow{font-family:var(--mono);font-size:11px;letter-spacing:.08em;text-transform:uppercase;
+  color:var(--muted);margin:0 0 12px;}
+.eyebrow .loc{color:var(--accent-ink);font-weight:600;}
+.head{font-family:var(--serif);font-weight:600;font-size:25px;line-height:1.24;letter-spacing:-.01em;
+  margin:0 0 12px;text-wrap:pretty;}
+.lede{color:var(--ink);margin:0 0 4px;text-wrap:pretty;}
+p{margin:12px 0;color:var(--ink2);text-wrap:pretty;}
+.why{margin:16px 0;padding-left:16px;border-left:2px solid var(--accent);}
+.why .lbl{font-family:var(--mono);font-size:10px;font-weight:600;letter-spacing:.12em;text-transform:uppercase;
+  color:var(--accent-ink);display:block;margin-bottom:4px;}
+.why p{margin:0;color:var(--ink2);}
+.varies{margin:16px 0;}
+.varies .lbl{font-family:var(--mono);font-size:10px;font-weight:600;letter-spacing:.12em;text-transform:uppercase;
+  color:var(--accent-ink);display:block;margin-bottom:8px;}
+.varies p{margin:8px 0;color:var(--ink2);}
+.varies b{color:var(--ink);font-weight:600;}
+
+/* should-know: compact */
+.brief{border-top:1px solid var(--hair);padding-top:16px;margin-top:16px;}
+.section + .brief{border-top:0;padding-top:0;margin-top:0;}
+.brief h3{font-family:var(--serif);font-weight:600;font-size:20px;line-height:1.3;letter-spacing:-.01em;margin:0 0 4px;}
+.brief p.summary{margin:0;color:var(--ink2);}
+.brief .eyebrow{margin-bottom:4px;}
+
+footer{margin-top:56px;border-top:1px solid var(--hair);padding-top:16px;
+  font-family:var(--sans);font-size:12px;color:var(--muted);line-height:1.7;}
+footer a{color:var(--accent-ink);}
+footer nav{margin-bottom:8px;}
+.footer-actions{margin:0 0 8px;font-size:12px;color:var(--muted);}
+.footer-meta{font-size:11px;color:var(--muted);margin:0;}
+.not-covered{font-size:11px;color:var(--muted);margin:0 0 8px;}
+.generated-at{font-size:11px;color:var(--muted);margin:8px 0 0;}
+
+/* anchor (copy-link affordance, web only -- hidden below the wide breakpoint) */
+.head,.brief h3{position:relative;}
+.anchor::before{content:"#";}
+.anchor{position:absolute;left:-1.5em;top:.12em;width:1.5em;padding-right:.5em;box-sizing:border-box;opacity:0;text-decoration:none;
+  font-family:var(--mono);font-weight:400;color:var(--muted);transition:opacity .15s ease,color .15s ease;}
+.head:hover .anchor,.brief h3:hover .anchor,.anchor:focus-visible{opacity:1;color:var(--accent-ink);}
+@media (max-width:759px){.anchor{display:none;}}
+.section-gap{margin-top:48px;}
+@media (prefers-reduced-motion:reduce){.anchor{transition:none;}}
+
+/* bias glyph (shared by the web summary + the email static line) */
+.spread{display:flex;align-items:center;gap:8px;flex-wrap:wrap;line-height:1;}
+.biasbar{display:flex;height:4px;width:150px;border-radius:3px;overflow:hidden;background:var(--hair);flex:none;}
+.biasbar .seg{height:100%;}
+.biasbar .seg + .seg{box-shadow:-1px 0 0 var(--bg);}
+.biasbar .l{background:var(--bias-l);}.biasbar .c{background:var(--bias-c);}.biasbar .r{background:var(--bias-r);}
+.spread-label{font-family:var(--mono);font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);}
+.spread-label .n{color:var(--ink2);}
+/* WEB: the bias glyph IS the <summary> that reveals the source table */
+.srcbox{margin:16px 0 0;}
+.srcbox > summary.spread{cursor:pointer;list-style:none;padding:8px 0;}
+.srcbox > summary.spread::-webkit-details-marker{display:none;}
+.srcbox > summary.spread::after{content:"\25B8\00A0see sources";font-family:var(--sans);font-size:11px;color:var(--accent-ink);white-space:nowrap;}
+.srcbox[open] > summary.spread::after{content:"\25BE\00A0hide sources";color:var(--muted);font-weight:400;}
+.src-table{border-collapse:collapse;margin-top:16px;font-family:var(--sans);font-size:12px;width:100%;max-width:520px;}
+.src-table th{font-family:var(--mono);font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);font-weight:600;text-align:left;padding:0 16px 6px 0;border-bottom:1px solid var(--hair);}
+.src-table td{padding:6px 16px 6px 0;border-bottom:1px solid var(--hair);vertical-align:baseline;}
+.src-table td.nm{color:var(--ink2);}
+.src-table td.ln{font-family:var(--mono);font-size:11px;color:var(--muted);white-space:nowrap;}
+.src-table td.ar a{font-family:var(--mono);font-size:11px;padding:0 4px 0 0;text-decoration:underline;text-underline-offset:2px;}
+/* EMAIL: static glyph + a link out (srcbox is web-only) */
+.spread.email-only{margin:16px 0 0;}
+.spread.email-only a{color:var(--accent-ink);text-decoration:underline;text-underline-offset:2px;font-family:var(--sans);font-size:12px;}
+
+/* Default = EMAIL state. Circulation flips these for the web archive. */
+.web-only{display:none;}
+
+@media (max-width:400px){
+  .paper{padding:36px 20px 72px;}
+  .brand{font-size:23px;}
+  .issue{font-size:10px;}
+  .dateline{gap:8px;font-size:10px;letter-spacing:.08em;margin-bottom:32px;}
+  .head{font-size:22px;}
+  body{font-size:17px;}
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #141414;
-    --text: #e8e8e8;
-    --text-secondary: #b0b0b0;
-    --text-muted: #888;
-    --border: #2a2a2a;
-    --accent: #e07a5f;
-    --accent-muted: #c45a3b;
-    --link: #7cc5e3;
-    --notice-bg: #1e1a17;
-  }
-}
-
-body {
-  font-family: Georgia, "Times New Roman", serif;
-  max-width: 600px;
-  margin: 0 auto;
-  padding: 24px 16px;
-  line-height: 1.75;
-  color: var(--text);
-  background: var(--bg);
-  font-size: 18px;
-}
-
-@media (min-width: 768px) {
-  body {
-    max-width: 820px;
-    font-size: 20px;
-    padding: 40px 32px;
-  }
-}
-
-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  margin-bottom: 24px;
-  padding-bottom: 16px;
-  border-bottom: 1px solid var(--border);
-}
-
-.header-left {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.wordmark {
-  font-size: 0.75em;
-  font-weight: 700;
-  letter-spacing: 2px;
-  color: var(--accent);
-}
-
-header time {
-  font-size: 1.1em;
-  font-weight: 600;
-  color: var(--text);
-}
-
-.header-links {
-  font-size: 0.85em;
-  color: var(--text-muted);
-  white-space: nowrap;
-}
-
-.header-links a {
-  color: var(--link);
-  text-decoration: none;
-}
-
-.header-links .separator {
-  margin: 0 6px;
-}
-
-/* Translate control -- terracotta, matches the on-site 文A affordance (mockup 03). */
-.header-links a.translate-link {
-  color: var(--accent);
-  font-weight: 600;
-}
-
-.translate-link .glyph {
-  font-weight: 700;
-  letter-spacing: -0.03em;
-}
-
-@media (max-width: 480px) {
-  header {
-    flex-direction: column;
-    gap: 12px;
-  }
-  .header-links {
-    align-self: flex-start;
-  }
-}
-
-.meta {
-  font-size: 0.9em;
-  color: var(--text-muted);
-  margin: 0 0 20px 0;
-}
-
-.ai-notice {
-  background: var(--notice-bg);
-  padding: 12px 16px;
-  margin-bottom: 24px;
-  font-size: 0.82em;
-  line-height: 1.5;
-  border-radius: 4px;
-  color: var(--text-secondary);
-}
-
-.ai-notice strong {
-  color: var(--text);
-}
-
-.ai-notice a {
-  color: var(--link);
-  text-decoration: none;
-}
-
-section {
-  margin-bottom: 36px;
-}
-
-section > h2 {
-  color: var(--accent);
-  font-size: 0.75em;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 2px;
-  margin: 0 0 20px 0;
-  padding-bottom: 8px;
-  border-bottom: 1px solid var(--border);
-}
-
-article {
-  margin-bottom: 28px;
-}
-
-article h3 {
-  margin: 0 0 8px 0;
-  font-size: 1.1em;
-  font-weight: 600;
-  line-height: 1.4;
-  position: relative;
-}
-
-article h3 .anchor {
-  position: absolute;
-  left: -1.4em;
-  top: 0.05em;
-  text-decoration: none;
-  opacity: 0;
-  transition: opacity 0.15s ease;
-}
-
-article h3 .anchor svg {
-  width: 0.7em;
-  height: 0.7em;
-  fill: var(--text-muted);
-  transition: fill 0.15s ease;
-}
-
-article:hover h3 .anchor {
-  opacity: 1;
-}
-
-article h3 .anchor:hover svg {
-  fill: var(--accent);
-}
-
-article p {
-  margin: 8px 0;
-  font-size: 0.95em;
-}
-
-article .why {
-  color: var(--text-secondary);
-  border-left: 2px solid var(--accent-muted);
-  padding-left: 12px;
-  margin: 12px 0;
-}
-
-article .sources {
-  font-size: 0.8em;
-  color: var(--text-muted);
-  margin-top: 10px;
-}
-
-article .sources a {
-  color: var(--link);
-  text-decoration: none;
-}
-
-article .story-feedback {
-  font-size: 0.8em;
-  color: var(--text-muted);
-  margin-top: 4px;
-}
-
-article .story-feedback a {
-  color: var(--link);
-  text-decoration: none;
-}
-
-.reporting-varies {
-  background: var(--notice-bg);
-  padding: 12px 16px;
-  margin: 12px 0;
-  font-size: 0.85em;
-}
-
-.reporting-varies strong {
-  display: block;
-  margin-bottom: 8px;
-  color: var(--text);
-}
-
-.reporting-varies ul {
-  margin: 0;
-  padding-left: 20px;
-}
-
-.reporting-varies li {
-  margin: 4px 0;
-  color: var(--text-secondary);
-}
-
-/* Evolving story-thread: a muted "Ongoing" marker + the open-question ledger. */
-.thread-badge {
-  display: inline-block;
-  margin-left: 8px;
-  padding: 1px 7px;
-  border: 1px solid var(--accent);
-  border-radius: 10px;
-  font-size: 0.6em;
-  font-weight: 600;
-  letter-spacing: 0.03em;
-  text-transform: uppercase;
-  color: var(--accent);
-  vertical-align: middle;
-}
-
-
-.reporting-varies em {
-  color: var(--text);
-  font-style: normal;
-  font-weight: 600;
-}
-
-footer {
-  margin-top: 48px;
-  padding-top: 16px;
-  border-top: 1px solid var(--border);
-  font-size: 0.75em;
-  color: var(--text-muted);
-}
-
-footer a {
-  color: var(--link);
-  text-decoration: none;
-}
-
-.footer-links {
-  margin: 8px 0;
-}
-
-.footer-translate,
-.footer-suggest {
-  margin: 4px 0;
-  color: var(--text-muted);
-}
-
-/* Keep the translate affordance terracotta everywhere, not footer-link blue. */
-.footer-translate a {
-  color: var(--accent);
-}
-
-.not-covered {
-  margin: 4px 0;
-}
-
-.footer-meta {
-  margin: 4px 0;
-}
-
-.generated-at {
-  margin: 4px 0;
-  color: var(--text-muted);
-}
-
-.web-only {
-  display: none;
-}
-
-.preheader {
-  display: none;
-  font-size: 1px;
-  color: transparent;
-  line-height: 1px;
-  max-height: 0;
-  max-width: 0;
-  opacity: 0;
-  overflow: hidden;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after {
-    transition-duration: 0.01ms !important;
-    animation-duration: 0.01ms !important;
-  }
+@media (min-width:760px){
+  .paper{max-width:800px;padding:56px 40px 96px;}
+  /* full-width frame (masthead, section rules, dateline) but a reading column capped
+     at ~680px = ~68 characters/line -- the readability sweet spot (evidence: 45-75 CPL). */
+  article,.brief{max-width:680px;}
+  body{font-size:20px;}
+  .brand{font-size:30px;}
+  .head{font-size:29px;}
+  .lede{font-size:20px;}
+  .brief h3{font-size:22px;}
 }
