@@ -3,7 +3,7 @@
 
 .DEFAULT_GOAL := help
 .PHONY: ci ci-fix ci-full test eval eval-stages a11y lighthouse deploy deploy-dry migrate migrate-status \
-        ssh db-clone usage usage-daily versions circulation prompt help
+        ssh db-clone usage usage-daily versions circulation preview prompt help
 
 ## CI
 ci: ## Run all checks (Python + Rust, in Docker)
@@ -50,6 +50,9 @@ ssh: ## SSH to production server
 ## Development
 circulation: ## Run circulation server locally (fast Rust rebuilds)
 	bin/circulation
+
+preview: ## Render + screenshot the digest locally, no Docker (usage: make preview [FIXTURE=path])
+	bin/render-preview $(FIXTURE)
 
 ## Checks
 versions: ## Check for dependency updates

@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+# Fast local render + screenshot preview of the digest template/CSS (no Docker).
+# Renders the real email + web (light/dark) artifacts and screenshots them.
+# Usage: bin/render-preview [fixture.json]   (default: kitchen-sink, every state)
+set -euo pipefail
+
+cd "$(dirname "$0")/.."
+
+PY="newsroom/.venv/bin/python"
+[ -x "$PY" ] || PY="python3"
+
+exec "$PY" newsroom/tools/render_preview.py "$@"

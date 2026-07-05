@@ -1,0 +1,85 @@
+{
+  "preheader": "Kitchen-sink render test: full L/C/R bias bar, threads, reporting-varies, briefs, single-source, no-source.",
+  "not_covered_blurb": "Also today but not covered here: routine market moves, a minor cabinet reshuffle, and three sports finals.",
+  "must_know": [
+    {
+      "headline": "Full-spectrum bias bar: left, centre, and right outlets covering one story",
+      "summary": "Sourced across the political spectrum to exercise the three-colour bias bar with proportional segments and a multi-row web source table.",
+      "why_it_matters": "Exercises the why-it-matters block alongside a full left/centre/right bias bar.",
+      "reporting_varies": [
+        {"source": "Left outlets (Guardian, MSNBC)", "angle": "Framed it as a humanitarian failure and an indictment of policy."},
+        {"source": "Right outlets (Fox, NY Post)", "angle": "Emphasised security, enforcement, and cost to taxpayers."}
+      ],
+      "sources": [
+        {"name": "The Guardian", "bias": "left", "url": "https://www.theguardian.com/world/2026/jul/05/full-spectrum-story"},
+        {"name": "MSNBC", "bias": "lean-left", "url": "https://www.msnbc.com/news/full-spectrum-story"},
+        {"name": "Reuters", "bias": "center", "url": "https://www.reuters.com/world/full-spectrum-story"},
+        {"name": "Associated Press", "bias": "center", "url": "https://apnews.com/article/full-spectrum-story"},
+        {"name": "BBC", "bias": "center", "url": "https://www.bbc.com/news/full-spectrum-story"},
+        {"name": "Fox News", "bias": "right", "url": "https://www.foxnews.com/world/full-spectrum-story"},
+        {"name": "New York Post", "bias": "lean-right", "url": "https://nypost.com/2026/07/05/full-spectrum-story"}
+      ]
+    },
+    {
+      "headline": "Ongoing thread with a day counter and a left/right-only bar (no centre segment)",
+      "summary": "This base summary should be REPLACED by the thread delta below.",
+      "why_it_matters": "Checks the Ongoing eyebrow, the delta-over-summary swap, and a two-colour bar with no centre.",
+      "thread": {"day": 13, "delta": "Day 13: the delta text replaces the base summary, so a returning reader sees what changed today rather than a generic re-describe of the story."},
+      "sources": [
+        {"name": "Jacobin", "bias": "far-left", "url": "https://jacobin.com/2026/07/thread-story"},
+        {"name": "The Daily Wire", "bias": "far-right", "url": "https://www.dailywire.com/news/thread-story"}
+      ]
+    },
+    {
+      "headline": "Single-source must-know with no why-it-matters block",
+      "summary": "Exactly one source, to check the singular 'source' wording, a single-segment bar, and a story that omits the why block.",
+      "sources": [
+        {"name": "Al Jazeera", "bias": "center", "url": "https://www.aljazeera.com/news/2026/7/5/single-source-story"}
+      ]
+    },
+    {
+      "headline": "An intentionally very long headline that runs well past a single line to verify text-wrap balancing and the tight leading on multi-line serif display headings in both email and web",
+      "summary": "Quiet-day thread: the eyebrow shows but the base summary is kept because there is no delta today.",
+      "thread": {"day": 2},
+      "why_it_matters": "",
+      "sources": [
+        {"name": "Reuters", "bias": "center", "url": "https://www.reuters.com/world/long-headline-story"},
+        {"name": "Bloomberg", "bias": "lean-right", "url": "https://www.bloomberg.com/news/long-headline-story"}
+      ]
+    },
+    {
+      "headline": "Story whose sources all fail the article-path guard, so no source line renders",
+      "summary": "Every source URL is a bare domain, so the outlet collector drops them and the source block is omitted entirely, with no dangling bias bar.",
+      "why_it_matters": "Confirms the zero-usable-source path renders cleanly.",
+      "sources": [
+        {"name": "Example News", "bias": "center", "url": "https://example.com/"}
+      ]
+    }
+  ],
+  "should_know": [
+    {
+      "headline": "Should-know brief with a mixed left/centre/right bias bar",
+      "summary": "Briefs are compact: smaller heading, summary, and the same stacked source line. This one spans the full spectrum.",
+      "sources": [
+        {"name": "Vox", "bias": "left", "url": "https://www.vox.com/2026/7/5/brief-one"},
+        {"name": "NPR", "bias": "center", "url": "https://www.npr.org/2026/07/05/brief-one"},
+        {"name": "Washington Examiner", "bias": "right", "url": "https://www.washingtonexaminer.com/brief-one"}
+      ]
+    },
+    {
+      "headline": "Second brief, single centre source",
+      "summary": "A one-source brief to check spacing between consecutive briefs and the singular source wording.",
+      "sources": [
+        {"name": "Associated Press", "bias": "center", "url": "https://apnews.com/article/brief-two"}
+      ]
+    },
+    {
+      "headline": "A third brief with a longer headline to check how briefs wrap and how the source line sits beneath a two-line compact heading",
+      "summary": "Longer heading, two sources, left and centre.",
+      "sources": [
+        {"name": "The Guardian", "bias": "lean-left", "url": "https://www.theguardian.com/world/2026/jul/05/brief-three"},
+        {"name": "Reuters", "bias": "center", "url": "https://www.reuters.com/world/brief-three"}
+      ]
+    }
+  ]
+}
