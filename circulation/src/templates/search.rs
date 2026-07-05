@@ -1,277 +1,143 @@
-//! Search page template - full-text search over shown headlines.
+//! Search page — full-text results over shown headlines, in the chrome design. Shared frame comes
+//! from [`super::chrome`]; this module owns the search field, the result rows, and the empty states.
 
-use super::digest::{FAVICON_SVG, REDUCED_MOTION_CSS, SKIP_LINK_CSS, SKIP_LINK_HTML};
+use super::chrome;
+use super::digest::og_image_tags;
 use crate::search::SearchResult;
-use crate::util::{escape_html, format_date};
+use crate::util::{escape_html, format_day_month_year};
 
-/// Human label for a tier value. Unknown/blank tiers fall back to the raw
-/// (escaped) value rather than hiding the badge -- new tiers shouldn't need a
-/// template change to show up.
-fn tier_label(tier: &str) -> String {
+pub struct SearchParams<'a> {
+    pub title: &'a str,
+    pub brand_html: &'a str,
+    pub home_url: &'a str,
+    pub canonical_url: &'a str,
+    pub feed_url: &'a str,
+    pub image_url: &'a str,
+    pub font_url: &'a str,
+    pub topbar_html: &'a str,
+    pub footer_html: &'a str,
+    /// Form action (the `/search` route).
+    pub search_url: &'a str,
+    /// `None` = the landing state (no `q`); the handler collapses blank queries to `None`.
+    pub query: Option<&'a str>,
+    pub results: &'a [SearchResult],
+}
+
+const SEARCH_CSS: &str = r#"
+.searchform{display:flex; gap:10px; align-items:center; margin-top:16px;}
+.searchfield{flex:1; min-width:0; font-family:var(--sans); font-size:16px; color:var(--ink); background:var(--panel);
+  border:1px solid var(--line-strong); border-radius:var(--r-input); padding:11px 14px;}
+.searchfield::placeholder{color:var(--muted);}
+.searchfield:focus-visible{outline:2px solid var(--accent); outline-offset:-1px; border-color:var(--accent);}
+.searchbtn{font-family:var(--sans); font-size:13px; font-weight:600; color:#fff; background:var(--accent-ink);
+  border:1px solid var(--accent-ink); border-radius:var(--r-input); padding:11px 18px; cursor:pointer; white-space:nowrap;}
+@media (prefers-color-scheme:dark){ .searchbtn{background:var(--accent); color:#16150f; border-color:var(--accent);} }
+:root[data-theme="dark"]  .searchbtn{background:var(--accent); color:#16150f; border-color:var(--accent);}
+:root[data-theme="light"] .searchbtn{background:var(--accent-ink); color:#fff; border-color:var(--accent-ink);}
+.rescount{font-family:var(--mono); font-size:11px; letter-spacing:.08em; text-transform:uppercase; color:var(--muted); margin:24px 0 8px;}
+.rescount b{color:var(--ink2); font-weight:600;}
+.results{list-style:none; margin:0; padding:0;}
+.result{border-top:1px solid var(--line);}
+.result a{display:grid; grid-template-columns:120px 1fr; gap:4px 18px; align-items:baseline; padding:16px 0; text-decoration:none; border-radius:6px;}
+.result a:hover{background:var(--wash);}
+.result a:focus-visible{outline:2px solid var(--accent); outline-offset:-2px;}
+.result .r-date{font-family:var(--mono); font-size:12px; letter-spacing:.04em; color:var(--muted); white-space:nowrap;}
+.result .r-tier{grid-column:1; font-family:var(--mono); font-size:10px; letter-spacing:.1em; text-transform:uppercase; font-weight:600; color:var(--muted); margin-top:2px;}
+.result .r-tier.must{color:var(--accent-ink);}
+.result .r-head{grid-column:2; grid-row:1 / span 2; font-family:var(--serif); font-size:18px; font-weight:600; line-height:1.3; letter-spacing:-.01em; color:var(--ink); text-wrap:pretty;}
+.result a:hover .r-head{color:var(--accent-ink);}
+.result.unlinked{display:grid; grid-template-columns:120px 1fr; gap:4px 18px; padding:16px 0;}
+.note{font-family:var(--sans); font-size:13px; color:var(--muted); margin-top:24px;}
+"#;
+
+/// (tier class, display label) for a tier value; unknown tiers fall back to the escaped raw value.
+fn tier_parts(tier: &str) -> (&'static str, String) {
     match tier {
-        "must_know" => "Must Know".to_string(),
-        "should_know" => "Should Know".to_string(),
-        "" => String::new(),
-        other => escape_html(other),
+        "must_know" => ("must", "Must Know".to_string()),
+        "should_know" => ("should", "Should Know".to_string()),
+        "" => ("should", String::new()),
+        other => ("should", escape_html(other)),
     }
 }
 
-fn build_results_html(results: &[SearchResult]) -> String {
-    results
-        .iter()
-        .map(|r| {
-            let headline = escape_html(&r.headline);
-            let tier_html = {
-                let label = tier_label(&r.tier);
-                if label.is_empty() {
-                    String::new()
-                } else {
-                    format!(r#"<span class="tier-badge">{label}</span>"#)
-                }
-            };
-            match &r.date {
-                Some(date) => {
-                    let formatted = format_date(date);
-                    format!(
-                        r#"<li><a href="/{date}">{tier_html}<span class="result-headline">{headline}</span><span class="result-date">{formatted}</span></a></li>"#
-                    )
-                }
-                // No digest row to link to (shouldn't happen in practice) --
-                // render as plain text instead of a dead link.
-                None => format!(
-                    r#"<li class="result-unlinked">{tier_html}<span class="result-headline">{headline}</span></li>"#
-                ),
-            }
-        })
-        .collect::<Vec<_>>()
-        .join("\n")
+fn result_row(r: &SearchResult) -> String {
+    let (tier_cls, label) = tier_parts(&r.tier);
+    let head = escape_html(&r.headline);
+    match &r.date {
+        Some(date) => format!(
+            r#"<li class="result"><a href="/{date}"><span class="r-date">{d}</span><span class="r-tier {tier_cls}">{label}</span><span class="r-head">{head}</span></a></li>"#,
+            d = format_day_month_year(date),
+        ),
+        // No digest row to link to (shouldn't happen) — render as plain text, not a dead link.
+        None => format!(
+            r#"<li class="result unlinked"><span class="r-tier {tier_cls}">{label}</span><span class="r-head">{head}</span></li>"#
+        ),
+    }
 }
 
-/// Render the search page. `query` is `None` when no `q` param was given at
-/// all (landing state); `Some("")` never happens -- the handler already
-/// collapses blank queries to `None` via `sanitize_query`.
-pub fn render_search(name: &str, query: Option<&str>, results: &[SearchResult]) -> String {
-    let body = match query {
+/// The results/empty body for the current query state.
+fn results_body(query: Option<&str>, results: &[SearchResult]) -> String {
+    match query {
         None => {
-            r#"<p class="search-hint">Enter a search term above to look through past headlines.</p>"#
-                .to_string()
+            r#"<p class="note">Search matches wording in every published headline. Enter a term above.</p>"#.to_string()
         }
-        Some(q) if results.is_empty() => {
-            let escaped_q = escape_html(q);
-            format!(r#"<p class="search-hint">No results for &ldquo;{escaped_q}&rdquo;.</p>"#)
-        }
-        Some(_) => {
+        Some(q) if results.is_empty() => format!(
+            r#"<p class="rescount">No results for &ldquo;{q}&rdquo;.</p><p class="note">Search matches headline wording — try a broader or differently-worded term.</p>"#,
+            q = escape_html(q)
+        ),
+        Some(q) => {
+            let rows: String = results.iter().map(result_row).collect();
             format!(
-                r#"<ul class="search-results">
-{}
-    </ul>"#,
-                build_results_html(results)
+                r#"<p class="rescount"><b>{n}</b> results for &ldquo;{q}&rdquo;</p><ol class="results">{rows}</ol><p class="note">Results match headlines across every past issue; each opens that day's digest.</p>"#,
+                n = results.len(),
+                q = escape_html(q),
             )
         }
-    };
+    }
+}
 
-    let query_value = query.map(escape_html).unwrap_or_default();
+pub fn render_search(p: &SearchParams) -> String {
+    let head = chrome::page_head(
+        p.title,
+        "Search every published headline in the digest archive.",
+        p.canonical_url,
+        p.feed_url,
+        &og_image_tags(p.image_url),
+        p.font_url,
+        SEARCH_CSS,
+    );
+    let value = p.query.map(escape_html).unwrap_or_default();
+    let body = results_body(p.query, p.results);
 
     format!(
-        r##"<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Search – {name}</title>
-  {favicon}
-  <style>
-    :root {{
-      --bg: #fafaf8;
-      --text: #1c1c1a;
-      --text-muted: #6b6b67;
-      --ruby: #c45a3b;
-      --ruby-hover: #d4897a;
-      --border: #e0e0da;
-      --ink-light: #4a4a46;
-      color-scheme: light dark;
-    }}
-    @media (prefers-color-scheme: dark) {{
-      :root {{
-        --bg: #141412;
-        --text: #e6e6e2;
-        --text-muted: #9a9a94;
-        --ruby: #e07a5f;
-        --ruby-hover: #f0a08a;
-        --border: #2c2c28;
-        --ink-light: #b0b0aa;
-      }}
-    }}
-    *, *::before, *::after {{ box-sizing: border-box; }}
-    html {{
-      font-size: 18px;
-      background-color: var(--bg);
-    }}
-    body {{
-      color: var(--text);
-      font-family: Georgia, "Times New Roman", serif;
-      line-height: 1.58;
-      margin: 0;
-      padding: 0;
-      text-rendering: optimizeLegibility;
-      -webkit-font-smoothing: antialiased;
-    }}
-    :focus-visible {{
-      outline: 2px solid var(--ruby);
-      outline-offset: 2px;
-    }}
-    a {{
-      color: var(--ruby);
-      text-decoration: underline;
-      text-decoration-color: transparent;
-      text-underline-offset: 3px;
-      text-decoration-thickness: 1px;
-      transition: color 0.15s ease, text-decoration-color 0.2s ease;
-    }}
-    a:hover {{
-      color: var(--ruby-hover);
-      text-decoration-color: var(--ruby-hover);
-    }}
-    .page-nav {{
-      max-width: 640px;
-      margin: 0 auto;
-      padding: 12px 1.5rem;
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
-      font-size: 14px;
-    }}
-    .page-nav a {{
-      color: var(--text-muted);
-      text-decoration: none;
-    }}
-    .page-nav a:hover {{
-      color: var(--ruby);
-    }}
-    .container {{
-      max-width: 640px;
-      margin: 0 auto;
-      padding: 1.5rem 1.5rem 7rem;
-    }}
-    h1 {{
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
-      font-size: 2rem;
-      font-weight: 700;
-      margin: 0 0 1rem;
-      letter-spacing: -0.025em;
-      color: var(--text);
-    }}
-    .search-form {{
-      display: flex;
-      gap: 0.5rem;
-      margin-bottom: 0.5rem;
-    }}
-    .search-form input {{
-      flex: 1;
-      padding: 0.6rem 0.85rem;
-      background: var(--bg);
-      border: 1px solid var(--border);
-      border-radius: 4px;
-      color: var(--text);
-      font-family: inherit;
-      font-size: 0.93rem;
-    }}
-    .search-form input:focus-visible {{
-      border-color: var(--ruby);
-    }}
-    .search-form button {{
-      padding: 0.6rem 1.25rem;
-      background: var(--ruby);
-      color: white;
-      border: none;
-      border-radius: 4px;
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
-      font-weight: 600;
-      font-size: 0.88rem;
-      cursor: pointer;
-      transition: background 0.15s ease;
-    }}
-    .search-form button:hover {{
-      background: var(--ruby-hover);
-    }}
-    .search-hint {{
-      color: var(--text-muted);
-      font-size: 0.93rem;
-    }}
-    .search-tip {{
-      color: var(--text-muted);
-      font-size: 0.8rem;
-      margin: 0 0 2rem;
-    }}
-    ul.search-results {{
-      list-style: none;
-      padding: 0;
-      margin: 0;
-    }}
-    .search-results li {{
-      border-top: 1px solid var(--border);
-    }}
-    .search-results li:last-child {{
-      border-bottom: 1px solid var(--border);
-    }}
-    .search-results li a {{
-      display: block;
-      padding: 0.85rem 0;
-      color: var(--text);
-      text-decoration: none;
-      transition: background 0.15s ease;
-    }}
-    .search-results li a:hover {{
-      background: rgba(196, 90, 59, 0.03);
-    }}
-    .result-unlinked {{
-      padding: 0.85rem 0;
-      color: var(--ink-light);
-    }}
-    .tier-badge {{
-      display: inline-block;
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
-      font-size: 0.65rem;
-      font-weight: 600;
-      letter-spacing: 0.04em;
-      text-transform: uppercase;
-      color: var(--text-muted);
-      margin-right: 0.5rem;
-    }}
-    .result-headline {{
-      font-weight: 600;
-      font-size: 0.95rem;
-    }}
-    .result-date {{
-      display: block;
-      font-size: 0.82rem;
-      color: var(--text-muted);
-      margin-top: 0.15rem;
-    }}
-    {skip_link_css}
-    {reduced_motion_css}
-  </style>
-</head>
+        r#"{head}
 <body>
-  {skip_link_html}
-  <nav class="page-nav">
-    <a href="/">&#8592; Past digests</a>
-  </nav>
-  <main id="main">
-  <div class="container">
-    <h1>Search</h1>
-    <form class="search-form" action="/search" method="get" role="search">
-      <input type="search" name="q" value="{query_value}" placeholder="Search past headlines" aria-label="Search past headlines">
-      <button type="submit">Search</button>
-    </form>
-    <p class="search-tip">Matches words and phrases literally &mdash; boolean operators (AND, OR, NOT, *) aren&rsquo;t supported.</p>
+{skip}
+<div class="wrap"><div class="col">
+    {topbar}
+    <header class="masthead">
+      <a class="brandmark" href="{home}">{brand}</a>
+      <h1 class="h1">Search the archive</h1>
+      <form class="searchform" role="search" action="{search}" method="get">
+        <input class="searchfield" type="search" name="q" value="{value}" placeholder="Search past headlines&hellip;" aria-label="Search past headlines">
+        <button class="searchbtn" type="submit">Search</button>
+      </form>
+    </header>
+    <main id="main">
     {body}
-  </div>
-  </main>
+    </main>
+    {footer}
+</div></div>
+{toggle_js}
 </body>
-</html>"##,
-        favicon = FAVICON_SVG,
-        skip_link_html = SKIP_LINK_HTML,
-        skip_link_css = SKIP_LINK_CSS,
-        reduced_motion_css = REDUCED_MOTION_CSS,
+</html>"#,
+        skip = chrome::SKIP_HTML,
+        topbar = p.topbar_html,
+        home = p.home_url,
+        brand = p.brand_html,
+        search = p.search_url,
+        footer = p.footer_html,
+        toggle_js = chrome::TOGGLE_JS,
     )
 }
 
@@ -279,54 +145,75 @@ pub fn render_search(name: &str, query: Option<&str>, results: &[SearchResult]) 
 mod tests {
     use super::*;
 
-    #[test]
-    fn escapes_headline_in_results() {
-        let results = vec![SearchResult {
-            headline: "<script>alert(1)</script>".to_string(),
-            tier: "must_know".to_string(),
-            date: Some("2026-07-01".to_string()),
-        }];
-        let html = render_search("Digest", Some("test"), &results);
-        assert!(!html.contains("<script>alert(1)</script>"));
-        assert!(html.contains("&lt;script&gt;alert(1)&lt;/script&gt;"));
+    fn res(headline: &str, tier: &str, date: Option<&str>) -> SearchResult {
+        SearchResult {
+            headline: headline.into(),
+            tier: tier.into(),
+            date: date.map(String::from),
+        }
+    }
+
+    fn params<'a>(query: Option<&'a str>, results: &'a [SearchResult]) -> SearchParams<'a> {
+        SearchParams {
+            title: "Search",
+            brand_html: "News <em>Digest</em>",
+            home_url: "/",
+            canonical_url: "https://example.com/search",
+            feed_url: "/feed.xml",
+            image_url: "https://example.com/og.png",
+            font_url: "/assets/fonts/x.woff2",
+            topbar_html: "<div class=\"topbar\"></div>",
+            footer_html: "<footer></footer>",
+            search_url: "/search",
+            query,
+            results,
+        }
     }
 
     #[test]
-    fn escapes_query_value_in_input() {
-        let html = render_search("Digest", Some("\"><img src=x onerror=alert(1)>"), &[]);
-        assert!(!html.contains("<img src=x"));
+    fn landing_state_has_no_results_and_prompts() {
+        let html = render_search(&params(None, &[]));
+        assert!(html.contains("Enter a term above"));
+        assert!(!html.contains(r#"class="results""#));
+        assert_eq!(html.matches("<h1").count(), 1);
     }
 
     #[test]
-    fn landing_state_has_no_results_list() {
-        let html = render_search("Digest", None, &[]);
-        assert!(html.contains("Enter a search term"));
-        assert!(!html.contains("<ul class=\"search-results\">"));
+    fn zero_results_shows_honest_hint() {
+        let html = render_search(&params(Some("volcano"), &[]));
+        assert!(html.contains(r#"No results for &ldquo;volcano&rdquo;."#));
+        assert!(html.contains("try a broader or differently-worded term"));
     }
 
     #[test]
-    fn no_results_state_shows_honest_copy() {
-        let html = render_search("Digest", Some("volcano"), &[]);
-        assert!(html.contains("No results for"));
-        assert!(html.contains("volcano"));
+    fn populated_results_count_tier_and_link() {
+        let r = [
+            res("Iran talks resume", "must_know", Some("2026-07-01")),
+            res("Oil steadies", "should_know", Some("2026-06-17")),
+        ];
+        let html = render_search(&params(Some("iran"), &r));
+        assert!(html.contains(r#"<b>2</b> results for &ldquo;iran&rdquo;"#));
+        assert!(html.contains(r#"<a href="/2026-07-01">"#));
+        assert!(html.contains(r#"<span class="r-tier must">Must Know</span>"#));
+        assert!(html.contains(r#"<span class="r-tier should">Should Know</span>"#));
+        assert!(html.contains("1 Jul 2026"));
     }
 
     #[test]
-    fn shows_literal_match_hint() {
-        let html = render_search("Digest", None, &[]);
-        assert!(html.contains("search-tip"));
-        assert!(html.contains("boolean operators"));
+    fn escapes_headline_and_query() {
+        let r = [res("A & <b>", "must_know", Some("2026-07-01"))];
+        let html = render_search(&params(Some("<x>"), &r));
+        assert!(html.contains("A &amp; &lt;b&gt;"));
+        assert!(html.contains("&lt;x&gt;"));
+        assert!(!html.contains("<b>A"));
     }
 
     #[test]
     fn unlinked_result_has_no_dead_link() {
-        let results = vec![SearchResult {
-            headline: "Orphaned headline".to_string(),
-            tier: "should_know".to_string(),
-            date: None,
-        }];
-        let html = render_search("Digest", Some("orphan"), &results);
-        assert!(html.contains("result-unlinked"));
-        assert!(!html.contains("<a href=\"/\">Orphaned"));
+        let r = [res("Orphan headline", "must_know", None)];
+        let html = render_search(&params(Some("orphan"), &r));
+        // the unlinked row is plain text — it opens with a <span>, never an <a>
+        assert!(html.contains(r#"<li class="result unlinked"><span"#));
+        assert!(!html.contains(r#"<li class="result unlinked"><a"#));
     }
 }

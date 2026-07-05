@@ -8,7 +8,9 @@ use serde::Deserialize;
 use std::sync::Arc;
 
 use crate::AppState;
-use crate::templates::render_search;
+use crate::handlers::{brand_html, sub_chrome};
+use crate::routes;
+use crate::templates::{SearchParams, render_search};
 
 /// Longest query we'll pass to FTS5 -- keeps the MATCH expression and the
 /// rendered page bounded regardless of what a client sends.
@@ -105,7 +107,28 @@ pub async fn search(
         None => Vec::new(),
     };
 
-    let html = render_search(&state.digest_name, sanitized.as_deref(), &results);
+    let (topbar_html, footer_html) = sub_chrome(
+        &state,
+        "",
+        "Search covers all published headlines. Full-text over each issue's stories.",
+    );
+    let brand = brand_html(&state.digest_name);
+    let canonical_url = state.base_url();
+    let image_url = state.og_image_url();
+    let html = render_search(&SearchParams {
+        title: &state.digest_name,
+        brand_html: &brand,
+        home_url: "/",
+        canonical_url: &canonical_url,
+        feed_url: routes::FEED,
+        image_url: &image_url,
+        font_url: &state.font_url,
+        topbar_html: &topbar_html,
+        footer_html: &footer_html,
+        search_url: routes::SEARCH,
+        query: sanitized.as_deref(),
+        results: &results,
+    });
     Ok(Html(html))
 }
 

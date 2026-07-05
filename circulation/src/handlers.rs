@@ -2,7 +2,7 @@ use axum::{
     Form, Json,
     extract::{Path, Query, State},
     http::StatusCode,
-    response::{Html, IntoResponse, Redirect, Response},
+    response::{Html, IntoResponse, Redirect},
 };
 use rusqlite::{Connection, OpenFlags};
 use serde::{Deserialize, Serialize};
@@ -14,10 +14,10 @@ use crate::check_database_health;
 use crate::feed::{DigestRow, render_atom_feed};
 use crate::routes;
 use crate::templates::{
-    DIGEST_NAV_CSS, FAVICON_SVG, IndexParams, PROXY_TRANSLATE_HIDE_SCRIPT, REDUCED_MOTION_CSS,
-    SKIP_LINK_CSS, SKIP_LINK_HTML, Source, SourcesParams, TOGGLE_BTN, chrome_footer, chrome_topbar,
-    digest_nav_html, digest_og_tags, render_feedback_thanks, render_index, render_sources,
-    web_footer_html,
+    DIGEST_NAV_CSS, FAVICON_SVG, FeedbackParams, IndexParams, PROXY_TRANSLATE_HIDE_SCRIPT,
+    REDUCED_MOTION_CSS, SKIP_LINK_CSS, SKIP_LINK_HTML, Source, SourcesParams, TOGGLE_BTN,
+    chrome_footer, chrome_topbar, digest_nav_html, digest_og_tags, render_feedback, render_index,
+    render_sources, web_footer_html,
 };
 use crate::util::{escape_html, format_day_month_year, is_valid_date, log_row_error};
 
@@ -41,19 +41,6 @@ pub struct IndexQuery {
     pub year: Option<i64>,
 }
 
-/// Query params for GET /feedback -- all optional so extraction never fails;
-/// validation (and the resulting 400) happens in the handler.
-#[derive(Deserialize, Default)]
-pub struct FeedbackQuery {
-    pub d: Option<String>,
-    pub s: Option<String>,
-    pub v: Option<String>,
-}
-
-/// Cap on the `s` (story) query param length -- generous for a slugified
-/// headline, tight enough to keep the column and index sane.
-const MAX_STORY_LEN: usize = 200;
-
 #[derive(Serialize)]
 struct ResendContact {
     email: String,
@@ -65,7 +52,7 @@ const SUBSCRIBED_NOTICE: &str = r#"<p class="notice ok" role="status"><span clas
 const SUBSCRIBE_ERROR_NOTICE: &str = r#"<p class="notice bad" role="alert"><span class="ni" aria-hidden="true">✕</span> That didn't go through — something failed on our end. Please try again.</p>"#;
 
 /// Brand with the accent word (the last whitespace token) wrapped in `<em>`, e.g. `News <em>Digest</em>`.
-fn brand_html(name: &str) -> String {
+pub(crate) fn brand_html(name: &str) -> String {
     match name.trim().rsplit_once(char::is_whitespace) {
         Some((head, last)) => format!("{} <em>{}</em>", escape_html(head), escape_html(last)),
         None => format!("<em>{}</em>", escape_html(name.trim())),
@@ -109,7 +96,7 @@ fn index_list(rows: &str, total: i64) -> String {
 /// "← Archive", then the section links with `current` ("sources"|"threads"|"stats") omitted — pass
 /// "" to keep them all (detail pages). Right cluster = optional Subscribe sublink + Translate pill +
 /// theme toggle. Footer = the shared link row + a page-specific `tagline`.
-fn sub_chrome(state: &AppState, current: &str, tagline: &str) -> (String, String) {
+pub(crate) fn sub_chrome(state: &AppState, current: &str, tagline: &str) -> (String, String) {
     let subscriptions_enabled =
         state.resend_api_key.is_some() && state.resend_audience_id.is_some();
     let mut nav: Vec<(&str, &str)> = vec![("/", "&larr; Archive")];
@@ -1085,329 +1072,29 @@ mod feed_tests {
     }
 }
 
-/// Record a one-click per-story feedback vote (GET /feedback?d=&s=&v=up|down).
-///
-/// GET-with-side-effect is a known tradeoff here: mail scanners that prefetch
-/// links can create noise votes. Acceptable at this list's size; dedup can
-/// come later if it becomes a problem.
-pub async fn feedback(
-    State(state): State<Arc<AppState>>,
-    Query(query): Query<FeedbackQuery>,
-) -> Result<Response, (StatusCode, &'static str)> {
-    let Some(date) = query.d.as_deref().filter(|d| is_valid_date(d)) else {
-        // A bare or malformed /feedback (typed URL, stale link, scanner without
-        // params) is not a real vote. Send the reader to a generic feedback
-        // channel rather than a raw 400 -- the web parallel to "just hit reply".
-        return Ok(feedback_fallback(&state));
-    };
-    let vote = query
-        .v
-        .as_deref()
-        .filter(|v| *v == "up" || *v == "down")
-        .ok_or((StatusCode::BAD_REQUEST, "Invalid or missing vote"))?;
-    let story = query
-        .s
-        .as_deref()
-        .filter(|s| !s.is_empty() && s.chars().count() <= MAX_STORY_LEN)
-        .ok_or((StatusCode::BAD_REQUEST, "Invalid or missing story"))?;
-
-    let conn = Connection::open_with_flags(&state.db_path, OpenFlags::SQLITE_OPEN_READ_WRITE)
-        .map_err(|e| {
-            tracing::error!("Failed to open database for feedback write: {e}");
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "Feedback service unavailable",
-            )
-        })?;
-    // Mirror Python's sqlite3 default (5s busy timeout); circulation is now a
-    // second writer alongside the newsroom pipeline, and rusqlite defaults to 0ms.
-    conn.busy_timeout(std::time::Duration::from_secs(5))
-        .map_err(|e| {
-            tracing::error!("Failed to set busy_timeout for feedback write: {e}");
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "Feedback service unavailable",
-            )
-        })?;
-
-    conn.execute(
-        "INSERT INTO story_feedback (digest_date, story, vote) VALUES (?1, ?2, ?3)",
-        (date, story, vote),
-    )
-    .map_err(|e| {
-        tracing::error!("Failed to record feedback: {e}");
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "Failed to record feedback",
-        )
-    })?;
-
-    Ok(Html(render_feedback_thanks(&state.digest_name, date, story)).into_response())
-}
-
-/// Where a paramless/invalid `/feedback` hit lands: a prefilled feedback `mailto:`
-/// when a feedback address is configured, else the homepage. Keeps the one page a
-/// reader might reach without a valid vote link from dead-ending on a raw 400.
-fn feedback_fallback(state: &AppState) -> Response {
-    match state.feedback_email.as_deref() {
-        Some(email) => Redirect::temporary(&format!("mailto:{email}?subject=Digest%20feedback"))
-            .into_response(),
-        None => Redirect::temporary("/").into_response(),
-    }
-}
-
-#[cfg(test)]
-mod feedback_tests {
-    use super::*;
-    use std::sync::atomic::{AtomicU64, Ordering};
-
-    static COUNTER: AtomicU64 = AtomicU64::new(0);
-
-    /// Build an AppState pointed at `db_path` with an optional feedback address --
-    /// every other field is a fixed stub, irrelevant to the feedback handler.
-    fn build_state(db_path: impl Into<String>, feedback_email: Option<String>) -> Arc<AppState> {
-        Arc::new(AppState {
-            db_path: db_path.into(),
-            digest_name: "Test Digest".to_string(),
-            digest_domain: None,
-            homepage_url: None,
-            source_url: None,
-            resend_api_key: None,
-            resend_audience_id: None,
-            feedback_email,
-            font_url: "/assets/fonts/source-serif-4.test.woff2".to_string(),
-            http_client: reqwest::Client::new(),
-        })
-    }
-
-    /// Create a throwaway sqlite file with just the `story_feedback` table.
-    fn make_feedback_db() -> String {
-        let n = COUNTER.fetch_add(1, Ordering::SeqCst);
-        let path = std::env::temp_dir()
-            .join(format!("feedback_test_{}_{n}.sqlite", std::process::id()))
-            .to_string_lossy()
-            .into_owned();
-
-        let conn = Connection::open(&path).expect("open test db");
-        conn.execute_batch(
-            "CREATE TABLE story_feedback (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                digest_date TEXT NOT NULL,
-                story TEXT NOT NULL,
-                vote TEXT NOT NULL CHECK (vote IN ('up', 'down')),
-                created_at TEXT NOT NULL DEFAULT (datetime('now', 'utc'))
-            );",
-        )
-        .expect("create test schema");
-        path
-    }
-
-    /// AppState backed by a throwaway feedback DB, no feedback email configured.
-    fn test_state() -> (Arc<AppState>, String) {
-        let path = make_feedback_db();
-        (build_state(path.clone(), None), path)
-    }
-
-    /// Same, but with a feedback `mailto:` address configured.
-    fn test_state_with_feedback_email(email: &str) -> (Arc<AppState>, String) {
-        let path = make_feedback_db();
-        (build_state(path.clone(), Some(email.to_string())), path)
-    }
-
-    fn feedback_count(path: &str) -> i64 {
-        let conn = Connection::open(path).expect("open test db");
-        conn.query_row("SELECT COUNT(*) FROM story_feedback", [], |row| row.get(0))
-            .expect("count rows")
-    }
-
-    fn query(d: Option<&str>, s: Option<&str>, v: Option<&str>) -> Query<FeedbackQuery> {
-        Query(FeedbackQuery {
-            d: d.map(String::from),
-            s: s.map(String::from),
-            v: v.map(String::from),
-        })
-    }
-
-    #[tokio::test]
-    async fn valid_vote_inserts_and_renders_thanks() {
-        let (state, path) = test_state();
-        let result = feedback(
-            State(state),
-            query(Some("2026-07-01"), Some("some-story-slug"), Some("up")),
-        )
-        .await;
-
-        let response = result.expect("expected success").into_response();
-        assert_eq!(response.status(), StatusCode::OK);
-        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
-            .await
-            .unwrap();
-        let body = String::from_utf8(bytes.to_vec()).unwrap();
-        assert!(body.contains("Thanks"));
-        assert!(body.contains("some-story-slug"));
-        assert!(body.contains("/2026-07-01"));
-        assert_eq!(feedback_count(&path), 1);
-        std::fs::remove_file(&path).ok();
-    }
-
-    #[tokio::test]
-    async fn down_vote_inserts() {
-        let (state, path) = test_state();
-        let result = feedback(
-            State(state),
-            query(Some("2026-07-01"), Some("some-story-slug"), Some("down")),
-        )
-        .await;
-
-        assert!(result.is_ok());
-        assert_eq!(feedback_count(&path), 1);
-        std::fs::remove_file(&path).ok();
-    }
-
-    #[tokio::test]
-    async fn invalid_date_falls_back_without_insert() {
-        // A malformed date is not a real vote -> graceful fallback (home here, no
-        // feedback_email), never a recorded row.
-        let (state, path) = test_state();
-        let response = feedback(
-            State(state),
-            query(Some("not-a-date"), Some("story"), Some("up")),
-        )
-        .await
-        .expect("fallback should not error")
-        .into_response();
-
-        assert_eq!(response.status(), StatusCode::TEMPORARY_REDIRECT);
-        assert_eq!(response.headers().get("location").unwrap(), "/");
-        assert_eq!(feedback_count(&path), 0);
-        std::fs::remove_file(&path).ok();
-    }
-
-    #[tokio::test]
-    async fn missing_date_falls_back_to_home_without_insert() {
-        // A bare /feedback (no valid date) is not a vote: no feedback_email
-        // configured -> redirect home, no row written.
-        let (state, path) = test_state();
-        let response = feedback(State(state), query(None, Some("story"), Some("up")))
-            .await
-            .expect("fallback should not error")
-            .into_response();
-
-        assert_eq!(response.status(), StatusCode::TEMPORARY_REDIRECT);
-        assert_eq!(response.headers().get("location").unwrap(), "/");
-        assert_eq!(feedback_count(&path), 0);
-        std::fs::remove_file(&path).ok();
-    }
-
-    #[tokio::test]
-    async fn missing_date_redirects_to_mailto_when_configured() {
-        let (state, path) = test_state_with_feedback_email("hi@example.com");
-        let response = feedback(State(state), query(None, None, None))
-            .await
-            .expect("fallback should not error")
-            .into_response();
-
-        assert_eq!(response.status(), StatusCode::TEMPORARY_REDIRECT);
-        let loc = response
-            .headers()
-            .get("location")
-            .unwrap()
-            .to_str()
-            .unwrap();
-        assert!(loc.starts_with("mailto:hi@example.com"), "got {loc}");
-        assert_eq!(feedback_count(&path), 0);
-        std::fs::remove_file(&path).ok();
-    }
-
-    #[tokio::test]
-    async fn invalid_vote_rejected_without_insert() {
-        let (state, path) = test_state();
-        let result = feedback(
-            State(state),
-            query(Some("2026-07-01"), Some("story"), Some("sideways")),
-        )
-        .await;
-
-        assert_eq!(
-            result.expect_err("expected rejection").0,
-            StatusCode::BAD_REQUEST
-        );
-        assert_eq!(feedback_count(&path), 0);
-        std::fs::remove_file(&path).ok();
-    }
-
-    #[tokio::test]
-    async fn empty_story_rejected_without_insert() {
-        let (state, path) = test_state();
-        let result = feedback(
-            State(state),
-            query(Some("2026-07-01"), Some(""), Some("up")),
-        )
-        .await;
-
-        assert_eq!(
-            result.expect_err("expected rejection").0,
-            StatusCode::BAD_REQUEST
-        );
-        assert_eq!(feedback_count(&path), 0);
-        std::fs::remove_file(&path).ok();
-    }
-
-    #[tokio::test]
-    async fn oversized_story_rejected_without_insert() {
-        let (state, path) = test_state();
-        let oversized = "a".repeat(MAX_STORY_LEN + 1);
-        let result = feedback(
-            State(state),
-            query(Some("2026-07-01"), Some(&oversized), Some("up")),
-        )
-        .await;
-
-        assert_eq!(
-            result.expect_err("expected rejection").0,
-            StatusCode::BAD_REQUEST
-        );
-        assert_eq!(feedback_count(&path), 0);
-        std::fs::remove_file(&path).ok();
-    }
-
-    #[tokio::test]
-    async fn db_open_failure_returns_500_not_fake_success() {
-        let state = build_state("/nonexistent/does-not-exist.sqlite", None);
-        let result = feedback(
-            State(state),
-            query(Some("2026-07-01"), Some("story"), Some("up")),
-        )
-        .await;
-
-        assert_eq!(
-            result
-                .expect_err("expected failure, not a fake success page")
-                .0,
-            StatusCode::INTERNAL_SERVER_ERROR
-        );
-    }
-
-    #[tokio::test]
-    async fn story_is_escaped_in_thanks_page() {
-        let (state, path) = test_state();
-        let result = feedback(
-            State(state),
-            query(
-                Some("2026-07-01"),
-                Some("<script>alert(1)</script>"),
-                Some("up"),
-            ),
-        )
-        .await;
-
-        let response = result.expect("expected success").into_response();
-        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
-            .await
-            .unwrap();
-        let body = String::from_utf8(bytes.to_vec()).unwrap();
-        assert!(!body.contains("<script>alert"));
-        assert!(body.contains("&lt;script&gt;"));
-        std::fs::remove_file(&path).ok();
-    }
+/// Feedback page (`GET /feedback`) — a warm mailto CTA. The per-story up/down vote was removed
+/// product-wide, so this is a static, read-only page. Kept because already-sent emails link to it;
+/// any legacy `?d=&s=&v=` params are simply ignored.
+pub async fn feedback(State(state): State<Arc<AppState>>) -> Html<String> {
+    let (topbar_html, footer_html) = sub_chrome(
+        &state,
+        "",
+        "No form, no tracking — feedback goes straight to a human inbox.",
+    );
+    let brand = brand_html(&state.digest_name);
+    let canonical_url = state.base_url();
+    let image_url = state.og_image_url();
+    Html(render_feedback(&FeedbackParams {
+        title: &state.digest_name,
+        brand_html: &brand,
+        home_url: "/",
+        canonical_url: &canonical_url,
+        feed_url: routes::FEED,
+        image_url: &image_url,
+        font_url: &state.font_url,
+        topbar_html: &topbar_html,
+        footer_html: &footer_html,
+        mailto: state.feedback_email.as_deref(),
+        today_url: routes::TODAY,
+    }))
 }
