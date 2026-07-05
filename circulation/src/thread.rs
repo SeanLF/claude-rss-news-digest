@@ -10,21 +10,25 @@ use rusqlite::{Connection, OpenFlags, OptionalExtension};
 use std::sync::Arc;
 
 use crate::AppState;
-use crate::templates::{render_thread, render_threads_index};
+use crate::handlers::{brand_html, sub_chrome};
+use crate::routes;
+use crate::templates::{ThreadParams, ThreadsIndexParams, render_thread, render_threads_index};
 use crate::util::log_row_error;
 
 /// One day's installment in a thread's history.
 pub struct ThreadEntry {
     pub day: String, // YYYY-MM-DD, always present (from digest_runs.run_at)
     pub digest_date: Option<String>, // Some(date) when that day's digest exists (link target)
-    pub cluster_story: String, // that day's matched story label
-    pub delta: String, // synthesized "what's new" prose for the day; "" if none
+    pub headline: String, // that day's matched story label (cluster_story)
+    pub facts: Vec<String>, // top-3 "what's new" facts, article-ids stripped; empty if none
 }
 
 pub struct ThreadDetail {
     pub label: String,
     pub status: String,
     pub entries: Vec<ThreadEntry>,
+    /// Open "still watching" questions (from `thread_questions`), for the ledger.
+    pub open_questions: Vec<String>,
 }
 
 pub struct ThreadSummary {
@@ -32,6 +36,10 @@ pub struct ThreadSummary {
     pub label: String,
     pub status: String,
     pub updated_at: String,
+    /// Number of installments recorded for the thread.
+    pub update_count: i64,
+    /// The latest installment's story headline (the running-order "what's the state now" line).
+    pub summary: String,
 }
 
 /// Fetch one thread's header + full history, newest-first. `Ok(None)` means no such thread.
@@ -97,16 +105,56 @@ pub fn fetch_thread(
         .map(|(day, digest_date, cluster_story, content)| ThreadEntry {
             day,
             digest_date,
-            cluster_story,
-            delta: delta_from_content(content.as_deref()),
+            headline: cluster_story,
+            facts: facts_from_content(content.as_deref()),
         })
         .collect();
 
+    let open_questions = fetch_open_questions(&conn, thread_id)?;
     Ok(Some(ThreadDetail {
         label,
         status,
         entries,
+        open_questions,
     }))
+}
+
+/// The thread's most-recently-raised open questions — the current "still watching" frontier, newest
+/// first. Reads `thread_questions` (previously unqueried). Capped: the newsroom pipeline raises many
+/// questions per installment and rarely marks them resolved, so "open" accumulates (some threads carry
+/// 40+); the ledger surfaces the recent frontier, not the full backlog. A proper resolve/dedup pass in
+/// the pipeline is the real fix (going-forward newsroom work).
+const LEDGER_MAX: usize = 6;
+
+fn fetch_open_questions(
+    conn: &Connection,
+    thread_id: i64,
+) -> Result<Vec<String>, (StatusCode, String)> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT question FROM thread_questions
+             WHERE thread_id = ?1 AND status = 'open'
+             ORDER BY raised_run_id DESC, id DESC LIMIT ?2",
+        )
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Query error: {e}"),
+            )
+        })?;
+    let qs = stmt
+        .query_map(rusqlite::params![thread_id, LEDGER_MAX as i64], |row| {
+            row.get::<_, String>(0)
+        })
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Query error: {e}"),
+            )
+        })?
+        .filter_map(|r| log_row_error(r, "thread_questions"))
+        .collect();
+    Ok(qs)
 }
 
 /// Fetch all threads for the `/threads` index, active first, most-recently-updated first within
@@ -117,8 +165,12 @@ pub fn fetch_thread_summaries(db_path: &str) -> Result<Vec<ThreadSummary>, (Stat
 
     let mut stmt = conn
         .prepare(
-            "SELECT id, label, status, updated_at FROM threads
-             ORDER BY CASE WHEN status = 'active' THEN 0 ELSE 1 END, updated_at DESC",
+            "SELECT t.id, t.label, t.status, t.updated_at,
+                    (SELECT COUNT(*) FROM thread_installments ti WHERE ti.thread_id = t.id) AS update_count,
+                    (SELECT ti.content FROM thread_installments ti
+                     WHERE ti.thread_id = t.id ORDER BY ti.run_id DESC LIMIT 1) AS latest_content
+             FROM threads t
+             ORDER BY CASE WHEN t.status = 'active' THEN 0 ELSE 1 END, t.updated_at DESC",
         )
         .map_err(|e| {
             (
@@ -129,11 +181,19 @@ pub fn fetch_thread_summaries(db_path: &str) -> Result<Vec<ThreadSummary>, (Stat
 
     let summaries = stmt
         .query_map([], |row| {
+            let latest_content: Option<String> = row.get(5)?;
             Ok(ThreadSummary {
                 id: row.get(0)?,
                 label: row.get(1)?,
                 status: row.get(2)?,
                 updated_at: row.get(3)?,
+                update_count: row.get(4)?,
+                // The latest development, not the headline — the label is usually the same as the
+                // latest cluster_story, so the top whats_new fact gives a distinct "what's new" line.
+                summary: facts_from_content(latest_content.as_deref())
+                    .into_iter()
+                    .next()
+                    .unwrap_or_default(),
             })
         })
         .map_err(|e| {
@@ -152,15 +212,15 @@ pub fn fetch_thread_summaries(db_path: &str) -> Result<Vec<ThreadSummary>, (Stat
 /// `whats_new` facts joined as prose. Mirrors `threads.delta_from_facts` (`newsroom/src/threads.py`)
 /// -- same top_n, same leak-guard. Returns "" on missing/corrupt content, mirroring the Python
 /// side's fail-open behaviour (a rendering hiccup must never break the page).
-fn delta_from_content(content: Option<&str>) -> String {
+fn facts_from_content(content: Option<&str>) -> Vec<String> {
     let Some(content) = content else {
-        return String::new();
+        return Vec::new();
     };
     let Ok(parsed) = serde_json::from_str::<serde_json::Value>(content) else {
-        return String::new();
+        return Vec::new();
     };
     let Some(whats_new) = parsed.get("whats_new").and_then(|v| v.as_array()) else {
-        return String::new();
+        return Vec::new();
     };
     whats_new
         .iter()
@@ -168,8 +228,7 @@ fn delta_from_content(content: Option<&str>) -> String {
         .filter_map(|f| f.get("fact").and_then(|v| v.as_str()))
         .filter(|s| !s.is_empty())
         .map(strip_article_ids)
-        .collect::<Vec<_>>()
-        .join(" ")
+        .collect()
 }
 
 /// Mirror of Python's `threads.strip_article_ids` (`newsroom/src/threads.py`) -- keep in sync.
@@ -263,7 +322,25 @@ pub async fn thread_page(
         })?
         .ok_or((StatusCode::NOT_FOUND, "Thread not found"))?;
 
-    Ok(Html(render_thread(&state.digest_name, &detail)))
+    // Detail pages keep every section in the nav (no current-section omission).
+    let (topbar_html, footer_html) = sub_chrome(
+        &state,
+        "",
+        "An automated daily briefing. Curated by Claude, filed by a human. &copy; Sean Floyd",
+    );
+    let brand = brand_html(&state.digest_name);
+    let canonical_url = state.base_url();
+    let image_url = state.og_image_url();
+    Ok(Html(render_thread(&ThreadParams {
+        brand_html: &brand,
+        canonical_url: &canonical_url,
+        feed_url: routes::FEED,
+        image_url: &image_url,
+        font_url: &state.font_url,
+        topbar_html: &topbar_html,
+        footer_html: &footer_html,
+        detail: &detail,
+    })))
 }
 
 /// Thread index -- `GET /threads`, active threads first.
@@ -275,7 +352,26 @@ pub async fn threads_index(
         (StatusCode::SERVICE_UNAVAILABLE, "Threads unavailable")
     })?;
 
-    Ok(Html(render_threads_index(&state.digest_name, &summaries)))
+    let (topbar_html, footer_html) = sub_chrome(
+        &state,
+        "threads",
+        "A thread groups a running story's daily updates. Ongoing threads carry today's digest forward.",
+    );
+    let brand = brand_html(&state.digest_name);
+    let canonical_url = state.base_url();
+    let image_url = state.og_image_url();
+    Ok(Html(render_threads_index(&ThreadsIndexParams {
+        title: &state.digest_name,
+        brand_html: &brand,
+        home_url: "/",
+        canonical_url: &canonical_url,
+        feed_url: routes::FEED,
+        image_url: &image_url,
+        font_url: &state.font_url,
+        topbar_html: &topbar_html,
+        footer_html: &footer_html,
+        threads: &summaries,
+    })))
 }
 
 #[cfg(test)]
@@ -380,21 +476,21 @@ mod tests {
         }
     }
 
-    mod delta_from_content_tests {
-        use super::super::delta_from_content;
+    mod facts_from_content_tests {
+        use super::super::facts_from_content;
 
         #[test]
         fn missing_content_is_empty() {
-            assert_eq!(delta_from_content(None), "");
+            assert!(facts_from_content(None).is_empty());
         }
 
         #[test]
         fn corrupt_json_is_empty() {
-            assert_eq!(delta_from_content(Some("not json")), "");
+            assert!(facts_from_content(Some("not json")).is_empty());
         }
 
         #[test]
-        fn joins_top_three_facts_and_strips_ids() {
+        fn takes_top_three_facts_and_strips_ids() {
             let content = r#"{"whats_new": [
                 {"fact": "First fact [A1]", "sources": ["A1"]},
                 {"fact": "Second fact [A2, A3]", "sources": ["A2", "A3"]},
@@ -402,14 +498,14 @@ mod tests {
                 {"fact": "Fourth fact (dropped)", "sources": []}
             ]}"#;
             assert_eq!(
-                delta_from_content(Some(content)),
-                "First fact Second fact Third fact"
+                facts_from_content(Some(content)),
+                vec!["First fact", "Second fact", "Third fact"]
             );
         }
 
         #[test]
         fn empty_whats_new_is_empty() {
-            assert_eq!(delta_from_content(Some(r#"{"whats_new": []}"#)), "");
+            assert!(facts_from_content(Some(r#"{"whats_new": []}"#)).is_empty());
         }
     }
 
@@ -462,6 +558,14 @@ mod tests {
                     date TEXT PRIMARY KEY,
                     html TEXT,
                     run_id INTEGER
+                );
+                CREATE TABLE thread_questions (
+                    id INTEGER PRIMARY KEY,
+                    thread_id INTEGER NOT NULL,
+                    question TEXT NOT NULL,
+                    status TEXT NOT NULL DEFAULT 'open',
+                    raised_run_id INTEGER,
+                    resolved_run_id INTEGER
                 );",
             )
             .expect("create schema");
@@ -512,16 +616,33 @@ mod tests {
         // newest (run 11) first
         assert_eq!(detail.entries[0].day, "2026-06-29");
         assert_eq!(detail.entries[0].digest_date, None);
-        assert_eq!(detail.entries[0].cluster_story, "Talks continue");
-        assert_eq!(detail.entries[0].delta, "Deal signed");
+        assert_eq!(detail.entries[0].headline, "Talks continue");
+        assert_eq!(detail.entries[0].facts, vec!["Deal signed"]);
 
         assert_eq!(detail.entries[1].day, "2026-06-28");
         assert_eq!(
             detail.entries[1].digest_date,
             Some("2026-06-28".to_string())
         );
-        assert_eq!(detail.entries[1].cluster_story, "Talks begin");
-        assert_eq!(detail.entries[1].delta, "");
+        assert_eq!(detail.entries[1].headline, "Talks begin");
+        assert!(detail.entries[1].facts.is_empty());
+    }
+
+    #[test]
+    fn fetch_thread_reads_open_questions_for_the_ledger() {
+        let db = TempDb::new();
+        db.seed(
+            "INSERT INTO threads (id, label, status, updated_at) VALUES (1, 'Q thread', 'active', '2026-06-30 10:00:00');
+             INSERT INTO thread_questions (thread_id, question, status, raised_run_id) VALUES
+                (1, 'Older open', 'open', 10),
+                (1, 'Already answered', 'resolved', 11),
+                (1, 'Newest open', 'open', 12);",
+        );
+        let detail = fetch_thread(&db.path, 1)
+            .expect("query ok")
+            .expect("exists");
+        // ledger surfaces open questions, most-recently-raised first (resolved ones excluded)
+        assert_eq!(detail.open_questions, vec!["Newest open", "Older open"]);
     }
 
     #[test]

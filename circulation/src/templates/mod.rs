@@ -19,4 +19,4 @@ pub use index::{IndexParams, render_index};
 pub use search::{SearchParams, render_search};
 pub use sources::{Source, SourcesParams, render_sources};
 pub use stats::render_stats;
-pub use thread::{render_thread, render_threads_index};
+pub use thread::{ThreadParams, ThreadsIndexParams, render_thread, render_threads_index};
