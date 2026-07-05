@@ -344,7 +344,14 @@ def _render_test_email_html(selections_path: str | None) -> str:
             raise FileNotFoundError("No digest found to test-send. Run a render first or pass --selections PATH.")
         digest = latest
     logger.info("Test-send source digest: %s", digest.name)
-    return prepare_for_email(digest.read_text())
+    raw = digest.read_text()
+    # Resend only substitutes {{{RESEND_UNSUBSCRIBE_URL}}} in a Broadcast; this QA
+    # path uses a single Emails.send, which leaves the merge tag literal (some
+    # clients render it as visible text). Point it somewhere harmless for the QA
+    # copy so the footer isn't broken -- production broadcasts fill it per-recipient.
+    domain = os.environ.get("DIGEST_DOMAIN", "example.com")
+    raw = raw.replace("{{{RESEND_UNSUBSCRIBE_URL}}}", f"https://{domain}/unsubscribe")
+    return prepare_for_email(raw)
 
 
 def main():

@@ -72,7 +72,7 @@ def test_spread_label_singularizes_source_word():
     single = render_article(_article([{"name": "AJ", "bias": "left", "url": "https://aj.com/a"}]), slug="x")
     assert "1 source" in single
     assert "1 sources" not in single
-    assert "view all 1 source online" in single
+    assert "view source online" in single
 
     multi = render_article(
         _article(
@@ -84,7 +84,7 @@ def test_spread_label_singularizes_source_word():
         slug="x",
     )
     assert "2 sources" in multi
-    assert "view all 2 sources online" in multi
+    assert "view sources online" in multi
 
 
 # ---------------------------------------------------------------------------
@@ -168,7 +168,7 @@ def test_email_line_links_view_all_to_this_issues_dated_page():
     # HOMEPAGE_URL (the dated /DATE page), NOT ARCHIVE_URL (the undated index) --
     # the #slug anchor lives on the dated page.
     out = render_article(_article([{"name": "AJ", "bias": "left", "url": "https://aj.com/a"}]), slug="my-slug")
-    assert '<a href="{{HOMEPAGE_URL}}#my-slug">view all 1 source online</a>' in out
+    assert '<a href="{{HOMEPAGE_URL}}#my-slug">view source online</a>' in out
 
 
 # ---------------------------------------------------------------------------

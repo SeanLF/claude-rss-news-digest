@@ -191,7 +191,12 @@ def send_test_digest(html: str, to_addr: str, *, subject_prefix: str = "[TEST] "
     resend.api_key = os.environ["RESEND_API_KEY"]
     from_email = os.environ["RESEND_FROM"]
     digest_name = os.environ.get("DIGEST_NAME", "News Digest")
-    date_str = datetime.now(UTC).strftime("%B %d, %Y")
+    now = datetime.now(UTC)
+    date_str = now.strftime("%B %d, %Y")
+    # Unique per send: repeated identical-subject QA emails thread in Gmail, which
+    # then collapses the (near-identical) body behind "show trimmed content". A time
+    # nonce keeps each QA send in its own thread so the full render is always visible.
+    nonce = now.strftime("%H:%M:%S")
 
     try:
         response = resend_with_retry(
@@ -199,7 +204,7 @@ def send_test_digest(html: str, to_addr: str, *, subject_prefix: str = "[TEST] "
             {
                 "from": f"{digest_name} <{from_email}>",
                 "to": [to_addr],
-                "subject": f"{subject_prefix}{digest_name} – {date_str}",
+                "subject": f"{subject_prefix}{digest_name} – {date_str} ({nonce})",
                 "html": html,
             },
         )

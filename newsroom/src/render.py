@@ -387,10 +387,27 @@ def _render_sources_block(outlets: list[dict], slug: str) -> str:
         '<div class="srcline email-only">'
         f"{email_bar}"
         f'<div class="sl-txt"><span class="spread-label">{spread_label}</span>'
-        f' · <a href="{{{{HOMEPAGE_URL}}}}#{slug}">view all {total} {src_word} online</a></div>'
+        f' · <a href="{{{{HOMEPAGE_URL}}}}#{slug}">view {src_word} online</a></div>'
         "</div>"
     )
     return details + email_line
+
+
+def _article_separator(is_brief: bool) -> str:
+    """Inter-item gap + hairline as a presentation table BETWEEN articles.
+
+    Not a border/margin on <article>: Outlook.com strips CSS from HTML5 elements,
+    so the rule and spacing vanished there. Two spacer rows -- a gap, then the
+    rule (a cell top-border) with a gap below it -- render everywhere. Heights use
+    the `height` attribute (Outlook-honored) alongside the CSS.
+    """
+    top, bot = (16, 16) if is_brief else (32, 24)
+    return (
+        '<table role="presentation" class="artsep" width="100%" cellpadding="0" cellspacing="0">'
+        f'<tr><td height="{top}" style="height:{top}px;line-height:0;font-size:0;">&nbsp;</td></tr>'
+        f'<tr><td class="artsep-rule" height="{bot}" style="height:{bot}px;line-height:0;font-size:0;">&nbsp;</td></tr>'
+        "</table>"
+    )
 
 
 def render_article(
@@ -404,7 +421,8 @@ def render_article(
 
     Stories emit the .head/.lede/.why/.varies markup; briefs emit the compact
     .brief h3/.summary markup with no why/varies. Both carry the shared sources
-    block. The first must-know story gets class="first" (no top rule).
+    block. Every item except the first in its section is preceded by a `.artsep`
+    separator (gap + hairline); the first gets none.
     """
     raw_headline = article.get("headline", "")
     headline = html.escape(raw_headline)
@@ -425,8 +443,11 @@ def render_article(
 
     sources_block = _render_sources_block(_collect_outlets(article), slug)
 
+    # Separator emitted before the article; see _article_separator.
+    parts: list[str] = [] if is_first else [_article_separator(is_brief)]
+
     if is_brief:
-        parts = [f'<article class="brief" id="{slug}">', f"<h3>{headline}{anchor}</h3>"]
+        parts += [f'<article class="brief" id="{slug}">', f"<h3>{headline}{anchor}</h3>"]
         if eyebrow:
             parts.append(eyebrow)
         parts.append(f'<p class="summary">{body}</p>')
@@ -434,8 +455,7 @@ def render_article(
         parts.append("</article>")
         return "\n".join(parts)
 
-    cls = ' class="first"' if is_first else ""
-    parts = [f'<article{cls} id="{slug}">', f'<h3 class="head">{headline}{anchor}</h3>']
+    parts += [f'<article id="{slug}">', f'<h3 class="head">{headline}{anchor}</h3>']
     if eyebrow:
         parts.append(eyebrow)
     parts.append(f'<p class="lede">{body}</p>')
@@ -478,7 +498,7 @@ def render_digest(selections: dict, template_file: Path) -> str:
         used_slugs.add(deduped)
         return deduped
 
-    # Render must_know (stories). First one gets class="first" (no top rule).
+    # Render must_know (stories). First one gets no leading separator.
     must_know_html = "\n".join(
         render_article(
             article,
@@ -488,14 +508,16 @@ def render_digest(selections: dict, template_file: Path) -> str:
         for i, article in enumerate(selections.get("must_know", []))
     )
 
-    # Render should_know (briefs)
+    # Render should_know (briefs). First one gets no leading separator (it follows
+    # the section header).
     should_know_html = "\n".join(
         render_article(
             article,
             slug=unique_slug(article.get("headline", "")),
             is_brief=True,
+            is_first=(i == 0),
         )
-        for article in selections.get("should_know", [])
+        for i, article in enumerate(selections.get("should_know", []))
     )
 
     # Fill template
