@@ -17,7 +17,8 @@ use crate::templates::{
     DIGEST_NAV_CSS, FAVICON_SVG, FeedbackParams, IndexParams, NO_FLASH_SCRIPT,
     PROXY_TRANSLATE_HIDE_SCRIPT, REDUCED_MOTION_CSS, SKIP_LINK_CSS, SKIP_LINK_HTML, Source,
     SourcesParams, TOGGLE_BTN, TOGGLE_JS, chrome_footer, chrome_topbar, digest_nav_html,
-    digest_og_tags, render_feedback, render_index, render_sources, web_feedback_html,
+    digest_og_tags, render_feedback, render_index, render_sources, translate_pill,
+    web_feedback_html,
 };
 use crate::util::{escape_html, format_day_month_year, is_valid_date, log_row_error};
 
@@ -94,9 +95,16 @@ fn index_list(rows: &str, total: i64) -> String {
 
 /// Standard sub-page top bar + footer (every chrome page except the index). The nav leads with
 /// "← Archive", then the section links with `current` ("sources"|"threads"|"stats") omitted — pass
-/// "" to keep them all (detail pages). Right cluster = optional Subscribe sublink + Translate pill +
-/// theme toggle. Footer = the shared link row + a page-specific `tagline`.
-pub(crate) fn sub_chrome(state: &AppState, current: &str, tagline: &str) -> (String, String) {
+/// "" to keep them all (detail pages). `translate_path` is this page's own site path (e.g.
+/// `/sources`, `/thread/12`) so the Translate pill translates the page the reader is on rather than
+/// the latest digest. Right cluster = optional Subscribe sublink + Translate pill + theme toggle.
+/// Footer = the shared link row + a page-specific `tagline`.
+pub(crate) fn sub_chrome(
+    state: &AppState,
+    current: &str,
+    translate_path: &str,
+    tagline: &str,
+) -> (String, String) {
     let subscriptions_enabled =
         state.resend_api_key.is_some() && state.resend_audience_id.is_some();
     let mut nav: Vec<(&str, &str)> = vec![("/", "&larr; Archive")];
@@ -113,10 +121,7 @@ pub(crate) fn sub_chrome(state: &AppState, current: &str, tagline: &str) -> (Str
     if subscriptions_enabled {
         right.push_str(r##"<a class="sublink" href="/#subscribe">Subscribe</a>"##);
     }
-    right.push_str(&format!(
-        r#"<a class="pill" href="{}/translate"><span class="g" aria-hidden="true">文A</span> Translate</a>"#,
-        routes::TODAY
-    ));
+    right.push_str(&translate_pill(&format!("/translate?to={translate_path}")));
     right.push_str(TOGGLE_BTN);
     let topbar = chrome_topbar(&nav, &right);
 
@@ -233,10 +238,7 @@ pub async fn index(
     if subscriptions_enabled {
         right.push_str(r##"<a class="sublink" href="#subscribe">Subscribe</a>"##);
     }
-    right.push_str(&format!(
-        r#"<a class="pill" href="{}/translate"><span class="g" aria-hidden="true">文A</span> Translate</a>"#,
-        routes::TODAY
-    ));
+    right.push_str(&translate_pill("/translate?to=/"));
     right.push_str(TOGGLE_BTN);
     let topbar_html = chrome_topbar(nav, &right);
 
@@ -566,6 +568,7 @@ pub async fn sources(
     let (topbar_html, footer_html) = sub_chrome(
         &state,
         "sources",
+        routes::SOURCES,
         "Bias &amp; factuality ratings via Ground News; each row links to the outlet.",
     );
     let brand = brand_html(&state.digest_name);
@@ -877,6 +880,22 @@ mod feed_tests {
         (status, content_type, body)
     }
 
+    #[test]
+    fn sub_chrome_translate_pill_targets_the_current_page_not_the_latest_digest() {
+        let state = state_with_digests(&[("2026-06-12", "Second story")]);
+        let (topbar, _footer) = sub_chrome(&state, "sources", routes::SOURCES, "tagline");
+
+        // The pill translates THIS page (/sources), not /today (the latest digest).
+        assert!(
+            topbar.contains(r#"class="pill" href="/translate?to=/sources""#),
+            "expected the current-page translate pill, got: {topbar}"
+        );
+        assert!(
+            !topbar.contains("/today/translate"),
+            "must not redirect to the latest digest: {topbar}"
+        );
+    }
+
     #[tokio::test]
     async fn feed_parses_as_xml_with_seeded_entries() {
         let state = state_with_digests(&[
@@ -1031,6 +1050,7 @@ mod feed_tests {
 
         let query = crate::translate::TranslateQuery {
             lang: Some("fr".to_string()),
+            to: None,
         };
         let response = today_translate(State(state), Query(query))
             .await
@@ -1051,6 +1071,7 @@ mod feed_tests {
         for bad in ["en", "en-US", "fr;evil", "  "] {
             let query = crate::translate::TranslateQuery {
                 lang: Some(bad.to_string()),
+                to: None,
             };
             let response = today_translate(State(state.clone()), Query(query))
                 .await
@@ -1082,6 +1103,7 @@ pub async fn feedback(State(state): State<Arc<AppState>>) -> Html<String> {
     let (topbar_html, footer_html) = sub_chrome(
         &state,
         "",
+        routes::FEEDBACK,
         "No form, no tracking — feedback goes straight to a human inbox.",
     );
     let brand = brand_html(&state.digest_name);

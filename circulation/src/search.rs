@@ -110,6 +110,7 @@ pub async fn search(
     let (topbar_html, footer_html) = sub_chrome(
         &state,
         "",
+        crate::routes::SEARCH,
         "Search covers all published headlines. Full-text over each issue's stories.",
     );
     let brand = brand_html(&state.digest_name);

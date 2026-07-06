@@ -11,6 +11,7 @@ mod thread;
 
 pub use chrome::{
     NO_FLASH_SCRIPT, TOGGLE_BTN, TOGGLE_JS, footer as chrome_footer, topbar as chrome_topbar,
+    translate_pill,
 };
 pub use digest::{
     DIGEST_NAV_CSS, FAVICON_SVG, PROXY_TRANSLATE_HIDE_SCRIPT, REDUCED_MOTION_CSS, SKIP_LINK_CSS,

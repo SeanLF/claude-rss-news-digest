@@ -142,6 +142,16 @@ fn nav_row(items: &[(&str, &str)]) -> String {
     out
 }
 
+/// The shared `文A Translate` pill, given its destination href. One builder so the
+/// digest, archive index, and every sub-page chrome share identical pill markup and
+/// can't drift -- only the href differs (the digest points at its own date, the other
+/// surfaces at the generic `/translate?to=` for the page the reader is on).
+pub fn translate_pill(href: &str) -> String {
+    format!(
+        r#"<a class="pill" href="{href}"><span class="g" aria-hidden="true">文A</span> Translate</a>"#
+    )
+}
+
 /// Render the shared top bar. `nav` = the left `(href,label)` links (current section omitted per the
 /// contract); `right` = the pre-built right cluster (sublinks + translate pill + toggle).
 pub fn topbar(nav: &[(&str, &str)], right: &str) -> String {

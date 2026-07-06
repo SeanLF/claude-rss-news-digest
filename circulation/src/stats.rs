@@ -705,6 +705,7 @@ pub async fn stats_html(
     let (topbar_html, footer_html) = sub_chrome(
         &state,
         "stats",
+        crate::routes::STATS,
         "Balance = shipped source-bias mix vs. the catalog. Cost is API list-price equiv., not billed spend.",
     );
     let brand = brand_html(&state.digest_name);

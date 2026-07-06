@@ -358,6 +358,7 @@ pub async fn thread_page(
     let (topbar_html, footer_html) = sub_chrome(
         &state,
         "",
+        &format!("{}/{thread_id}", routes::THREAD),
         "An automated daily briefing. Curated by Claude, filed by a human. &copy; Sean Floyd",
     );
     let brand = brand_html(&state.digest_name);
@@ -387,6 +388,7 @@ pub async fn threads_index(
     let (topbar_html, footer_html) = sub_chrome(
         &state,
         "threads",
+        routes::THREADS,
         "A thread groups a running story's daily updates. Ongoing threads carry today's digest forward.",
     );
     let brand = brand_html(&state.digest_name);

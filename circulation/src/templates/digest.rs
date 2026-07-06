@@ -1,6 +1,6 @@
 //! Digest page template - navigation and web-specific elements injected into stored HTML.
 
-use super::chrome::{TOGGLE_BTN, topbar as chrome_topbar};
+use super::chrome::{TOGGLE_BTN, topbar as chrome_topbar, translate_pill};
 use crate::routes;
 
 /// Favicon as inline SVG data URI (terracotta document icon)
@@ -140,7 +140,8 @@ pub fn digest_nav_html(date: &str) -> String {
         (routes::STATS, "Stats"),
     ];
     let right = format!(
-        r#"<a class="pill" href="/{date}/translate"><span class="g" aria-hidden="true">文A</span> Translate</a>{TOGGLE_BTN}"#
+        "{}{TOGGLE_BTN}",
+        translate_pill(&format!("/{date}/translate"))
     );
     chrome_topbar(nav, &right)
 }

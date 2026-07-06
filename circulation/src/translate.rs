@@ -38,13 +38,37 @@ fn is_valid_lang_tag(tag: &str) -> bool {
         && tag.chars().all(|c| c.is_ascii_alphanumeric() || c == '-')
 }
 
+/// Longest `?to=` path we will splice into the generic translate redirect. Bounds
+/// untrusted query input; every real chrome path is well under this.
+const MAX_TRANSLATE_PATH_LEN: usize = 128;
+
 /// Optional `?lang=` override on the translate routes. Lets a *shared* link pin
 /// the target language (`/today/translate?lang=fr`) instead of depending on the
 /// recipient's `Accept-Language` -- essential for a link the sender chooses the
-/// language of.
+/// language of. `to` is the page-to-translate path for the generic `/translate`
+/// route ([`page_translate`]); the per-date route ignores it.
 #[derive(Debug, Default, Deserialize)]
 pub struct TranslateQuery {
     pub lang: Option<String>,
+    pub to: Option<String>,
+}
+
+/// Validate a caller-supplied `?to=` target for safe splicing into the proxy
+/// redirect `Location`. Accepts only a same-origin absolute path: a single leading
+/// `/` (never `//`, which a browser reads as protocol-relative -> off-site), a
+/// bounded length, and a restricted charset (`A-Za-z0-9`, `/`, `-`, `_`) that
+/// covers every translatable chrome route (`/`, `/sources`, `/threads`,
+/// `/thread/{id}`, `/stats`, `/feedback`) while forbidding the `?`, `#`, `:`, `@`,
+/// `\`, `%`, and control chars that could inject a host or break the header.
+/// Returns the path only when safe; the caller falls back to `/` otherwise.
+pub fn valid_translate_path(path: &str) -> Option<&str> {
+    let safe = path.starts_with('/')
+        && !path.starts_with("//")
+        && path.len() <= MAX_TRANSLATE_PATH_LEN
+        && path
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '/' | '-' | '_'));
+    safe.then_some(path)
 }
 
 /// Validate a caller-supplied `?lang=` tag for safe splicing into a redirect
@@ -97,6 +121,32 @@ fn proxy_host(domain: &str) -> String {
     format!("{swapped}.translate.goog")
 }
 
+/// Redirect a same-origin `path` through the `.goog` proxy in the reader's
+/// language, or to the untranslated `path` when no `DIGEST_DOMAIN` is set
+/// (local/dev has no proxy host, so serve the plain page rather than a broken
+/// URL). The single owner of the `_x_tr_*` target form, shared by the per-date
+/// and generic translate routes so the two can't drift. Direct `.goog` URL only
+/// (the translate.google.com front-door resolves `tl=en` for English-first
+/// browsers -> Google's picker-less error). See spec §2.
+fn proxy_redirect(
+    state: &AppState,
+    path: &str,
+    query_lang: Option<&str>,
+    headers: &HeaderMap,
+) -> Redirect {
+    let Some(domain) = state.digest_domain.as_deref() else {
+        return Redirect::temporary(path);
+    };
+    let lang = resolve_target_lang(
+        query_lang,
+        headers.get(ACCEPT_LANGUAGE).and_then(|v| v.to_str().ok()),
+    );
+    let host = proxy_host(domain);
+    Redirect::temporary(&format!(
+        "https://{host}{path}?_x_tr_sl=en&_x_tr_tl={lang}&_x_tr_hl={lang}"
+    ))
+}
+
 /// Redirect `/{date}/translate` to a Google Translate proxy URL in the reader's
 /// language (spec §3).
 pub async fn translate_redirect(
@@ -117,21 +167,34 @@ pub async fn translate_redirect(
     })
     .map_err(|_| (StatusCode::NOT_FOUND, "Digest not found"))?;
 
-    // No DIGEST_DOMAIN (local/dev): there is no proxy host to build, so fall back
-    // to the untranslated digest rather than emit a broken URL.
-    let Some(domain) = state.digest_domain.as_deref() else {
-        return Ok(Redirect::temporary(&format!("/{date}")));
-    };
-
-    let lang = resolve_target_lang(
+    Ok(proxy_redirect(
+        &state,
+        &format!("/{date}"),
         query.lang.as_deref(),
-        headers.get(ACCEPT_LANGUAGE).and_then(|v| v.to_str().ok()),
-    );
-    let host = proxy_host(domain);
-    // Direct .goog URL only (the translate.google.com front-door resolves tl=en
-    // for English-first browsers -> Google's picker-less error). See spec §2.
-    let target = format!("https://{host}/{date}?_x_tr_sl=en&_x_tr_tl={lang}&_x_tr_hl={lang}");
-    Ok(Redirect::temporary(&target))
+        &headers,
+    ))
+}
+
+/// Redirect the generic `/translate?to=/path` control to a Google Translate proxy
+/// URL for a non-digest chrome page (archive index, sources, threads, stats,
+/// feedback). Each such page's Translate pill points here with its own path, so it
+/// translates the page the reader is on -- not the latest digest (the digest itself
+/// keeps the per-date [`translate_redirect`]). `to` is validated to a safe
+/// same-origin path ([`valid_translate_path`]); anything missing or unsafe falls
+/// back to the archive index. Same language resolution and `.goog` proxy form as
+/// the per-date route; no DB lookup since these pages are always live.
+pub async fn page_translate(
+    Query(query): Query<TranslateQuery>,
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+) -> Redirect {
+    let path = query
+        .to
+        .as_deref()
+        .and_then(valid_translate_path)
+        .unwrap_or("/");
+
+    proxy_redirect(&state, path, query.lang.as_deref(), &headers)
 }
 
 #[cfg(test)]
@@ -367,6 +430,7 @@ mod tests {
             Path("2026-07-03".to_string()),
             Query(TranslateQuery {
                 lang: Some("de".to_string()),
+                to: None,
             }),
             State(state),
             headers_with_lang(Some("fr-FR,fr;q=0.9")),
@@ -401,5 +465,97 @@ mod tests {
         assert_eq!(valid_query_lang("en-GB"), None);
         assert_eq!(valid_query_lang("fr;drop"), None);
         assert_eq!(valid_query_lang(""), None);
+    }
+
+    // --- valid_translate_path --------------------------------------------
+
+    #[test]
+    fn valid_translate_path_accepts_known_chrome_routes() {
+        for p in [
+            "/",
+            "/sources",
+            "/threads",
+            "/thread/12",
+            "/stats",
+            "/feedback",
+        ] {
+            assert_eq!(valid_translate_path(p), Some(p), "should accept {p}");
+        }
+    }
+
+    #[test]
+    fn valid_translate_path_rejects_offsite_and_injection() {
+        // Protocol-relative -> a browser would navigate off our host.
+        assert_eq!(valid_translate_path("//evil.com"), None);
+        // Not absolute.
+        assert_eq!(valid_translate_path("sources"), None);
+        assert_eq!(valid_translate_path(""), None);
+        // Chars that could break the URL / inject a host or header.
+        assert_eq!(valid_translate_path("/x?y=1"), None);
+        assert_eq!(valid_translate_path("/x#frag"), None);
+        assert_eq!(valid_translate_path("/x:y"), None);
+        assert_eq!(valid_translate_path("/x@y"), None);
+        assert_eq!(valid_translate_path("/x\r\nHost: evil"), None);
+        assert_eq!(valid_translate_path("/x y"), None);
+    }
+
+    // --- page_translate handler ------------------------------------------
+
+    #[tokio::test]
+    async fn page_translate_translates_the_requested_page_not_the_digest() {
+        let state = state_with_digest("2026-07-03", Some("news-digest.seanfloyd.dev"));
+        let resp = page_translate(
+            Query(TranslateQuery {
+                lang: None,
+                to: Some("/sources".to_string()),
+            }),
+            State(state),
+            headers_with_lang(Some("es-ES,es;q=0.9,en;q=0.8")),
+        )
+        .await
+        .into_response();
+
+        assert_eq!(
+            location(resp),
+            "https://news--digest-seanfloyd-dev.translate.goog/sources?_x_tr_sl=en&_x_tr_tl=es-ES&_x_tr_hl=es-ES"
+        );
+    }
+
+    #[tokio::test]
+    async fn page_translate_defaults_to_index_when_to_missing_or_unsafe() {
+        let state = state_with_digest("2026-07-03", Some("example.com"));
+        let resp = page_translate(
+            Query(TranslateQuery {
+                lang: None,
+                to: Some("//evil.com".to_string()),
+            }),
+            State(state),
+            headers_with_lang(Some("fr")),
+        )
+        .await
+        .into_response();
+
+        assert_eq!(
+            location(resp),
+            "https://example-com.translate.goog/?_x_tr_sl=en&_x_tr_tl=fr&_x_tr_hl=fr"
+        );
+    }
+
+    #[tokio::test]
+    async fn page_translate_no_domain_falls_back_to_the_untranslated_page() {
+        // Local/dev has no DIGEST_DOMAIN -> serve the plain page, not a broken URL.
+        let state = state_with_digest("2026-07-03", None);
+        let resp = page_translate(
+            Query(TranslateQuery {
+                lang: None,
+                to: Some("/threads".to_string()),
+            }),
+            State(state),
+            headers_with_lang(Some("fr")),
+        )
+        .await
+        .into_response();
+
+        assert_eq!(location(resp), "/threads");
     }
 }

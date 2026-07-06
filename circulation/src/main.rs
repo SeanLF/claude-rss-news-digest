@@ -164,6 +164,7 @@ async fn main() {
         .route(routes::SEARCH, get(search::search))
         .route(routes::FEEDBACK, get(handlers::feedback))
         .route(routes::TODAY, get(handlers::today))
+        .route("/translate", get(translate::page_translate))
         .route("/today/translate", get(handlers::today_translate))
         .route("/{date}/translate", get(translate::translate_redirect))
         .route("/{date}", get(handlers::get_digest))
