@@ -127,7 +127,7 @@ pub const PROXY_TRANSLATE_HIDE_SCRIPT: &str = r#"<script>if(location.hostname.in
 /// The shared web top bar injected above the digest masthead. Matches the other
 /// chrome surfaces (index/sources/threads/stats): the `← Archive · Sources ·
 /// Threads · Stats` nav on the left, and a right cluster of the `文A Translate`
-/// pill (spec §3.2, links to this date's `/{date}/translate` -- engine-agnostic,
+/// pill (spec §3.2, links to this date's `/issues/{date}/translate` -- engine-agnostic,
 /// Google self-brands on the destination) plus the shared `TOGGLE_BTN` theme
 /// toggle. Built from `chrome::topbar` so the frame is identical to every other
 /// surface; the digest supplies its own topbar CSS via [`DIGEST_NAV_CSS`] rather
@@ -141,7 +141,7 @@ pub fn digest_nav_html(date: &str) -> String {
     ];
     let right = format!(
         "{}{TOGGLE_BTN}",
-        translate_pill(&format!("/{date}/translate"))
+        translate_pill(&format!("{}/{date}/translate", routes::ISSUES))
     );
     chrome_topbar(nav, &right)
 }
@@ -241,7 +241,7 @@ mod tests {
         assert!(html.contains(r#"href="/stats""#));
         // Right cluster: the 文A Translate pill for THIS date, then the theme toggle.
         assert!(
-            html.contains(r#"class="pill" href="/2026-07-03/translate""#),
+            html.contains(r#"class="pill" href="/issues/2026-07-03/translate""#),
             "translate is a pill linking the date's translate route: {html}"
         );
         assert!(html.contains("文"), "nav should carry the 文A glyph");

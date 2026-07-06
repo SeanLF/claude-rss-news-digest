@@ -229,7 +229,8 @@ h1{font-family:var(--serif); font-weight:600; font-size:30px; line-height:1.15; 
 fn timeline_entry(e: &crate::thread::ThreadEntry) -> String {
     let issue = match &e.digest_date {
         Some(d) => format!(
-            r#"<a class="issue" href="/{d}">&rarr; in the {date} issue</a>"#,
+            r#"<a class="issue" href="{issues}/{d}">&rarr; in the {date} issue</a>"#,
+            issues = routes::ISSUES,
             date = format_day_month_year(d)
         ),
         None => String::new(),
@@ -465,7 +466,7 @@ mod tests {
         // timeline: headline + facts + issue link
         assert!(html.contains(r#"<h3 class="uhead">Talks resume</h3>"#));
         assert!(html.contains("<li>Hormuz reopened.</li>"));
-        assert!(html.contains(r#"<a class="issue" href="/2026-07-03">"#));
+        assert!(html.contains(r#"<a class="issue" href="/issues/2026-07-03">"#));
         assert_eq!(html.matches("<h1").count(), 1);
     }
 

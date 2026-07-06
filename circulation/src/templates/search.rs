@@ -65,7 +65,7 @@ fn result_row(r: &SearchResult) -> String {
     let head = escape_html(&r.headline);
     match &r.date {
         Some(date) => format!(
-            r#"<li class="result"><a href="/{date}"><span class="r-date">{d}</span><span class="r-tier {tier_cls}">{label}</span><span class="r-head">{head}</span></a></li>"#,
+            r#"<li class="result"><a href="/issues/{date}"><span class="r-date">{d}</span><span class="r-tier {tier_cls}">{label}</span><span class="r-head">{head}</span></a></li>"#,
             d = format_day_month_year(date),
         ),
         // No digest row to link to (shouldn't happen) — render as plain text, not a dead link.
@@ -193,7 +193,7 @@ mod tests {
         ];
         let html = render_search(&params(Some("iran"), &r));
         assert!(html.contains(r#"<b>2</b> results for &ldquo;iran&rdquo;"#));
-        assert!(html.contains(r#"<a href="/2026-07-01">"#));
+        assert!(html.contains(r#"<a href="/issues/2026-07-01">"#));
         assert!(html.contains(r#"<span class="r-tier must">Must Know</span>"#));
         assert!(html.contains(r#"<span class="r-tier should">Should Know</span>"#));
         assert!(html.contains("1 Jul 2026"));

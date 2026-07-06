@@ -179,9 +179,30 @@ fn render_404(state: &AppState, heading: &str, message: &str) -> Response {
     (StatusCode::NOT_FOUND, Html(html)).into_response()
 }
 
+/// The generic "unknown page" 404 -- shared by the router fallback and every route
+/// that rejects a non-date `{date}` segment, so the copy lives in one place.
+fn page_not_found(state: &AppState) -> Response {
+    render_404(state, "Page not found", "There's nothing at this address.")
+}
+
+/// Reject a non-date path segment with the generic 404. Used by the digest handler
+/// and the legacy `/{date}` redirects, which all take an untrusted `{date}` segment
+/// (`/issues/about`, `/about`) that isn't a real issue.
+// The Err carries a full rendered 404 page (like the handlers that call this), so it
+// is intentionally large; boxing it just to satisfy the lint would break the `?`
+// ergonomics these callers rely on.
+#[allow(clippy::result_large_err)]
+fn require_valid_date(date: &str, state: &AppState) -> Result<(), Response> {
+    if is_valid_date(date) {
+        Ok(())
+    } else {
+        Err(page_not_found(state))
+    }
+}
+
 /// Router fallback for any unmatched path — the friendly 404 (generic variant).
 pub async fn not_found(State(state): State<Arc<AppState>>) -> Response {
-    render_404(&state, "Page not found", "There's nothing at this address.")
+    page_not_found(&state)
 }
 
 /// Index / home — the archive as an issue-numbered running order (`chrome_v12`).
@@ -669,17 +690,8 @@ pub async fn get_digest(
     Path(date): Path<String>,
     State(state): State<Arc<AppState>>,
 ) -> Result<Html<String>, Response> {
-    // The root `/{date}` param route swallows every single-segment path, so a
-    // non-date segment (`/about`, a typo) lands here rather than the fallback --
-    // treat it as an unknown page, not a bad date. (After digests move to
-    // `/issues/{date}` this branch only sees genuinely date-shaped input.)
-    if !is_valid_date(&date) {
-        return Err(render_404(
-            &state,
-            "Page not found",
-            "There's nothing at this address.",
-        ));
-    }
+    // `/issues/<non-date>` is a mistyped page, not a bad issue date -> generic 404.
+    require_valid_date(&date, &state)?;
 
     // Open database read-only
     let conn = Connection::open_with_flags(&state.db_path, OpenFlags::SQLITE_OPEN_READ_ONLY)
@@ -719,7 +731,7 @@ pub async fn get_digest(
     let canonical_url = state
         .digest_domain
         .as_ref()
-        .map(|d| format!("https://{d}/{date}"))
+        .map(|d| format!("https://{d}{}/{date}", routes::ISSUES))
         .unwrap_or_default();
     let image_url = state.og_image_url();
     let og_tags = digest_og_tags(
@@ -813,13 +825,13 @@ pub async fn today(
         )
         .map_err(|_| (StatusCode::NOT_FOUND, "No digests yet"))?;
 
-    // Root-relative target: same canonical path get_digest serves (`/{date}`),
-    // works regardless of whether DIGEST_DOMAIN is configured.
-    Ok(Redirect::temporary(&format!("/{date}")))
+    // Root-relative target: same canonical path get_digest serves
+    // (`/issues/{date}`), works regardless of whether DIGEST_DOMAIN is configured.
+    Ok(Redirect::temporary(&format!("{}/{date}", routes::ISSUES)))
 }
 
-/// `/today/translate` -> 307 to the latest digest's `/{date}/translate`, so the
-/// stable `today` alias also covers the translate affordance (a shareable
+/// `/today/translate` -> 307 to the latest digest's `/issues/{date}/translate`, so
+/// the stable `today` alias also covers the translate affordance (a shareable
 /// "translate the latest digest" entrypoint). Mirrors `today`; the follow-up hop
 /// re-runs Accept-Language detection with the browser's own headers.
 pub async fn today_translate(
@@ -847,7 +859,42 @@ pub async fn today_translate(
         .map(|l| format!("?lang={l}"))
         .unwrap_or_default();
 
-    Ok(Redirect::temporary(&format!("/{date}/translate{suffix}")))
+    Ok(Redirect::temporary(&format!(
+        "{}/{date}/translate{suffix}",
+        routes::ISSUES
+    )))
+}
+
+/// Permanent redirect from the legacy bare-date permalink `/{date}` to its new home
+/// `/issues/{date}`. Kept so old email "view in browser" links, RSS `<id>`s, and any
+/// shared `/2026-07-03` URLs still resolve after the move. A non-date single segment
+/// (`/about`) isn't a moved permalink -> friendly 404, matching `get_digest`.
+pub async fn legacy_digest_redirect(
+    Path(date): Path<String>,
+    State(state): State<Arc<AppState>>,
+) -> Result<Redirect, Response> {
+    require_valid_date(&date, &state)?;
+    Ok(Redirect::permanent(&format!("{}/{date}", routes::ISSUES)))
+}
+
+/// Permanent redirect from the legacy `/{date}/translate` to `/issues/{date}/translate`,
+/// forwarding a valid `?lang=` so shared translate links keep their language.
+pub async fn legacy_translate_redirect(
+    Path(date): Path<String>,
+    State(state): State<Arc<AppState>>,
+    Query(query): Query<crate::translate::TranslateQuery>,
+) -> Result<Redirect, Response> {
+    require_valid_date(&date, &state)?;
+    let suffix = query
+        .lang
+        .as_deref()
+        .and_then(crate::translate::valid_query_lang)
+        .map(|l| format!("?lang={l}"))
+        .unwrap_or_default();
+    Ok(Redirect::permanent(&format!(
+        "{}/{date}/translate{suffix}",
+        routes::ISSUES
+    )))
 }
 
 #[cfg(test)]
@@ -1026,8 +1073,8 @@ mod feed_tests {
         );
         assert!(body.starts_with(r#"<?xml version="1.0" encoding="utf-8"?>"#));
         assert_eq!(body.matches("<entry>").count(), 2);
-        assert!(body.contains("https://example.com/2026-06-12"));
-        assert!(body.contains("https://example.com/2026-06-11"));
+        assert!(body.contains("https://example.com/issues/2026-06-12"));
+        assert!(body.contains("https://example.com/issues/2026-06-11"));
         // Newest first.
         assert!(body.find("2026-06-12").unwrap() < body.find("2026-06-11").unwrap());
     }
@@ -1125,7 +1172,10 @@ mod feed_tests {
 
         // Redirect::temporary -> 307, Location points at the newest digest.
         assert_eq!(response.status(), StatusCode::TEMPORARY_REDIRECT);
-        assert_eq!(response.headers().get("location").unwrap(), "/2026-06-12");
+        assert_eq!(
+            response.headers().get("location").unwrap(),
+            "/issues/2026-06-12"
+        );
     }
 
     #[tokio::test]
@@ -1154,7 +1204,7 @@ mod feed_tests {
         assert_eq!(response.status(), StatusCode::TEMPORARY_REDIRECT);
         assert_eq!(
             response.headers().get("location").unwrap(),
-            "/2026-06-12/translate"
+            "/issues/2026-06-12/translate"
         );
     }
 
@@ -1173,7 +1223,7 @@ mod feed_tests {
 
         assert_eq!(
             response.headers().get("location").unwrap(),
-            "/2026-06-12/translate?lang=fr"
+            "/issues/2026-06-12/translate?lang=fr"
         );
     }
 
@@ -1193,7 +1243,7 @@ mod feed_tests {
                 .into_response();
             assert_eq!(
                 response.headers().get("location").unwrap(),
-                "/2026-06-12/translate",
+                "/issues/2026-06-12/translate",
                 "lang={bad:?} should be dropped"
             );
         }
@@ -1207,6 +1257,51 @@ mod feed_tests {
 
         let (status, _) = result.expect_err("expected 404 when no digests");
         assert_eq!(status, StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn legacy_digest_redirect_permanently_moves_bare_date_to_issues() {
+        let state = state_with_digests(&[("2026-06-12", "story")]);
+        let resp = legacy_digest_redirect(Path("2026-06-12".to_string()), State(state))
+            .await
+            .expect("valid date should redirect")
+            .into_response();
+
+        assert_eq!(resp.status(), StatusCode::PERMANENT_REDIRECT);
+        assert_eq!(
+            resp.headers().get("location").unwrap(),
+            "/issues/2026-06-12"
+        );
+    }
+
+    #[tokio::test]
+    async fn legacy_digest_redirect_404s_a_non_date_segment() {
+        let state = state_with_digests(&[("2026-06-12", "story")]);
+        let resp = legacy_digest_redirect(Path("about".to_string()), State(state))
+            .await
+            .expect_err("a non-date segment is not a moved permalink")
+            .into_response();
+        assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn legacy_translate_redirect_moves_to_issues_and_keeps_lang() {
+        let state = state_with_digests(&[("2026-06-12", "story")]);
+        let query = crate::translate::TranslateQuery {
+            lang: Some("fr".to_string()),
+            to: None,
+        };
+        let resp =
+            legacy_translate_redirect(Path("2026-06-12".to_string()), State(state), Query(query))
+                .await
+                .expect("valid date should redirect")
+                .into_response();
+
+        assert_eq!(resp.status(), StatusCode::PERMANENT_REDIRECT);
+        assert_eq!(
+            resp.headers().get("location").unwrap(),
+            "/issues/2026-06-12/translate?lang=fr"
+        );
     }
 }
 

@@ -30,6 +30,10 @@ pub mod routes {
     pub const SEARCH: &str = "/search";
     pub const FEEDBACK: &str = "/feedback";
     pub const TODAY: &str = "/today";
+    /// Collection prefix for a single dated issue: `/issues/{date}`. The bare
+    /// `/{date}` permalink is kept as a permanent redirect into this (legacy links,
+    /// RSS ids, old email "view in browser").
+    pub const ISSUES: &str = "/issues";
 }
 
 pub struct AppState {
@@ -166,8 +170,17 @@ async fn main() {
         .route(routes::TODAY, get(handlers::today))
         .route("/translate", get(translate::page_translate))
         .route("/today/translate", get(handlers::today_translate))
-        .route("/{date}/translate", get(translate::translate_redirect))
-        .route("/{date}", get(handlers::get_digest))
+        .route(
+            "/issues/{date}/translate",
+            get(translate::translate_redirect),
+        )
+        .route("/issues/{date}", get(handlers::get_digest))
+        // Legacy bare-date permalinks -> permanent redirect into /issues/{date}.
+        .route(
+            "/{date}/translate",
+            get(handlers::legacy_translate_redirect),
+        )
+        .route("/{date}", get(handlers::legacy_digest_redirect))
         .fallback(handlers::not_found)
         .layer(TraceLayer::new_for_http())
         .with_state(state);

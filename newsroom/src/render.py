@@ -550,7 +550,7 @@ def replace_placeholders(
 
     # Replace HOMEPAGE_URL (footer translate line) and SUBSCRIBE_URL (footer nav)
     if digest_domain:
-        homepage_url = f"https://{digest_domain}/{date_url}"
+        homepage_url = f"https://{digest_domain}/issues/{date_url}"
         subscribe_url = f"https://{digest_domain}/#subscribe"
         content = content.replace("{{HOMEPAGE_URL}}", homepage_url)
         content = content.replace("{{SUBSCRIBE_URL}}", subscribe_url)

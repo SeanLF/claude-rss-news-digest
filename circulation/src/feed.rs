@@ -25,7 +25,7 @@ pub fn render_atom_feed(
     let mut entries = String::new();
     for row in rows {
         let escaped_date = escape_html(&row.date);
-        let link = format!("{base_url}/{escaped_date}");
+        let link = format!("{base_url}/issues/{escaped_date}");
         let title = escape_html(&format!("{feed_name} \u{2013} {}", format_date(&row.date)));
         let entry_updated = format!("{escaped_date}T00:00:00Z");
         let summary = if row.preheader.is_empty() {
@@ -123,9 +123,9 @@ mod tests {
             &[row("2026-06-12", "")],
         );
 
-        assert!(xml.contains("<id>https://example.com/2026-06-12</id>"));
+        assert!(xml.contains("<id>https://example.com/issues/2026-06-12</id>"));
         assert!(xml.contains(
-            r#"<link rel="alternate" type="text/html" href="https://example.com/2026-06-12"/>"#
+            r#"<link rel="alternate" type="text/html" href="https://example.com/issues/2026-06-12"/>"#
         ));
         assert!(xml.contains("<updated>2026-06-12T00:00:00Z</updated>"));
     }
@@ -233,7 +233,7 @@ mod tests {
             &[row("2026-06-12", "")],
         );
 
-        assert!(xml.contains("<id>/2026-06-12</id>"));
-        assert!(xml.contains(r#"href="/2026-06-12"/>"#));
+        assert!(xml.contains("<id>/issues/2026-06-12</id>"));
+        assert!(xml.contains(r#"href="/issues/2026-06-12"/>"#));
     }
 }

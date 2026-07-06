@@ -309,7 +309,7 @@ pub fn row_html(row: &IssueRow, is_today: bool) -> String {
     let year = row.date.get(0..4).unwrap_or("");
     format!(
         concat!(
-            r#"<li class="issue{today}" data-year="{year}" data-date="{date}"><a href="/{date}">"#,
+            r#"<li class="issue{today}" data-year="{year}" data-date="{date}"><a href="/issues/{date}">"#,
             r#"<span class="idx"><span class="no">{no}</span><span class="date">{dm}</span></span>"#,
             r#"<span class="main"><span class="sumline">{pre}</span></span>"#,
             r#"<span class="rt">{bias}<span class="count">{c} sources</span></span></a></li>"#
@@ -530,7 +530,7 @@ mod tests {
             is_month_start: false,
         };
         let h = row_html(&row, true);
-        assert!(h.contains(r#"href="/2026-07-03""#));
+        assert!(h.contains(r#"href="/issues/2026-07-03""#));
         assert!(h.contains(r#"<span class="date">3 Jul</span>"#));
         assert!(h.contains(r#"<span class="no">200</span>"#));
         assert!(h.contains("24 sources"));

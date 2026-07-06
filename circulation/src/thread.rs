@@ -713,7 +713,7 @@ mod tests {
         assert!(html.contains("&lt;script&gt;alert(1)&lt;/script&gt;"));
         assert!(!html.contains("<b>Bold</b> story"));
         assert!(html.contains("&lt;b&gt;Bold&lt;/b&gt; story"));
-        assert!(html.contains("/2026-06-28")); // links to the day's digest
+        assert!(html.contains("/issues/2026-06-28")); // links to the day's digest
     }
 
     #[tokio::test]

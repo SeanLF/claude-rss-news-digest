@@ -1,4 +1,4 @@
-//! Reader translation: `GET /{date}/translate` -> 307 to a Google Translate
+//! Reader translation: `GET /issues/{date}/translate` -> 307 to a Google Translate
 //! proxy URL in the reader's language.
 //!
 //! Stateless by design (spec §3): no cookie, no storage, no IP read. The one
@@ -147,8 +147,8 @@ fn proxy_redirect(
     ))
 }
 
-/// Redirect `/{date}/translate` to a Google Translate proxy URL in the reader's
-/// language (spec §3).
+/// Redirect `/issues/{date}/translate` to a Google Translate proxy URL in the
+/// reader's language (spec §3).
 pub async fn translate_redirect(
     Path(date): Path<String>,
     Query(query): Query<TranslateQuery>,
@@ -169,7 +169,7 @@ pub async fn translate_redirect(
 
     Ok(proxy_redirect(
         &state,
-        &format!("/{date}"),
+        &format!("{}/{date}", crate::routes::ISSUES),
         query.lang.as_deref(),
         &headers,
     ))
@@ -336,7 +336,7 @@ mod tests {
 
         assert_eq!(
             location(resp),
-            "https://news--digest-seanfloyd-dev.translate.goog/2026-07-03?_x_tr_sl=en&_x_tr_tl=es-ES&_x_tr_hl=es-ES"
+            "https://news--digest-seanfloyd-dev.translate.goog/issues/2026-07-03?_x_tr_sl=en&_x_tr_tl=es-ES&_x_tr_hl=es-ES"
         );
     }
 
@@ -355,7 +355,7 @@ mod tests {
 
         assert_eq!(
             location(resp),
-            "https://example-com.translate.goog/2026-07-03?_x_tr_sl=en&_x_tr_tl=fr&_x_tr_hl=fr"
+            "https://example-com.translate.goog/issues/2026-07-03?_x_tr_sl=en&_x_tr_tl=fr&_x_tr_hl=fr"
         );
     }
 
@@ -418,7 +418,7 @@ mod tests {
         .expect("expected redirect")
         .into_response();
 
-        assert_eq!(location(resp), "/2026-07-03");
+        assert_eq!(location(resp), "/issues/2026-07-03");
     }
 
     #[tokio::test]
@@ -441,7 +441,7 @@ mod tests {
 
         assert_eq!(
             location(resp),
-            "https://example-com.translate.goog/2026-07-03?_x_tr_sl=en&_x_tr_tl=de&_x_tr_hl=de"
+            "https://example-com.translate.goog/issues/2026-07-03?_x_tr_sl=en&_x_tr_tl=de&_x_tr_hl=de"
         );
     }
 

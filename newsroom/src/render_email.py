@@ -260,7 +260,7 @@ def render_email(selections: dict, unsubscribe_url: str = "{{{RESEND_UNSUBSCRIBE
     issue_label = f"No. {issue_no}<br/>" if issue_no is not None else ""
 
     domain = os.environ.get("DIGEST_DOMAIN", "")
-    homepage = f"https://{domain}/{date_url}" if domain else ""
+    homepage = f"https://{domain}/issues/{date_url}" if domain else ""
     archive = os.environ.get("ARCHIVE_URL", "")
     author_name = os.environ.get("AUTHOR_NAME", "")
     author_url = os.environ.get("AUTHOR_URL", "")
