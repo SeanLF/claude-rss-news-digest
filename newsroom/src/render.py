@@ -134,66 +134,14 @@ def _strip_media_block(css: str, keyword: str) -> str:
     return "".join(result)
 
 
-def resolve_css_variables(css: str) -> str:
-    """Replace CSS variables with their values (light mode only for email).
-
-    Email clients don't support CSS variables or prefers-color-scheme, so we
-    resolve to light mode values and strip the dark mode media query.
-    """
-    # Strip dark mode media query first so :root extraction always gets light values
-    css = _strip_media_block(css, "prefers-color-scheme")
-
-    # Extract variables from EVERY light-mode `:root {…}` block. tokens.css splits
-    # the token set across three plain :root blocks (shared core / chrome / digest
-    # -- the digest's --hair lives in the third), so reading only the first would
-    # leave var(--hair) unresolved in email. The `:root\s*\{` pattern matches the
-    # plain blocks but NOT `:root[data-theme=...]{…}` (a `[` sits between :root and
-    # the brace), so the explicit-toggle blocks are intentionally excluded.
-    root_blocks = re.findall(r":root\s*\{([^}]+)\}", css)
-    if not root_blocks:
-        return css
-
-    # Parse variables (later blocks win, but the three blocks define disjoint
-    # names). The name class MUST include digits: the design tokens use --ink2,
-    # so an [a-z-]+ class would silently fail to resolve var(--ink2) for email.
-    variables = {}
-    for block in root_blocks:
-        for match in re.finditer(r"--([a-z0-9-]+)\s*:\s*([^;]+);", block):
-            variables[match.group(1)] = match.group(2).strip()
-
-    # Replace var(--name) with values
-    def replace_var(match):
-        var_name = match.group(1)
-        if var_name not in variables:
-            # An unresolved var() ships verbatim and renders as broken CSS in every
-            # inbox -- surface it rather than silently degrading the whole list.
-            logger.warning("unresolved var(--%s) shipping in email CSS", var_name)
-            return match.group(0)
-        return variables[var_name]
-
-    css = re.sub(r"var\(--([a-z0-9-]+)\)", replace_var, css)
-
-    # Remove :root blocks - not supported in email, and dead weight once resolved.
-    # Also drop the explicit-toggle :root[data-theme=...]{…} blocks (tokens.css:74+):
-    # they ship the dark/light palette as inert declarations no email element can
-    # match (the email <html> has no data-theme), so strip them rather than bloat
-    # every send. The optional [..] attribute is what the plain pattern above misses.
-    # NB: `[^}]*` assumes each :root block is brace-balanced -- a stray `{` typo in
-    # tokens.css would let this consume the next rule. tokens.css is the trusted,
-    # tested source, so that's acceptable; don't point this at untrusted CSS.
-    css = re.sub(r":root(?:\[[^\]]*\])?\s*\{[^}]*\}", "", css)
-
-    return css
-
-
 def light_tokens(tokens_file: Path | None = None) -> dict[str, str]:
     """Parse the light-mode design tokens from ``tokens_file`` (default config.TOKENS_FILE).
 
     Single source of truth for colours shared by the web CSS and the MJML email
     renderer (render_email). Returns ``{"bg": "#fafaf8", "ink": "#191917", ...}``
-    -- the light values from the plain ``:root {…}`` blocks, reusing the same
-    dark-strip + :root extraction logic as resolve_css_variables() so email
-    literals can't drift from the canonical tokens. Missing file -> empty dict
+    -- the light values from the plain ``:root {…}`` blocks (dark-mode media query
+    stripped first via _strip_media_block) so email literals can't drift from the
+    canonical tokens. Missing file -> empty dict
     (production always ships tokens.css; callers fail loud on a missing key).
     """
     path = tokens_file or config.TOKENS_FILE
@@ -506,7 +454,8 @@ def replace_placeholders(
     """Replace all placeholders in digest HTML (styles, name, date, etc).
 
     CSS variables are preserved to support dark mode when viewing in browser.
-    Email preparation (resolving variables, inlining) happens in send_broadcast().
+    This produces the web-archive HTML only; the email is rendered separately via
+    MJML (render_email), not by inlining this HTML.
     """
     now = datetime.now(UTC)
     date_str = now.strftime("%A, %B ") + str(now.day) + now.strftime(", %Y")

@@ -20,7 +20,6 @@ from render import (
     is_safe_url,
     minify_css,
     render_article,
-    resolve_css_variables,
     slugify,
     strip_html,
 )
@@ -86,23 +85,6 @@ class TestMinifyCss:
         result = minify_css(css)
         assert "color:blue" in result
         assert "font-weight:bold" in result
-
-
-class TestResolveCssVariables:
-    def test_resolves_simple_variable(self):
-        css = ":root { --bg: white; } body { background: var(--bg); }"
-        result = resolve_css_variables(css)
-        assert "white" in result
-        assert "var(--bg)" not in result
-
-    def test_handles_no_root(self):
-        css = "body { color: red; }"
-        assert resolve_css_variables(css) == css
-
-    def test_removes_root_block(self):
-        css = ":root { --x: 1; } body { color: red; }"
-        result = resolve_css_variables(css)
-        assert ":root" not in result
 
 
 class TestParseDate:

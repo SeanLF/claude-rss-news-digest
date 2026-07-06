@@ -675,8 +675,9 @@ pub async fn get_digest(
     );
 
     // The digest keeps its OWN <footer> (which already carries a Subscribe link;
-    // the email-only Unsubscribe is hidden by the web flip). The only web-only
-    // footer bit left to fold in is the optional feedback invitation (spec §4).
+    // the email-only Unsubscribe is physically stripped from the stored blob by
+    // prepare_for_web). The only web-only footer bit left to fold in is the
+    // optional feedback invitation (spec §4).
     let feedback = web_feedback_html(&date, state.feedback_email.as_deref());
 
     // Foundation plumbing: circulation owns the served font, so it injects the @font-face
