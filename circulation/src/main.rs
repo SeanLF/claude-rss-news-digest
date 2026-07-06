@@ -168,6 +168,7 @@ async fn main() {
         .route("/today/translate", get(handlers::today_translate))
         .route("/{date}/translate", get(translate::translate_redirect))
         .route("/{date}", get(handlers::get_digest))
+        .fallback(handlers::not_found)
         .layer(TraceLayer::new_for_http())
         .with_state(state);
 

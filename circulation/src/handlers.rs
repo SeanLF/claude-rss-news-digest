@@ -2,7 +2,7 @@ use axum::{
     Form, Json,
     extract::{Path, Query, State},
     http::StatusCode,
-    response::{Html, IntoResponse, Redirect},
+    response::{Html, IntoResponse, Redirect, Response},
 };
 use rusqlite::{Connection, OpenFlags};
 use serde::{Deserialize, Serialize};
@@ -14,11 +14,11 @@ use crate::check_database_health;
 use crate::feed::{DigestRow, render_atom_feed};
 use crate::routes;
 use crate::templates::{
-    DIGEST_NAV_CSS, FAVICON_SVG, FeedbackParams, IndexParams, NO_FLASH_SCRIPT,
+    DIGEST_NAV_CSS, FAVICON_SVG, FeedbackParams, IndexParams, NO_FLASH_SCRIPT, NotFoundParams,
     PROXY_TRANSLATE_HIDE_SCRIPT, REDUCED_MOTION_CSS, SKIP_LINK_CSS, SKIP_LINK_HTML, Source,
     SourcesParams, TOGGLE_BTN, TOGGLE_JS, chrome_footer, chrome_topbar, digest_nav_html,
-    digest_og_tags, render_feedback, render_index, render_sources, translate_pill,
-    web_feedback_html,
+    digest_og_tags, render_feedback, render_index, render_not_found, render_sources,
+    translate_pill, web_feedback_html,
 };
 use crate::util::{escape_html, format_day_month_year, is_valid_date, log_row_error};
 
@@ -145,6 +145,43 @@ pub(crate) fn sub_chrome(
     }
     let footer = chrome_footer(&links, tagline);
     (topbar, footer)
+}
+
+/// Render the shared friendly 404 page with variant-specific copy, at 404 status.
+/// One builder behind both the router fallback (unknown path) and the digest
+/// handler's not-found/bad-date branches, so a dead link always lands on the same
+/// on-brand page with the ways back rather than an axum default or bare text.
+fn render_404(state: &AppState, heading: &str, message: &str) -> Response {
+    let (topbar_html, footer_html) = sub_chrome(
+        state,
+        "",
+        "/",
+        "Lost? Every issue is one tap from the archive.",
+    );
+    let brand = brand_html(&state.digest_name);
+    let canonical_url = state.base_url();
+    let image_url = state.og_image_url();
+    let html = render_not_found(&NotFoundParams {
+        title: &state.digest_name,
+        brand_html: &brand,
+        home_url: "/",
+        canonical_url: &canonical_url,
+        feed_url: routes::FEED,
+        image_url: &image_url,
+        font_url: &state.font_url,
+        topbar_html: &topbar_html,
+        footer_html: &footer_html,
+        heading,
+        message,
+        today_url: routes::TODAY,
+        search_url: routes::SEARCH,
+    });
+    (StatusCode::NOT_FOUND, Html(html)).into_response()
+}
+
+/// Router fallback for any unmatched path — the friendly 404 (generic variant).
+pub async fn not_found(State(state): State<Arc<AppState>>) -> Response {
+    render_404(&state, "Page not found", "There's nothing at this address.")
 }
 
 /// Index / home — the archive as an issue-numbered running order (`chrome_v12`).
@@ -631,24 +668,48 @@ pub async fn feed(
 pub async fn get_digest(
     Path(date): Path<String>,
     State(state): State<Arc<AppState>>,
-) -> Result<Html<String>, (StatusCode, &'static str)> {
-    // Validate date format: exactly YYYY-MM-DD
+) -> Result<Html<String>, Response> {
+    // The root `/{date}` param route swallows every single-segment path, so a
+    // non-date segment (`/about`, a typo) lands here rather than the fallback --
+    // treat it as an unknown page, not a bad date. (After digests move to
+    // `/issues/{date}` this branch only sees genuinely date-shaped input.)
     if !is_valid_date(&date) {
-        return Err((StatusCode::BAD_REQUEST, "Invalid date format"));
+        return Err(render_404(
+            &state,
+            "Page not found",
+            "There's nothing at this address.",
+        ));
     }
 
     // Open database read-only
     let conn = Connection::open_with_flags(&state.db_path, OpenFlags::SQLITE_OPEN_READ_ONLY)
-        .map_err(|_| (StatusCode::SERVICE_UNAVAILABLE, "Digest unavailable"))?;
+        .map_err(|e| {
+            tracing::error!(%date, error = %e, "digest db open failed");
+            (StatusCode::SERVICE_UNAVAILABLE, "Digest unavailable").into_response()
+        })?;
 
-    // Query for digest HTML and preheader (stored column, not scraped from blob)
-    let (html, preheader): (String, String) = conn
-        .query_row(
-            "SELECT html, COALESCE(preheader, '') FROM digests WHERE date = ?1",
-            [&date],
-            |row| Ok((row.get(0)?, row.get(1)?)),
-        )
-        .map_err(|_| (StatusCode::NOT_FOUND, "Digest not found"))?;
+    // Query for digest HTML and preheader (stored column, not scraped from blob).
+    // Only a genuinely absent row is a 404 -- any other error (locked/corrupt DB, a
+    // truncated db-clone) is a real service failure: log it and return 503, never a
+    // friendly "not published" page that lies to the reader and hides the outage.
+    let row = conn.query_row(
+        "SELECT html, COALESCE(preheader, '') FROM digests WHERE date = ?1",
+        [&date],
+        |row| Ok((row.get(0)?, row.get(1)?)),
+    );
+    let (html, preheader): (String, String) = match row {
+        Ok(v) => v,
+        Err(rusqlite::Error::QueryReturnedNoRows) => {
+            let not_here = format!(
+                "There's no issue dated {date} in the archive — it may not have been published, or the date is off by a day."
+            );
+            return Err(render_404(&state, "No issue for that date", &not_here));
+        }
+        Err(e) => {
+            tracing::error!(%date, error = %e, "digest query failed");
+            return Err((StatusCode::SERVICE_UNAVAILABLE, "Digest unavailable").into_response());
+        }
+    };
 
     // Build OG metadata -- title from digest name + date, preheader from DB column
     let og_title = escape_html(&format!("{} \u{2013} {date}", state.digest_name));
@@ -894,6 +955,59 @@ mod feed_tests {
             !topbar.contains("/today/translate"),
             "must not redirect to the latest digest: {topbar}"
         );
+    }
+
+    #[tokio::test]
+    async fn not_found_fallback_serves_a_friendly_404_with_ways_back() {
+        let state = state_with_digests(&[("2026-06-12", "Second story")]);
+        let resp = not_found(State(state)).await.into_response();
+
+        assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+        let body = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let body = String::from_utf8(body.to_vec()).unwrap();
+        assert!(body.contains("Page not found"), "friendly heading missing");
+        // The ways back are the stable routes, not a dead end.
+        assert!(body.contains(r#"href="/today""#));
+        assert!(body.contains(r#"href="/search""#));
+    }
+
+    #[tokio::test]
+    async fn get_digest_treats_a_non_date_segment_as_a_generic_not_found() {
+        // `/about`-style single segments reach get_digest via the `/{date}` route;
+        // they're mistyped pages, not bad dates, so they get the generic copy.
+        let state = state_with_digests(&[("2026-06-12", "Second story")]);
+        let resp = get_digest(Path("about".to_string()), State(state))
+            .await
+            .expect_err("a non-date segment should 404")
+            .into_response();
+
+        assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+        let body = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let body = String::from_utf8(body.to_vec()).unwrap();
+        assert!(body.contains("Page not found"));
+        assert!(!body.contains("No issue for that date"));
+    }
+
+    #[tokio::test]
+    async fn get_digest_renders_friendly_404_for_a_valid_but_absent_date() {
+        let state = state_with_digests(&[("2026-06-12", "Second story")]);
+        // Well-formed date, no such issue -> friendly 404 page, not bare text.
+        let resp = get_digest(Path("2026-01-01".to_string()), State(state))
+            .await
+            .expect_err("absent date should not resolve")
+            .into_response();
+
+        assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+        let body = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let body = String::from_utf8(body.to_vec()).unwrap();
+        assert!(body.contains("No issue for that date"));
+        assert!(body.contains("2026-01-01"));
     }
 
     #[tokio::test]

@@ -4,6 +4,7 @@ mod chrome;
 mod digest;
 mod feedback;
 mod index;
+mod not_found;
 mod search;
 mod sources;
 mod stats;
@@ -19,6 +20,7 @@ pub use digest::{
 };
 pub use feedback::{FeedbackParams, render_feedback};
 pub use index::{IndexParams, render_index};
+pub use not_found::{NotFoundParams, render_not_found};
 pub use search::{SearchParams, render_search};
 pub use sources::{Source, SourcesParams, render_sources};
 pub use stats::{StatsParams, render_stats};
