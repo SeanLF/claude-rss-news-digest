@@ -422,10 +422,15 @@ def archive_articles(articles: list[dict]):
         logger.error("DB error archiving %d articles: %s", len(articles), e)
 
 
-def archive_selections(selections_json: str):
-    """Archive Claude's raw selection output for historical analysis."""
+def archive_selections(selections_json: str) -> bool:
+    """Archive Claude's raw selection output for historical analysis.
+
+    Fail-soft: a trace write must never block a delivered digest. Returns True on
+    success (or when not recording -- nothing to do), False if the write failed,
+    so callers can surface a persistent archival problem without aborting.
+    """
     if not _state.recording:
-        return
+        return True
     try:
         with _connect(_db_path()) as conn:
             conn.execute(
@@ -434,16 +439,19 @@ def archive_selections(selections_json: str):
             )
     except sqlite3.Error as e:
         logger.error("DB error archiving selections: %s", e)
+        return False
+    return True
 
 
-def archive_clusters(clusters_json: str):
+def archive_clusters(clusters_json: str) -> bool:
     """Archive the per-run clusters.json blob for historical analysis.
 
     clusters.json is overwritten every run; persisting it keyed by run makes
     historical cluster composition queryable alongside shown_narratives.cluster_id.
+    Fail-soft: returns False on a failed write (see archive_selections).
     """
     if not _state.recording:
-        return
+        return True
     try:
         with _connect(_db_path()) as conn:
             conn.execute(
@@ -452,6 +460,8 @@ def archive_clusters(clusters_json: str):
             )
     except sqlite3.Error as e:
         logger.error("DB error archiving clusters: %s", e)
+        return False
+    return True
 
 
 # Per-run intermediates in claude_input/ that are overwritten every run.
@@ -477,10 +487,11 @@ def archive_run_artifacts(claude_input_dir: Path, models: dict[str, str] | None 
     "models.json" artifact.
 
     Fails soft: a trace-archival problem must never kill a digest, so all errors
-    are logged and swallowed.
+    are logged and reported via the return value (False) rather than raised (see
+    archive_selections).
     """
     if not _state.recording or _state.run_id is None:
-        return
+        return True
     try:
         rows: list[tuple[int, str, str]] = []
         # Fixed intermediates plus the dynamically-numbered articles_*.csv -- the
@@ -501,7 +512,7 @@ def archive_run_artifacts(claude_input_dir: Path, models: dict[str, str] | None 
 
             rows.append((_state.run_id, "models.json", json.dumps(models, sort_keys=True)))
         if not rows:
-            return
+            return True
         with _connect(_db_path()) as conn:
             conn.executemany(
                 "INSERT INTO run_artifacts (run_id, artifact_name, content) VALUES (?, ?, ?)",
@@ -512,6 +523,8 @@ def archive_run_artifacts(claude_input_dir: Path, models: dict[str, str] | None 
         # Deliberately broad: trace archival is best-effort and must never crash
         # a digest (e.g. a non-UTF-8 artifact would raise UnicodeDecodeError).
         logger.error("Error archiving run artifacts: %s", e)
+        return False
+    return True
 
 
 def get_run_artifacts(run_id: int) -> dict[str, str]:

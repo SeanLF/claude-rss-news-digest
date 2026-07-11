@@ -19,6 +19,7 @@ from broadcast import (
     ACCEPTED_BROADCAST_STATES,
     probe_status,
     resend_existing,
+    send_archival_alert,
     send_broadcast,
     send_health_alert,
     send_test_digest,
@@ -78,6 +79,42 @@ def _load_run_articles() -> dict:
                 if aid:
                     arts[aid] = {"title": row.get("title", ""), "summary": row.get("summary", "")}
     return arts
+
+
+def _archive_run_and_threads(selections_json: str, *, model: str | None) -> None:
+    """Snapshot this run's artifacts + process story threads after assembly.
+
+    Shared verbatim by the full pipeline and --resume so a resumed run finishes
+    exactly like a normal one -- these steps used to live only in main(), so a
+    resume silently skipped both archival and thread continuity. They run in the
+    normal downstream position (after start_run, before the send), matching the
+    main path.
+
+    This helper adds no error-swallowing of its own: an exception from a step
+    propagates and aborts the run. In practice the db.archive_* calls are
+    fail-soft (they catch their own DB errors and return False -- a trace/analytics
+    write must never kill a delivered digest, see db.py), so a real archival DB
+    failure is logged and the send proceeds. But fail-soft must not mean silent:
+    any failed step is surfaced loudly (alert on the automated path). Thread
+    processing is independently best-effort (see _process_story_threads).
+    """
+    failed: list[str] = []
+    if not db.archive_selections(selections_json):
+        failed.append("selections")
+    clusters_path = CLAUDE_INPUT_DIR / "clusters.json"
+    if clusters_path.exists() and not db.archive_clusters(clusters_path.read_text()):
+        failed.append("clusters")
+    if not db.archive_run_artifacts(CLAUDE_INPUT_DIR, models={"select": model or DEFAULT_MODEL}):
+        failed.append("run_artifacts")
+    _process_story_threads()
+
+    if failed:
+        logger.warning("Archival degraded this run (delivered anyway): %s", ", ".join(failed))
+        if db.should_alert():
+            try:
+                send_archival_alert(failed, db.current_run_id())
+            except Exception:
+                logger.error("Failed to send archival alert (non-fatal)", exc_info=True)
 
 
 def _process_story_threads() -> None:
@@ -223,12 +260,19 @@ def _deliver(digest, email_html) -> int:
     return result.recipients
 
 
-def _render_record_deliver(selections, *, skip_record: bool, skip_email: bool, usage_rows=None) -> int:
+def _render_record_deliver(
+    selections, *, skip_record: bool, skip_email: bool, usage_rows=None, archive=False, model=None
+) -> int:
     """Render selections, persist, deliver idempotently, and complete the run.
 
     The shared tail of --write-only and --resume: starts a run, and on any
     failure marks it failed (never deletes), so a delivered digest's record
     survives. ``usage_rows``, when given, are recorded first (resume only).
+
+    ``archive=True`` (resume only) runs the same artifact snapshot + thread
+    processing the full pipeline does, so a resumed run finishes identically to
+    a normal one. --write-only leaves it False: those steps already ran on the
+    original pipeline that produced selections.json.
     """
     selections = resolve_article_ids(selections)
     preheader = extract_preheader(selections)
@@ -239,6 +283,8 @@ def _render_record_deliver(selections, *, skip_record: bool, skip_email: bool, u
     try:
         if usage_rows is not None:
             db.record_usage(usage_rows)
+        if archive:
+            _archive_run_and_threads((CLAUDE_INPUT_DIR / "selections.json").read_text(), model=model)
         db.save_digest(digest, preheader=preheader)
         recipients = _deliver(digest, email_html) if db.should_broadcast() else 0
         shown_headlines = read_shown_headlines()
@@ -567,7 +613,14 @@ Examples:
         _require_fresh_artifacts(CLAUDE_INPUT_DIR)
         usage_rows = generate_selections(model=args.model, resume=True)
         selections = load_selections(assemble_selections(CLAUDE_INPUT_DIR))
-        return _render_record_deliver(selections, skip_record=skip_record, skip_email=skip_email, usage_rows=usage_rows)
+        return _render_record_deliver(
+            selections,
+            skip_record=skip_record,
+            skip_email=skip_email,
+            usage_rows=usage_rows,
+            archive=True,
+            model=args.model,
+        )
 
     # Full pipeline
     validate_env(dry_run=skip_email)
@@ -615,12 +668,7 @@ Examples:
             logger.warning("Usage tracking failed (non-fatal)", exc_info=True)
         selections_path = assemble_selections(CLAUDE_INPUT_DIR)
         selections = load_selections(selections_path)
-        db.archive_selections(selections_path.read_text())
-        clusters_path = CLAUDE_INPUT_DIR / "clusters.json"
-        if clusters_path.exists():
-            db.archive_clusters(clusters_path.read_text())
-        db.archive_run_artifacts(CLAUDE_INPUT_DIR, models={"select": args.model or DEFAULT_MODEL})
-        _process_story_threads()
+        _archive_run_and_threads(selections_path.read_text(), model=args.model)
         selections = resolve_article_ids(selections)
 
         if args.select_only:

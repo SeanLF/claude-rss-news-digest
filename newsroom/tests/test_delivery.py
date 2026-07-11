@@ -145,3 +145,83 @@ def test_require_fresh_artifacts_ok_when_today(tmp_path):
     idx = tmp_path / "article_index.json"
     idx.write_text("{}")  # mtime defaults to now -> today UTC
     run._require_fresh_artifacts(tmp_path)  # must not raise
+
+
+# --- Resume runs the same downstream steps as a normal run -------------------
+# The full pipeline snapshots artifacts + processes threads after assembly; a
+# resumed run must do the SAME (it used to skip both). Shared helper so the two
+# paths can't drift again. Resume = continue the failed run through every step,
+# not a lossy shortcut to force a send.
+
+
+def _ok(record, label):
+    """A monkeypatched archive_* that records it ran and reports success (True)."""
+    record.append(label)
+    return True
+
+
+def test_archive_run_and_threads_runs_full_sequence(monkeypatch, tmp_path):
+    monkeypatch.setattr(run, "CLAUDE_INPUT_DIR", tmp_path)
+    (tmp_path / "clusters.json").write_text('{"clusters": []}')
+    order = []
+    monkeypatch.setattr(run.db, "archive_selections", lambda j: _ok(order, "selections"))
+    monkeypatch.setattr(run.db, "archive_clusters", lambda j: _ok(order, "clusters"))
+    monkeypatch.setattr(run.db, "archive_run_artifacts", lambda d, models=None: _ok(order, "artifacts"))
+    monkeypatch.setattr(run, "_process_story_threads", lambda: order.append("threads"))
+
+    run._archive_run_and_threads('{"must_know": []}', model="claude-x")
+
+    assert order == ["selections", "clusters", "artifacts", "threads"]
+
+
+def test_archive_run_and_threads_skips_clusters_when_absent(monkeypatch, tmp_path):
+    monkeypatch.setattr(run, "CLAUDE_INPUT_DIR", tmp_path)  # no clusters.json written
+    calls = []
+    monkeypatch.setattr(run.db, "archive_selections", lambda j: _ok(calls, "selections"))
+    monkeypatch.setattr(run.db, "archive_clusters", lambda j: _ok(calls, "clusters"))
+    monkeypatch.setattr(run.db, "archive_run_artifacts", lambda d, models=None: _ok(calls, "artifacts"))
+    monkeypatch.setattr(run, "_process_story_threads", lambda: calls.append("threads"))
+
+    run._archive_run_and_threads("{}", model=None)
+
+    assert "clusters" not in calls
+    assert calls == ["selections", "artifacts", "threads"]
+
+
+def test_archival_failure_alerts_but_does_not_block(monkeypatch, tmp_path):
+    """A failed archival write is fail-soft -- the helper returns normally so the
+    send is never blocked -- but must not be silent: on the alerting path it fires
+    an alert naming the failed step(s)."""
+    monkeypatch.setattr(run, "CLAUDE_INPUT_DIR", tmp_path)
+    monkeypatch.setattr(run.db, "archive_selections", lambda j: False)  # write failed
+    monkeypatch.setattr(run.db, "archive_run_artifacts", lambda d, models=None: True)
+    monkeypatch.setattr(run, "_process_story_threads", lambda: None)
+    monkeypatch.setattr(run.db, "should_alert", lambda: True)
+    monkeypatch.setattr(run.db, "current_run_id", lambda: 229)
+    alerted = {}
+    monkeypatch.setattr(run, "send_archival_alert", lambda steps, rid: alerted.update(steps=steps, rid=rid))
+
+    run._archive_run_and_threads("{}", model=None)  # must NOT raise
+
+    assert alerted == {"steps": ["selections"], "rid": 229}
+
+
+def test_helper_adds_no_error_swallow(monkeypatch, tmp_path):
+    """The helper wraps nothing in its own try/except: an exception raised by a
+    step propagates and short-circuits the rest. (The real db.archive_* funcs are
+    fail-soft internally -- they catch their own sqlite errors and log -- so in
+    production a DB hiccup does NOT abort the run; this pins that the helper
+    itself never hides a propagating error, keeping resume==main semantics.)"""
+    monkeypatch.setattr(run, "CLAUDE_INPUT_DIR", tmp_path)
+
+    def boom(_j):
+        raise RuntimeError("unexpected non-sqlite error")
+
+    monkeypatch.setattr(run.db, "archive_selections", boom)
+    threads_ran = []
+    monkeypatch.setattr(run, "_process_story_threads", lambda: threads_ran.append(1))
+
+    with pytest.raises(RuntimeError, match="unexpected non-sqlite error"):
+        run._archive_run_and_threads("{}", model=None)
+
+    assert not threads_ran  # propagated before threads -- helper adds no swallow
