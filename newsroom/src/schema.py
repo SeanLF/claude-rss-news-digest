@@ -49,7 +49,11 @@ SELECTIONS_SCHEMA = {
     "properties": {
         "must_know": {"type": "array", "items": ARTICLE_SCHEMA},
         "should_know": {"type": "array", "items": ARTICLE_SCHEMA},
-        "preheader": {"type": "string", "maxLength": 150},
+        # 150 is the editorial target WRITE is given; the schema tolerates a small
+        # (<=5%) overshoot so a couple extra chars never abort a delivered digest.
+        # merge.assemble_selections truncates anything beyond this. Keep in sync
+        # with merge._PREHEADER_HARD_MAX.
+        "preheader": {"type": "string", "maxLength": 157},
         # Optional SELECT-stage garnish (what was deliberately filtered and why),
         # copied through by merge.assemble_selections. Absent when SELECT's
         # selected.json has no usable field -- see _load_not_covered_blurb.

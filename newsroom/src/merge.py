@@ -21,6 +21,15 @@ logger = logging.getLogger(__name__)
 # (see eval_graders.GraderLimits.preheader_max_chars for the same pattern).
 _NOT_COVERED_BLURB_MAX_LEN = 300
 
+# Inbox-preview length caps. WRITE is told 150 (the editorial target the L1
+# grader watches); we tolerate a small overshoot rather than truncate, since
+# chopping a whole clause off a 152-char line reads worse than a couple extra
+# chars. Only a gross overshoot (>5%, a sign WRITE malfunctioned rather than
+# just ran long) is truncated. _PREHEADER_HARD_MAX matches SELECTIONS_SCHEMA's
+# preheader maxLength so the tolerated band passes validation. Run 229
+# (2026-07-11) died at 152 under the old hard 150 cap.
+_PREHEADER_HARD_MAX = 157  # floor(150 * 1.05)
+
 # The not_covered_blurb is reader-facing (rendered in the digest footer), but it
 # originates from SELECT, whose working vocabulary includes internal cluster
 # indices ("cluster 132", "clusters 0, 1") and opaque article IDs ("[A221]").
@@ -356,6 +365,17 @@ def assemble_selections(claude_input_dir: Path) -> Path:
     not_covered_blurb = _load_not_covered_blurb(claude_input_dir)
     if not_covered_blurb:
         draft["not_covered_blurb"] = not_covered_blurb
+
+    # Same graceful-degradation stance as not_covered_blurb (see
+    # _PREHEADER_HARD_MAX): tolerate a small overshoot, truncate a gross one.
+    preheader = draft.get("preheader")
+    if isinstance(preheader, str) and len(preheader) > _PREHEADER_HARD_MAX:
+        logger.warning(
+            "preheader exceeds hard max %d chars (%d) -- truncating (WRITE likely malfunctioned)",
+            _PREHEADER_HARD_MAX,
+            len(preheader),
+        )
+        draft["preheader"] = _truncate_on_word_boundary(preheader, _PREHEADER_HARD_MAX)
 
     errors = validate_selections(draft)
     if errors:

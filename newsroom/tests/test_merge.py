@@ -140,6 +140,44 @@ class TestAssembleSelections:
         with pytest.raises(RuntimeError, match="schema validation"):
             assemble_selections(tmp_path)
 
+    def test_small_preheader_overshoot_ships_untouched(self, tmp_path, caplog):
+        # A cosmetic 2-char overshoot on the inbox-preview preheader (WRITE
+        # routinely nudges past its 150 target) must NOT abort a delivered
+        # digest, and must NOT be mangled -- chopping a clause reads worse than
+        # a couple extra chars. This is the exact string that killed run 229.
+        preheader = (
+            "US-Iran ceasefire collapses amid assassination threats and Hormuz "
+            "standoff; Spain wildfire kills 12; Russia strikes Kyiv as Zaporizhzhia "
+            "front tightens."
+        )
+        assert 150 < len(preheader) <= 157  # within the 5% tolerance band
+        draft = _draft(must_know=[_article("h")], preheader=preheader)
+        _write(tmp_path, draft, _coherence({"headline": "h", "pass": True}))
+
+        out = assemble_selections(tmp_path)
+
+        result = json.loads(out.read_text())
+        assert result["preheader"] == preheader  # untouched, not truncated
+        assert validate_selections(result) == []
+        assert not any("preheader exceeds" in r.message for r in caplog.records)
+
+    def test_gross_preheader_overshoot_truncates_not_fails(self, tmp_path, caplog):
+        # A gross overshoot signals a WRITE malfunction, not a nudge -- degrade
+        # gracefully (word-boundary truncate) rather than abort the digest.
+        preheader = "Breaking: " + "everything happened at once and then some more. " * 5
+        assert len(preheader) > 157
+        draft = _draft(must_know=[_article("h")], preheader=preheader)
+        _write(tmp_path, draft, _coherence({"headline": "h", "pass": True}))
+
+        out = assemble_selections(tmp_path)
+
+        result = json.loads(out.read_text())
+        assert len(result["preheader"]) <= 157
+        assert result["preheader"].endswith("…")
+        assert "…" not in result["preheader"][:-1]  # single trailing ellipsis, whole words
+        assert validate_selections(result) == []
+        assert any("preheader exceeds" in r.message for r in caplog.records)
+
 
 class TestStrictPassSemantics:
     """Only the literal boolean True counts as a pass. The report is
