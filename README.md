@@ -1,8 +1,35 @@
 # News Digest
 
-Automated daily news digest powered by Claude. Fetches from diverse RSS sources across 5 continents, deduplicates against recent history, curates stories into tiers with bias-aware source attribution, threads ongoing stories across days so returning readers see what's new, and emails an HTML summary via Resend.
+A fully autonomous, fully transparent AI news desk. Every morning it reads 35 feeds across five continents, clusters the day's stories, decides what matters, writes a bias-labelled briefing, fact-checks its own work, and emails it. No human edits any issue. It runs for a few dollars a day.
 
-Two components: **newsroom** (Python pipeline that fetches, curates, and emails) and **circulation** (Rust web server for the online archive).
+Live instance: **[Sean's Daily Digest](https://news-digest.seanfloyd.dev)** · [today's issue](https://news-digest.seanfloyd.dev/today) · [public stats](https://news-digest.seanfloyd.dev/stats) · [sources + bias](https://news-digest.seanfloyd.dev/sources)
+
+## What makes it different
+
+- **Fully autonomous.** No human writes, edits, or approves any issue. The pipeline fetches, curates, writes, and fact-checks itself, then sends.
+- **Claude never sees a URL.** Python assigns opaque article IDs (`A1`, `A2`, ...) and the model curates and writes referencing only those IDs; Python resolves them back to sources afterward. Curation can't be swayed by domain, and a malicious feed can't inject a link into the output.
+- **Five specialized subagents, deterministically orchestrated.** `CLUSTER -> RECAP -> SELECT -> WRITE -> COHERENCE`, each a file-based Claude Agent SDK subagent that reads and writes JSON, run in a fixed order by Python so the parent context stays small and the run is reproducible.
+- **It fact-checks itself.** A final `COHERENCE` pass re-reads every headline and summary against its source articles; anything that fails is dropped before send, not after.
+- **Cheap clustering by design.** Grouping is a deterministic extract-then-join (entities + event + time per article, then a join), not a holistic LLM pass over everything. Lower cost, less drift.
+- **Evolving story threads.** Ongoing stories are tracked across days, so a returning reader sees what changed rather than a fresh fragment.
+- **Radical transparency.** A public [stats page](https://news-digest.seanfloyd.dev/stats) shows real subscriber numbers, the balance of sources across the political spectrum, and the AI cost per issue. Every source is [labelled by political bias and factuality](https://news-digest.seanfloyd.dev/sources). And the code is right here.
+
+## Architecture
+
+Two components:
+
+- **newsroom** — the Python pipeline: `fetch -> cluster -> recap -> select -> write -> coherence -> assemble -> render -> email`. Subagents hand off through JSON files on disk rather than a shared context. Claude (Sonnet) does the reasoning; the cheap recap stage runs on Haiku.
+- **circulation** — a Rust (Axum) web server: the online archive, per-issue pages, the sources and stats pages, story threads, and the "view in browser" links.
+
+```
+RSS feeds ->  fetch  ->  CLUSTER   group articles into stories (extract -> join)
+                         RECAP     summarise the week's titles (Haiku)
+                         SELECT    editorial judgment: tiers, regions, what matters
+                         WRITE     headlines, summaries, why-it-matters (IDs only)
+                         COHERENCE fact-check every claim vs its source; drop failures
+                     ->  assemble (Python resolves IDs -> URLs/source/bias)
+                     ->  render HTML  ->  email (Resend)  +  web archive (circulation)
+```
 
 ## Quick Start
 
@@ -15,8 +42,8 @@ Two components: **newsroom** (Python pipeline that fetches, curates, and emails)
 ### 1. Clone and configure
 
 ```bash
-git clone https://github.com/yourusername/news-digest.git
-cd news-digest
+git clone https://github.com/SeanLF/claude-rss-news-digest.git
+cd claude-rss-news-digest
 cp .env.example .env
 ```
 
@@ -63,7 +90,11 @@ docker compose up -d digest-circulation
 
 ## Sources
 
-Diverse sources weighted toward high-factuality outlets, spanning center to lean-left with lean-right representation. Bias rated on the [Ground News](https://ground.news/) 7-point scale. See [`newsroom/sources.json`](newsroom/sources.json) for the full list.
+35 sources across five continents, weighted toward high-factuality outlets and spanning the political spectrum. Bias is rated on the [Ground News](https://ground.news/) 7-point scale, and every source is shown with its bias and factuality on the live [sources page](https://news-digest.seanfloyd.dev/sources). See [`newsroom/sources.json`](newsroom/sources.json) for the full list.
+
+## Cost
+
+Roughly a few dollars a day in API-equivalent cost (Sonnet for the reasoning stages, Haiku for recap). The live [stats page](https://news-digest.seanfloyd.dev/stats) shows the current per-issue number.
 
 ## Troubleshooting
 
@@ -81,4 +112,7 @@ Diverse sources weighted toward high-factuality outlets, spanning center to lean
 
 ## License
 
-MIT
+[PolyForm Noncommercial License 1.0.0](LICENSE) -- free to use, modify, and share
+for any noncommercial purpose (personal, research, education, nonprofits). Commercial
+use, including by for-profit organizations, is not permitted. This is a
+source-available licence, not an OSI open-source one.
