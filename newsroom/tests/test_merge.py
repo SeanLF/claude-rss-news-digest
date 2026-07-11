@@ -9,7 +9,15 @@ import pytest
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 from merge import assemble_selections
-from schema import validate_selections
+from schema import SELECTIONS_SCHEMA, validate_selections
+
+# Every top-level string field in the schema that carries a length cap. Derived
+# from the schema so a newly-added capped field is picked up automatically.
+_CAPPED_STRING_FIELDS = sorted(
+    (name, spec["maxLength"])
+    for name, spec in SELECTIONS_SCHEMA["properties"].items()
+    if spec.get("type") == "string" and "maxLength" in spec
+)
 
 
 def _article(headline, article_id="A1"):
@@ -177,6 +185,24 @@ class TestAssembleSelections:
         assert "…" not in result["preheader"][:-1]  # single trailing ellipsis, whole words
         assert validate_selections(result) == []
         assert any("preheader exceeds" in r.message for r in caplog.records)
+
+    @pytest.mark.parametrize("field,cap", _CAPPED_STRING_FIELDS)
+    def test_capped_field_never_hard_aborts_assembly(self, field, cap, tmp_path):
+        # Structural invariant: NO length-capped top-level string field may
+        # hard-abort assembly -- it degrades (word-boundary truncate) before
+        # validation. Parametrized off the schema, so a newly-added capped field is
+        # covered here automatically and this fails until it too degrades. (Run 229,
+        # 2026-07-11: an un-degraded preheader cap cost a delivered digest.)
+        draft = _draft(must_know=[_article("h")])
+        draft[field] = "overflow " * cap  # ~9x the cap, comfortably over
+        assert len(draft[field]) > cap
+        _write(tmp_path, draft, _coherence({"headline": "h", "pass": True}))
+
+        out = assemble_selections(tmp_path)  # must NOT raise
+
+        result = json.loads(out.read_text())
+        assert len(result[field]) <= cap
+        assert validate_selections(result) == []
 
 
 class TestStrictPassSemantics:

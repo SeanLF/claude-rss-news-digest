@@ -13,22 +13,13 @@ import unicodedata
 from pathlib import Path
 
 from eval_graders import grade_selections
-from schema import validate_selections
+from schema import SELECTIONS_SCHEMA, validate_selections
 
 logger = logging.getLogger(__name__)
 
 # Footer garnish length cap -- matches SELECTIONS_SCHEMA's not_covered_blurb maxLength
 # (see eval_graders.GraderLimits.preheader_max_chars for the same pattern).
 _NOT_COVERED_BLURB_MAX_LEN = 300
-
-# Inbox-preview length caps. WRITE is told 150 (the editorial target the L1
-# grader watches); we tolerate a small overshoot rather than truncate, since
-# chopping a whole clause off a 152-char line reads worse than a couple extra
-# chars. Only a gross overshoot (>5%, a sign WRITE malfunctioned rather than
-# just ran long) is truncated. _PREHEADER_HARD_MAX matches SELECTIONS_SCHEMA's
-# preheader maxLength so the tolerated band passes validation. Run 229
-# (2026-07-11) died at 152 under the old hard 150 cap.
-_PREHEADER_HARD_MAX = 157  # floor(150 * 1.05)
 
 # The not_covered_blurb is reader-facing (rendered in the digest footer), but it
 # originates from SELECT, whose working vocabulary includes internal cluster
@@ -276,6 +267,40 @@ def _truncate_on_word_boundary(text: str, max_len: int) -> str:
     return head.rstrip() + "…"
 
 
+def _enforce_capped_string_fields(draft: dict) -> None:
+    """Truncate any over-cap top-level string field on a word boundary, in place,
+    so no schema length cap can hard-abort a delivered digest.
+
+    Structural version of the 2026-07-11 preheader fix: run 229 died because a
+    152-char preheader tripped a hard 150 cap in schema validation. Rather than
+    guard that one field, this reads every ``maxLength`` from SELECTIONS_SCHEMA and
+    degrades anything over it -- so a *newly added* capped field is protected
+    automatically, and the invariant is enforced by the schema, not by remembering
+    to hand-wire each field. Each field tunes its own tolerance through the cap
+    itself (e.g. preheader's 157 = a 150 editorial target + 5% slack), so a small
+    overshoot ships untouched and only a gross one is trimmed.
+
+    Scope is deliberately top-level: the only capped fields today are preheader and
+    not_covered_blurb, both top-level. ARTICLE_SCHEMA's fields carry no maxLength;
+    if one ever gains a cap, extend this (and its test) to cover array items."""
+    properties = SELECTIONS_SCHEMA.get("properties", {})
+    if not isinstance(properties, dict):
+        return
+    for name, spec in properties.items():
+        if not isinstance(spec, dict) or spec.get("type") != "string":
+            continue
+        cap = spec.get("maxLength")
+        value = draft.get(name)
+        if isinstance(cap, int) and isinstance(value, str) and len(value) > cap:
+            logger.warning(
+                "%s exceeds its %d-char cap (%d) -- truncating rather than failing the run",
+                name,
+                cap,
+                len(value),
+            )
+            draft[name] = _truncate_on_word_boundary(value, cap)
+
+
 def assemble_selections(claude_input_dir: Path) -> Path:
     """Read draft + coherence, drop coherence-failed entries, write selections.json.
 
@@ -366,16 +391,8 @@ def assemble_selections(claude_input_dir: Path) -> Path:
     if not_covered_blurb:
         draft["not_covered_blurb"] = not_covered_blurb
 
-    # Same graceful-degradation stance as not_covered_blurb (see
-    # _PREHEADER_HARD_MAX): tolerate a small overshoot, truncate a gross one.
-    preheader = draft.get("preheader")
-    if isinstance(preheader, str) and len(preheader) > _PREHEADER_HARD_MAX:
-        logger.warning(
-            "preheader exceeds hard max %d chars (%d) -- truncating (WRITE likely malfunctioned)",
-            _PREHEADER_HARD_MAX,
-            len(preheader),
-        )
-        draft["preheader"] = _truncate_on_word_boundary(preheader, _PREHEADER_HARD_MAX)
+    # Backstop: no length-capped display field may hard-abort a delivered digest.
+    _enforce_capped_string_fields(draft)
 
     errors = validate_selections(draft)
     if errors:

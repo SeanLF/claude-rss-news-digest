@@ -51,8 +51,9 @@ SELECTIONS_SCHEMA = {
         "should_know": {"type": "array", "items": ARTICLE_SCHEMA},
         # 150 is the editorial target WRITE is given; the schema tolerates a small
         # (<=5%) overshoot so a couple extra chars never abort a delivered digest.
-        # merge.assemble_selections truncates anything beyond this. Keep in sync
-        # with merge._PREHEADER_HARD_MAX.
+        # This maxLength is the single source of truth for the cap --
+        # merge._enforce_capped_string_fields reads it and word-boundary-truncates
+        # anything beyond it before validation, for this and every capped field.
         "preheader": {"type": "string", "maxLength": 157},
         # Optional SELECT-stage garnish (what was deliberately filtered and why),
         # copied through by merge.assemble_selections. Absent when SELECT's
