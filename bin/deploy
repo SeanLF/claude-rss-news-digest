@@ -302,6 +302,29 @@ build_and_push() {
   log_success "Images built and pushed"
 }
 
+# Snapshot digest.db (and the other volumes) to the Mac BEFORE migrations
+# mutate it in place -- yoyo has no down-migrations here, so this snapshot is
+# the rollback path. Lives in the infra repo because it is server-level, not
+# digest-level (it also covers kamal-proxy certs and Claude session data).
+# Loud-but-non-fatal: a failed snapshot must not block a deploy, and the
+# script raises its own macOS notification; the age of the newest verified
+# backup is printed so staleness is visible right here in the deploy output.
+backup_data() {
+  log_step "Snapshotting server volumes to this Mac (pre-migration)..."
+  dry_run_skip "$INFRA_DIR/bin/backup-volumes" && return 0
+
+  # A missing script is a different emergency than a failed run: it means no
+  # backups are happening anywhere (the daily launchd job uses the same path).
+  if [ ! -x "$INFRA_DIR/bin/backup-volumes" ]; then
+    log_error "backup script missing at $INFRA_DIR/bin/backup-volumes -- volume backups are NOT running at all"
+  elif "$INFRA_DIR/bin/backup-volumes"; then
+    log_success "Volumes backed up and restore-verified"
+  else
+    log_error "Volume backup FAILED -- deploying WITHOUT a fresh pre-migration snapshot"
+    "$INFRA_DIR/bin/backup-volumes" --status || true
+  fi
+}
+
 run_migrations() {
   log_step "Running database migrations..."
 
@@ -451,6 +474,7 @@ main() {
   fi
 
   build_and_push
+  backup_data
   # Migrations BEFORE terraform: circulation fail-closes at boot on missing
   # required tables (REQUIRED_TABLES), and terraform restarts it. Migrating
   # first means the new container boots against an already-migrated DB; the
