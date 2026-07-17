@@ -1,6 +1,6 @@
 # Post-mortem: 2026-07-16 duplicate-cluster-label identical cards
 
-**Status:** resolved. Fixed test-first, reviewed (adversarial ×2, silent-failure-hunter, simplifier, code-reviewer), full CI green. Not yet deployed; today's email is unrecoverable (see Impact).
+**Status:** resolved. Fixed test-first, reviewed (adversarial ×2, silent-failure-hunter, simplifier, code-reviewer), deployed (`deploy/2026-07-17-002636Z`, commits `4153197` + `701e7f9`). Today's email is unrecoverable (see Impact); the 2026-07-16 archive was left as-is (forward-only).
 **Severity:** medium. One delivered digest led with two near-identical top cards; no missed send, no data loss.
 
 ## Summary
@@ -78,7 +78,7 @@ Test-first, two complementary layers plus one sibling hardening surfaced by the 
 - [x] Each fix driven test-first; both layers re-validated against the real run-235 data.
 
 **Recommended (open):**
-- [ ] Deploy the fix so the next scheduled run is correct; decide whether to `--write-only` re-render the 2026-07-16 archive.
+- [x] Deploy the fix so the next scheduled run is correct (`deploy/2026-07-17-002636Z`). Chose not to re-render the 2026-07-16 archive (forward-only; email already out).
 - [ ] Treat `story`/`cluster_id` as a **non-unique namespace** explicitly. The guard is the enforcement, but a lightweight invariant or assertion (or a schema note) would stop a future consumer re-introducing the "labels are unique" assumption.
 - [ ] Consider a cheap cross-card distinctness check at assembly (warn when two selected cards share a cluster_id or have near-identical summaries) so a duplicate lead can't ship "successfully" again.
 
