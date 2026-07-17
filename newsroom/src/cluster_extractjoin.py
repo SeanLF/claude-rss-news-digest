@@ -261,7 +261,78 @@ def join_tags(
         events = [tags[a].get("primary_event", "") for a in members if tags.get(a, {}).get("primary_event")]
         story = Counter(events).most_common(1)[0][0] if events else f"cluster {len(clusters) + 1}"
         clusters.append({"story": story, "article_ids": members})
-    return clusters
+    # Fold stray same-label clusters -- but ONLY on the non-temporal (prod) path. The temporal kernel
+    # intentionally separates same-tag recurring events that share a modal label (distinct installments
+    # of one topic), so folding there would undo that precision. Without the kernel, same-tag articles
+    # always merge, so a same-label split is a tag-disjoint fragment worth folding (the run-235 fix).
+    if published and sigma_hours:
+        return clusters
+    return _merge_same_story(clusters)
+
+
+# A cluster this small that shares a modal label with a larger one is treated as a fragment of it
+# (e.g. run 235's lone "Iran FM visits Qatar" article vs the 58-article Iran cluster) and folded in.
+_STRAY_ABSORB_MAX = 2
+
+
+def _merge_same_story(clusters: list[dict], *, absorb_max: int = _STRAY_ABSORB_MAX) -> list[dict]:
+    """Fold stray clusters into a same-``story`` anchor so the label stays a usable identity key.
+
+    The join separates on the full tag bag, but ``story`` is the *modal* primary_event -- a lossy
+    derivative -- so two tag-disjoint clusters can collide on the label. Everything downstream keys on
+    that label as a unique story id (``cluster_id``; thread linking; ``digest.attach_thread_context``'s
+    by-story lookup, where a collision renders two stories with the SAME thread summary -- the run-235
+    identical-card bug). We restore uniqueness conservatively: for each duplicated label the largest
+    cluster is the anchor (ties resolve to the first-occurring, deterministically) and every sibling with
+    ``<= absorb_max`` articles (a fragment) folds into it. Any *substantial* (> absorb_max) sibling is
+    LEFT separate -- force-merging distinct multi-article stories is worse than the collision, which the
+    render layer guards against instead -- so a label with N substantial clusters still emits N of them.
+    Original order and the every-article-exactly-once partition are preserved.
+    """
+    positions: dict[str, list[int]] = {}
+    for i, c in enumerate(clusters):
+        positions.setdefault(c["story"], []).append(i)
+    anchor_of = {
+        story: max(idxs, key=lambda i: len(clusters[i]["article_ids"]))
+        for story, idxs in positions.items()
+        if len(idxs) > 1
+    }
+    if not anchor_of:
+        return clusters
+
+    out: list[dict] = []
+    for i, c in enumerate(clusters):
+        story = c["story"]
+        if story not in anchor_of:
+            out.append(c)
+        elif i == anchor_of[story]:
+            ids = list(c["article_ids"])
+            seen = set(ids)
+            folded = 0
+            for j in positions[story]:
+                if j != i and len(clusters[j]["article_ids"]) <= absorb_max:
+                    for a in clusters[j]["article_ids"]:
+                        if a not in seen:
+                            seen.add(a)
+                            ids.append(a)
+                    folded += 1
+            if folded:
+                logger.info("cluster: folded %d stray(s) into %r (now %d articles)", folded, story, len(ids))
+            out.append({"story": story, "article_ids": ids})
+        elif len(c["article_ids"]) <= absorb_max:
+            continue  # folded into its anchor above
+        else:
+            # error, not warning: two substantial clusters colliding on a modal label is an
+            # unexpected upstream condition worth chasing (surfaced above routine noise). Non-fatal
+            # -- they are kept separate and the render layer guards against duplicate summaries.
+            logger.error(
+                "cluster: two substantial clusters share label %r (this one has %d articles) -- left "
+                "separate; render layer guards against duplicate thread summaries",
+                story,
+                len(c["article_ids"]),
+            )
+            out.append(c)
+    return out
 
 
 def _merge_usage(rows: list[dict]) -> dict:

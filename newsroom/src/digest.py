@@ -4,6 +4,7 @@ import json
 import logging
 import re
 import time
+from collections import Counter
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -238,6 +239,24 @@ def cleanup_shown_headlines():
         headlines_file.unlink()
 
 
+def _shared_cluster_ids(selections: dict) -> set[str]:
+    """cluster_ids carried by 2+ selected items across both tiers.
+
+    ``attach_thread_context`` looks up the thread delta by ``cluster_id`` and the delta REPLACES the
+    summary, so two selections sharing a cluster_id would render an identical card (the run-235 bug).
+    A collision reaches here two ways: a residual duplicate cluster *label*, or the coarse
+    ``merge._attach_cluster_id`` heuristic (first source that maps to any cluster) assigning one
+    cluster_id to two genuinely distinct stories. Either way, thread enrichment must be skipped.
+    """
+    counts = Counter(
+        item.get("cluster_id")
+        for tier in ("must_know", "should_know")
+        for item in selections.get(tier, [])
+        if item.get("cluster_id")
+    )
+    return {cid for cid, n in counts.items() if n > 1}
+
+
 def attach_thread_context(selections: dict) -> dict:
     """Enrich continuing-thread stories with their badge day-count + delta (today's verified
     what's-new, which replaces the summary) so the renderer can show the living-thread treatment.
@@ -258,12 +277,28 @@ def attach_thread_context(selections: dict) -> dict:
         if run_id is None or not assignments_path.exists():
             return selections
         by_story = {a["story"]: a for a in json.loads(assignments_path.read_text()) if not a.get("is_new")}
+        # A shared cluster_id would give both stories the SAME delta (which replaces the summary),
+        # rendering identical cards. Skip enrichment for those (they keep their distinct WRITE
+        # summaries) rather than drop them -- degrade the garnish, never the story.
+        shared = _shared_cluster_ids(selections)
         conn = sqlite3.connect(config.DB_PATH)
         try:
             store = threads.ThreadStore(conn)
             for tier in ("must_know", "should_know"):
                 for item in selections.get(tier, []):
-                    assignment = by_story.get(item.get("cluster_id"))
+                    cluster_id = item.get("cluster_id")
+                    if cluster_id in shared:
+                        # error, not warning: reaching here means an upstream invariant broke (a
+                        # residual duplicate cluster label or a coarse _attach_cluster_id mapping) --
+                        # a real defect to chase, surfaced above routine WARNING noise. Non-fatal.
+                        logger.error(
+                            "Skipping thread enrichment for %r: cluster_id %r shared by multiple "
+                            "selections (thread delta would render them identically)",
+                            item.get("headline"),
+                            cluster_id,
+                        )
+                        continue
+                    assignment = by_story.get(cluster_id)
                     if assignment:
                         item["thread"] = store.render_context(assignment["thread_id"], run_id)
         finally:

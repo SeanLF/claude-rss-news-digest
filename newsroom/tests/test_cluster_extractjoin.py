@@ -103,6 +103,91 @@ def test_join_empty_and_single_are_safe():
     assert _all_ids(one) == ["A1"]
 
 
+# --------------------------------------------------------------------------- #
+# story-label uniqueness: join_tags must not emit two clusters with the SAME
+# `story`, because downstream (cluster_id, thread linking, digest by_story) keys
+# on that label as a unique story identity. The join separates on the full tag
+# bag but derives `story` from the *modal* primary_event, so two tag-disjoint
+# clusters can collide on the label (the run-235 identical-card bug).
+# --------------------------------------------------------------------------- #
+def test_join_folds_stray_into_same_label_anchor():
+    """A small stray cluster sharing a modal label is absorbed into the larger one.
+
+    Single-token primary_event keeps the shared weight low enough that the raw join
+    separates A3 from {A1,A2} (verified: multi-word pe would merge, making this vacuous;
+    single-token pe -> cosine ~0.17, distance ~0.83 >= 0.80 -> separate). Both take
+    "zzevent" as their modal label; the fix folds the stray so the label stays unique.
+    """
+    ids = ["A1", "A2", "A3"]
+    tags = {
+        "A1": {"entities": ["alpha", "gamma"], "keywords": ["k1"], "primary_event": "zzevent"},
+        "A2": {"entities": ["alpha", "gamma"], "keywords": ["k1"], "primary_event": "zzevent"},
+        "A3": {"entities": ["bravo", "delta"], "keywords": ["k2"], "primary_event": "zzevent"},
+    }
+    clusters = cej.join_tags(ids, tags, threshold=0.80)
+    stories = [c["story"] for c in clusters]
+    assert len(stories) == len(set(stories)), f"duplicate story labels leaked: {stories}"
+    assert _all_ids(clusters) == ids  # every article survives exactly once
+
+
+def test_join_leaves_two_substantial_same_label_clusters_separate():
+    """Two LARGE (>2) clusters sharing a modal label are NOT force-merged.
+
+    Force-merging distinct multi-article stories is worse than the label collision,
+    which the render layer guards against instead. Only strays (<=2) fold.
+    """
+    ids = [f"A{i}" for i in range(1, 9)]
+    tags = {}
+    for i in range(1, 5):  # 4-article group
+        tags[f"A{i}"] = {"entities": ["alpha", "gamma"], "keywords": ["k1"], "primary_event": "zzevent"}
+    for i in range(5, 9):  # 4-article group, tag-disjoint, same modal label
+        tags[f"A{i}"] = {"entities": ["bravo", "delta"], "keywords": ["k2"], "primary_event": "zzevent"}
+    clusters = cej.join_tags(ids, tags, threshold=0.80)
+    zz = [c for c in clusters if c["story"] == "zzevent"]
+    assert len(zz) == 2, "two substantial same-label clusters should be left separate"
+    assert _all_ids(clusters) == ids
+
+
+def test_merge_same_story_folds_strays_preserves_order_and_distinct():
+    """Unit: fold small same-label siblings into the largest; leave distinct labels + big siblings alone."""
+    clusters = [
+        {"story": "Big Iran", "article_ids": ["A1", "A2", "A3"]},
+        {"story": "Ukraine", "article_ids": ["A4"]},
+        {"story": "Big Iran", "article_ids": ["A5"]},  # stray -> folds into the 3-article anchor
+        {"story": "Big Iran", "article_ids": ["A6", "A7"]},  # stray (<=2) -> folds too
+    ]
+    out = cej._merge_same_story(clusters)
+    assert out == [
+        {"story": "Big Iran", "article_ids": ["A1", "A2", "A3", "A5", "A6", "A7"]},
+        {"story": "Ukraine", "article_ids": ["A4"]},
+    ]
+
+
+def test_merge_same_story_keeps_large_siblings_separate():
+    """Unit: two clusters over the stray cutoff sharing a label are both retained."""
+    clusters = [
+        {"story": "S", "article_ids": ["A1", "A2", "A3"]},
+        {"story": "S", "article_ids": ["A4", "A5", "A6"]},
+    ]
+    out = cej._merge_same_story(clusters)
+    assert out == clusters  # neither is a stray -> untouched
+
+
+def test_merge_same_story_tie_anchor_is_first_and_strays_fold_across_all():
+    """Unit: 3+ same-label clusters with a max-size tie -- the first max is the anchor, every stray
+    folds into it (even one positioned after a substantial sibling), and substantial siblings stay."""
+    clusters = [
+        {"story": "S", "article_ids": ["A1", "A2", "A3"]},  # tie for largest -> anchor (first)
+        {"story": "S", "article_ids": ["A4", "A5", "A6"]},  # tie for largest, but not first -> kept
+        {"story": "S", "article_ids": ["A7"]},  # stray -> folds into the first max
+    ]
+    out = cej._merge_same_story(clusters)
+    assert out == [
+        {"story": "S", "article_ids": ["A1", "A2", "A3", "A7"]},
+        {"story": "S", "article_ids": ["A4", "A5", "A6"]},
+    ]
+
+
 def test_join_empty_tags_do_not_collapse_into_one_blob():
     """Degenerate guard: articles with no tags become singletons, never a giant junk cluster."""
     ids = [f"A{i}" for i in range(1, 5)]
