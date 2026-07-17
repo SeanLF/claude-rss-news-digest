@@ -220,7 +220,17 @@ def audit_whats_new(
     text = _run_sonnet("\n\n".join(claims), AUDIT_SYSTEM, model=model, subagent="thread_audit", usage_rows=usage_rows)
     verdicts = _parse_json(text).get("verdicts", [])
     supported_by_id = {v.get("id"): v.get("supported", True) for v in verdicts}
-    return [bool(supported_by_id.get(i, True)) for i in range(1, len(whats_new) + 1)]
+    # Require an EXPLICIT verdict for every claim 1..N. A malformed audit (0-indexed, string, or
+    # duplicate ids) otherwise leaves some claim absent from the map and silently defaults it to
+    # supported -- passing an unaudited fact into the reader-facing delta. Raise instead: the caller
+    # counts it as an audit_failure and fails open LOUDLY, which is this audit's documented contract.
+    claim_ids = range(1, len(whats_new) + 1)
+    missing = [i for i in claim_ids if i not in supported_by_id]
+    if missing:
+        raise ValueError(
+            f"audit verdicts missing/misaligned for claim(s) {missing} (got ids {sorted(supported_by_id, key=str)})"
+        )
+    return [bool(supported_by_id[i]) for i in claim_ids]
 
 
 def apply_installment(store, assignment, installment: dict, supported: list[bool], run_id: int) -> dict:

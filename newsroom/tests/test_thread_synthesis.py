@@ -226,6 +226,28 @@ def test_audit_whats_new_raises_on_llm_error(monkeypatch):
         ts.audit_whats_new(wn, ARTS)
 
 
+def test_audit_whats_new_maps_each_claim_to_its_verdict(monkeypatch):
+    monkeypatch.setattr(
+        ts, "_run_sonnet", lambda *a, **k: '{"verdicts": [{"id": 1, "supported": true}, {"id": 2, "supported": false}]}'
+    )
+    wn = [{"fact": "a", "sources": ["A1"]}, {"fact": "b", "sources": ["A1"]}]
+    assert ts.audit_whats_new(wn, ARTS) == [True, False]
+
+
+def test_audit_whats_new_raises_when_verdicts_miss_a_claim(monkeypatch):
+    # A malformed audit (0-indexed ids here) leaves the last claim with no explicit verdict. It must
+    # RAISE -- so synthesize_threads counts it + fails open LOUDLY -- rather than silently defaulting
+    # that claim to supported, which would slip an unaudited (possibly fabricated) fact into the delta.
+    monkeypatch.setattr(
+        ts,
+        "_run_sonnet",
+        lambda *a, **k: '{"verdicts": [{"id": 0, "supported": false}, {"id": 1, "supported": false}]}',
+    )
+    wn = [{"fact": "a", "sources": ["A1"]}, {"fact": "b", "sources": ["A1"]}]
+    with pytest.raises(ValueError):
+        ts.audit_whats_new(wn, ARTS)
+
+
 def test_synthesize_threads_audit_failure_is_fail_open_and_recorded(store):
     tid = _seed_thread(store)
     a = threads.ThreadAssignment(thread_id=tid, is_new=False, cluster_story="g", article_ids=["A1", "A2"])
