@@ -47,8 +47,13 @@ pub struct AppState {
     pub source_url: Option<String>,
     pub resend_api_key: Option<String>,
     pub resend_audience_id: Option<String>,
-    /// Address that reader feedback goes to (the digest's sending address,
-    /// `RESEND_FROM`). Powers the web `mailto:` suggestion line; absent -> no line.
+    /// The email send address (`RESEND_FROM`) used as the `From` on outbound mail. May be a
+    /// send-only address on the sending subdomain, so it is deliberately NOT the reply/contact
+    /// target -- see `feedback_email`.
+    pub from_email: Option<String>,
+    /// Contact address readers reply to and the web `mailto:` points at (`CONTACT_EMAIL`,
+    /// falling back to `RESEND_FROM`). A real monitored inbox, distinct from the send-only
+    /// `from_email`. Absent -> no `mailto:` line.
     pub feedback_email: Option<String>,
     /// Content-hashed URL of the served woff2 (`/assets/fonts/source-serif-4.{sha}.woff2`),
     /// computed once at startup. Templates emit the `@font-face src` from this; the digest
@@ -144,7 +149,19 @@ async fn main() {
     let source_url = std::env::var("SOURCE_URL").ok();
     let resend_api_key = std::env::var("RESEND_API_KEY").ok();
     let resend_audience_id = std::env::var("RESEND_AUDIENCE_ID").ok();
-    let feedback_email = std::env::var("RESEND_FROM").ok();
+    // Send address (the email From). Send-only when it lives on the sending subdomain, so it
+    // is NOT where replies or the web `mailto:` should point. Empty -> None so the confirmation
+    // guard fails loud rather than sending a "Name <>" From.
+    let from_email = std::env::var("RESEND_FROM").ok().filter(|s| !s.is_empty());
+    // Contact address: where reader replies and the web `mailto:` go. A real, monitored inbox
+    // (`CONTACT_EMAIL`), distinct from the send-only From. `.filter` treats an EMPTY value the
+    // same as unset (terraform can interpolate ""), so both fall through to RESEND_FROM rather
+    // than yielding a dead mailto / empty Reply-To -- matching the SUBSCRIBE_TOKEN_SECRET read
+    // below and the Python side's falsy-empty handling.
+    let feedback_email = std::env::var("CONTACT_EMAIL")
+        .ok()
+        .filter(|s| !s.is_empty())
+        .or_else(|| std::env::var("RESEND_FROM").ok().filter(|s| !s.is_empty()));
     let subscribe_token_secret = std::env::var("SUBSCRIBE_TOKEN_SECRET")
         .ok()
         .filter(|s| !s.is_empty());
@@ -189,6 +206,7 @@ async fn main() {
         source_url,
         resend_api_key,
         resend_audience_id,
+        from_email,
         feedback_email,
         font_url: font_url.clone(),
         http_client,

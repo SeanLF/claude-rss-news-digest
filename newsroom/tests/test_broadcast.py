@@ -174,3 +174,30 @@ def test_resend_existing_raises_when_not_accepted(monkeypatch):
     monkeypatch.setattr(broadcast.resend.Broadcasts, "get", lambda _id: {"status": "draft"})
     with pytest.raises(resend.exceptions.ResendError):
         broadcast.resend_existing("bc_old")
+
+
+def _capture_broadcast_create(monkeypatch):
+    """Wire up a broadcast that succeeds and capture the params passed to Broadcasts.create."""
+    captured: dict = {}
+    monkeypatch.setattr(broadcast.resend.Contacts, "list", lambda **kw: {"data": [{"id": "c1"}]})
+    monkeypatch.setattr(broadcast.resend.Broadcasts, "create", lambda p: (captured.update(p), {"id": "bc_1"})[1])
+    monkeypatch.setattr(broadcast.resend.Broadcasts, "send", lambda _id: {"id": _id})
+    monkeypatch.setattr(broadcast.resend.Broadcasts, "get", lambda _id: {"status": "sent"})
+    return captured
+
+
+def test_broadcast_sets_reply_to_from_contact_email(monkeypatch):
+    """CONTACT_EMAIL becomes the broadcast reply_to so replies reach a monitored inbox,
+    not the (possibly send-only) From address."""
+    monkeypatch.setenv("CONTACT_EMAIL", "news-digest@seanfloyd.dev")
+    captured = _capture_broadcast_create(monkeypatch)
+    broadcast.send_broadcast("<html>d</html>")
+    assert captured["reply_to"] == "news-digest@seanfloyd.dev"
+
+
+def test_broadcast_omits_reply_to_when_contact_email_unset(monkeypatch):
+    """No CONTACT_EMAIL -> no reply_to key, so replies fall back to From (the old behaviour)."""
+    monkeypatch.delenv("CONTACT_EMAIL", raising=False)
+    captured = _capture_broadcast_create(monkeypatch)
+    broadcast.send_broadcast("<html>d</html>")
+    assert "reply_to" not in captured

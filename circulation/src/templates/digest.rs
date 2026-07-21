@@ -154,7 +154,8 @@ pub fn digest_nav_html(date: &str) -> String {
 /// (spec §4), the digest date prefilled in the subject; otherwise the empty string.
 pub fn web_feedback_html(date: &str, feedback_email: Option<&str>) -> String {
     // date is a validated YYYY-MM-DD and feedback_email is trusted config
-    // (RESEND_FROM), so the mailto is safe to build without extra encoding. Its own
+    // (CONTACT_EMAIL, falling back to RESEND_FROM), so the mailto is safe to build
+    // without extra encoding. Its own
     // invitation line (not a middot footer link) so the feedback channel is obvious
     // -- the web parallel to the email's "just hit reply".
     feedback_email

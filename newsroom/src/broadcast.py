@@ -89,6 +89,14 @@ def resend_existing(broadcast_id: str) -> str:
         return status
 
 
+def _reply_to_params() -> dict[str, str]:
+    """Reply-To params for a Resend send: route replies to the monitored contact
+    inbox (CONTACT_EMAIL), not the possibly send-only From. Empty when CONTACT_EMAIL
+    is unset, so replies fall back to the From address (the old behaviour)."""
+    reply_to = os.environ.get("CONTACT_EMAIL")
+    return {"reply_to": reply_to} if reply_to else {}
+
+
 def get_audience_contact_count(audience_id: str) -> int:
     """Get number of contacts in an audience."""
     try:
@@ -130,6 +138,7 @@ def send_broadcast(email_html: str, on_created=None) -> BroadcastResult:
                 "subject": f"{digest_name} – {date_str}",
                 "html": content,
                 "name": f"Digest {date_str}",
+                **_reply_to_params(),
             },
         )
         broadcast_id = broadcast["id"]
@@ -205,6 +214,7 @@ def send_test_digest(html: str, to_addr: str, *, subject_prefix: str = "[TEST] "
                 "to": [to_addr],
                 "subject": f"{subject_prefix}{digest_name} – {date_str} ({nonce})",
                 "html": html,
+                **_reply_to_params(),
             },
         )
     except resend.exceptions.ResendError as e:

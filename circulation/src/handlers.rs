@@ -690,21 +690,24 @@ async fn send_confirmation_email(
     email: &str,
     confirm_url: &str,
 ) -> Result<(), ()> {
-    let Some((api_key, from)) = state
-        .resend_api_key
-        .as_ref()
-        .zip(state.feedback_email.as_ref())
-    else {
+    let Some((api_key, from)) = state.resend_api_key.as_ref().zip(state.from_email.as_ref()) else {
         tracing::error!(email = %email, "cannot send confirmation: Resend not configured");
         return Err(());
     };
 
-    let payload = serde_json::json!({
+    let mut payload = serde_json::json!({
         "from": format!("{} <{}>", state.digest_name, from),
         "to": [email],
         "subject": format!("Confirm your subscription to {}", state.digest_name),
         "html": confirmation_email_html(&state.digest_name, confirm_url),
+        // A text/plain alternative alongside the HTML: multipart mail is a real deliverability
+        // signal (HTML-only scores worse with spam filters) and is what text-mode clients show.
+        "text": confirmation_email_text(&state.digest_name, confirm_url),
     });
+    // Replies land in the monitored contact inbox, not the (possibly send-only) From address.
+    if let Some(reply_to) = state.feedback_email.as_deref() {
+        payload["reply_to"] = serde_json::Value::String(reply_to.to_string());
+    }
 
     let req = state
         .http_client
@@ -724,6 +727,18 @@ fn confirmation_email_html(digest_name: &str, confirm_url: &str) -> String {
   <p style="margin:0 0 24px;"><a href="{confirm_url}" style="display:inline-block;background:#c45a3b;color:#fff;text-decoration:none;padding:12px 24px;border-radius:6px;font-size:15px;font-weight:600;">Confirm subscription</a></p>
   <p style="font-size:13px;line-height:1.5;color:#888;margin:0;">If you didn't request this, just ignore this email — you won't be subscribed.</p>
 </div>"#
+    )
+}
+
+/// Plain-text alternative for the confirmation email. Mirrors the HTML's single action so a
+/// text-mode client -- and the spam filters that penalise HTML-only mail -- see the same intent
+/// and the same link.
+fn confirmation_email_text(digest_name: &str, confirm_url: &str) -> String {
+    format!(
+        "Confirm your subscription\n\n\
+         Confirm you want the {digest_name} morning briefing in your inbox by opening this link:\n\
+         {confirm_url}\n\n\
+         If you didn't request this, just ignore this email — you won't be subscribed.\n"
     )
 }
 
@@ -1426,6 +1441,19 @@ mod tests {
             "body should start with PNG magic bytes"
         );
     }
+
+    #[test]
+    fn confirmation_email_text_carries_the_link_and_intent_without_html() {
+        let text = confirmation_email_text(
+            "Sean's Digest",
+            "https://news-digest.seanfloyd.dev/confirm?token=abc",
+        );
+        assert!(text.contains("https://news-digest.seanfloyd.dev/confirm?token=abc"));
+        assert!(text.contains("Sean's Digest"));
+        assert!(text.contains("ignore this email"));
+        // A plain-text alternative must not carry HTML markup.
+        assert!(!text.contains('<'), "text/plain part should have no tags");
+    }
 }
 
 #[cfg(test)]
@@ -1472,6 +1500,7 @@ mod feed_tests {
             source_url: None,
             resend_api_key: None,
             resend_audience_id: None,
+            from_email: None,
             feedback_email: None,
             font_url: "/assets/fonts/source-serif-4.test.woff2".to_string(),
             http_client: Client::new(),
@@ -1626,6 +1655,7 @@ mod feed_tests {
             source_url: None,
             resend_api_key: None,
             resend_audience_id: None,
+            from_email: None,
             feedback_email: None,
             font_url: "/assets/fonts/source-serif-4.deadbeef.woff2".to_string(),
             http_client: Client::new(),
@@ -2135,6 +2165,7 @@ mod subscribe_handler_tests {
             source_url: None,
             resend_api_key: None,
             resend_audience_id: None,
+            from_email: None,
             feedback_email: None,
             font_url: "/assets/fonts/source-serif-4.test.woff2".to_string(),
             http_client: reqwest::Client::new(),

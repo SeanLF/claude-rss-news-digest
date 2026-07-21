@@ -15,7 +15,8 @@ pub struct FeedbackParams<'a> {
     pub font_url: &'a str,
     pub topbar_html: &'a str,
     pub footer_html: &'a str,
-    /// The address a `mailto:` CTA targets (the digest's `RESEND_FROM`). Absent → CTA is reply-only.
+    /// The address a `mailto:` CTA targets (the contact inbox: `CONTACT_EMAIL`, falling back to
+    /// `RESEND_FROM`). Absent → CTA is reply-only.
     pub mailto: Option<&'a str>,
     /// The "reply to today's issue" link target (the stable `/today` route).
     pub today_url: &'a str,
