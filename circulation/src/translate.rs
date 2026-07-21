@@ -301,6 +301,12 @@ mod tests {
             feedback_email: None,
             font_url: "/assets/fonts/source-serif-4.test.woff2".to_string(),
             http_client: reqwest::Client::new(),
+            subscribe_limiter: crate::handlers::RateLimiter::new(
+                5,
+                std::time::Duration::from_secs(3600),
+            ),
+            subscribe_token_secret: None,
+            double_opt_in: false,
         })
     }
 

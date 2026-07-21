@@ -5,6 +5,7 @@ edition = "2024"
 
 [dependencies]
 axum = "0.8.8"
+axum-client-ip = "1.3"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "net"] }
 rusqlite = { version = "0.39", features = ["bundled"] }
 reqwest = { version = "0.13", default-features = false, features = ["json", "rustls"] }
@@ -14,6 +15,16 @@ tower = "0.5"
 tower-http = { version = "0.6", features = ["normalize-path", "trace"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+# Offline email syntax + disposable-domain validation (no third-party API, no PII egress).
+mailchecker = "6"
+# Signed confirmation tokens for stateless double opt-in.
+hmac = "0.12"
+sha2 = "0.10"
+base64 = "0.22"
+# Serve-time HTML->Markdown of the stored digest blob for the `.md` / `Accept: text/markdown`
+# LLM-visibility routes. Single source stays the stored HTML; Markdown is derived, never a
+# second content store.
+htmd = "0.5"
 
 [profile.release]
 opt-level = "z"

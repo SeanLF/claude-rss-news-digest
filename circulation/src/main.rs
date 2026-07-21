@@ -2,6 +2,7 @@ mod archive;
 mod assets;
 mod feed;
 mod handlers;
+mod markdown;
 mod search;
 mod stats;
 mod templates;
@@ -12,9 +13,11 @@ mod util;
 use axum::Router;
 use axum::ServiceExt;
 use axum::routing::{get, post};
+use handlers::RateLimiter;
 use reqwest::Client;
 use rusqlite::{Connection, OpenFlags};
 use std::sync::Arc;
+use std::time::Duration;
 use tower::Layer;
 use tower_http::normalize_path::NormalizePathLayer;
 use tower_http::trace::TraceLayer;
@@ -53,9 +56,29 @@ pub struct AppState {
     /// immutable cached download.
     pub font_url: String,
     pub http_client: Client,
+    /// Per-IP rate limiter for the subscribe endpoint. Stops one source from bombing the
+    /// Resend audience with junk contacts (see the immenseignite.info spam-signup incident).
+    pub subscribe_limiter: RateLimiter,
+    /// HMAC secret (`SUBSCRIBE_TOKEN_SECRET`) that signs double opt-in confirmation tokens.
+    /// `None` disables signed confirmations regardless of `double_opt_in`.
+    pub subscribe_token_secret: Option<String>,
+    /// Whether new signups go through double opt-in (`SUBSCRIBE_DOUBLE_OPT_IN`, default true).
+    /// The rollback lever: off restores instant direct-add.
+    pub double_opt_in: bool,
 }
 
 impl AppState {
+    /// The signing secret to use when double opt-in is active, else `None` (direct-add
+    /// fallback). Active requires both the flag on and a secret present; the flag-on-but-
+    /// secret-missing misconfiguration is warned about once at startup, not per request.
+    pub fn double_opt_in_secret(&self) -> Option<&str> {
+        if self.double_opt_in {
+            self.subscribe_token_secret.as_deref()
+        } else {
+            None
+        }
+    }
+
     /// Privacy policy URL, derived from homepage or falling back to a local path.
     pub fn privacy_url(&self) -> String {
         self.homepage_url
@@ -122,6 +145,36 @@ async fn main() {
     let resend_api_key = std::env::var("RESEND_API_KEY").ok();
     let resend_audience_id = std::env::var("RESEND_AUDIENCE_ID").ok();
     let feedback_email = std::env::var("RESEND_FROM").ok();
+    let subscribe_token_secret = std::env::var("SUBSCRIBE_TOKEN_SECRET")
+        .ok()
+        .filter(|s| !s.is_empty());
+    // Double opt-in defaults on; only an explicit "false"/"0" disables it.
+    let double_opt_in = std::env::var("SUBSCRIBE_DOUBLE_OPT_IN")
+        .map(|v| !matches!(v.trim().to_ascii_lowercase().as_str(), "false" | "0" | "no"))
+        .unwrap_or(true);
+    if double_opt_in && subscribe_token_secret.is_none() {
+        tracing::warn!(
+            "SUBSCRIBE_DOUBLE_OPT_IN is on but SUBSCRIBE_TOKEN_SECRET is unset; \
+             subscribe will fall back to instant direct-add (no confirmation email)"
+        );
+    }
+    if subscribe_token_secret
+        .as_deref()
+        .is_some_and(|s| s.len() < 16)
+    {
+        tracing::warn!(
+            "SUBSCRIBE_TOKEN_SECRET is shorter than 16 chars; use a high-entropy secret \
+             (e.g. `openssl rand -base64 32`)"
+        );
+    }
+    // Double opt-in needs an absolute confirmation URL, which requires DIGEST_DOMAIN. Without it
+    // every confirm link is host-less and dead, and subscribe fails closed (see handlers::subscribe).
+    if double_opt_in && subscribe_token_secret.is_some() && digest_domain.is_none() {
+        tracing::warn!(
+            "double opt-in is active but DIGEST_DOMAIN is unset; confirmation links cannot be \
+             built and signups will fail until it is set"
+        );
+    }
     let http_client = Client::new();
 
     // Fingerprint the compiled-in woff2 once; the route path and every `@font-face src`
@@ -139,15 +192,26 @@ async fn main() {
         feedback_email,
         font_url: font_url.clone(),
         http_client,
+        // 5 subscribe attempts per hour per IP: far above any real person (who subscribes
+        // once) but tight enough to shut down bombing. Legitimate shared-NAT signups are
+        // rare for a personal digest; bump if that ever bites.
+        subscribe_limiter: RateLimiter::new(5, Duration::from_secs(3600)),
+        subscribe_token_secret,
+        double_opt_in,
     });
 
     let app = Router::new()
         .route("/", get(handlers::index))
         .route("/subscribe", post(handlers::subscribe))
+        .route("/confirm", get(handlers::confirm))
         .route("/privacy", get(handlers::privacy))
         .route("/health", get(handlers::health))
         .route("/favicon.ico", get(handlers::favicon))
         .route("/robots.txt", get(handlers::robots_txt))
+        // LLM-visibility discovery files + the archive index as Markdown.
+        .route("/llms.txt", get(handlers::llms_txt))
+        .route("/llms-full.txt", get(handlers::llms_full_txt))
+        .route("/index.md", get(handlers::index_md))
         .route("/apple-touch-icon.png", get(handlers::apple_touch_icon))
         .route(
             "/apple-touch-icon-precomposed.png",
