@@ -1,8 +1,8 @@
 # News Digest
 
-A fully autonomous, fully transparent AI news desk. Every morning it reads 35 feeds across five continents, clusters the day's stories, decides what matters, writes a bias-labelled briefing, fact-checks its own work, and emails it. No human edits any issue. It runs for a few dollars a day.
+A transparent, self-hostable AI news desk you run yourself. Every morning it reads 35 feeds across five continents, clusters the day's stories, decides what matters, writes a bias-labelled briefing, fact-checks its own work, and emails it -- no human edits any issue. Clone it and run your own for a few dollars a day, or read the [live instance](https://news-digest.seanfloyd.dev).
 
-Live instance: **[Sean's Daily Digest](https://news-digest.seanfloyd.dev)** · [today's issue](https://news-digest.seanfloyd.dev/today) · [public stats](https://news-digest.seanfloyd.dev/stats) · [sources + bias](https://news-digest.seanfloyd.dev/sources)
+Every choice it makes is inspectable: real [subscriber and cost numbers](https://news-digest.seanfloyd.dev/stats), every source [labelled by political bias and factuality](https://news-digest.seanfloyd.dev/sources), and the code that does it all right here.
 
 ## What makes it different
 
@@ -12,7 +12,13 @@ Live instance: **[Sean's Daily Digest](https://news-digest.seanfloyd.dev)** · [
 - **It fact-checks itself.** A final `COHERENCE` pass re-reads every headline and summary against its source articles; anything that fails is dropped before send, not after.
 - **Cheap clustering by design.** Grouping is a deterministic extract-then-join (entities + event + time per article, then a join), not a holistic LLM pass over everything. Lower cost, less drift.
 - **Evolving story threads.** Ongoing stories are tracked across days, so a returning reader sees what changed rather than a fresh fragment.
-- **Radical transparency.** A public [stats page](https://news-digest.seanfloyd.dev/stats) shows real subscriber numbers, the balance of sources across the political spectrum, and the AI cost per issue. Every source is [labelled by political bias and factuality](https://news-digest.seanfloyd.dev/sources). And the code is right here.
+- **Radical transparency.** A public [stats page](https://news-digest.seanfloyd.dev/stats) shows real subscriber numbers, source balance across the political spectrum, and the AI cost per issue. Every source is [labelled by bias and factuality](https://news-digest.seanfloyd.dev/sources), and the code is right here.
+
+## What an issue looks like
+
+[![The masthead of a recent issue of Sean's Daily Digest, with its AI-written disclaimer and the lead must-know story](docs/assets/issue-screenshot.png)](https://news-digest.seanfloyd.dev/today)
+
+Each story carries a headline, a summary, a why-it-matters note, how the reporting varies across outlets, and the political balance of its sources. [See today's issue](https://news-digest.seanfloyd.dev/today).
 
 ## Architecture
 
