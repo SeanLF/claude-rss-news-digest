@@ -76,7 +76,7 @@ struct ResendContact {
 /// The subscribe-success notice (semantic OK axis, redundant glyph+word).
 const SUBSCRIBED_NOTICE: &str = r#"<p class="notice ok" role="status"><span class="ni" aria-hidden="true">✓</span> Subscribed. The next issue will land in your inbox.</p>"#;
 /// The double opt-in pending notice: signup accepted, awaiting email confirmation.
-const CHECK_INBOX_NOTICE: &str = r#"<p class="notice ok" role="status"><span class="ni" aria-hidden="true">✓</span> Almost there — check your inbox and click the link to confirm your subscription.</p>"#;
+const CHECK_INBOX_NOTICE: &str = r#"<p class="notice ok" role="status"><span class="ni" aria-hidden="true">✓</span> Almost there — check your inbox (and your spam folder, just in case) and click the link to confirm your subscription.</p>"#;
 /// Invalid/disposable address — the user's input, with an actionable next step.
 const SUBSCRIBE_INVALID_NOTICE: &str = r#"<p class="notice bad" role="alert"><span class="ni" aria-hidden="true">✕</span> That address looks invalid or disposable — please try a different email.</p>"#;
 /// Rate-limited — "try later" is the correct advice, not "try again" (which won't work now).
