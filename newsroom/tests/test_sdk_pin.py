@@ -29,7 +29,7 @@ CONSTRAINTS = NEWSROOM / "constraints-prod.txt"
 
 # The SDK version the in-repo SDK workarounds (see module docstring) were last
 # verified against. MUST equal the prod pin; bump both together, after re-verifying.
-_WORKAROUNDS_VALIDATED_THROUGH = "0.2.110"
+_WORKAROUNDS_VALIDATED_THROUGH = "0.2.124"
 
 
 def _pinned_version() -> str:
