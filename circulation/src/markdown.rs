@@ -56,7 +56,15 @@ pub fn negotiate(accept: Option<&str>) -> Negotiated {
         let mut q = 1.0f32;
         for param in segs {
             if let Some(v) = param.strip_prefix("q=") {
-                q = v.trim().parse().unwrap_or(1.0);
+                // A present q overrides the 1.0 default. Clamp valid values to [0,1] so a bogus
+                // q=2 can't outrank a real q=1; treat an unparseable/non-finite q as 0 so a
+                // garbled preference can't win a tie (never default a broken q to the strongest).
+                q = v
+                    .trim()
+                    .parse::<f32>()
+                    .ok()
+                    .filter(|p| p.is_finite())
+                    .map_or(0.0, |p| p.clamp(0.0, 1.0));
             }
         }
         let slot = match media.as_str() {
@@ -111,20 +119,36 @@ fn extract_main(html: &str) -> &str {
         if let Some(end) = rest.find("</main>") {
             return &rest[..end + "</main>".len()];
         }
+        // `<main>` opened but never closed -- a truncated/corrupt blob. Warn (chrome will leak
+        // into the derived Markdown) rather than silently shipping the masthead and footer.
+        tracing::warn!("extract_main: <main> without a closing </main>; blob may be truncated");
     }
     html
 }
 
 /// Convert the stored digest HTML blob for `date` into a standalone Markdown document. The blob
 /// is the single source; this derives a view of it. `script`/`style` are dropped so no inlined
-/// JS/CSS leaks into the text.
-pub fn issue_markdown(html_blob: &str, digest_name: &str, date: &str) -> String {
+/// JS/CSS leaks into the text. Returns `None` (with a logged error) when the blob derives an
+/// empty body or `htmd` fails -- the caller then fails loud rather than serve a hollow,
+/// title-only document to an agent.
+pub fn issue_markdown(html_blob: &str, digest_name: &str, date: &str) -> Option<String> {
     let main = extract_main(html_blob);
     let converter = HtmlToMarkdown::builder()
         .skip_tags(vec!["script", "style"])
         .build();
-    let body = converter.convert(main).unwrap_or_default();
-    format!("# {digest_name} — {date}\n\n{}\n", body.trim())
+    let body = match converter.convert(main) {
+        Ok(b) => b,
+        Err(e) => {
+            tracing::error!(%date, blob_len = html_blob.len(), error = %e, "issue markdown: htmd conversion failed");
+            return None;
+        }
+    };
+    let body = body.trim();
+    if body.is_empty() {
+        tracing::error!(%date, blob_len = html_blob.len(), "issue markdown: derived body is empty");
+        return None;
+    }
+    Some(format!("# {digest_name} — {date}\n\n{body}\n"))
 }
 
 /// Prefix a root-relative path with `base_url` when a domain is configured, else leave it
@@ -280,7 +304,7 @@ mod tests {
 <main id="main"><h2>Must Know</h2><p>A thing <a href="https://e.com">happened</a>.</p>
 <script>alert(1)</script></main>
 <footer><nav>FOOTER JUNK</nav></footer></div></body></html>"#;
-        let md = issue_markdown(blob, "News Digest", "2026-07-03");
+        let md = issue_markdown(blob, "News Digest", "2026-07-03").expect("real blob derives md");
         assert!(md.starts_with("# News Digest — 2026-07-03\n"));
         assert!(md.contains("Must Know"));
         assert!(md.contains("[happened](https://e.com)"));
@@ -294,9 +318,42 @@ mod tests {
     #[test]
     fn issue_markdown_falls_back_to_whole_doc_without_main() {
         let blob = "<html><body><h2>Legacy</h2><p>No main tag here.</p></body></html>";
-        let md = issue_markdown(blob, "D", "2026-01-01");
+        let md = issue_markdown(blob, "D", "2026-01-01").expect("legacy blob derives md");
         assert!(md.contains("Legacy"));
         assert!(md.contains("No main tag here."));
+    }
+
+    #[test]
+    fn issue_markdown_returns_none_on_empty_derivation() {
+        // Empty/whitespace blob, or a <main> containing only skipped tags, yields no body ->
+        // None, so the handler fails loud instead of serving a hollow title-only 200.
+        assert_eq!(issue_markdown("", "D", "2026-01-01"), None);
+        assert_eq!(issue_markdown("    ", "D", "2026-01-01"), None);
+        assert_eq!(
+            issue_markdown("<main><script>x()</script></main>", "D", "2026-01-01"),
+            None
+        );
+    }
+
+    #[test]
+    fn negotiate_ignores_malformed_q_and_clamps_out_of_range() {
+        // A garbled q must not silently outrank a real preference.
+        assert_eq!(
+            negotiate(Some("text/html, text/markdown;q=abc")),
+            Negotiated::Html,
+            "garbled q on markdown must not beat an explicit html preference"
+        );
+        // q=2 is clamped to 1, so it ties (not beats) html; wildcard-free explicit tie on md wins.
+        assert_eq!(
+            negotiate(Some("text/markdown;q=2.0, text/html;q=1.0")),
+            Negotiated::Markdown
+        );
+        // A clamped q=2 does not outrank an equal, explicitly-named html.
+        assert_eq!(
+            negotiate(Some("text/html, text/markdown;q=5")),
+            Negotiated::Markdown,
+            "both clamp to 1.0 -> explicit-markdown tie rule applies"
+        );
     }
 
     #[test]

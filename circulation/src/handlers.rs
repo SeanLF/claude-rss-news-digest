@@ -243,7 +243,10 @@ pub async fn index(
     Query(query): Query<IndexQuery>,
     request_headers: HeaderMap,
 ) -> Result<Response, (StatusCode, &'static str)> {
-    let unavailable = |_| (StatusCode::SERVICE_UNAVAILABLE, "Service unavailable");
+    let unavailable = |e: (StatusCode, String)| {
+        tracing::error!(status = %e.0, detail = %e.1, "index archive query failed");
+        (StatusCode::SERVICE_UNAVAILABLE, "Service unavailable")
+    };
     let meta = archive::index_meta(&state.db_path).map_err(unavailable)?;
 
     // Content negotiation: the archive index is also available as Markdown at `/index.md`. Only
@@ -775,8 +778,13 @@ fn html_response(body: String, link_header: &str) -> Response {
 fn attach_alternate_headers(resp: &mut Response, link_header: &str) {
     let headers = resp.headers_mut();
     headers.insert(VARY, HeaderValue::from_static("accept"));
-    if let Ok(v) = HeaderValue::from_str(link_header) {
-        headers.insert(LINK, v);
+    match HeaderValue::from_str(link_header) {
+        Ok(v) => {
+            headers.insert(LINK, v);
+        }
+        // The Link alternate is this feature's discovery mechanism for headless fetchers; if a
+        // bad value (e.g. a misconfigured base_url) makes it unrepresentable, don't drop it silently.
+        Err(_) => tracing::warn!(link_header, "alternate Link header rejected; not emitted"),
     }
 }
 
@@ -854,7 +862,10 @@ pub async fn llms_full_txt() -> Redirect {
 pub async fn index_md(
     State(state): State<Arc<AppState>>,
 ) -> Result<Response, (StatusCode, &'static str)> {
-    let unavailable = |_| (StatusCode::SERVICE_UNAVAILABLE, "Service unavailable");
+    let unavailable = |e: (StatusCode, String)| {
+        tracing::error!(status = %e.0, detail = %e.1, "index archive query failed");
+        (StatusCode::SERVICE_UNAVAILABLE, "Service unavailable")
+    };
     let meta = archive::index_meta(&state.db_path).map_err(unavailable)?;
     let page = archive::fetch_archive(&state.db_path, None, None, 100).map_err(unavailable)?;
     let md = markdown::index_markdown(&state.digest_name, &meta, &page.issues, &state.base_url());
@@ -1187,7 +1198,11 @@ pub async fn get_digest(
     // Markdown representation: derive it from the stored HTML blob (single source of truth) and
     // point the `Link` header back at the HTML form.
     if matches!(want, Negotiated::Markdown) {
-        let md = markdown::issue_markdown(&html, &state.digest_name, &date);
+        let Some(md) = markdown::issue_markdown(&html, &state.digest_name, &date) else {
+            // The blob exists but derives no body (logged in issue_markdown). Fail loud rather
+            // than serve a hollow, title-only document to an agent.
+            return (StatusCode::SERVICE_UNAVAILABLE, "Digest unavailable").into_response();
+        };
         return markdown_response(md, &markdown::html_link_header(&html_path));
     }
 
