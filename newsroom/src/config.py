@@ -103,6 +103,13 @@ FULLTEXT_PER_STORY = int(os.environ.get("FULLTEXT_PER_STORY", "3"))
 FULLTEXT_MAX_CHARS = int(os.environ.get("FULLTEXT_MAX_CHARS", "4000"))
 FULLTEXT_DEADLINE_S = int(os.environ.get("FULLTEXT_DEADLINE_S", "120"))
 
+# Repair-not-drop (newsroom/src/repair.py): when COHERENCE fails a headline/summary, regenerate
+# just that field from the cited sources and re-check it, instead of dropping the whole story.
+# Off by default -- the merge ladder only consumes repair_resolution.json when this is on, so a
+# stale resolution file from a prior run can never silently alter a drop decision. Strictly
+# additive + fail-closed: any repair-stage failure falls back to today's drop behaviour.
+REPAIR_ENABLED = os.environ.get("REPAIR_ENABLED", "false").lower() in ("1", "true", "yes")
+
 # GNEWS_RESOLVE_ENABLED: kill switch for resolving Google-News redirect links (Reuters/Nikkei)
 # to the publisher URL at render time. Best-effort + undocumented Google internals, so keep it
 # trivially disableable if Google breaks the RPC (the gnews_live canary flags that).

@@ -143,7 +143,7 @@ def run_checks(fix_mode: bool, full_mode: bool) -> int:
         steps.append(("Style: Python", py_cmd("ruff", "check", *ruff_config, "newsroom/src/", "newsroom/tests/"), None))
         steps.append(("Format: Python (check)", py_cmd("ruff", "format", "--check", *ruff_config, "newsroom/src/", "newsroom/tests/"), None))
 
-    steps.append(("Types: Python", py_cmd("mypy", "--config-file", "newsroom/pyproject.toml", "newsroom/src/run.py", "newsroom/src/merge.py", "newsroom/src/schema.py"), None))
+    steps.append(("Types: Python", py_cmd("mypy", "--config-file", "newsroom/pyproject.toml", "newsroom/src/run.py", "newsroom/src/merge.py", "newsroom/src/repair.py", "newsroom/src/schema.py"), None))
     steps.append(("Security: Python", py_cmd("bandit", "-c", "newsroom/pyproject.toml", "-r", "newsroom/src/run.py", "newsroom/src/merge.py", "newsroom/src/schema.py", "-q"), None))
 
     # Dependency vulnerability scan (pip-audit, only with --full) -- mirrors Rust's cargo audit.

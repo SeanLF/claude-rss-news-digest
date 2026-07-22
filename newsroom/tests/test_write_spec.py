@@ -67,3 +67,51 @@ def test_why_it_matters_section_grounds_stakes_in_cited_articles():
     section = text[idx : idx + 1500].lower()
     assert "cited" in section
     assert "general knowledge" in section or "background knowledge" in section
+
+
+# --- Repair-not-drop Step 0: WRITE-side prevention one-liners -----------------
+# The COHERENCE reframe (feat/coherence-reframe-sonnet5) catches three error
+# classes that are cheaper to PREVENT in WRITE than to repair downstream. Each
+# rule pins one run-245 hard-positive that the current prompt does not explicitly
+# block. Prevention costs zero recall, so these are the first repair-not-drop
+# lever (HANDOVER.md Step 0).
+
+
+def test_anti_overstatement_blocks_stronger_quantifier():
+    """run-245 idx 3: headline said tariffs on 'most' Canadian goods when sources
+    said 'some' / ~5% of exports. The existing 'qualifier MORE specific' bullet
+    did not catch it (all six reframe runs missed it). WRITE must explicitly
+    forbid using a quantifier stronger than the source's -- and it must apply to
+    headlines, where this one shipped."""
+    text = _body().lower()
+    assert "quantifier" in text
+    # The rule must be scoped to headlines, not summaries alone.
+    idx = text.index("quantifier")
+    window = text[max(0, idx - 400) : idx + 400]
+    assert "headline" in window
+
+
+def test_anti_overstatement_blocks_uncited_duration():
+    """run-245 idx 4: summary said Burnham replaced Starmer 'after barely two
+    years in office' -- a tenure length no cited source stated. WRITE must
+    require a cited source for a duration / length-of-tenure specific."""
+    text = _body().lower()
+    assert "tenure" in text or "duration" in text
+    idx = text.index("tenure" if "tenure" in text else "duration")
+    window = text[max(0, idx - 300) : idx + 300]
+    assert "cited" in window or "source" in window
+
+
+def test_thin_source_summary_cap():
+    """run-245 idx 15: the China-chips story's sole source was a bare 12-word
+    headline with no full text, yet the summary invented two clauses. WRITE must
+    cap a thin-source story (sole cited source is a bare headline, no full text)
+    to a single sentence with no added specifics. Anchored on 'bare headline'
+    (absent today) so the assertion fails until the real rule lands, and requires
+    a sentence-cap co-located with it -- not the incidental 'One sentence' in the
+    why_it_matters instruction."""
+    text = _body().lower()
+    assert "bare headline" in text
+    idx = text.index("bare headline")
+    window = text[max(0, idx - 350) : idx + 350]
+    assert "one sentence" in window or "single sentence" in window or "one-sentence" in window

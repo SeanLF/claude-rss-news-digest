@@ -12,10 +12,19 @@ import re
 import unicodedata
 from pathlib import Path
 
+import config
 from eval_graders import grade_selections
 from schema import SELECTIONS_SCHEMA, validate_selections
 
 logger = logging.getLogger(__name__)
+
+# The only fields repair-not-drop regenerates in the MVP, and the fields merge
+# may patch back onto a kept story. A why_it_matters failure is independently
+# blank-able here (see _why_it_matters_only_failure), not repaired in the MVP; a
+# failure set naming any OTHER field, or mixing in why_it_matters, stays on the
+# whole-story drop path. Single source of truth -- repair.py imports this. A
+# frozenset so it serves both merge's membership test and repair's subset check.
+_REPAIRABLE_FIELDS = frozenset({"headline", "summary"})
 
 # Footer garnish length cap -- matches SELECTIONS_SCHEMA's not_covered_blurb maxLength
 # (see eval_graders.GraderLimits.preheader_max_chars for the same pattern).
@@ -146,6 +155,90 @@ def _grade_assembled(selections: dict) -> None:
     logger.warning("L1 graders flagged %d check(s) (non-fatal):", len(failures))
     for check in failures:
         logger.warning("  [%s] %s", check.name, check.detail)
+
+
+def _repairable_flagged_fields(hit_results) -> set[str] | None:
+    """The repairable fields flagged across a story's matching coherence failures,
+    or None if the story is not fully repair-eligible.
+
+    Returns None (story is NOT a repair candidate -> leave on the blank/drop
+    path) if ANY matching failure has a malformed failed_fields, or names a field
+    outside {headline, summary} (a why_it_matters or unknown-field failure). Only
+    when every matching failure is a clean headline/summary case do we return the
+    union of flagged fields, which the ladder requires the patch to match exactly.
+    """
+    flagged: set[str] = set()
+    for result in hit_results:
+        fields = result.get("failed_fields")
+        if not isinstance(fields, list) or not fields or not all(isinstance(f, str) for f in fields):
+            return None
+        if not set(fields) <= set(_REPAIRABLE_FIELDS):
+            return None
+        flagged |= set(fields)
+    return flagged or None
+
+
+def _load_repair_resolution(claude_input_dir: Path) -> dict[frozenset[str], dict[str, str]]:
+    """Load repair-not-drop verdicts, keyed by article_ids, for the KEPT stories.
+
+    Returns a map from a story's article_ids to the patched field text merge
+    should apply -- but ONLY for entries the repair stage resolved as ``repaired``
+    (apply guards passed AND the scoped re-check passed). Every layer here is
+    fail-closed so repair can never silently WEAKEN a drop decision:
+      - gated on config.REPAIR_ENABLED, so a stale/foreign resolution file left
+        in claude_input from a prior run is ignored unless repair is on;
+      - a missing or unreadable file yields an empty map (all coherence drops
+        stand), never an exception;
+      - only ``status == "repaired"`` entries whose ``recheck_pass`` is exactly
+        True are considered (the two contract fields are cross-checked, not
+        trusted for consistency);
+      - an entry is taken WHOLE or not at all: every patched value must be a
+        repairable, non-empty, internal-id-leak-free string, else the entry is
+        rejected (and warned) so the story drops. Coverage (the patch naming
+        EXACTLY the fields COHERENCE flagged) is enforced in the ladder against
+        the authoritative coherence report, which this loader does not see.
+    """
+    if not config.REPAIR_ENABLED:
+        return {}
+    path = claude_input_dir / "repair_resolution.json"
+    if not path.exists():
+        return {}
+    try:
+        data = json.loads(path.read_text())
+    except (OSError, ValueError) as e:
+        logger.warning("repair_resolution.json unreadable (%s) -- ignoring; coherence drops stand", e)
+        return {}
+    if not isinstance(data, dict):
+        logger.warning("repair_resolution.json is not an object -- ignoring; coherence drops stand")
+        return {}
+
+    index: dict[frozenset[str], dict[str, str]] = {}
+    for res in data.get("results", []):
+        if not isinstance(res, dict) or res.get("status") != "repaired":
+            continue
+        ids = res.get("article_ids")
+        patched = res.get("patched_fields")
+        if not (isinstance(ids, list) and ids and all(isinstance(i, str) for i in ids)):
+            continue
+        if res.get("recheck_pass") is not True:
+            logger.warning("repair resolution %s is 'repaired' but recheck_pass is not True -- dropping", ids)
+            continue
+        if not isinstance(patched, dict) or not patched:
+            continue
+        # All-or-nothing: any patched field that is not a repairable, non-empty,
+        # leak-free string invalidates the whole entry (partial application could
+        # ship an unrepaired or leaking field).
+        if not all(
+            field in _REPAIRABLE_FIELDS
+            and isinstance(value, str)
+            and value.strip()
+            and not any(p.search(value) for p in _INTERNAL_ID_PATTERNS)
+            for field, value in patched.items()
+        ):
+            logger.warning("repair resolution %s has an invalid or id-leaking patched field -- dropping", ids)
+            continue
+        index[frozenset(ids)] = dict(patched)
+    return index
 
 
 def _load_cluster_map(claude_input_dir: Path) -> dict[str, str]:
@@ -332,6 +425,7 @@ def assemble_selections(claude_input_dir: Path) -> Path:
     if not isinstance(coherence, dict):
         raise RuntimeError(f"coherence_report.json must be a JSON object, got {type(coherence).__name__}")
     cluster_map = _load_cluster_map(claude_input_dir)
+    repaired_index = _load_repair_resolution(claude_input_dir)
 
     results = coherence.get("results", [])
     failed = [r for r in results if _coherence_failed(r)]
@@ -352,20 +446,55 @@ def assemble_selections(claude_input_dir: Path) -> Path:
             hits = [i for i, r in enumerate(failed) if _result_matches(r, item_ids, item_norm)]
             if hits:
                 matched_failed.update(hits)
-                # Graceful degradation: if EVERY matching failure is a usable
-                # why_it_matters-only failure, keep the story and blank just that
-                # field instead of dropping it. Any other case (mixed fields,
-                # unparseable, unknown names) is a full drop, same as before.
-                # NOTE: the L1 no_empty_fields grader also flags the blanked
-                # field (non-fatal) -- expected double signal on this path.
-                if all(_why_it_matters_only_failure(failed[i]) for i in hits):
-                    item["why_it_matters"] = ""
-                    reasons = "; ".join(str(failed[i].get("reason") or "(no reason given by COHERENCE)") for i in hits)
-                    logger.warning("coherence stripped why_it_matters: %s: %s", item.get("headline"), reasons)
+                patch = repaired_index.get(item_ids)
+                # Repair ladder (additive, fail-closed): if the repair stage
+                # regenerated the flagged field(s) AND the scoped re-check passed,
+                # apply the patch and KEEP the story instead of dropping it. Only
+                # ``repaired`` verdicts reach repaired_index; recheck-failed,
+                # guard-failed, and disabled-repair all leave the story on the
+                # drop/blank path below, exactly as before repair existed.
+                #
+                # Coverage cross-check against the authoritative coherence report:
+                # the patch must name EXACTLY the repairable fields this run's
+                # checker flagged -- never fewer (would ship an unrepaired flagged
+                # field) nor more (would touch a clean field). A mismatch, or any
+                # non-repairable failure in the mix, falls through to the existing
+                # blank/drop path below (and is warned, since a genuine in-pipeline
+                # resolution always matches -- a mismatch means a stale/bad file).
+                required = _repairable_flagged_fields(failed[i] for i in hits) if patch else None
+                if patch and required is not None and set(patch) == required:
+                    for field, value in patch.items():
+                        item[field] = value
+                    logger.info("coherence repaired %s (patched %s)", item.get("headline"), sorted(patch))
                     _attach_cluster_id(item, item.get("sources", []), cluster_map)
                     kept.append(item)
                 else:
-                    dropped.append((tier, item.get("headline")))
+                    if patch:
+                        # A resolution existed but did not cleanly cover the
+                        # flagged fields -- make the ignored patch visible before
+                        # falling back to the normal blank/drop decision.
+                        logger.warning(
+                            "repair resolution for %s ignored (patched %s vs flagged %s) -- falling back to drop/blank",
+                            item.get("headline"),
+                            sorted(patch),
+                            sorted(required) if required else None,
+                        )
+                    if all(_why_it_matters_only_failure(failed[i]) for i in hits):
+                        # Graceful degradation: if EVERY matching failure is a
+                        # usable why_it_matters-only failure, keep the story and
+                        # blank just that field. Any other case (mixed fields,
+                        # unparseable, unknown names) is a full drop, as before.
+                        # NOTE: the L1 no_empty_fields grader also flags the
+                        # blanked field (non-fatal) -- expected double signal.
+                        item["why_it_matters"] = ""
+                        reasons = "; ".join(
+                            str(failed[i].get("reason") or "(no reason given by COHERENCE)") for i in hits
+                        )
+                        logger.warning("coherence stripped why_it_matters: %s: %s", item.get("headline"), reasons)
+                        _attach_cluster_id(item, item.get("sources", []), cluster_map)
+                        kept.append(item)
+                    else:
+                        dropped.append((tier, item.get("headline")))
             else:
                 _attach_cluster_id(item, item.get("sources", []), cluster_map)
                 kept.append(item)
