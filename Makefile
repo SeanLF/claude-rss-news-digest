@@ -2,7 +2,7 @@
 # Run `make` or `make help` to see available targets
 
 .DEFAULT_GOAL := help
-.PHONY: ci ci-fix ci-full test eval eval-stages eval-coherence a11y lighthouse deploy deploy-dry migrate migrate-status \
+.PHONY: ci ci-fix ci-full test eval eval-stages eval-coherence eval-repair a11y lighthouse deploy deploy-dry migrate migrate-status \
         ssh db-clone usage usage-daily versions circulation preview prompt help
 
 ## CI
@@ -22,6 +22,8 @@ eval-stages: ## Grade each subagent's recorded output (per-stage L1, no model ca
 	bin/eval-stages
 eval-coherence: ## Harness-faithful COHERENCE recall/false-drop eval (MAKES model calls; opt-in)
 	bin/eval-coherence
+eval-repair: ## Harness-faithful REPAIR error-removal/preservation eval (MAKES model calls; opt-in)
+	bin/eval-repair
 a11y: ## Fast structural a11y invariant check (no browser; suitable per-commit)
 	bin/a11y-check
 lighthouse: ## Lighthouse a11y/BP/SEO gate on the design mockups (pre-deploy; needs headless Chrome)

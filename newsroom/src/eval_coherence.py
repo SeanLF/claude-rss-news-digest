@@ -55,6 +55,30 @@ def load_agent(path: Path) -> tuple[str, str, dict, list[str]]:
     return model, body.strip(), thinking, tools
 
 
+# The prod input path the live agent prompts hardcode; the evals redirect it to the
+# mounted fixture dir. Shared redirect contract for the coherence/repair evals.
+_PROD_INPUT_MARKER = "/app/data/claude_input/"
+
+
+def load_agent_for_eval(
+    agent_path: Path, fixtures: Path, model_override: str | None = None
+) -> tuple[str, str, dict, list[str]]:
+    """load_agent + redirect the agent's hardcoded prod input path to the mounted
+    fixture dir, applying an optional model override.
+
+    Asserts the marker is present so a prompt whose paths drifted fails HERE with a
+    clear SystemExit rather than silently running against the wrong location."""
+    model, base_body, thinking, tools = load_agent(agent_path)
+    if model_override:
+        model = model_override
+    if _PROD_INPUT_MARKER not in base_body:
+        raise SystemExit(
+            f"{agent_path}: expected {_PROD_INPUT_MARKER!r} in body to redirect for the eval; prompt paths drifted"
+        )
+    body = base_body.replace(_PROD_INPUT_MARKER, f"{fixtures}/")
+    return model, body, thinking, tools
+
+
 KNOWN_FIELDS = ("headline", "summary", "why_it_matters")
 
 
@@ -138,10 +162,14 @@ def score(report_path: Path, labels: dict) -> dict:
     }
 
 
-async def _run_once(model: str, body: str, fixtures: Path, thinking: dict, tools: list[str]) -> None:
-    report = fixtures / REPORT_NAME
-    if report.exists():
-        report.unlink()
+async def run_agent_to_file(
+    label: str, out_path: Path, model: str, body: str, thinking: dict, tools: list[str]
+) -> None:
+    """Run an agent through the production claude-agent-sdk path and require it to
+    (re)write out_path. Shared by the coherence/repair evals so both exercise the
+    exact same harness (model, system prompt, tools, thinking) production uses."""
+    if out_path.exists():
+        out_path.unlink()
     res = await claude_cli.run_agent(
         "Begin.",
         model=model,
@@ -154,9 +182,9 @@ async def _run_once(model: str, body: str, fixtures: Path, thinking: dict, tools
         thinking=thinking,
     )
     if not res.ok:
-        raise RuntimeError(f"coherence run failed: {res.error_summary()}")
-    if not report.exists():
-        raise RuntimeError("coherence run wrote no report")
+        raise RuntimeError(f"{label} run failed: {res.error_summary()}")
+    if not out_path.exists():
+        raise RuntimeError(f"{label} run wrote no {out_path.name}")
 
 
 def main() -> int:
@@ -170,16 +198,7 @@ def main() -> int:
     runs = max(1, args.runs)
     fixtures = Path(args.fixtures)
     labels = json.loads((fixtures / "labels.json").read_text(encoding="utf-8"))
-    model, base_body, thinking, tools = load_agent(Path(args.agent))
-    if args.model:
-        model = args.model
-    # Redirect the agent's hardcoded prod paths to the mounted fixture dir. Assert
-    # the swap actually fires, so a prompt whose paths drifted fails HERE with a
-    # clear message rather than silently running against the wrong location.
-    marker = "/app/data/claude_input/"
-    if marker not in base_body:
-        raise SystemExit(f"{args.agent}: expected {marker!r} in body to redirect for the eval; prompt paths drifted")
-    body = base_body.replace(marker, f"{fixtures}/")
+    model, body, thinking, tools = load_agent_for_eval(Path(args.agent), fixtures, args.model)
 
     print(f"COHERENCE eval  model={model}  thinking={thinking['type']}  runs={runs}  fixtures={fixtures.name}")
     print(
@@ -189,7 +208,7 @@ def main() -> int:
 
     scores = []
     for i in range(runs):
-        asyncio.run(_run_once(model, body, fixtures, thinking, tools))
+        asyncio.run(run_agent_to_file("coherence", fixtures / REPORT_NAME, model, body, thinking, tools))
         s = score(fixtures / REPORT_NAME, labels)
         scores.append(s)
         print(

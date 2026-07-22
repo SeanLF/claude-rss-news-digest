@@ -1,0 +1,112 @@
+{
+  "results": [
+    {
+      "headline": "US strikes Iran for tenth consecutive night as tankers burn in Hormuz",
+      "article_ids": ["A5", "A28", "A33", "A49", "A88", "A136", "A241", "A264", "A273", "A299", "A329", "A347", "A355", "A368", "A413", "A439", "A440", "A457", "A495", "A572", "A573", "A574", "A581", "A586"],
+      "pass": true,
+      "reason": "Headline, summary, and why_it_matters specifics (10th night, tanker fires, Bahrain/Jordan strikes, 17 US troop deaths, ~100 injured in two weeks, first successful ballistic missile hit on Muwaffaq Salti barracks, Trump's threat to expand to energy infrastructure and war-crimes concern) are all corroborated by cited sources (A5, A28, A33, A136, A574, A581)."
+    },
+    {
+      "headline": "Houthis declare naval blockade on Saudi Arabia, threatening Red Sea oil route",
+      "article_ids": ["A36", "A51", "A99", "A147", "A159", "A174", "A243", "A265", "A311", "A342", "A345", "A446"],
+      "pass": true,
+      "reason": "Blockade announcement, Bab el-Mandeb closure, 70%+ of Saudi exports rerouted to Yanbu, 7.4 million bpd June transit figure, and 7% global supply reduction estimate are all confirmed in cited source A36."
+    },
+    {
+      "headline": "Zelensky faces street protests and calls to sack top general after firing defence minister",
+      "article_ids": ["A1", "A22", "A76", "A111", "A119", "A154", "A245", "A270", "A312", "A339", "A465", "A500", "A576", "A579"],
+      "pass": false,
+      "reason": "why_it_matters: claims it was 'Fedorov's ousted deputy' who publicly accused General Syrskiy of blocking military reforms, but the cited source A579 states it was the outgoing defense minister himself (Fedorov) who made that accusation ('Ukraine's outgoing defense minister blamed Oleksandr Syrskiy for hindering military reforms'), and the story's own reporting_varies section attributes the clash directly to 'ousted defence minister Fedorov and General Syrskiy' -- not a deputy. This is an unsupported/contradicted attribution.",
+      "failed_fields": ["why_it_matters"]
+    },
+    {
+      "headline": "Trump imposes 50% tariffs on most Canadian goods, citing discrimination",
+      "article_ids": ["A24", "A48", "A66", "A70", "A89", "A149", "A152", "A153", "A210", "A315", "A414", "A452", "A496", "A529", "A587"],
+      "pass": true,
+      "reason": "Tariff scope, Carney's 'direct violation' quote, 'ready to intensify' language, Ontario premier's dollar-for-dollar call, Section 338 of the Tariff Act of 1930, prior Supreme Court rulings against other tariffs, and 30-day implementation window are all supported by cited sources A24 and A48."
+    },
+    {
+      "headline": "Andy Burnham takes office as UK's seventh prime minister in a decade",
+      "article_ids": ["A77", "A127", "A129", "A135", "A140", "A144", "A150", "A161", "A163", "A181", "A209", "A246", "A247", "A251", "A267", "A297", "A340", "A346", "A372", "A403", "A421", "A436", "A442", "A448", "A458", "A468", "A469", "A471", "A497", "A512", "A517", "A540", "A575", "A590", "A592", "A596"],
+      "pass": false,
+      "reason": "summary: states Burnham replaced Starmer 'after barely two years in office,' but no cited source specifies Starmer's tenure length -- cited sources only establish Burnham is the 'seventh since 2016' / 'seventh leader in a decade,' which does not establish a specific ~2-year duration for Starmer. This is an unsupported specific duration.",
+      "failed_fields": ["summary"]
+    },
+    {
+      "headline": "Hamas elects hardline negotiator Khalil al-Hayya as new leader",
+      "article_ids": ["A14", "A60", "A168", "A173", "A255", "A353", "A423"],
+      "pass": true,
+      "reason": "Two rounds of voting, defeat of Meshaal, al-Hayya's age (65), September 2025 Doha strike survival, hardline/pro-Iran framing, and the Board of Peace disarmament conflict are all confirmed in cited sources A60 and A168."
+    },
+    {
+      "headline": "Lebanese army deploys to first 'pilot zone' as Aoun meets Trump in Washington",
+      "article_ids": ["A18", "A26", "A30", "A32", "A50", "A120", "A176", "A178", "A295", "A430", "A455", "A473", "A578"],
+      "pass": true,
+      "reason": "Deployment to Zawtar al-Gharbiyeh, three-village pilot zone structure, Aoun as first Lebanese president invited to Washington since 2009, and Hezbollah's flat rejection of the deal are all confirmed in cited sources A26 and A30."
+    },
+    {
+      "headline": "Philippine sailor injured as China coast guard clashes at Second Thomas Shoal",
+      "article_ids": ["A17", "A278", "A290", "A371", "A394", "A406", "A479", "A487"],
+      "pass": false,
+      "reason": "why_it_matters: claims the clash occurred 'hours before Wang Yi arrived in Manila,' but cited sources only establish the clash happened Monday and Wang Yi's ASEAN meetings were 'scheduled to start...on Tuesday' / occurred 'as' Wang Yi visited -- none specify an hours-scale gap, and the timing appears to be roughly a day, not hours.",
+      "failed_fields": ["why_it_matters"]
+    },
+    {
+      "headline": "Israel believes Iran moved nuclear centrifuges underground as Iran election looms",
+      "article_ids": ["A172", "A432", "A580"],
+      "pass": false,
+      "reason": "headline: refers to 'Iran election looms,' but the election discussed in the cited sources and the story's own summary is Israel's general election (set for Oct 27), not an Iranian election. This is a headline entity-binding error that also contradicts the story's own summary.",
+      "failed_fields": ["headline"]
+    },
+    {
+      "headline": "Trump says Netanyahu will not be arrested in US; New York mayor presses ICC question",
+      "article_ids": ["A6", "A34", "A253", "A275", "A327", "A460", "A585", "A597"],
+      "pass": true,
+      "reason": "Trump's exact quote, Mamdani's ICC deliberation, Mamdani taking office in January, his campaign pledge, and Netanyahu's traditional September UN travel are all confirmed by cited sources A34 and A6."
+    },
+    {
+      "headline": "EU fines AliExpress a record €550 million under Digital Services Act",
+      "article_ids": ["A44", "A110", "A139", "A360", "A425"],
+      "pass": true,
+      "reason": "Fine amount, DSA record status, 193 million EU users, appeal plans, October 20 deadline, and Temu's earlier €200 million fine are all confirmed by cited sources A44 and A110."
+    },
+    {
+      "headline": "Nicaragua's Ortega declares elections will never be held again",
+      "article_ids": ["A156", "A258", "A334", "A412", "A467", "A498"],
+      "pass": true,
+      "reason": "Sandinista Revolution anniversary/1979 date, nearly 20-year rule, 2021 candidate jailing, exact quotes, January 2025 term extension to November 2027, and 46 political prisoners are all confirmed by cited source A156."
+    },
+    {
+      "headline": "Congo Ebola toll reaches 930 dead as outbreak spreads faster than health workers can track",
+      "article_ids": ["A116", "A204", "A242"],
+      "pass": false,
+      "reason": "why_it_matters: claims 'armed conflict has triggered at least 12 attacks on health facilities,' but cited source A242 explicitly attributes the 12 attacks to being 'mostly fueled by skepticism and rumors,' not armed conflict. This is a fabricated causal link contradicting the cited source.",
+      "failed_fields": ["why_it_matters"]
+    },
+    {
+      "headline": "India's 'Cockroach' youth movement marches on parliament; police use tear gas and batons",
+      "article_ids": ["A58", "A64", "A169", "A170", "A239", "A272", "A307", "A370", "A475", "A545", "A602"],
+      "pass": true,
+      "reason": "2.28 million resit figure, tear gas/cane charges, head injury and suspected broken leg, monsoon session opening day and adjournment, and Google Form origin are all confirmed by cited sources A64, A169, and A58."
+    },
+    {
+      "headline": "Chinese warship fires live rounds inside Japan's claimed exclusive economic zone",
+      "article_ids": ["A303", "A396", "A530"],
+      "pass": true,
+      "reason": "180km distance from Okinotori, Sunday timing, first-ever acknowledged live-fire in the EEZ, joint drill with Russian frigate, China's 'groundless' dismissal, and Takaichi's Taiwan-response statement are all confirmed by cited sources A530 and A396."
+    },
+    {
+      "headline": "China considers tighter export controls on AI models and chips, FT reports",
+      "article_ids": ["A293"],
+      "pass": false,
+      "reason": "summary: the only cited source (A293) provides merely a repeated headline with no body text; the claims that the controls 'would mirror US restrictions on advanced chip exports to China' and that the move 'comes as Chinese AI companies have rapidly expanded global reach' are specifics with no supporting text in the cited source.",
+      "failed_fields": ["summary"]
+    },
+    {
+      "headline": "France records 2,025 excess deaths in June heatwave; parliament to vote on social media ban for under-15s",
+      "article_ids": ["A81", "A95", "A427", "A434", "A459"],
+      "pass": true,
+      "reason": "Excess death count, 43.8C temperature, regional death percentages, 60% data completeness caveat, September 1 ban date, and comparison to Australia's under-16 ban and the 2003 heatwave death toll are all confirmed by cited sources A81 and A427."
+    }
+  ]
+}

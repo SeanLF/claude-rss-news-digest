@@ -262,5 +262,13 @@
   "14": "Chinese warship fires live rounds inside Japan's claimed exclusive economic zone",
   "15": "China considers tighter export controls on AI models and chips, FT reports",
   "16": "France records 2,025 excess deaths in June heatwave; parliament to vote on social media ban for under-15s"
+ },
+ "_repair_doc": "Per-story expectations for bin/eval-repair, keyed by idx. Only the headline/summary hard_positives are repairable (idx 12 is why_it_matters -> merge blanks it, not repaired in MVP). expected_action: substitute = a cited source supports a corrected value; delete = no cited source supports any version (remove the specific); shrink = thin (bare-headline) source, cut invented clauses. must_not_contain = the flagged specific must be GONE (case-insensitive substring). must_contain_any = for substitutes, at least one supported replacement must appear. preservation is scored CONDITIONAL on expected_action so delete/shrink are not punished for getting shorter.",
+ "repair": {
+  "0": {"field": "summary", "expected_action": "substitute", "must_not_contain": ["Jordan"], "must_contain_any": ["Kuwait"]},
+  "3": {"field": "headline", "expected_action": "substitute", "must_not_contain": ["most"], "must_contain_any": ["some", "5 per cent", "5%", "range"]},
+  "4": {"field": "summary", "expected_action": "delete", "must_not_contain": ["two years", "two-year"], "must_contain_any": []},
+  "8": {"field": "headline", "expected_action": "substitute", "must_not_contain": ["Iran election"], "must_contain_any": ["Israel", "Israeli"]},
+  "15": {"field": "summary", "expected_action": "shrink", "must_not_contain": ["mirror", "Global South", "rapidly expanded"], "must_contain_any": []}
  }
 }

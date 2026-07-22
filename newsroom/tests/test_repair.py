@@ -507,7 +507,9 @@ class TestRealRun245Fixture:
         Repair must target exactly the 3 whole-story drops and leave the 3
         why-only failures on merge's existing blank path."""
         draft = json.loads((FIXTURE_DIR / "draft_selections.json").read_text())
-        coherence = json.loads((FIXTURE_DIR / "coherence_report.json").read_text())
+        # coherence_report.json is gitignored (the eval regenerates it), so read the
+        # committed frozen copy -- otherwise this test breaks on a clean checkout.
+        coherence = json.loads((FIXTURE_DIR / "coherence_report.frozen.json").read_text())
 
         reqs = repair.build_repair_requests(draft, coherence)["requests"]
         headlines = {r["fields"]["headline"] for r in reqs}

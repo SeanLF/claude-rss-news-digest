@@ -1,0 +1,16 @@
+#!/bin/bash
+# Harness-faithful REPAIR eval.
+# Runs the real .claude/agents/repair.md through the production agent-sdk path
+# against the frozen labelled run-245 snapshot, and scores error-removal, shape,
+# and preservation (substitute vs delete/shrink).
+# Makes REAL model calls on the subscription -- opt-in, never in CI.
+# Usage: bin/eval-repair [--runs N] [--model MODEL]
+set -euo pipefail
+cd "$(dirname "${BASH_SOURCE[0]}")/.."
+exec docker compose run --rm \
+  -v "$(pwd)/newsroom/tests/fixtures/coherence_faithful:/app/eval-fixtures" \
+  -v "$(pwd)/newsroom/src:/app/src" \
+  -v "$(pwd)/.claude/agents:/app/.claude/agents" \
+  -e PYTHONPATH=/app/src \
+  --entrypoint /app/.venv/bin/python3 \
+  digest-newsroom /app/src/eval_repair.py "$@"
