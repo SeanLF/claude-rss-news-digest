@@ -35,7 +35,7 @@ import datetime
 import logging
 import time
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, cast
 
@@ -44,7 +44,9 @@ import cluster_extractjoin
 import config
 import fulltext
 import gnews
+import repair
 from claude_agent_sdk import ThinkingConfig
+from merge import _item_article_ids
 from retry import with_retry_async
 from usage import usage_row_from_sdk
 
@@ -474,6 +476,230 @@ async def _run_fulltext_best_effort(claude_input_dir: Path) -> None:
         logger.info("fulltext: no full text extracted (WRITE/COHERENCE fall back to CSV summaries)")
 
 
+# --------------------------------------------------------------------------- #
+# Repair-not-drop phase (conditional, between COHERENCE and merge).
+# --------------------------------------------------------------------------- #
+
+_RECHECK_DRAFT_NAME = "recheck_draft.json"
+_RECHECK_REPORT_NAME = "recheck_report.json"
+_REPAIR_LOG_NAME = "repair_log.jsonl"
+
+
+def _require_results_array(path: Path) -> None:
+    """Loose wire-shape gate shared by the repair validators: confirm the file is
+    a JSON object carrying a ``results`` array. The real per-entry guards live
+    downstream (repair.apply_repairs / build_repair_resolution), so this only has
+    to guarantee there is an array to score against."""
+    data = _load_json(path)
+    if not isinstance(data, dict) or not isinstance(data.get("results"), list):
+        raise ValueError(f"{path.name}: 'results' array missing")
+
+
+def validate_repaired_fields(claude_input_dir: Path) -> None:
+    """Loose wire-shape gate on repaired_fields.json; repair.apply_repairs owns
+    the real per-field guards (missing/empty/id-leak/wrong-field)."""
+    _require_results_array(claude_input_dir / "repaired_fields.json")
+
+
+def validate_recheck_report(claude_input_dir: Path) -> None:
+    """Loose wire-shape gate on the scoped re-check report; build_repair_resolution
+    treats any malformed/non-passing entry as a fail (drop), so this only needs to
+    confirm a results array exists to score against."""
+    _require_results_array(claude_input_dir / _RECHECK_REPORT_NAME)
+
+
+def _build_recheck_draft(draft: dict, ok_entries: list[dict]) -> dict:
+    """A draft_selections-shaped doc holding ONLY the successfully-patched stories,
+    with the repaired field(s) applied, for the scoped re-check.
+
+    coherence.md checks must_know + should_know against each story's own cited
+    sources; tier is irrelevant to the check, so every patched story goes under
+    must_know. The original story is matched by its article_ids (drift-proof), so
+    the re-check sees the full story object (sources included) with the patch on."""
+    by_ids: dict[frozenset[str], dict] = {}
+    for tier in ("must_know", "should_know"):
+        for item in draft.get(tier) or []:
+            if not isinstance(item, dict):
+                continue
+            # merge._item_article_ids is the single source of truth for a draft
+            # item's article_ids identity -- reused here so the recheck-draft match
+            # can never drift from merge's own matching guards.
+            ids = _item_article_ids(item)
+            if ids:
+                by_ids[ids] = item
+    patched = []
+    for entry in ok_entries:
+        item = by_ids.get(frozenset(entry.get("article_ids", [])))
+        if item is None:
+            continue
+        story = dict(item)
+        story.update(entry.get("patched_fields", {}))
+        patched.append(story)
+    return {"must_know": patched, "should_know": [], "preheader": "recheck"}
+
+
+def _recheck_spec(coherence_spec: AgentSpec) -> AgentSpec:
+    """coherence.md re-pointed at the recheck files -- reads recheck_draft.json and
+    writes recheck_report.json instead of the run's real draft/report -- so the
+    scoped re-check reuses the LIVE checker prompt verbatim (the eval_coherence.py
+    trick). Asserts the markers were present so a prompt whose filenames drifted
+    fails loudly here rather than silently re-checking against the wrong file."""
+    body = coherence_spec.body
+    for marker in ("draft_selections.json", "coherence_report.json"):
+        if marker not in body:
+            raise ValueError(f"coherence.md: expected {marker!r} to re-point for the repair re-check; prompt drifted")
+    body = body.replace("draft_selections.json", _RECHECK_DRAFT_NAME).replace(
+        "coherence_report.json", _RECHECK_REPORT_NAME
+    )
+    return replace(coherence_spec, body=body)
+
+
+def _log_repair_events(claude_input_dir: Path, requests: dict, applied: dict, resolution: dict) -> None:
+    """Append one repair_log.jsonl event per attempted story and log a run-level
+    counter -- so a guard-fail or recheck-fail is VISIBLE in run logs instead of
+    looking like a generic coherence drop (the accruing log is also the eval's
+    ground-truth corpus). Written to the data dir (claude_input's parent), which
+    persists across runs, not the per-run claude_input that prepare.py wipes."""
+    req_by_ids = {frozenset(r.get("article_ids", [])): r for r in requests.get("requests", [])}
+    applied_by_ids = {frozenset(e.get("article_ids", [])): e for e in applied.get("applied", [])}
+    log_path = claude_input_dir.parent / _REPAIR_LOG_NAME
+    counts = {"repaired": 0, "recheck_failed": 0, "guard_failed": 0}
+    for res in resolution.get("results", []):
+        ids = frozenset(res.get("article_ids", []))
+        req = req_by_ids.get(ids, {})
+        ap = applied_by_ids.get(ids, {})
+        status = res.get("status", "guard_failed")
+        counts[status] = counts.get(status, 0) + 1
+        failed_fields = req.get("failed_fields") or []
+        try:
+            repair.append_repair_log(
+                log_path,
+                {
+                    "article_ids": sorted(ids),
+                    "failed_fields": failed_fields,
+                    "reason": req.get("reason"),
+                    "original_fields": {f: req.get("fields", {}).get(f) for f in failed_fields},
+                    "repaired_fields": ap.get("patched_fields") or None,
+                    "action": ap.get("action"),
+                    "guard": ap.get("guard"),
+                    "status": status,
+                    "recheck_pass": res.get("recheck_pass"),
+                },
+            )
+        except OSError as e:
+            logger.warning("repair: could not append to %s (%s)", log_path, e)
+    logger.info(
+        "repair: %d attempted, %d kept, %d recheck-failed, %d guard-failed",
+        len(requests.get("requests", [])),
+        counts.get("repaired", 0),
+        counts.get("recheck_failed", 0),
+        counts.get("guard_failed", 0),
+    )
+
+
+async def _run_repair_phase(
+    claude_input_dir: Path, *, model_override: str | None, cwd: str | Path | None
+) -> list[dict[str, Any]]:
+    """Regenerate COHERENCE-flagged headline/summary fields, re-check, and write
+    repair_resolution.json for merge to consume. Returns the phase's usage rows.
+
+    Sequence: build requests from the draft + coherence report; if none, no-op.
+    Otherwise run repair.md -> apply guards -> for the stories that passed the
+    guards, build a scoped recheck draft and re-run the LIVE coherence.md over
+    ONLY those -> assemble the resolution. The re-check is what makes repair safe
+    (a story is kept only if the independent checker passes the patched text), so
+    a re-check that fails or errors leaves the resolution empty of ``repaired``
+    verdicts and the story drops. repair_resolution.json is CLEARED at entry and
+    written only LAST, so a skipped OR failed phase leaves no resolution and merge
+    drops exactly as today.
+    """
+    import json
+
+    # Fail-closed invariant: a phase that skips or fails must leave NO resolution,
+    # so merge drops. Clear any stale one up front -- same-day `--resume` reuses
+    # claude_input (prepare.py wipes it only on a FULL run), so a prior run's
+    # `repaired` verdict would otherwise survive a phase that fails THIS run and
+    # let merge keep a story this run never confirmed.
+    (claude_input_dir / "repair_resolution.json").unlink(missing_ok=True)
+
+    draft = _load_json(claude_input_dir / "draft_selections.json")
+    coherence = _load_json(claude_input_dir / "coherence_report.json")
+    requests = repair.build_repair_requests(draft, coherence)
+    if not requests["requests"]:
+        logger.info("repair: no repairable headline/summary failures this run")
+        return []
+    logger.info("repair: %d story(ies) with a repairable headline/summary failure", len(requests["requests"]))
+    (claude_input_dir / "repair_requests.json").write_text(json.dumps(requests, indent=2))
+
+    rows: list[dict[str, Any]] = []
+    repair_spec = parse_agent_spec(_AGENTS_DIR / "repair.md")
+    rows.append(
+        await run_stage(
+            repair_spec,
+            label="repair",
+            output_path=claude_input_dir / "repaired_fields.json",
+            validate=validate_repaired_fields,
+            model_override=model_override,
+            cwd=cwd,
+            claude_input_dir=claude_input_dir,
+        )
+    )
+    repaired = _load_json(claude_input_dir / "repaired_fields.json")
+    applied = repair.apply_repairs(requests, repaired)
+    ok_entries = [e for e in applied["applied"] if e.get("ok")]
+
+    recheck: dict[str, Any] = {"results": []}
+    if ok_entries:
+        (claude_input_dir / _RECHECK_DRAFT_NAME).write_text(
+            json.dumps(_build_recheck_draft(draft, ok_entries), indent=2)
+        )
+        recheck_spec = _recheck_spec(parse_agent_spec(_AGENTS_DIR / "coherence.md"))
+        try:
+            rows.append(
+                await run_stage(
+                    recheck_spec,
+                    label="repair_recheck",
+                    output_path=claude_input_dir / _RECHECK_REPORT_NAME,
+                    validate=validate_recheck_report,
+                    model_override=model_override,
+                    cwd=cwd,
+                    claude_input_dir=claude_input_dir,
+                )
+            )
+            recheck = json.loads((claude_input_dir / _RECHECK_REPORT_NAME).read_text(encoding="utf-8"))
+        except (RuntimeError, ValueError) as e:
+            # Fail-closed: a re-check we cannot trust confirms NOTHING, so leave
+            # recheck empty -> every patched story resolves recheck_failed -> drop.
+            logger.warning("repair: re-check failed (%s) -- all repairs drop (fail-closed)", e)
+
+    resolution = repair.build_repair_resolution(applied, recheck)
+    _log_repair_events(claude_input_dir, requests, applied, resolution)
+    (claude_input_dir / "repair_resolution.json").write_text(json.dumps(resolution, indent=2))
+    return rows
+
+
+async def _run_repair_phase_best_effort(
+    claude_input_dir: Path, *, model_override: str | None, cwd: str | Path | None
+) -> list[dict[str, Any]]:
+    """Wrap the repair phase so NOTHING it does can abort the run. Any failure
+    (repair agent, re-check, I/O) leaves no repair_resolution.json (or an all-fail
+    one), so merge.assemble_selections drops the flagged stories exactly as before
+    repair existed. Mirrors _run_fulltext_best_effort's additive stance."""
+    try:
+        return await _run_repair_phase(claude_input_dir, model_override=model_override, cwd=cwd)
+    except Exception as e:  # broad by design: repair is additive and must never break the run
+        # Emit the same "kept" token the success-path counter uses, so run-log
+        # monitoring sees a repair-stage regression as "0 kept" rather than only a
+        # generic phase error (a repairer/coherence prompt that fails every run).
+        logger.warning(
+            "repair: phase did not complete -- 0 kept (flagged stories drop as today): %s: %s",
+            type(e).__name__,
+            e,
+            exc_info=True,
+        )
+        return []
+
+
 async def orchestrate_selections(
     *,
     claude_input_dir: Path,
@@ -550,6 +776,15 @@ async def orchestrate_selections(
                 delay=config.GNEWS_RESOLVE_DELAY_S,
                 deadline=config.GNEWS_RESOLVE_DEADLINE_S,
             )
+
+    # Repair-not-drop (conditional, additive): between COHERENCE and merge,
+    # regenerate a flagged headline/summary and re-check it rather than let merge
+    # drop the whole story. Off by default; best-effort so it can never abort the
+    # run (merge falls back to dropping exactly as today). Skipped on resume-only
+    # runs where COHERENCE was reused -- the draft/report are still on disk, so it
+    # runs whenever those inputs exist and the flag is on.
+    if config.REPAIR_ENABLED:
+        usage_rows.extend(await _run_repair_phase_best_effort(claude_input_dir, model_override=model_override, cwd=cwd))
 
     total = sum(r["api_cost_usd"] for r in usage_rows)
     logger.info("Selection complete: %d stages, $%.4f API-equivalent", len(usage_rows), total)

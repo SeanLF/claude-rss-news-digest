@@ -117,7 +117,7 @@ def _leaks_internal_id(text: str) -> bool:
     return any(p.search(text) for p in _INTERNAL_ID_PATTERNS)
 
 
-def apply_repairs(requests: dict, repaired: dict) -> dict:
+def apply_repairs(repair_requests: dict, repaired: dict) -> dict:
     """Apply repaired field text under hard guards, one verdict per request.
 
     A story is patched ONLY if the repairer returned exactly the flagged fields
@@ -130,7 +130,7 @@ def apply_repairs(requests: dict, repaired: dict) -> dict:
     index = _index_by_article_ids(repaired)
 
     applied = []
-    for req in requests.get("requests", []):
+    for req in repair_requests.get("requests", []):
         ids = frozenset(req.get("article_ids", []))
         flagged = set(req.get("failed_fields", []))
         entry = {"article_ids": sorted(ids), "ok": False, "patched_fields": {}, "action": None, "guard": None}
@@ -187,7 +187,7 @@ def build_repair_resolution(applied: dict, recheck: dict) -> dict:
             "article_ids": sorted(ids),
             "status": "guard_failed",
             "patched_fields": {},
-            "recheck_pass": None,
+            "recheck_pass": None,  # nosec B105 -- a re-check verdict (bool/None), not a secret; the key just contains "pass"
         }
         if entry.get("ok"):
             recheck_result = recheck_index.get(ids)
