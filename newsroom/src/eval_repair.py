@@ -11,8 +11,16 @@ block: the flagged specific must be GONE (``must_not_contain``), a substitute mu
 carry a supported replacement (``must_contain_any``), and preservation is scored
 CONDITIONAL on ``expected_action`` -- a delete/shrink is expected to get shorter,
 so only a *substitute* answered by gutting the whole clause counts against it
-(RARR's reward-hacking failure mode). This is the deterministic core; a scoped
-re-check (no-new-error) is a future add (see docs / HANDOVER).
+(RARR's reward-hacking failure mode).
+
+It then runs a scoped no-new-error re-check: the LIVE coherence.md (the prod
+checker) over ONLY the repaired stories, unioned across ``--recheck-runs`` passes
+(a story is clean only if the checker passes it on EVERY run). This is what the
+string assertions cannot see -- a repair that removed the flagged specific but
+left/added one the checker still catches (on a bare-headline source, even a
+shrunk summary can assert more than the source supports). It is reported, not
+gated in the middle (the checker is stochastic), but "the checker accepts NONE of
+the repairs" is egregious -- repair would rescue nothing in prod.
 
 Makes REAL model calls on the subscription -> opt-in only (``make eval-repair`` /
 ``bin/eval-repair``), never in CI. The stage is stochastic, so it reports a
@@ -167,12 +175,83 @@ def score_repair(
     }
 
 
+COHERENCE_AGENT = Path("/app/.claude/agents/coherence.md")
+RECHECK_DRAFT_NAME = "recheck_draft.json"
+RECHECK_REPORT_NAME = "recheck_report.json"
+
+
+def build_recheck_draft(draft: dict, repaired_results: list) -> dict:
+    """A draft_selections-shaped doc of the patched stories (the original story with
+    the repaired field applied, matched by article_ids) for the scoped re-check --
+    the SAME shape orchestrate._build_recheck_draft feeds the prod re-check."""
+    by_ids: dict[frozenset, dict] = {}
+    for tier in ("must_know", "should_know"):
+        for item in draft.get(tier, []):
+            if isinstance(item, dict):
+                ids = frozenset(
+                    s["article_id"]
+                    for s in item.get("sources", [])
+                    if isinstance(s, dict) and isinstance(s.get("article_id"), str)
+                )
+                if ids:
+                    by_ids[ids] = item
+    patched = []
+    for r in repaired_results:
+        if not isinstance(r, dict):
+            continue
+        item = by_ids.get(frozenset(r.get("article_ids") or []))
+        if item is None:
+            continue
+        story = dict(item)
+        for f in _TEXT_FIELDS:
+            if f in r and isinstance(r[f], str):
+                story[f] = r[f]
+        patched.append(story)
+    return {"must_know": patched, "should_know": [], "preheader": "recheck"}
+
+
+def score_recheck(recheck_path: Path, idx_by_ids: dict[frozenset, int]) -> dict[int, bool]:
+    """Which repaired stories the prod checker PASSED on the patched text, keyed by
+    idx. A repaired story with no re-check entry is simply absent (the caller treats
+    absence as not-confirmed -> fail-closed, matching prod's re-check)."""
+    data = json.loads(recheck_path.read_text(encoding="utf-8"))
+    results = data.get("results")
+    if not isinstance(results, list):
+        raise RuntimeError(f"{recheck_path.name}: no 'results' list (broken run or schema drift)")
+    passed: dict[int, bool] = {}
+    for r in results:
+        if not isinstance(r, dict):
+            continue
+        idx = idx_by_ids.get(frozenset(r.get("article_ids") or []))
+        if idx is not None:
+            passed[idx] = r.get("pass") is True
+    return passed
+
+
+def _recheck_agent(fixtures: Path, model_override: str | None) -> tuple[str, str, dict, list[str]]:
+    """coherence.md redirected for the eval (prod path -> fixtures) AND re-pointed at
+    the recheck files (draft_selections -> recheck_draft, coherence_report ->
+    recheck_report), so the no-new-error check reuses the LIVE prod checker verbatim."""
+    model, body, thinking, tools = load_agent_for_eval(COHERENCE_AGENT, fixtures, model_override)
+    for src, dst in (("draft_selections.json", RECHECK_DRAFT_NAME), ("coherence_report.json", RECHECK_REPORT_NAME)):
+        if src not in body:
+            raise SystemExit(f"coherence.md: expected {src!r} to re-point for the repair re-check; prompt drifted")
+        body = body.replace(src, dst)
+    return model, body, thinking, tools
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--agent", default=str(AGENT))
     ap.add_argument("--fixtures", default=str(FIXTURES))
     ap.add_argument("--runs", type=int, default=2)
     ap.add_argument("--model", default=None, help="override repair.md's frontmatter model")
+    ap.add_argument(
+        "--recheck-runs",
+        type=int,
+        default=1,
+        help="scoped coherence.md re-checks over the repaired fields (0 = skip); union across runs (a story is clean only if it passes EVERY run)",
+    )
     args = ap.parse_args()
 
     runs = max(1, args.runs)
@@ -209,6 +288,35 @@ def main() -> int:
     best_removed = max(len(s["error_removed"]) for s in scores)
     print(f"\n  best error-removed {best_removed}/{scores[0]['n_labelled']}")
 
+    # No-new-error: run the LIVE coherence.md over the (last run's) repaired stories
+    # and report how many the prod checker PASSES. This is what the string
+    # assertions cannot see -- a repair that removed the flagged specific but added
+    # a new one the checker catches. Reported, not gated: the checker is stochastic
+    # and imperfect (a flag may be a residual it now catches OR a checker miss on the
+    # original), so a human reads the middle -- same stance as eval_coherence.
+    recheck_flagged: list[int] = []
+    if args.recheck_runs > 0:
+        draft = json.loads((fixtures / "draft_selections.json").read_text(encoding="utf-8"))
+        repaired_results = json.loads((fixtures / OUTPUT_NAME).read_text(encoding="utf-8")).get("results", [])
+        (fixtures / RECHECK_DRAFT_NAME).write_text(json.dumps(build_recheck_draft(draft, repaired_results), indent=2))
+        cmodel, cbody, cthinking, ctools = _recheck_agent(fixtures, args.model)
+        pass_counts: dict[int, int] = dict.fromkeys(idx_by_ids.values(), 0)
+        for _ in range(args.recheck_runs):
+            asyncio.run(
+                run_agent_to_file("repair_recheck", fixtures / RECHECK_REPORT_NAME, cmodel, cbody, cthinking, ctools)
+            )
+            for idx, ok in score_recheck(fixtures / RECHECK_REPORT_NAME, idx_by_ids).items():
+                if ok:
+                    pass_counts[idx] += 1
+        # Union of failures: clean only if the checker passed the patch on EVERY run.
+        clean = sorted(i for i, c in pass_counts.items() if c == args.recheck_runs)
+        recheck_flagged = sorted(set(idx_by_ids.values()) - set(clean))
+        print(
+            f"  no-new-error re-check (coherence.md x{args.recheck_runs}, union): {len(clean)}/{len(idx_by_ids)} pass"
+        )
+        if recheck_flagged:
+            print(f"          re-check FLAGGED (residual/new error, or gutted): {recheck_flagged}")
+
     fail = []
     if any(s["shape_errors"] or s["shape_bad"] for s in scores):
         fail.append("a repaired entry had an invalid shape (wrong/extra field, or unknown article_ids)")
@@ -216,6 +324,8 @@ def main() -> int:
         fail.append("no flagged error removed on any run (repairer is a no-op)")
     if any(s["gutted_substitutes"] for s in scores):
         fail.append("a substitute was answered by gutting the field (preservation collapse)")
+    if args.recheck_runs > 0 and len(idx_by_ids) and not (set(idx_by_ids.values()) - set(recheck_flagged)):
+        fail.append("the re-check accepted NONE of the repairs (repair rescues nothing in prod)")
     if fail:
         print("\n  REGRESSION: " + "; ".join(fail))
         return 1

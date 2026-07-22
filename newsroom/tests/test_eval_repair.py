@@ -42,6 +42,59 @@ def _score(tmp_path, results):
     return eval_repair.score_repair(tmp_path / "repaired_fields.json", _LABELS, _IDX_BY_IDS, _ORIG)
 
 
+_RECHECK_IDX = {frozenset(["A3"]): 3, frozenset(["A4"]): 4}
+
+
+class TestBuildRecheckDraft:
+    def _draft(self):
+        return {
+            "must_know": [
+                {"headline": "old3", "summary": "s3", "why_it_matters": "w3", "sources": [{"article_id": "A3"}]},
+                {"headline": "old4", "summary": "s4", "why_it_matters": "w4", "sources": [{"article_id": "A4"}]},
+            ],
+            "should_know": [],
+            "preheader": "p",
+        }
+
+    def test_applies_repaired_field_to_matched_story(self):
+        repaired = [{"article_ids": ["A3"], "headline": "new3"}]
+        d = eval_repair.build_recheck_draft(self._draft(), repaired)
+        # Only the patched story is in the recheck draft, with the repaired field
+        # applied and its sources preserved for the checker.
+        assert len(d["must_know"]) == 1
+        assert d["must_know"][0]["headline"] == "new3"
+        assert d["must_know"][0]["summary"] == "s3"  # untouched field carried over
+        assert d["must_know"][0]["sources"] == [{"article_id": "A3"}]
+
+    def test_skips_unmatched_repaired_result(self):
+        repaired = [{"article_ids": ["A99"], "headline": "x"}]
+        d = eval_repair.build_recheck_draft(self._draft(), repaired)
+        assert d["must_know"] == []
+
+
+class TestScoreRecheck:
+    def _write(self, tmp_path, results):
+        (tmp_path / "recheck_report.json").write_text(json.dumps({"results": results}))
+        return eval_repair.score_recheck(tmp_path / "recheck_report.json", _RECHECK_IDX)
+
+    def test_pass_and_fail_mapped_by_article_ids(self, tmp_path):
+        p = self._write(
+            tmp_path,
+            [
+                {"article_ids": ["A3"], "pass": True},
+                {"article_ids": ["A4"], "pass": False, "failed_fields": ["summary"]},
+            ],
+        )
+        assert p == {3: True, 4: False}
+
+    def test_missing_recheck_entry_is_absent(self, tmp_path):
+        # A repaired story the re-check never reported on is absent -> the caller
+        # treats absence as not-confirmed (fail-closed).
+        p = self._write(tmp_path, [{"article_ids": ["A3"], "pass": True}])
+        assert p == {3: True}
+        assert 4 not in p
+
+
 class TestScoreRepair:
     def test_substitute_error_removed_when_bad_gone_and_replacement_present(self, tmp_path):
         s = _score(tmp_path, [{"article_ids": ["A3"], "headline": "Trump imposes 50% tariffs on some Canadian goods"}])
