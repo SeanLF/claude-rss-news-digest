@@ -1,0 +1,266 @@
+{
+ "_doc": "Field-level ground truth for run 245 (2026-07-21). v2: corrected after an independent blind re-audit surfaced 3 errors the first audit missed (0/Bahrain-Jordan, 3/most-vs-some, 7/sailor-marine). gold: hallucination|clean|borderline. 'hallucination' = confirmed unsupported/contradicted by the story's own sources. 'borderline' = soft overstatement / invented precision (a MISS is not counted against recall and a FLAG is NOT a false positive). 'clean' = must NOT flag (false-positive denominator). type uses FRANK/RAGTruth taxonomy.",
+ "hard_positives": [
+  {
+   "idx": 0,
+   "field": "summary",
+   "type": "CircE-scope + EntE",
+   "claim": "17 killed since its resumption; Iran struck ... Bahrain and Jordan",
+   "why": "TWO errors: (a) 17 = cumulative war toll (A28/A457), only 3 since resumption (A574/A241); (b) that night Iran hit 'Bahrain and Kuwait' (A5), not Jordan (separate Fri strike, A33)."
+  },
+  {
+   "idx": 3,
+   "field": "headline",
+   "type": "quantifier-overstatement",
+   "claim": "50% tariffs on most Canadian goods",
+   "why": "sources say 'some' (A24 title) / ~'5 per cent of Canadian exports' (A149). 'most' contradicts the source quantifier. MISSED by all 6 reframe runs (only blind audit caught it) -> known reframe blind spot."
+  },
+  {
+   "idx": 4,
+   "field": "summary",
+   "type": "OutE-absence",
+   "claim": "replacing Keir Starmer after barely two years in office",
+   "why": "Starmer tenure length in none of 36 title-only sources."
+  },
+  {
+   "idx": 8,
+   "field": "headline",
+   "type": "EntE-wrong-entity",
+   "claim": "as Iran election looms",
+   "why": "election is Israel's (A432); contradicts own summary. NOTE: prod HTML already hotfixed to 'Israeli election' post-audit; fixtures preserve the original error for detector scoring."
+  },
+  {
+   "idx": 12,
+   "field": "why_it_matters",
+   "type": "LinkE-fabricated-causal",
+   "claim": "armed conflict has triggered at least 12 attacks on health facilities",
+   "why": "A242: attacks 'mostly fueled by skepticism and rumors', not armed conflict."
+  },
+  {
+   "idx": 15,
+   "field": "summary",
+   "type": "OutE-padding",
+   "claim": "would mirror US restrictions on advanced chip exports to China, and comes as Chinese AI companies have rapidly expanded global reach",
+   "why": "sole source is one 12-word headline, no fulltext. Both clauses invented."
+  }
+ ],
+ "borderline": [
+  {
+   "idx": 1,
+   "field": "why_it_matters",
+   "type": "overstatement",
+   "claim": "nearly all remaining Saudi export routes would be cut simultaneously",
+   "why": "A36: Europe-bound Suez route stays open; only Asia-bound ~2.5M bpd via Bab el-Mandeb."
+  },
+  {
+   "idx": 3,
+   "field": "summary",
+   "type": "overstatement",
+   "claim": "a broad range of Canadian imports",
+   "why": "softer than headline's 'most' but still in tension with 'some'/~5% of exports."
+  },
+  {
+   "idx": 7,
+   "field": "headline",
+   "type": "EntE-minor",
+   "claim": "Philippine sailor injured",
+   "why": "summary and sources (A17/A278) say 'marine', not 'sailor'. Minor internal inconsistency."
+  },
+  {
+   "idx": 7,
+   "field": "why_it_matters",
+   "type": "invented-precision",
+   "claim": "occurred hours before Wang Yi arrived in Manila",
+   "why": "sources support concurrency ('as','just as') but never an 'hours' interval."
+  },
+  {
+   "idx": 11,
+   "field": "summary",
+   "type": "quote-splice",
+   "claim": "said 'never, never, never' would parties 'put in place by the Yankees' return to power",
+   "why": "A156: 'never never never' referred to future elections generally, spoken as a separate line."
+  },
+  {
+   "idx": 4,
+   "field": "why_it_matters",
+   "type": "unsupported-contrast",
+   "claim": "a former defence secretary as chancellor rather than an economist",
+   "why": "'rather than an economist' contrast is unsourced editorial sharpening."
+  },
+  {
+   "idx": 8,
+   "field": "why_it_matters",
+   "type": "unsupported-specific",
+   "claim": "requires bunker-busting munitions to destroy",
+   "why": "munition type not in any source."
+  },
+  {
+   "idx": 15,
+   "field": "why_it_matters",
+   "type": "OutE-premise",
+   "claim": "countries that have come to rely on cheaper Chinese AI infrastructure - particularly in the Global South",
+   "why": "interpretive, but the Global South premise has zero grounding (sole source is a bare headline)."
+  }
+ ],
+ "clean_fields": [
+  {
+   "idx": 0,
+   "field": "headline"
+  },
+  {
+   "idx": 0,
+   "field": "why_it_matters"
+  },
+  {
+   "idx": 1,
+   "field": "headline"
+  },
+  {
+   "idx": 1,
+   "field": "summary"
+  },
+  {
+   "idx": 2,
+   "field": "headline"
+  },
+  {
+   "idx": 2,
+   "field": "summary"
+  },
+  {
+   "idx": 4,
+   "field": "headline"
+  },
+  {
+   "idx": 5,
+   "field": "headline"
+  },
+  {
+   "idx": 5,
+   "field": "summary"
+  },
+  {
+   "idx": 5,
+   "field": "why_it_matters"
+  },
+  {
+   "idx": 6,
+   "field": "headline"
+  },
+  {
+   "idx": 6,
+   "field": "summary"
+  },
+  {
+   "idx": 6,
+   "field": "why_it_matters"
+  },
+  {
+   "idx": 7,
+   "field": "summary"
+  },
+  {
+   "idx": 8,
+   "field": "summary"
+  },
+  {
+   "idx": 9,
+   "field": "headline"
+  },
+  {
+   "idx": 9,
+   "field": "summary"
+  },
+  {
+   "idx": 9,
+   "field": "why_it_matters"
+  },
+  {
+   "idx": 10,
+   "field": "headline"
+  },
+  {
+   "idx": 10,
+   "field": "summary"
+  },
+  {
+   "idx": 10,
+   "field": "why_it_matters"
+  },
+  {
+   "idx": 11,
+   "field": "headline"
+  },
+  {
+   "idx": 11,
+   "field": "why_it_matters"
+  },
+  {
+   "idx": 12,
+   "field": "headline"
+  },
+  {
+   "idx": 12,
+   "field": "summary"
+  },
+  {
+   "idx": 13,
+   "field": "headline"
+  },
+  {
+   "idx": 13,
+   "field": "summary"
+  },
+  {
+   "idx": 13,
+   "field": "why_it_matters"
+  },
+  {
+   "idx": 14,
+   "field": "headline"
+  },
+  {
+   "idx": 14,
+   "field": "summary"
+  },
+  {
+   "idx": 14,
+   "field": "why_it_matters"
+  },
+  {
+   "idx": 15,
+   "field": "headline"
+  },
+  {
+   "idx": 16,
+   "field": "headline"
+  },
+  {
+   "idx": 16,
+   "field": "summary"
+  },
+  {
+   "idx": 16,
+   "field": "why_it_matters"
+  }
+ ],
+ "idx_headlines": {
+  "0": "US strikes Iran for tenth consecutive night as tankers burn in Hormuz",
+  "1": "Houthis declare naval blockade on Saudi Arabia, threatening Red Sea oil route",
+  "2": "Zelensky faces street protests and calls to sack top general after firing defence minister",
+  "3": "Trump imposes 50% tariffs on most Canadian goods, citing discrimination",
+  "4": "Andy Burnham takes office as UK's seventh prime minister in a decade",
+  "5": "Hamas elects hardline negotiator Khalil al-Hayya as new leader",
+  "6": "Lebanese army deploys to first 'pilot zone' as Aoun meets Trump in Washington",
+  "7": "Philippine sailor injured as China coast guard clashes at Second Thomas Shoal",
+  "8": "Israel believes Iran moved nuclear centrifuges underground as Iran election looms",
+  "9": "Trump says Netanyahu will not be arrested in US; New York mayor presses ICC question",
+  "10": "EU fines AliExpress a record €550 million under Digital Services Act",
+  "11": "Nicaragua's Ortega declares elections will never be held again",
+  "12": "Congo Ebola toll reaches 930 dead as outbreak spreads faster than health workers can track",
+  "13": "India's 'Cockroach' youth movement marches on parliament; police use tear gas and batons",
+  "14": "Chinese warship fires live rounds inside Japan's claimed exclusive economic zone",
+  "15": "China considers tighter export controls on AI models and chips, FT reports",
+  "16": "France records 2,025 excess deaths in June heatwave; parliament to vote on social media ban for under-15s"
+ }
+}

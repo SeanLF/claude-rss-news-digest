@@ -1,0 +1,324 @@
+{
+  "must_know": [
+    {
+      "headline": "US strikes Iran for tenth consecutive night as tankers burn in Hormuz",
+      "summary": "The US military completed its tenth straight night of strikes on Iran early Tuesday, hitting military command centres, missile and drone launch sites, maritime capabilities and air defence systems. Iran's Revolutionary Guard said two oil tankers caught fire after attempting to transit the Strait of Hormuz, and Iran struck US military assets in Bahrain and Jordan; the toll of US troops killed in the war since its resumption rose to 17, with nearly 100 more injured in the past two weeks.",
+      "why_it_matters": "Iran successfully struck a barracks at the Muwaffaq Salti air base in Jordan for the first time with ballistic missiles, demonstrating a widening of the IRGC's geographic reach that could force the US to defend more sites simultaneously — degrading the air campaign even as Trump threatens to expand strikes to civilian energy infrastructure, a move legal experts have said could constitute war crimes under the Geneva Conventions.",
+      "sources": [
+        {"article_id": "A5"},
+        {"article_id": "A28"},
+        {"article_id": "A33"},
+        {"article_id": "A49"},
+        {"article_id": "A88"},
+        {"article_id": "A136"},
+        {"article_id": "A241"},
+        {"article_id": "A264"},
+        {"article_id": "A273"},
+        {"article_id": "A299"},
+        {"article_id": "A329"},
+        {"article_id": "A347"},
+        {"article_id": "A355"},
+        {"article_id": "A368"},
+        {"article_id": "A413"},
+        {"article_id": "A439"},
+        {"article_id": "A440"},
+        {"article_id": "A457"},
+        {"article_id": "A495"},
+        {"article_id": "A572"},
+        {"article_id": "A573"},
+        {"article_id": "A574"},
+        {"article_id": "A581"},
+        {"article_id": "A586"}
+      ],
+      "reporting_varies": [
+        {
+          "source": "Reuters/Al Jazeera",
+          "angle": "Focus on diplomatic track: mediators proposed a 10-day ceasefire and Iran's foreign ministry acknowledged receiving proposals, keeping hope of talks alive even as strikes continued.",
+          "bias": "neutral"
+        },
+        {
+          "source": "WSJ/Defense-focused outlets",
+          "angle": "Emphasis on military escalation: Iran's ballistic missiles successfully hit a US barracks at Muwaffaq Salti for the first time, and the US is reinforcing with additional F-16s, F-35s and refuelling tankers from UK and Germany.",
+          "bias": "neutral"
+        }
+      ]
+    },
+    {
+      "headline": "Houthis declare naval blockade on Saudi Arabia, threatening Red Sea oil route",
+      "summary": "Yemen's Houthi rebels announced an immediate maritime embargo on Saudi Arabia on Monday, saying they were closing the Bab el-Mandeb strait to Saudi vessels in retaliation for what they called a Saudi siege on Yemen. The move targets the route through which Saudi Arabia has been routing the bulk of its crude exports since the Strait of Hormuz was effectively closed by the US-Iran war.",
+      "why_it_matters": "Saudi Arabia diverted more than 70% of its crude exports to its Red Sea terminal at Yanbu after Hormuz closed; if the Houthis enforce a Bab el-Mandeb blockade, nearly all remaining Saudi export routes would be cut simultaneously — analysts say total petroleum volumes of 7.4 million barrels per day transited Bab el-Mandeb in June alone, and a closure could reduce global oil supply by a further 7%.",
+      "sources": [
+        {"article_id": "A36"},
+        {"article_id": "A51"},
+        {"article_id": "A99"},
+        {"article_id": "A147"},
+        {"article_id": "A159"},
+        {"article_id": "A174"},
+        {"article_id": "A243"},
+        {"article_id": "A265"},
+        {"article_id": "A311"},
+        {"article_id": "A342"},
+        {"article_id": "A345"},
+        {"article_id": "A446"}
+      ]
+    },
+    {
+      "headline": "Zelensky faces street protests and calls to sack top general after firing defence minister",
+      "summary": "Demonstrations entered a fifth consecutive day in Kyiv on Tuesday as protesters demanded President Volodymyr Zelensky reverse the dismissal of defence minister Mykhailo Fedorov, a reformer closely associated with Ukraine's drone warfare strategy. Zelensky met military commanders amid the unrest, while Ukraine also launched around 400 drones toward Moscow and Russia struck gas facilities in Kharkiv for a third consecutive day.",
+      "why_it_matters": "Fedorov's ousted deputy, who publicly accused top general Oleksandr Syrskiy of blocking military reforms, turned the internal dispute into an open confrontation — the rare combination of street protests and a very public military leadership challenge is an unusual signal of fracture inside a country that has kept domestic dissent largely suppressed for over four years of war.",
+      "sources": [
+        {"article_id": "A1"},
+        {"article_id": "A22"},
+        {"article_id": "A76"},
+        {"article_id": "A111"},
+        {"article_id": "A119"},
+        {"article_id": "A154"},
+        {"article_id": "A245"},
+        {"article_id": "A270"},
+        {"article_id": "A312"},
+        {"article_id": "A339"},
+        {"article_id": "A465"},
+        {"article_id": "A500"},
+        {"article_id": "A576"},
+        {"article_id": "A579"}
+      ],
+      "reporting_varies": [
+        {
+          "source": "NYT",
+          "angle": "Frames Zelensky as signalling openness to compromise in response to protest pressure, in the 'Ukrainian tradition' of presidents yielding to street movements.",
+          "bias": "neutral"
+        },
+        {
+          "source": "WSJ",
+          "angle": "Centres on the clash between ousted defence minister Fedorov and General Syrskiy as the root cause, framing it as a debate over military doctrine and drone-warfare reform.",
+          "bias": "neutral"
+        }
+      ]
+    },
+    {
+      "headline": "Trump imposes 50% tariffs on most Canadian goods, citing discrimination",
+      "summary": "US President Donald Trump signed orders imposing 50% tariffs on a broad range of Canadian imports — including wine, hockey sticks and cement — claiming Canada has unfairly discriminated against American alcohol, automobile and dairy products. Canadian Prime Minister Mark Carney called the tariffs a 'direct violation' of the USMCA free trade agreement and said Canada was 'ready to intensify' talks, while Ontario's premier called for dollar-for-dollar retaliation.",
+      "why_it_matters": "Trump's orders use Section 338 of the Tariff Act of 1930, an untested legal provision invoked after the Supreme Court struck down many of his earlier tariff authorities — if Section 338 also falls in court, the administration loses its main remaining legal mechanism for unilateral tariffs, but the 30-day window before the tariffs take effect gives markets and Canada limited time to respond before economic damage begins.",
+      "sources": [
+        {"article_id": "A24"},
+        {"article_id": "A48"},
+        {"article_id": "A66"},
+        {"article_id": "A70"},
+        {"article_id": "A89"},
+        {"article_id": "A149"},
+        {"article_id": "A152"},
+        {"article_id": "A153"},
+        {"article_id": "A210"},
+        {"article_id": "A315"},
+        {"article_id": "A414"},
+        {"article_id": "A452"},
+        {"article_id": "A496"},
+        {"article_id": "A529"},
+        {"article_id": "A587"}
+      ]
+    },
+    {
+      "headline": "Andy Burnham takes office as UK's seventh prime minister in a decade",
+      "summary": "Andy Burnham was sworn in as Britain's new prime minister on Monday, replacing Keir Starmer after barely two years in office. Burnham, the former mayor of Greater Manchester, immediately moved to cut taxes on electricity bills and promised a 10-year plan for economic revival; he appointed former defence secretary John Healey as chancellor and named an AI minister to cabinet for the first time.",
+      "why_it_matters": "Burnham's appointment of a former defence secretary as chancellor — rather than an economist — sent defence stocks sharply higher as investors bet on increased military spending, but it also left markets uncertain about whether the new government would depart meaningfully from its predecessor's fiscal constraints, since Healey is described as coming from Labour's 'old right' and unlikely to diverge sharply from prior fiscal settings.",
+      "sources": [
+        {"article_id": "A77"},
+        {"article_id": "A127"},
+        {"article_id": "A129"},
+        {"article_id": "A135"},
+        {"article_id": "A140"},
+        {"article_id": "A144"},
+        {"article_id": "A150"},
+        {"article_id": "A161"},
+        {"article_id": "A163"},
+        {"article_id": "A181"},
+        {"article_id": "A209"},
+        {"article_id": "A246"},
+        {"article_id": "A247"},
+        {"article_id": "A251"},
+        {"article_id": "A267"},
+        {"article_id": "A297"},
+        {"article_id": "A340"},
+        {"article_id": "A346"},
+        {"article_id": "A372"},
+        {"article_id": "A403"},
+        {"article_id": "A421"},
+        {"article_id": "A436"},
+        {"article_id": "A442"},
+        {"article_id": "A448"},
+        {"article_id": "A458"},
+        {"article_id": "A468"},
+        {"article_id": "A469"},
+        {"article_id": "A471"},
+        {"article_id": "A497"},
+        {"article_id": "A512"},
+        {"article_id": "A517"},
+        {"article_id": "A540"},
+        {"article_id": "A575"},
+        {"article_id": "A590"},
+        {"article_id": "A592"},
+        {"article_id": "A596"}
+      ]
+    }
+  ],
+  "should_know": [
+    {
+      "headline": "Hamas elects hardline negotiator Khalil al-Hayya as new leader",
+      "summary": "Hamas elected Khalil al-Hayya — the group's chief negotiator and a close associate of the late Yahya Sinwar — as its new overall leader after two rounds of voting, defeating former political bureau chief Khaled Meshaal. Al-Hayya, 65, who survived an Israeli airstrike in Doha in September 2025, is seen as representing a hardline faction committed to armed struggle and alliance with Iran; analysts said his election likely signals Hamas will resist disarmament demands.",
+      "why_it_matters": "The Trump administration's ceasefire plan for Gaza explicitly requires Hamas disarmament as a precondition, but al-Hayya's supporters successfully argued the movement should remain firm against making major concessions over weapons — meaning the US-led Board of Peace process, which has already failed to reach a broad agreement, now faces a Hamas leadership explicitly elected on a platform of rejecting that condition.",
+      "sources": [
+        {"article_id": "A14"},
+        {"article_id": "A60"},
+        {"article_id": "A168"},
+        {"article_id": "A173"},
+        {"article_id": "A255"},
+        {"article_id": "A353"},
+        {"article_id": "A423"}
+      ]
+    },
+    {
+      "headline": "Lebanese army deploys to first 'pilot zone' as Aoun meets Trump in Washington",
+      "summary": "Lebanese army troops began deploying Tuesday to Zawtar al-Gharbiyeh, the first of three villages in a US-brokered 'pilot zone' programme under which Israel withdraws from selected areas of southern Lebanon in exchange for Lebanese army deployment and Hezbollah disarmament. Lebanese President Joseph Aoun — the first Lebanese president invited to Washington since 2009 — met Trump on Tuesday to seek further Israeli withdrawal.",
+      "why_it_matters": "Hezbollah has flatly rejected both the pilot zone deal and the broader Lebanon-Israel framework, meaning the Lebanese army is being asked to disarm a still-armed Hezbollah in areas the army is only now entering for the first time — and Israel has conditioned any full withdrawal on disarmament it publicly doubts Lebanon can deliver, leaving the pilot zones as a test that neither side has fully accepted.",
+      "sources": [
+        {"article_id": "A18"},
+        {"article_id": "A26"},
+        {"article_id": "A30"},
+        {"article_id": "A32"},
+        {"article_id": "A50"},
+        {"article_id": "A120"},
+        {"article_id": "A176"},
+        {"article_id": "A178"},
+        {"article_id": "A295"},
+        {"article_id": "A430"},
+        {"article_id": "A455"},
+        {"article_id": "A473"},
+        {"article_id": "A578"}
+      ]
+    },
+    {
+      "headline": "Philippine sailor injured as China coast guard clashes at Second Thomas Shoal",
+      "summary": "A Philippine marine was struck on the head with what Manila described as a wooden baton during a confrontation with Chinese coast guard personnel at Second Thomas Shoal on Monday, as Chinese Foreign Minister Wang Yi arrived in Manila for ASEAN talks. The Philippines summoned China's ambassador and China summoned the Philippine envoy, with both sides disputing who initiated the violence.",
+      "why_it_matters": "The clash occurred hours before Wang Yi arrived in Manila for diplomatic meetings where maritime tensions were already on the agenda — China's willingness to escalate physically at the shoal even as its top diplomat lands in the capital for talks reveals a two-track approach that makes diplomatic de-escalation structurally harder, since any concession at the table is undercut by simultaneous coercion at sea.",
+      "sources": [
+        {"article_id": "A17"},
+        {"article_id": "A278"},
+        {"article_id": "A290"},
+        {"article_id": "A371"},
+        {"article_id": "A394"},
+        {"article_id": "A406"},
+        {"article_id": "A479"},
+        {"article_id": "A487"}
+      ]
+    },
+    {
+      "headline": "Israel believes Iran moved nuclear centrifuges underground as Iran election looms",
+      "summary": "Israeli intelligence assesses that Iran transferred thousands of uranium-enrichment centrifuges to deep tunnels inside Pickaxe Mountain following US and Israeli strikes in June, according to a Wall Street Journal report citing Israeli and US officials; Trump has threatened to attack the site. Separately, Israel set a general election for October 27 after the Knesset adjourned, with polls showing Netanyahu's coalition falling short of a majority.",
+      "why_it_matters": "If Iran has moved centrifuges to a hardened underground site that requires bunker-busting munitions to destroy, any future strike on the nuclear programme becomes more costly and less certain to succeed — creating pressure on Israel to act before the facility is fully hardened, even as Netanyahu faces an election campaign in which his handling of the multi-front wars will be the central issue.",
+      "sources": [
+        {"article_id": "A172"},
+        {"article_id": "A432"},
+        {"article_id": "A580"}
+      ]
+    },
+    {
+      "headline": "Trump says Netanyahu will not be arrested in US; New York mayor presses ICC question",
+      "summary": "President Trump declared that Israeli Prime Minister Benjamin Netanyahu 'will not be arrested, in any way, shape, or form' if he visits the United States, after New York City Mayor Zohran Mamdani said his legal team was actively considering whether the city could act on the International Criminal Court's 2024 arrest warrant for Netanyahu. Mamdani, who took office in January, had pledged during his campaign to arrest Netanyahu if he came to New York.",
+      "why_it_matters": "The US and Israel are not ICC members, and Trump's pre-emptive guarantee effectively puts federal authority against a local mayor — but the underlying question of whether a US city must honour ICC warrants that the federal government rejects has no settled legal answer, and the dispute will resurface when Netanyahu typically travels to New York in September for the UN General Assembly.",
+      "sources": [
+        {"article_id": "A6"},
+        {"article_id": "A34"},
+        {"article_id": "A253"},
+        {"article_id": "A275"},
+        {"article_id": "A327"},
+        {"article_id": "A460"},
+        {"article_id": "A585"},
+        {"article_id": "A597"}
+      ]
+    },
+    {
+      "headline": "EU fines AliExpress a record €550 million under Digital Services Act",
+      "summary": "The European Commission fined AliExpress €550 million ($629 million) on Monday — the largest penalty yet under the Digital Services Act — for failing to prevent the sale of illegal, unsafe and counterfeit products on its platform, including unsafe toys and cosmetics. AliExpress, which has 193 million EU users, said it would appeal the 'disproportionate' fine and has until October 20 to submit a remediation plan.",
+      "why_it_matters": "The fine follows Temu's €200 million DSA penalty in May, establishing a pattern of the EU using the Act to extract compliance from Chinese e-commerce platforms that have expanded rapidly in Europe — each fine sets a higher floor for what regulators will accept, and AliExpress's choice to appeal rather than settle means the legal scope of the DSA's product-safety obligations will now be tested in court.",
+      "sources": [
+        {"article_id": "A44"},
+        {"article_id": "A110"},
+        {"article_id": "A139"},
+        {"article_id": "A360"},
+        {"article_id": "A425"}
+      ]
+    },
+    {
+      "headline": "Nicaragua's Ortega declares elections will never be held again",
+      "summary": "President Daniel Ortega said Sunday that Nicaragua will no longer hold elections, announcing the move at a celebration of the Sandinista Revolution that brought him to power in 1979. Ortega, who has ruled for nearly 20 years and jailed opposition candidates before the 2021 election, said 'never, never, never' would parties 'put in place by the Yankees' return to power.",
+      "why_it_matters": "Nicaragua's legislature had already extended presidential terms in January 2025, pushing any scheduled election to November 2027, but Ortega's public declaration that even that vote will not happen removes the minimal pretence of electoral legitimacy — analysts say the announcement likely foreshadows higher repression against anyone demanding elections, since at least 46 people are already jailed for political reasons.",
+      "sources": [
+        {"article_id": "A156"},
+        {"article_id": "A258"},
+        {"article_id": "A334"},
+        {"article_id": "A412"},
+        {"article_id": "A467"},
+        {"article_id": "A498"}
+      ]
+    },
+    {
+      "headline": "Congo Ebola toll reaches 930 dead as outbreak spreads faster than health workers can track",
+      "summary": "Congo's health ministry reported at least 930 deaths from 2,344 confirmed Ebola cases as of Saturday, with 37 deaths recorded in a single 24-hour period — one of the highest single-day tolls since the outbreak was declared on May 15. The World Health Organization warned that 80% of new cases were emerging from unknown transmission chains and that real case numbers could be up to four times higher than official figures.",
+      "why_it_matters": "The outbreak is caused by the Bundibugyo strain, for which there is no approved vaccine or treatment, and is spreading across five eastern provinces where armed conflict has triggered at least 12 attacks on health facilities — the combination of an untreatable variant, active conflict, and the WHO's own estimate of a four-fold undercounting gap means the outbreak's true size may not be known until it has already crossed borders, which neighbouring Uganda, Rwanda and Zambia are now urgently trying to prevent.",
+      "sources": [
+        {"article_id": "A116"},
+        {"article_id": "A204"},
+        {"article_id": "A242"}
+      ]
+    },
+    {
+      "headline": "India's 'Cockroach' youth movement marches on parliament; police use tear gas and batons",
+      "summary": "Tens of thousands of young protesters supporting the Cockroach Janta Party defied a police ban Monday and marched on India's parliament in New Delhi, demanding the resignation of Education Minister Dharmendra Pradhan over alleged exam paper leaks that forced 2.28 million medical students to resit their entrance test. Police used tear gas and cane charges to disperse crowds; activists said some protesters suffered head injuries and at least one had a suspected broken leg.",
+      "why_it_matters": "The protest fell on the opening day of parliament's monsoon session, which was repeatedly adjourned as opposition MPs raised the exam scandal inside — the simultaneous disruption in the streets and inside parliament makes it harder for the Modi government to contain the issue as a law-and-order matter alone, and the CJP's rapid growth from a satirical Google Form to one of the largest anti-government rallies in years reveals how quickly exam-leak anger is fusing with broader youth unemployment frustration.",
+      "sources": [
+        {"article_id": "A58"},
+        {"article_id": "A64"},
+        {"article_id": "A169"},
+        {"article_id": "A170"},
+        {"article_id": "A239"},
+        {"article_id": "A272"},
+        {"article_id": "A307"},
+        {"article_id": "A370"},
+        {"article_id": "A475"},
+        {"article_id": "A545"},
+        {"article_id": "A602"}
+      ]
+    },
+    {
+      "headline": "Chinese warship fires live rounds inside Japan's claimed exclusive economic zone",
+      "summary": "A Chinese missile destroyer conducted a live-fire drill about 180 kilometres from Okinotori Island — within Japan's claimed exclusive economic zone — on Sunday, the first time Japan's defence ministry has acknowledged a foreign navy vessel firing live rounds in those waters. The drill was carried out alongside a Russian frigate; China dismissed Japan's diplomatic protest as 'groundless', saying Beijing does not recognise Okinotori as an island generating EEZ rights.",
+      "why_it_matters": "China's refusal to acknowledge Japan's EEZ around Okinotori means it claims the right to conduct live-fire drills in waters Tokyo regards as sovereign — and by conducting the exercise alongside a Russian vessel, Beijing is demonstrating that the China-Russia military partnership around Japan is expanding in practical, not just rhetorical, terms, compounding a challenge that Japanese Prime Minister Takaichi has already tied to a possible military response if China attacks Taiwan.",
+      "sources": [
+        {"article_id": "A303"},
+        {"article_id": "A396"},
+        {"article_id": "A530"}
+      ]
+    },
+    {
+      "headline": "China considers tighter export controls on AI models and chips, FT reports",
+      "summary": "China is weighing new export controls that would restrict overseas sales of domestic AI models and semiconductors, according to a Financial Times report cited by Reuters. The move would mirror US restrictions on advanced chip exports to China, and comes as Chinese AI companies have rapidly expanded global reach.",
+      "why_it_matters": "If Beijing imposes reciprocal AI and chip export controls, countries that have come to rely on cheaper Chinese AI infrastructure — particularly in the Global South — would face a choice between US-aligned and Chinese-aligned technology stacks, accelerating the bifurcation of the global AI ecosystem that both Washington and Beijing have been building toward through separate regulatory and industrial-policy tracks.",
+      "sources": [
+        {"article_id": "A293"}
+      ]
+    },
+    {
+      "headline": "France records 2,025 excess deaths in June heatwave; parliament to vote on social media ban for under-15s",
+      "summary": "France announced 2,025 preliminary excess deaths during a late-June heatwave that saw temperatures reach 43.8 degrees Celsius, with deaths running nearly 65% above normal in Paris and almost 50% above normal in the Centre-Val de Loire region; officials said the figures are based on around 60% of all deaths and will likely rise. On Tuesday, the French parliament voted on a bill — approved at committee level the previous day — that would ban children under 15 from opening social media accounts from September 1.",
+      "why_it_matters": "France followed Australia, which enacted the world's first under-16 social media ban in December, but the heatwave deaths reveal a parallel structural failure: the 2003 heatwave that killed nearly 15,000 in France prompted an alert system, but not the hospital air conditioning or care-home upgrades needed to protect the elderly — meaning the public health lesson France drew from 2003 was narrower than the one the 2026 deaths now demand.",
+      "sources": [
+        {"article_id": "A81"},
+        {"article_id": "A95"},
+        {"article_id": "A427"},
+        {"article_id": "A434"},
+        {"article_id": "A459"}
+      ]
+    }
+  ],
+  "preheader": "US strikes Iran for 10th night; Houthis blockade Red Sea; Burnham becomes UK's 7th PM in a decade."
+}

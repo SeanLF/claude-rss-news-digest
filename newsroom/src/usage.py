@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 # A resolved model matching none of these means an alias drifted to a different
 # model (the "prod with no Gemfile.lock" failure) -- log loudly so it can't pass
 # silently.
-_PINNED_MODEL_IDS = ("claude-sonnet-4-6", "claude-haiku-4-5")
+_PINNED_MODEL_IDS = ("claude-sonnet-5", "claude-sonnet-4-6", "claude-haiku-4-5")
 
 
 def _usage_row(subagent: str, model: str, usage: dict, api_cost_usd: float, duration_ms: int = 0) -> dict:

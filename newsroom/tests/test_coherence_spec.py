@@ -40,8 +40,11 @@ def _spec():
 
 def test_model_is_sonnet():
     """Detection quality is model-bound: Haiku missed planted fabrications 2026-07-01
-    (scratch/coherence_val/). Swapping this model requires re-running that validation."""
-    assert _spec().model == "claude-sonnet-4-6"
+    (scratch/coherence_val/), and a harness-faithful eval on 2026-07-21 showed Sonnet 5
+    catches hallucinations Sonnet 4.6 missed (0/6 -> best 4/6, 0 false drops; see
+    docs/2026-07-21-coherence-reframe-design.md). Swapping this model requires re-running
+    that validation via `make eval-coherence`."""
+    assert _spec().model == "claude-sonnet-5"
 
 
 def test_description_mentions_summary_and_why_it_matters():
