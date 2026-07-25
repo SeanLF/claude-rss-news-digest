@@ -99,3 +99,56 @@ A/B'd `NewsDigestBot/1.0 (+url)` against all 35 feeds from prod. The Hindu stays
 haaretz_world flip 200 -> 403**. A global honest UA costs two working feeds and
 gains nothing. It is only worth revisiting as a per-source override alongside an
 actual allowlist request.
+
+## How much of the catalog is just wire copy
+
+Measured by re-parsing all 38 feeds (2,744 items) and fetching **936 full articles**.
+Summary-only detection is near-useless for this: `feeds.py:97` truncates RSS blurbs to
+500 chars and the wire credit lives at the *end* of the body, so a regex over summaries
+scored Straits Times 2% and The Hindu 0% against true values of 49% and 48%.
+
+Detectors unioned: RSS `<author>`/`<dc:creator>` equal to the agency; HTML meta
+provenance (The Hindu ships `<meta property="article:author" content=" AFP">`, Al
+Jazeera ships `<meta name="source" content="The Associated Press">`); body repost
+markers (`WASHINGTON, July 24 (Reuters) -`, a bare tail sigil, `Fuente: EFE`); and bare
+wire datelines.
+
+Three traps that inflate a naive count, all excluded: RSS `<credit>` is a **photo**
+credit (counting it gave WSJ 63% and NYT 48% — artifacts); **citing** a wire
+("two diplomatic sources told Reuters") is not reposting it; and `(AFP)` in The Diplomat
+means Armed Forces of the Philippines.
+
+| Source | `perspective` | n | repost % | dominant wires |
+|---|---|---:|---:|---|
+| scmp_world | asian | 48 | **67%** | AFP 13, AP 7, Reuters 7, dpa 3 |
+| al_monitor | middle_east | 17 | **53%** | Reuters 9 (verbatim datelines) |
+| straits_times | singaporean | 49 | **49%** | AFP 11, + 13 stripped datelines |
+| the_hindu | indian | 54 | **48%** | AFP 14, Reuters 8, PTI 4 |
+| clarin_mundo | argentine | 10 | 40% | EFE 3, AFP 1 (wide CI, small n) |
+| haaretz_world | israeli | 35 | 31% | Reuters 5, AP 4 |
+| france24 | french_international | 24 | **21%** | AFP 5 — and labels every one |
+| globe_and_mail / al_jazeera / daily_maverick / cbc_news | — | 20-54 | 15-17% | Reuters, AP |
+| scmp_asia, scmp_china, the_diplomat, the_guardian, bbc_world, le_monde, deutsche_welle, economist_* | — | 12-54 | **0%** | — |
+
+No data (0% would be unknown, not clean): `nyt_world`, `wsj_world`, `washington_post`,
+`nikkei_asia`, `economist_middle_east_africa` — fulltext blocked by paywall/bot-wall.
+
+### What it changes
+
+- **France 24 stays.** At 21% and self-labelled ("FRANCE 24 with AFP and Reuters") it is
+  not the AFP duplication risk. The three pipes already carrying the same AFP feed are
+  **scmp_world, the_hindu and straits_times**.
+- **`scmp_world` is the clean cut.** 67% wire while its siblings `scmp_asia` and
+  `scmp_china` are both **0%** — the redundancy is one feed, not the outlet.
+- **`perspective` labels overstate originality.** `singaporean` (49% wire), `indian`
+  (48%), `asian` (67%) describe about half of what those feeds actually emit.
+- **`perspective` does not collapse anything.** `prepare.py:156` only derives
+  `wire = perspective == "wire_service"`, used by `digest.py::_source_priority` to pick a
+  canonical link. Every other value is display-only. And `collapse_reposts` requires a
+  **verbatim identical normalized title** — only 48% of near-duplicate cross-source pairs
+  (Jaccard >= 0.6) share an exact key, so roughly half of same-day wire duplication passes
+  through. Reposters rewrite headlines.
+- **Cheap structural win, not yet taken:** `feeds.py` parses with feedparser and discards
+  `entry.author`. Persisting that one field yields a free, high-precision wire flag on
+  scmp_world, both Haaretz feeds, daily_maverick, npr_world and rappler — no extra fetch,
+  no model call.

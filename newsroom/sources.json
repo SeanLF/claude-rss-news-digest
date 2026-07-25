@@ -50,6 +50,16 @@
     "region": "N. America"
   },
   {
+    "id": "clarin_mundo",
+    "name": "Clarín",
+    "url": "https://www.clarin.com/rss/mundo/",
+    "bias": "lean-right",
+    "factuality": "high",
+    "credibility": "high",
+    "perspective": "argentine",
+    "region": "S. America"
+  },
+  {
     "id": "daily_maverick",
     "name": "Daily Maverick",
     "url": "https://www.dailymaverick.co.za/dmrss/",
@@ -137,6 +147,16 @@
     "factuality": "high",
     "credibility": "high",
     "perspective": "western_finance",
+    "region": "Europe"
+  },
+  {
+    "id": "france24",
+    "name": "France 24",
+    "url": "https://www.france24.com/en/rss",
+    "bias": "center",
+    "factuality": "high",
+    "credibility": "high",
+    "perspective": "french_international",
     "region": "Europe"
   },
   {
@@ -328,6 +348,16 @@
     "credibility": "high",
     "perspective": "tech",
     "region": "N. America"
+  },
+  {
+    "id": "upi",
+    "name": "UPI",
+    "url": "https://www.upi.com/rss/top_news.rss",
+    "bias": "center",
+    "factuality": "high",
+    "credibility": "high",
+    "perspective": "wire_service",
+    "region": "Global"
   },
   {
     "id": "washington_post",
