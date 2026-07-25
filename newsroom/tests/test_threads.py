@@ -6,6 +6,8 @@ linker so the store CRUD, create-or-continue, aging, and resolve_threads orchest
 covered with no LLM in CI. The link-response parsing + failure fallback are tested directly.
 """
 
+import logging
+import re
 import sqlite3
 import sys
 from pathlib import Path
@@ -27,6 +29,11 @@ def conn(tmp_path):
     db_path = tmp_path / "test.db"
     db.init(db_path, MIGRATIONS_DIR)
     c = sqlite3.connect(db_path)
+    # FKs ON to match prod (db.py). With them off, a merge that orphaned installment rows
+    # would pass here and fail in production; it also means a test referencing run N must
+    # insert run N first (the dormancy tests below do exactly that, with controlled
+    # completed_at values, which is why this seeds only the base three).
+    c.execute("PRAGMA foreign_keys = ON")
     for sha in ("r1", "r2", "r3"):
         c.execute("INSERT INTO digest_runs (git_sha) VALUES (?)", (sha,))
     c.commit()
@@ -102,6 +109,335 @@ def test_link_threads_ignores_invalid_thread_ids(monkeypatch):
     monkeypatch.setattr("claude_cli.run_sync", lambda *a, **k: "{}", raising=False)
     out = threads.link_threads(active, ["unrelated", "Iran update"])
     assert out == [None, 7]  # 999 is not an active id -> dropped to NEW
+
+
+def test_link_threads_accepts_string_thread_ids(monkeypatch):
+    """Run 244 (2026-07-25) regression: Haiku quoted every id ({"thread": "261"}), the
+    isinstance(int) check silently rejected all 16 correct links, and the digest shipped
+    with 0 continued threads. JSON number-vs-string is model formatting drift, not a
+    different answer -- a digit string must resolve to the same thread."""
+    active = [
+        threads.ActiveThread(thread_id=261, label="Ukraine defence minister removal"),
+        threads.ActiveThread(thread_id=12, label="Russian missile strikes on Kyiv"),
+    ]
+    monkeypatch.setattr(
+        threads,
+        "_parse_links",
+        lambda _t: [
+            {"story": 0, "thread": "261"},
+            {"story": 1, "thread": "NEW"},
+            {"story": "2", "thread": "12"},
+        ],
+    )
+    monkeypatch.setattr("claude_cli.run_sync", lambda *a, **k: "{}", raising=False)
+    out = threads.link_threads(active, ["Zelensky fires Fedorov", "Romania drone", "Kyiv strike"])
+    assert out == [261, None, 12]
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        (261, 261),
+        ("261", 261),
+        ("  261 ", 261),
+        ("٣", 3),  # non-ASCII decimal digits: int() handles these
+        ("２６１", 261),  # fullwidth
+        ("NEW", None),
+        (None, None),
+        (True, None),  # bool is an int subclass; True must not alias index 1
+        ("--5", None),  # str.isdigit() + lstrip("-") would reach int() and RAISE
+        ("²", None),  # "².isdigit()" is True but int("²") RAISES
+        ("-5", None),  # ids and indices are never negative
+        ("3.0", None),
+        ("", None),
+    ],
+)
+def test_as_index_never_raises_on_model_drift(value, expected):
+    """`_as_index` exists to absorb formatting drift, so it must not itself raise. The
+    raise site sits outside link_threads' try/except, so a ValueError here escapes to
+    run.py's blanket handler and drops the ENTIRE thread stage -- the same blast radius
+    as the run-244 bug this helper was added to fix."""
+    assert threads._as_index(value) == expected
+
+
+def test_link_threads_errors_when_every_proposed_link_is_rejected(monkeypatch, caplog):
+    """A run that PROPOSED thread ids and validated none is total continuity loss -> ERROR."""
+    active = [threads.ActiveThread(thread_id=7, label="Iran nuclear deal")]
+    monkeypatch.setattr(threads, "_parse_links", lambda _t: [{"story": 0, "thread": 999}])
+    monkeypatch.setattr("claude_cli.run_sync", lambda *a, **k: "{}", raising=False)
+    with caplog.at_level(logging.WARNING):
+        out = threads.link_threads(active, ["Iran update"])
+    assert out == [None]
+    assert "0 of 1" in caplog.text
+    assert [r.levelno for r in caplog.records] == [logging.ERROR]
+
+
+def test_link_threads_warns_on_partial_rejection(monkeypatch, caplog):
+    """Drift is usually partial. 1 of 2 linked still means a real continuation was demoted to
+    a new thread, so it cannot be silent just because `linked > 0`."""
+    active = [
+        threads.ActiveThread(thread_id=7, label="Iran nuclear deal"),
+        threads.ActiveThread(thread_id=8, label="Kyiv strikes"),
+    ]
+    monkeypatch.setattr(
+        threads,
+        "_parse_links",
+        lambda _t: [{"story": 0, "thread": 7}, {"story": 1, "thread": 999}],
+    )
+    monkeypatch.setattr("claude_cli.run_sync", lambda *a, **k: "{}", raising=False)
+    with caplog.at_level(logging.WARNING):
+        out = threads.link_threads(active, ["Iran update", "Kyiv update"])
+    assert out == [7, None]
+    assert "1 of 2" in caplog.text
+    assert [r.levelno for r in caplog.records] == [logging.WARNING]
+
+
+def test_link_threads_errors_when_nothing_parses(monkeypatch, caplog):
+    """An unparseable response loses continuity exactly like the exception path, but without a
+    traceback -- the quietest possible total failure."""
+    active = [threads.ActiveThread(thread_id=7, label="Iran nuclear deal")]
+    monkeypatch.setattr("claude_cli.run_sync", lambda *a, **k: "I'm sorry, I can't help.", raising=False)
+    with caplog.at_level(logging.WARNING):
+        out = threads.link_threads(active, ["Iran update", "Kyiv update"])
+    assert out == [None, None]
+    assert "no parseable links" in caplog.text
+    assert [r.levelno for r in caplog.records] == [logging.ERROR]
+
+
+def test_link_threads_silent_on_a_genuinely_all_new_day(monkeypatch, caplog):
+    """The reworded prompt asks for `null` on a new story, so an all-new day returns a FULL
+    links array of nulls. Warning there would cry wolf on normal output and dilute the one
+    detector that catches the real bug."""
+    active = [threads.ActiveThread(thread_id=7, label="Iran nuclear deal")]
+    monkeypatch.setattr(
+        threads,
+        "_parse_links",
+        lambda _t: [{"story": 0, "thread": None}, {"story": 1, "thread": "NEW"}],
+    )
+    monkeypatch.setattr("claude_cli.run_sync", lambda *a, **k: "{}", raising=False)
+    with caplog.at_level(logging.WARNING):
+        out = threads.link_threads(active, ["Sudan floods", "Chile election"])
+    assert out == [None, None]
+    assert caplog.text == ""
+
+
+def test_link_system_prompt_example_is_type_consistent():
+    """The prompt taught the drift: its example mixed `"thread": 3` (int) with
+    `"thread": "NEW"` (str) for the same field, so the model normalised to strings and
+    every id came back quoted. Every `thread` value in the example must be unquoted."""
+    example = threads.LINK_SYSTEM[threads.LINK_SYSTEM.index('{"links"') :]
+    quoted = re.findall(r'"thread":\s*"', example)
+    assert not quoted, f"example mixes a string `thread` value in: {example[:120]}"
+
+
+# --- merge_thread (repairing a linker mis-split) ---------------------------
+#
+# When the linker fails to recognise a continuation it creates a DUPLICATE thread for a
+# story already being tracked (run 244, 2026-07-25: 5 of them). Retiring the duplicate
+# leaves the real thread with a hole in its arc and an under-counted "day N" badge, since
+# render_context counts installment rows. Merging folds the duplicate's history back in.
+
+
+def _thread_state(conn, tid):
+    row = conn.execute("SELECT label, status, first_run_id, last_run_id FROM threads WHERE id = ?", (tid,)).fetchone()
+    installments = conn.execute(
+        "SELECT run_id, cluster_story, content FROM thread_installments WHERE thread_id = ? ORDER BY run_id", (tid,)
+    ).fetchall()
+    questions = conn.execute("SELECT question FROM thread_questions WHERE thread_id = ? ORDER BY id", (tid,)).fetchall()
+    return row, installments, questions
+
+
+def test_merge_thread_folds_duplicate_history_into_the_real_thread(conn):
+    """The duplicate holds the NEWEST label (what the linker matches on next run) while the
+    target holds the arc. After the merge the target must own both."""
+    store = threads.ThreadStore(conn)
+    target = store.create_thread("Cap Ferret wildfire evacuation France", run_id=1)
+    store.record_installment(target, 1, "Cap Ferret wildfire evacuation France", is_new=True)
+    store.set_installment_content(target, 1, '{"whats_new": ["fire reaches Cap Ferret"]}')
+    store.add_questions(target, ["Will Bordeaux be evacuated?"], run_id=1)
+
+    dup = store.create_thread("Spain and France wildfires mass evacuation", run_id=2)
+    store.record_installment(dup, 2, "Spain and France wildfires mass evacuation", is_new=True)
+    store.add_questions(dup, ["How many hectares burned?"], run_id=2)
+
+    result = store.merge_thread(dup, target)
+
+    assert result == {"installments_moved": 1, "installments_dropped": 0, "questions_moved": 1}
+    row, installments, questions = _thread_state(conn, target)
+    # Label advances to the duplicate's (newer) one; first_run_id keeps the EARLIER origin.
+    assert row == ("Spain and France wildfires mass evacuation", "active", 1, 2)
+    assert [i[0] for i in installments] == [1, 2]  # arc has no hole -> day count = 2
+    assert installments[0][2] == '{"whats_new": ["fire reaches Cap Ferret"]}'  # content preserved
+    assert len(questions) == 2  # open ledger from both sides
+    assert conn.execute("SELECT COUNT(*) FROM threads WHERE id = ?", (dup,)).fetchone()[0] == 0
+
+
+def test_merge_thread_day_count_matches_installments(conn):
+    """render_context derives the badge from installment COUNT, so the merge is what makes
+    'day N' truthful again."""
+    store = threads.ThreadStore(conn)
+    target = store.create_thread("thread a", run_id=1)
+    store.record_installment(target, 1, "thread a", is_new=True)
+    store.record_installment(target, 2, "thread a cont", is_new=False)
+    dup = store.create_thread("thread a renamed", run_id=3)
+    store.record_installment(dup, 3, "thread a renamed", is_new=True)
+
+    assert store.render_context(target, 3)["day"] == 2
+    store.merge_thread(dup, target)
+    assert store.render_context(target, 3)["day"] == 3
+
+
+def test_merge_thread_drops_colliding_run_keeping_synthesized_content(conn):
+    """Both threads carrying an installment for the SAME run would double-count the day.
+    The row with synthesized content wins; the bare identity row is dropped."""
+    store = threads.ThreadStore(conn)
+    target = store.create_thread("target", run_id=1)
+    store.record_installment(target, 1, "target", is_new=True)  # no content
+    dup = store.create_thread("dup", run_id=1)
+    store.record_installment(dup, 1, "dup", is_new=True)
+    store.set_installment_content(dup, 1, '{"whats_new": ["the real delta"]}')
+
+    result = store.merge_thread(dup, target)
+
+    assert result["installments_dropped"] == 1
+    _, installments, _ = _thread_state(conn, target)
+    assert len(installments) == 1  # exactly one row for run 1 -> day count stays 1
+    assert installments[0][2] == '{"whats_new": ["the real delta"]}'  # content survived
+
+
+def test_merge_thread_keeps_target_label_when_duplicate_is_older(conn):
+    """Only advance the label/last_run_id if the duplicate is genuinely newer."""
+    store = threads.ThreadStore(conn)
+    target = store.create_thread("newer label", run_id=3)
+    store.record_installment(target, 3, "newer label", is_new=True)
+    dup = store.create_thread("older label", run_id=1)
+    store.record_installment(dup, 1, "older label", is_new=True)
+
+    store.merge_thread(dup, target)
+
+    row, installments, _ = _thread_state(conn, target)
+    assert row == ("newer label", "active", 1, 3)  # label unchanged, origin backdated
+    assert [i[0] for i in installments] == [1, 3]
+
+
+def test_nested_transaction_is_atomic_across_several_merges(conn):
+    """A batch repair is the whole point of this method, so wrapping merges in one
+    `transaction()` must be all-or-nothing. A non-re-entrant manager would let the inner
+    merge commit immediately AND clear the defer flag, so everything after it self-commits
+    and the rollback silently protects nothing."""
+    store = threads.ThreadStore(conn)
+    t1, t2 = store.create_thread("t1", run_id=1), store.create_thread("t2", run_id=1)
+    store.record_installment(t1, 1, "t1", is_new=True)
+    store.record_installment(t2, 1, "t2", is_new=True)
+    d1, d2 = store.create_thread("d1", run_id=2), store.create_thread("d2", run_id=2)
+    store.record_installment(d1, 2, "d1", is_new=True)
+    store.record_installment(d2, 2, "d2", is_new=True)
+
+    with pytest.raises(RuntimeError), store.transaction():
+        store.merge_thread(d1, t1)
+        store.merge_thread(d2, t2)
+        raise RuntimeError("batch aborted")
+
+    fresh = sqlite3.connect(conn.execute("PRAGMA database_list").fetchone()[2])
+    survivors = {r[0] for r in fresh.execute("SELECT id FROM threads")}
+    assert {d1, d2} <= survivors, "aborted batch left merges committed"
+    assert fresh.execute("SELECT COUNT(*) FROM thread_installments WHERE thread_id = ?", (t1,)).fetchone()[0] == 1
+    fresh.close()
+
+
+def test_merge_thread_does_not_resurrect_a_resolved_question(conn):
+    """Duplicate threads for one story generate the SAME question text. Moving the
+    duplicate's open copy onto a target that already resolved it puts an answered question
+    back into `OPEN QUESTIONS:` in the synthesis prompt -- telling the model settled
+    material is still unanswered, which is how a thread re-reports old news as new."""
+    store = threads.ThreadStore(conn)
+    target = store.create_thread("target", run_id=1)
+    store.record_installment(target, 1, "target", is_new=True)
+    store.add_questions(target, ["Will Bordeaux be evacuated?"], run_id=1)
+    store.resolve_question(target, "Will Bordeaux be evacuated?", run_id=2, how="prefecture confirmed")
+
+    dup = store.create_thread("dup", run_id=2)
+    store.record_installment(dup, 2, "dup", is_new=True)
+    store.add_questions(dup, ["Will Bordeaux be evacuated?", "How many hectares?"], run_id=2)
+
+    store.merge_thread(dup, target)
+
+    assert store.open_questions(target) == ["How many hectares?"]
+
+
+def test_merge_thread_collapses_preexisting_duplicate_installments(conn):
+    """There is no UNIQUE(thread_id, run_id) constraint, so the merge must not assume one
+    row per side -- otherwise a stray pair inflates the reader-visible day count and the
+    reported drop count is wrong in exactly the case you would check it."""
+    store = threads.ThreadStore(conn)
+    target = store.create_thread("target", run_id=1)
+    store.record_installment(target, 1, "target", is_new=True)
+    dup = store.create_thread("dup", run_id=1)
+    store.record_installment(dup, 1, "dup a", is_new=True)
+    store.record_installment(dup, 1, "dup b", is_new=True)  # stray duplicate
+    store.set_installment_content(dup, 1, '{"whats_new": ["kept"]}')
+
+    result = store.merge_thread(dup, target)
+
+    rows = conn.execute(
+        "SELECT content FROM thread_installments WHERE thread_id = ? AND run_id = 1", (target,)
+    ).fetchall()
+    assert len(rows) == 1, "day count would be inflated"
+    assert rows[0][0] == '{"whats_new": ["kept"]}'  # the synthesized row won
+    assert result["installments_dropped"] == 2  # both losers, counted accurately
+
+
+def test_merge_thread_is_idempotent_and_refuses_self_merge(conn):
+    """A repair script may be re-run; a second pass must be a harmless no-op."""
+    store = threads.ThreadStore(conn)
+    target = store.create_thread("t", run_id=1)
+    store.record_installment(target, 1, "t", is_new=True)
+    dup = store.create_thread("d", run_id=2)
+    store.record_installment(dup, 2, "d", is_new=True)
+
+    store.merge_thread(dup, target)
+    assert store.merge_thread(dup, target) is None  # source already gone
+
+    with pytest.raises(ValueError):
+        store.merge_thread(target, target)
+    with pytest.raises(ValueError):
+        store.merge_thread(target, 99999)  # unknown target must not orphan rows
+
+
+class _FailOnDeleteThreads:
+    """Connection proxy that raises on the final `DELETE FROM threads`. sqlite3.Connection
+    is a C type whose `execute` cannot be monkeypatched, so wrap it instead."""
+
+    def __init__(self, conn):
+        self._conn = conn
+
+    def execute(self, sql, *a):
+        if sql.strip().upper().startswith("DELETE FROM THREADS"):
+            raise sqlite3.OperationalError("boom")
+        return self._conn.execute(sql, *a)
+
+    def __getattr__(self, name):
+        return getattr(self._conn, name)
+
+
+def test_merge_thread_rolls_back_completely_on_failure(conn):
+    """Half a merge (history moved, duplicate still present) is worse than none."""
+    store = threads.ThreadStore(conn)
+    target = store.create_thread("t", run_id=1)
+    store.record_installment(target, 1, "t", is_new=True)
+    dup = store.create_thread("d", run_id=2)
+    store.record_installment(dup, 2, "d", is_new=True)
+
+    store.conn = _FailOnDeleteThreads(conn)
+    with pytest.raises(sqlite3.OperationalError):
+        store.merge_thread(dup, target)
+    store.conn = conn
+
+    assert conn.execute("SELECT COUNT(*) FROM threads WHERE id = ?", (dup,)).fetchone()[0] == 1
+    _, installments, _ = _thread_state(conn, target)
+    assert [i[0] for i in installments] == [1]  # nothing moved
+    dup_rows = conn.execute("SELECT run_id FROM thread_installments WHERE thread_id = ?", (dup,)).fetchall()
+    assert [r[0] for r in dup_rows] == [2]  # duplicate's own history intact
 
 
 # --- selected_labels (SELECT + CLUSTER -> story list) ----------------------
@@ -229,6 +565,9 @@ def test_active_threads_carries_recent_label_history(conn):
 
 def test_active_threads_recent_labels_capped_and_ordered(conn):
     store = threads.ThreadStore(conn)
+    for rid in range(4, 7):  # fixture seeds runs 1-3; this arc spans six
+        conn.execute("INSERT INTO digest_runs (id, git_sha) VALUES (?, ?)", (rid, f"r{rid}"))
+    conn.commit()
     tid = store.create_thread("day1", run_id=1)
     for r in range(1, 7):
         if r > 1:
@@ -263,8 +602,9 @@ def test_resolve_threads_ages_out_dormant_threads(conn):
     threads.resolve_threads(
         [{"story": "Iran ceasefire over Strait of Hormuz"}], run_id=1, store=store, linker=anchor_linker
     )
-    # Five COMPLETED runs pass with the story absent (> dormant_after=3).
-    for rid in range(4, 9):
+    # Five COMPLETED runs pass with the story absent (> dormant_after=3); run 9 is the
+    # one doing the linking, and must exist for the FK.
+    for rid in range(4, 10):
         conn.execute(
             "INSERT INTO digest_runs (id, git_sha, completed_at) VALUES (?, ?, datetime('now', 'utc'))",
             (rid, f"r{rid}"),
@@ -288,7 +628,7 @@ def test_dormancy_counts_completed_runs_not_run_id_gaps(conn):
     threads.resolve_threads(
         [{"story": "Iran ceasefire over Strait of Hormuz"}], run_id=1, store=store, linker=anchor_linker
     )
-    for rid in range(4, 9):  # five FAILED runs (no completed_at)
+    for rid in range(4, 10):  # five FAILED runs (no completed_at) + run 9, the linking run
         conn.execute("INSERT INTO digest_runs (id, git_sha) VALUES (?, ?)", (rid, f"f{rid}"))
     conn.commit()
     out = threads.resolve_threads(

@@ -44,7 +44,7 @@ Rules:
 - Be precise: only link genuine continuations. When unsure, prefer NEW over a wrong link.
 - Each today-story maps to at most one thread.
 
-Respond with ONLY JSON, no prose: {"links": [{"story": 0, "thread": 3}, {"story": 1, "thread": "NEW"}]} -- one entry per today-story, thread is an active-thread id or "NEW"."""
+Respond with ONLY JSON, no prose: {"links": [{"story": 0, "thread": 3}, {"story": 1, "thread": null}]} -- one entry per today-story. `thread` is an active-thread id as a bare JSON number, or null for NEW. Never quote the id."""
 
 
 @dataclass
@@ -138,6 +138,32 @@ def _slugify(label: str, *, max_len: int = 60) -> str:
     return slug[:max_len] or "thread"
 
 
+def _as_index(value: object) -> int | None:
+    """Coerce a link field to an int index, tolerating a digit string.
+
+    Whether the model writes `261` or `"261"` is JSON formatting drift, not a different
+    answer, and a strict isinstance(int) check turns that drift into silent data loss
+    (run 244, 2026-07-25: all 16 correct links dropped). `bool` is excluded because it
+    is an int subclass; "NEW" and null fall through to None == a new thread.
+
+    Must never raise: the call site is OUTSIDE link_threads' try/except, so a ValueError
+    here would escape to run.py's blanket handler and drop the whole thread stage -- the
+    failure this helper exists to prevent. Hence `isdecimal()`, not `isdigit()`: both
+    accept non-ASCII decimal digits (Arabic-Indic, fullwidth), which int() parses, but
+    isdigit() ALSO accepts superscripts, which int() rejects. No sign handling either --
+    ids and indices are never negative, callers range-check anyway, and `lstrip("-")`
+    would let "--5" through the guard and into int(), where it raises. See the
+    parametrized cases in test_threads.py for the exact inputs.
+    """
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str) and (v := value.strip()).isdecimal():
+        return int(v)
+    return None
+
+
 def _parse_links(text: str) -> list[dict]:
     """Pull the {"links": [...]} array out of the model's response (tolerant of fences/prose)."""
     s, e = text.find("{"), text.rfind("}")
@@ -185,11 +211,43 @@ def link_threads(active: list[ActiveThread], today_labels: list[str], *, model: 
         logger.warning("thread linker failed; treating all stories as new threads", exc_info=True)
         return [None] * len(today_labels)
 
+    if not links:
+        # Nothing parsed at all: prose/refusal, an empty completion, or the next shape drift
+        # ({"links": {...}}, a renamed key). Identical outcome to the exception path but with
+        # no traceback, so without this it is the quietest total-continuity loss there is.
+        logger.error(
+            "thread linker returned no parseable links; all %d stories treated as new. Response: %r",
+            len(today_labels),
+            text[:300],
+        )
+        return [None] * len(today_labels)
+
     out: list[int | None] = [None] * len(today_labels)
     for ln in links:
-        si, tid = ln.get("story"), ln.get("thread")
-        if isinstance(si, int) and 0 <= si < len(today_labels) and isinstance(tid, int) and tid in valid_ids:
+        si, tid = _as_index(ln.get("story")), _as_index(ln.get("thread"))
+        if si is not None and 0 <= si < len(today_labels) and tid in valid_ids:
             out[si] = tid
+
+    # Judge against links that PROPOSED a thread, not every parsed entry: the prompt asks for
+    # `null` on a new story, so a legitimately all-new day returns a full array of nulls and
+    # must stay silent, or this detector cries wolf on normal output.
+    #
+    # Any rejection is a bug -- drift is usually PARTIAL (some ids quoted, an index off by one,
+    # a hallucinated id), and each one silently demotes a real continuation to a new thread, so
+    # a reader sees "day 1" on a week-old story. Run 244 was total only because the model quoted
+    # every id at once.
+    proposed = [ln for ln in links if _as_index(ln.get("thread")) is not None]
+    linked = sum(1 for v in out if v is not None)
+    if len(proposed) > linked:
+        emit = logger.warning if linked else logger.error
+        emit(
+            "thread linker validated %d of %d proposed link(s) against %d active thread(s); "
+            "the rest were treated as new. First proposal: %r",
+            linked,
+            len(proposed),
+            len(active),
+            proposed[0],
+        )
     return out
 
 
@@ -213,7 +271,16 @@ class ThreadStore:
         """Group several writes into one atomic unit. Inside, the per-method commits are
         suppressed; the whole block commits once on success or rolls back on any error -- so a
         partial multi-step update (e.g. a question resolved but the installment row left NULL)
-        can't be left behind."""
+        can't be left behind.
+
+        RE-ENTRANT: a nested block joins the outer one instead of committing. Methods that open
+        a transaction internally (merge_thread) would otherwise commit mid-block AND clear the
+        defer flag, so every later write in the outer block would self-commit and the rollback
+        would silently protect nothing -- the trap being that the calling code reads as atomic.
+        """
+        if self._defer_commit:
+            yield  # already inside a transaction: the outermost block owns commit/rollback
+            return
         self._defer_commit = True
         try:
             yield
@@ -336,6 +403,111 @@ class ThreadStore:
             (thread_id, run_id, cluster_story, None if is_new else 1.0),
         )
         self._commit()
+
+    def merge_thread(self, source_id: int, target_id: int) -> dict | None:
+        """Fold a duplicate thread's history into the thread it should have continued.
+
+        When the linker fails to recognise a continuation it opens a SECOND thread for a story
+        already being tracked (run 244, 2026-07-25: the quoted-id bug split 5 stories). Retiring
+        the duplicate is not enough -- `render_context` derives the "Ongoing · day N" badge from
+        `COUNT(thread_installments)`, so the arc keeps a hole and the badge under-counts, and the
+        duplicate holds the NEWEST label, which is what the linker matches on next run.
+
+        Moves the source's installments and open questions onto the target, advances the target's
+        label/last_run_id if the source is newer, backdates first_run_id to the earlier origin,
+        and deletes the source. Atomic (partial merges are worse than none) and idempotent, so a
+        repair script can be re-run. Returns what moved, or None if the source is already gone.
+
+        Does NOT touch `digests` -- published issues are immutable HTML blobs and stay exactly as
+        they were sent. This reconciles story IDENTITY going forward, it does not rewrite history.
+        """
+        if source_id == target_id:
+            raise ValueError(f"cannot merge thread {source_id} into itself")
+        src = self.conn.execute(
+            "SELECT label, first_run_id, last_run_id FROM threads WHERE id = ?", (source_id,)
+        ).fetchone()
+        if src is None:
+            return None  # already merged
+        tgt = self.conn.execute(
+            "SELECT label, first_run_id, last_run_id FROM threads WHERE id = ?", (target_id,)
+        ).fetchone()
+        if tgt is None:
+            raise ValueError(f"merge target thread {target_id} does not exist")
+
+        src_label, src_first, src_last = src
+        _, tgt_first, tgt_last = tgt
+
+        with self.transaction():
+            moved = self.conn.execute(
+                "UPDATE thread_installments SET thread_id = ? WHERE thread_id = ?",
+                (target_id, source_id),
+            ).rowcount
+
+            # Then collapse to one installment per (thread, run) or the day count inflates --
+            # render_context derives the reader-visible badge from COUNT(*). Done AFTER the move
+            # rather than by pairing rows up front because there is no UNIQUE(thread_id, run_id)
+            # constraint, so either side may already hold a stray pair; deduping the merged set
+            # is correct no matter how many rows arrive. The row carrying synthesized content
+            # wins (it is the real delta); ties break on lowest id for determinism.
+            dropped = self.conn.execute(
+                """
+                DELETE FROM thread_installments WHERE thread_id = ? AND id NOT IN (
+                    SELECT id FROM (
+                        SELECT id, ROW_NUMBER() OVER (
+                            PARTITION BY run_id ORDER BY (content IS NULL), id
+                        ) AS rn
+                        FROM thread_installments WHERE thread_id = ?
+                    ) WHERE rn = 1
+                )
+                """,
+                (target_id, target_id),
+            ).rowcount
+
+            # Move only questions the target has not already ANSWERED. A duplicate thread asks
+            # the same questions as the real one, so re-parenting its open copy over a resolved
+            # one puts a settled question back into the synthesis prompt's OPEN QUESTIONS list
+            # -- telling the model to treat answered material as still-open.
+            self.conn.execute(
+                """
+                DELETE FROM thread_questions
+                WHERE thread_id = ? AND question IN (
+                    SELECT question FROM thread_questions WHERE thread_id = ? AND status = 'resolved'
+                )
+                """,
+                (source_id, target_id),
+            )
+            questions = self.conn.execute(
+                "UPDATE thread_questions SET thread_id = ? WHERE thread_id = ?",
+                (target_id, source_id),
+            ).rowcount
+
+            # The newer side owns the label the linker will see next run.
+            source_is_newer = (src_last or 0) > (tgt_last or 0)
+            self.conn.execute(
+                """
+                UPDATE threads
+                SET label = ?, last_run_id = ?, first_run_id = ?, status = 'active',
+                    updated_at = datetime('now', 'utc')
+                WHERE id = ?
+                """,
+                (
+                    src_label if source_is_newer else tgt[0],
+                    max(src_last or 0, tgt_last or 0) or None,
+                    min(r for r in (src_first, tgt_first) if r is not None) if (src_first or tgt_first) else None,
+                    target_id,
+                ),
+            )
+            self.conn.execute("DELETE FROM threads WHERE id = ?", (source_id,))
+
+        logger.info(
+            "merged thread %d into %d: %d installment(s) moved, %d dropped, %d question(s) moved",
+            source_id,
+            target_id,
+            moved,
+            dropped,
+            questions,
+        )
+        return {"installments_moved": moved, "installments_dropped": dropped, "questions_moved": questions}
 
     def decay_threads(self, current_run_id: int, dormant_after: int) -> None:
         """Mark active threads not seen within `dormant_after` COMPLETED runs as dormant so they
