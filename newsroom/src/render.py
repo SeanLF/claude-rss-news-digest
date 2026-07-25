@@ -199,6 +199,27 @@ _KNOWN_CENTER = frozenset(
 )
 
 
+# Display names for agencies whose canonical form is not just Title Case.
+_AGENCY_LABELS = {
+    "afp": "AFP",
+    "agence france-presse": "AFP",
+    "ap": "AP",
+    "associated press": "AP",
+    "dpa": "dpa",
+    "efe": "EFE",
+    "agencia efe": "EFE",
+    "ansa": "ANSA",
+    "pti": "PTI",
+    "press trust of india": "PTI",
+    "ians": "IANS",
+    "upi": "UPI",
+    "united press international": "UPI",
+    "pa media": "PA Media",
+    "press association": "PA Media",
+    "tass": "TASS",
+}
+
+
 def _collect_outlets(article: dict) -> list[dict]:
     """Group an article's sources by outlet, preserving input order.
 
@@ -215,7 +236,17 @@ def _collect_outlets(article: dict) -> list[dict]:
             continue
         entry = index.get(name)
         if entry is None:
-            entry = {"name": name, "bias": src.get("bias", ""), "bucket": _bias_bucket(src.get("bias", "")), "urls": []}
+            entry = {
+                "name": name,
+                "bias": src.get("bias", ""),
+                "bucket": _bias_bucket(src.get("bias", "")),
+                "urls": [],
+                # Who actually wrote it. We hold DIRECT feeds for only two agencies
+                # (Reuters, UPI), so for AFP -- the most-reposted of all -- the canonical
+                # link is always somebody's repost. Without this the reader sees "SCMP"
+                # for copy SCMP did not write.
+                "wire_agency": src.get("wire_agency"),
+            }
             index[name] = entry
             order.append(entry)
         url = src.get("url", "")
@@ -258,11 +289,22 @@ def _render_sources_block(outlets: list[dict]) -> str:
     rows = ""
     for o in ordered:
         links = " ".join(f'<a href="{html.escape(u)}">{i}</a>' for i, u in enumerate(o["urls"], 1))
-        rows += (
-            f'<tr><td class="nm">{html.escape(o["name"])}</td>'
-            f'<td class="ln">{html.escape(o["bias"])}</td>'
-            f'<td class="ar">{links}</td></tr>'
-        )
+        # An outlet republishing agency copy is credited to the agency, with the outlet as
+        # the route: "AFP · via SCMP". The outlet's own name alone would claim reporting it
+        # did not do, and its leaning describes an editorial voice the copy does not carry.
+        name_cell = html.escape(o["name"])
+        leaning = html.escape(o["bias"])
+        agency = o.get("wire_agency")
+        if agency:
+            label = _AGENCY_LABELS.get(agency, agency.title())
+            name_cell = html.escape(label)
+            # "Reuters · via Reuters" when the agency's own feed is the source -- say it once.
+            if label.casefold() != o["name"].casefold():
+                name_cell += f'<span class="via"> · via {html.escape(o["name"])}</span>'
+            # NOT the reposter's leaning: agency copy does not carry the republisher's
+            # editorial voice, and we hold no rating for AFP/AP/dpa to put here instead.
+            leaning = "wire"
+        rows += f'<tr><td class="nm">{name_cell}</td><td class="ln">{leaning}</td><td class="ar">{links}</td></tr>'
 
     details = (
         f'<details class="srcbox"><summary class="spread">{biasbar}'

@@ -196,3 +196,73 @@ def test_resolution_tolerates_an_article_index_predating_wire_agency(tmp_path, m
 
     resolved = digest.resolve_article_ids({"must_know": [{"headline": "h", "sources": [{"article_id": "A1"}]}]})
     assert [s["name"] for s in resolved["must_know"][0]["sources"]] == ["The Hindu"]
+
+
+def test_source_table_credits_the_agency_and_names_the_route():
+    """We hold direct feeds for only Reuters and UPI, so an AFP story's canonical link is
+    always somebody's repost. Collapsing three AFP reposts to one row labelled "SCMP"
+    would credit SCMP with copy it did not write -- worse than the pre-collapse state,
+    where at least three outlets were visible."""
+    from render import _render_sources_block
+
+    html_out = _render_sources_block(
+        [
+            {
+                "name": "SCMP",
+                "bias": "lean-left",
+                "bucket": "l",
+                "urls": ["https://scmp.com/a"],
+                "wire_agency": "agence france-presse",
+            },
+            {
+                "name": "The Guardian",
+                "bias": "lean-left",
+                "bucket": "l",
+                "urls": ["https://theguardian.com/b"],
+                "wire_agency": None,
+            },
+        ]
+    )
+    assert "AFP" in html_out
+    assert "via SCMP" in html_out
+    # An outlet's own reporting must NOT be relabelled.
+    assert ">The Guardian<" in html_out
+    assert "via The Guardian" not in html_out
+
+
+def test_source_table_does_not_say_via_the_agency_itself():
+    """Reuters' own feed is the agency -- "Reuters · via Reuters" reads as a bug."""
+    from render import _render_sources_block
+
+    out = _render_sources_block(
+        [
+            {
+                "name": "Reuters",
+                "bias": "center",
+                "bucket": "c",
+                "urls": ["https://reuters.com/a"],
+                "wire_agency": "reuters",
+            }
+        ]
+    )
+    assert "via Reuters" not in out
+
+
+def test_source_table_does_not_lend_the_reposters_leaning_to_wire_copy():
+    """An AFP story routed through SCMP does not acquire SCMP's lean-left editorial voice,
+    and we hold no MBFC rating for AFP to substitute, so the honest cell is neither."""
+    from render import _render_sources_block
+
+    out = _render_sources_block(
+        [
+            {
+                "name": "SCMP",
+                "bias": "lean-left",
+                "bucket": "l",
+                "urls": ["https://scmp.com/a"],
+                "wire_agency": "agence france-presse",
+            }
+        ]
+    )
+    assert ">wire<" in out
+    assert ">lean-left<" not in out
