@@ -62,7 +62,7 @@
   {
     "id": "der_spiegel",
     "name": "Der Spiegel",
-    "url": "https://www.spiegel.de/international/index.rss",
+    "url": "https://www.spiegel.de/ausland/index.rss",
     "bias": "lean-left",
     "factuality": "high",
     "credibility": "high",
@@ -192,7 +192,7 @@
   {
     "id": "nikkei_asia",
     "name": "Nikkei Asia",
-    "url": "https://news.google.com/rss/search?q=site:asia.nikkei.com&hl=en-US&gl=US&ceid=US:en",
+    "url": "https://news.google.com/rss/search?q=site:asia.nikkei.com+when:1d&hl=en-US&gl=US&ceid=US:en",
     "bias": "lean-right",
     "factuality": "high",
     "credibility": "high",
@@ -242,7 +242,7 @@
   {
     "id": "reuters",
     "name": "Reuters",
-    "url": "https://news.google.com/rss/search?q=site:reuters.com&hl=en-US&gl=US&ceid=US:en",
+    "url": "https://news.google.com/rss/search?q=site:reuters.com+when:1d&hl=en-US&gl=US&ceid=US:en",
     "bias": "center",
     "factuality": "very-high",
     "credibility": "high",
