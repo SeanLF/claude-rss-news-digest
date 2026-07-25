@@ -68,6 +68,32 @@ SQLite at `data/digest.db`. Schema managed by migrations in `migrations/`.
 - `newsroom/sources.json` - RSS feed definitions
 - `circulation/` - Rust (Axum) web server for "View in browser" links and archive
 
+## Module Layering
+
+`newsroom/src/` imports flow one direction. Do not introduce a cycle.
+
+```
+config, schema          no internal imports — keep them leaf modules
+  -> db, feeds, utils
+  -> render, merge, repair
+  -> prepare, digest, orchestrate
+  -> claude
+  -> run                entry point; the only module that may import broadly
+```
+
+`run.py` is the CLI and may import anything. Everything else imports downward
+only. If a low-level module needs something from a higher one, the dependency
+is pointing the wrong way — pass it in instead.
+
+## Working Docs
+
+- `docs/solutions/` — reusable lessons, one per file, named for the lesson.
+  Write one when closing an incident or landing a non-obvious fix, as its own
+  commit. Convention in `docs/solutions/README.md`.
+- `docs/operations.md` — command reference and environment notes.
+- `docs/postmortems/` — incident narratives.
+- `docs/` (dated files) — design docs, evals, handoffs.
+
 ## Persistent TODO
 
 Check `.claude/tasks/todo.md` for tasks that persist across sessions (not tracked by git).

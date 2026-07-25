@@ -9,7 +9,7 @@ Every choice it makes is inspectable: real [subscriber and cost numbers](https:/
 - **Fully autonomous.** No human writes, edits, or approves any issue. The pipeline fetches, curates, writes, and fact-checks itself, then sends.
 - **Claude never sees a URL.** Python assigns opaque article IDs (`A1`, `A2`, ...) and the model curates and writes referencing only those IDs; Python resolves them back to sources afterward. Curation can't be swayed by domain, and a malicious feed can't inject a link into the output.
 - **Five specialized subagents, deterministically orchestrated.** `CLUSTER -> RECAP -> SELECT -> WRITE -> COHERENCE`, each a file-based Claude Agent SDK subagent that reads and writes JSON, run in a fixed order by Python so the parent context stays small and the run is reproducible.
-- **It fact-checks itself.** A final `COHERENCE` pass re-reads every headline and summary against its source articles; anything that fails is dropped before send, not after.
+- **It fact-checks itself, then repairs itself.** A `COHERENCE` pass re-reads every headline and summary against its source articles. Anything that fails is dropped before send, not after. With `REPAIR_ENABLED=true` (on for the live instance, off by default) a failed headline is first regenerated from its own cited sources, changing as little as possible, and re-checked; only what still fails is dropped. Every attempt is recorded to `repair_log.jsonl`.
 - **Cheap clustering by design.** Grouping is a deterministic extract-then-join (entities + event + time per article, then a join), not a holistic LLM pass over everything. Lower cost, less drift.
 - **Evolving story threads.** Ongoing stories are tracked across days, so a returning reader sees what changed rather than a fresh fragment.
 - **Radical transparency.** A public [stats page](https://news-digest.seanfloyd.dev/stats) shows real subscriber numbers, source balance across the political spectrum, and the AI cost per issue. Every source is [labelled by bias and factuality](https://news-digest.seanfloyd.dev/sources), and the code is right here.
@@ -32,7 +32,8 @@ RSS feeds ->  fetch  ->  CLUSTER   group articles into stories (extract -> join)
                          RECAP     summarise the week's titles (Haiku)
                          SELECT    editorial judgment: tiers, regions, what matters
                          WRITE     headlines, summaries, why-it-matters (IDs only)
-                         COHERENCE fact-check every claim vs its source; drop failures
+                         COHERENCE fact-check every claim vs its source
+                         REPAIR    regenerate failures from their sources, re-check, else drop
                      ->  assemble (Python resolves IDs -> URLs/source/bias)
                      ->  render HTML  ->  email (Resend)  +  web archive (circulation)
 ```
