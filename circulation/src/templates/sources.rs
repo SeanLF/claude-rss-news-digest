@@ -92,6 +92,10 @@ fn factuality_meter(factuality: &str) -> String {
     let (on, label): (usize, &str) = match factuality {
         "very-high" => (3, "Very high"),
         "high" => (2, "High"),
+        // MBFC's "Mostly Factual" sits between High and Mixed. Three bars cannot show five
+        // levels, so it shares High's bar count and is distinguished by its label -- better
+        // than rounding it down to Mixed's single bar, which would understate six outlets.
+        "mostly-factual" => (2, "Mostly factual"),
         "mixed" => (1, "Mixed"),
         "low" => (1, "Low"),
         "very-low" => (0, "Very low"),
@@ -173,16 +177,18 @@ pub fn render_sources(p: &SourcesParams) -> String {
         p.home_url,
         p.brand_html,
         "Sources",
-        "Bias &amp; factuality &middot; aggregated from Ground News",
+        "Bias &amp; factuality &middot; rated by Media Bias/Fact Check",
         &format!(
             "<b>{outlets}</b> outlets &middot; <b>{feeds}</b> feeds &middot; across the spectrum"
         ),
     );
 
-    // Spectrum: fixed 7 columns (far-left … far-right); only lean-left/centre/lean-right populate.
-    // The aria-label + caption state the extremes are empty — true because the catalog is bounded by
-    // a factuality floor to {lean-left, center, lean-right} on purpose (see design-system.md). If an
-    // extreme-bias outlet is ever added, `bucket()` folds it into lean-*; update this copy then.
+    // Spectrum: fixed 7 columns (far-left … far-right); only lean-left/centre/lean-right render,
+    // because `bucket()` folds left/right into the lean-* buckets. That fold is now load-bearing:
+    // the catalog DOES hold Left-rated outlets (Haaretz, MBFC Left -5.2, High factuality), so the
+    // aria-label may only claim the far extremes are empty. The older copy also justified the empty
+    // extremes with "the extremes skew low-factuality" -- our own catalog disproves that, so it is
+    // gone rather than restated.
     let spec_label = |n: usize, anchor: &str, label: &str| {
         if n > 0 {
             format!(r##"<a class="on" href="#{anchor}">{label}</a>"##)
@@ -193,7 +199,7 @@ pub fn render_sources(p: &SourcesParams) -> String {
     let spectrum = format!(
         r#"<div class="spectrum">
       <div class="spec-counts" aria-hidden="true"><span></span><span></span><span>{ll}</span><span>{c}</span><span>{lr}</span><span></span><span></span></div>
-      <div class="spec-bar2" role="img" aria-label="Bias distribution: {ll} lean-left, {c} centre, {lr} lean-right outlets; none far-left, left, right, or far-right">
+      <div class="spec-bar2" role="img" aria-label="Bias distribution: {ll} lean-left, {c} centre, {lr} lean-right outlets; none far-left or far-right">
         <span class="z e-l"></span><span class="z e-l"></span><span class="z on-l"></span><span class="z on-c"></span><span class="z on-r"></span><span class="z e-r"></span><span class="z e-r"></span>
       </div>
       <div class="spec-labels"><span>Far left</span><span>Left</span>{lab_l}{lab_c}{lab_r}<span>Right</span><span>Far right</span></div>
@@ -211,7 +217,7 @@ pub fn render_sources(p: &SourcesParams) -> String {
         bias_section(&right, 'r', "lean-right", "Lean right"),
     );
 
-    let method = r#"<p class="method">Ratings aggregate <a href="https://ground.news">Ground News</a>, which combines <a href="https://www.allsides.com">AllSides</a>, <a href="https://adfontesmedia.com">Ad Fontes Media</a>, and <a href="https://mediabiasfactcheck.com">Media Bias/Fact Check</a>. The digest draws from across the political spectrum to show how outlets cover the same story differently. Perspective notes each outlet's vantage point.</p>"#;
+    let method = r#"<p class="method">Bias and factual-reporting ratings come from <a href="https://mediabiasfactcheck.com">Media Bias/Fact Check</a>, read per outlet rather than aggregated, so every rating here is traceable to one published assessment. Ratings describe the outlet, not the individual article. The digest draws from across the political spectrum to show how outlets cover the same story differently. Perspective notes each outlet's vantage point.</p>"#;
 
     format!(
         r#"{head}

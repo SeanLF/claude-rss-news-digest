@@ -847,7 +847,7 @@ pub async fn llms_txt(State(state): State<Arc<AppState>>) -> impl IntoResponse {
     ));
     body.push_str("\n## Reference\n\n");
     body.push_str(&format!(
-        "- [Sources and bias ratings]({}): every source with its Ground News bias and factuality rating.\n",
+        "- [Sources and bias ratings]({}): every source with its Media Bias/Fact Check bias and factuality rating.\n",
         link(routes::SOURCES)
     ));
     body.push_str(&format!(
@@ -1083,7 +1083,7 @@ pub async fn sources(
         &state,
         "sources",
         routes::SOURCES,
-        "Bias &amp; factuality ratings via Ground News; each row links to the outlet.",
+        "Bias &amp; factuality ratings via Media Bias/Fact Check; each row links to the outlet.",
     );
     let brand = brand_html(&state.digest_name);
     let canonical_url = state.base_url();

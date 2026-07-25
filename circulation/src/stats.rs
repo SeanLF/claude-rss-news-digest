@@ -599,7 +599,8 @@ mod metrics_tests {
 
     #[test]
     fn balance_buckets_and_factuality_from_real_sources_json() {
-        // al_jazeera=lean-left/mixed, bbc_world=center/high, globe_and_mail=lean-right
+        // Per MBFC: al_jazeera=lean-left/mixed, bbc_world=center/mostly-factual,
+        // globe_and_mail=lean-right/high.
         let m = compute_metrics(&data_with(usage(&[
             ("al_jazeera", 2),
             ("bbc_world", 5),
@@ -611,16 +612,25 @@ mod metrics_tests {
         // catalog is the full shelf; must be non-empty in all buckets present in sources.json
         assert!(m.catalog_total > 0);
         assert_eq!(m.sources_used, 3);
-        // all three are "high" factuality in sources.json -> 100%
-        assert_eq!(m.factuality_high_pct, 100);
+        // Only globe_and_mail clears high/very-high -> 3 of 10.
+        assert_eq!(m.factuality_high_pct, 30);
     }
 
     #[test]
     fn factuality_excludes_non_high_sources() {
         // hacker_news is "unrated"; it should count toward the base but not the high numerator.
-        let m = compute_metrics(&data_with(usage(&[("bbc_world", 3), ("hacker_news", 1)])));
+        let m = compute_metrics(&data_with(usage(&[("reuters", 3), ("hacker_news", 1)])));
         // 3 of 4 shipped from a high-factuality source -> 75%
         assert_eq!(m.factuality_high_pct, 75);
+    }
+
+    #[test]
+    fn factuality_metric_excludes_mostly_factual() {
+        // Deliberate: the metric is labelled "high/very-high", and MBFC's "Mostly Factual" is a
+        // rung below High. Counting it would keep the headline number flattering by redefining
+        // the label rather than by sourcing better, so bbc_world (mostly-factual) scores 0 here.
+        let m = compute_metrics(&data_with(usage(&[("bbc_world", 4)])));
+        assert_eq!(m.factuality_high_pct, 0);
     }
 }
 

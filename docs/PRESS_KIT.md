@@ -58,9 +58,11 @@ figures from the database.
 
 *Show:* `/stats`.
 
-**5. Bias and factuality labelling.** Every source carries a Ground News
-7-point bias rating and a factuality grade, shown on the source page and beside
-each story.
+**5. Bias and factuality labelling.** Every source carries a Media Bias/Fact
+Check bias rating and factual-reporting grade, read per outlet so each one
+traces to a published assessment, shown on the source page and beside each
+story. The catalog is not uniformly high-rated and the page does not pretend
+otherwise: 6 outlets are Mostly Factual and 5 are Mixed.
 
 *Show:* `/sources`, spectrum bar and badges.
 

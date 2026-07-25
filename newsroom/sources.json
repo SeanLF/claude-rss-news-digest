@@ -4,7 +4,8 @@
     "name": "Al Jazeera",
     "url": "https://www.aljazeera.com/xml/rss/all.xml",
     "bias": "lean-left",
-    "factuality": "high",
+    "factuality": "mixed",
+    "credibility": "medium",
     "perspective": "middle_east",
     "region": "Middle East"
   },
@@ -13,7 +14,8 @@
     "name": "Al-Monitor",
     "url": "https://www.al-monitor.com/rss",
     "bias": "lean-left",
-    "factuality": "very-high",
+    "factuality": "high",
+    "credibility": "high",
     "perspective": "middle_east",
     "region": "Middle East"
   },
@@ -21,8 +23,9 @@
     "id": "ars_technica",
     "name": "Ars Technica",
     "url": "https://feeds.arstechnica.com/arstechnica/index",
-    "bias": "lean-left",
+    "bias": "center",
     "factuality": "high",
+    "credibility": "high",
     "perspective": "tech",
     "region": "N. America"
   },
@@ -31,7 +34,8 @@
     "name": "BBC World",
     "url": "https://feeds.bbci.co.uk/news/world/rss.xml",
     "bias": "center",
-    "factuality": "high",
+    "factuality": "mostly-factual",
+    "credibility": "high",
     "perspective": "british",
     "region": "Europe"
   },
@@ -40,7 +44,8 @@
     "name": "CBC News",
     "url": "https://www.cbc.ca/webfeed/rss/rss-world",
     "bias": "lean-left",
-    "factuality": "very-high",
+    "factuality": "high",
+    "credibility": "high",
     "perspective": "canadian",
     "region": "N. America"
   },
@@ -49,7 +54,8 @@
     "name": "Daily Maverick",
     "url": "https://www.dailymaverick.co.za/dmrss/",
     "bias": "center",
-    "factuality": "high",
+    "factuality": "mostly-factual",
+    "credibility": "high",
     "perspective": "south_african",
     "region": "Africa"
   },
@@ -59,6 +65,7 @@
     "url": "https://www.spiegel.de/international/index.rss",
     "bias": "lean-left",
     "factuality": "high",
+    "credibility": "high",
     "perspective": "german",
     "region": "Europe"
   },
@@ -66,8 +73,9 @@
     "id": "deutsche_welle",
     "name": "Deutsche Welle",
     "url": "https://rss.dw.com/rdf/rss-en-world",
-    "bias": "center",
-    "factuality": "very-high",
+    "bias": "lean-left",
+    "factuality": "high",
+    "credibility": "high",
     "perspective": "german",
     "region": "Europe"
   },
@@ -77,6 +85,7 @@
     "url": "https://www.economist.com/the-americas/rss.xml",
     "bias": "center",
     "factuality": "high",
+    "credibility": "high",
     "perspective": "western",
     "region": "Europe"
   },
@@ -86,6 +95,7 @@
     "url": "https://www.economist.com/asia/rss.xml",
     "bias": "center",
     "factuality": "high",
+    "credibility": "high",
     "perspective": "western",
     "region": "Europe"
   },
@@ -95,6 +105,7 @@
     "url": "https://www.economist.com/europe/rss.xml",
     "bias": "center",
     "factuality": "high",
+    "credibility": "high",
     "perspective": "western",
     "region": "Europe"
   },
@@ -104,6 +115,7 @@
     "url": "https://www.economist.com/international/rss.xml",
     "bias": "center",
     "factuality": "high",
+    "credibility": "high",
     "perspective": "western",
     "region": "Europe"
   },
@@ -113,6 +125,7 @@
     "url": "https://www.economist.com/middle-east-and-africa/rss.xml",
     "bias": "center",
     "factuality": "high",
+    "credibility": "high",
     "perspective": "western",
     "region": "Europe"
   },
@@ -122,6 +135,7 @@
     "url": "https://www.ft.com/news-feed?format=rss",
     "bias": "center",
     "factuality": "high",
+    "credibility": "high",
     "perspective": "western_finance",
     "region": "Europe"
   },
@@ -131,6 +145,7 @@
     "url": "https://www.theglobeandmail.com/arc/outboundfeeds/rss/category/world/",
     "bias": "lean-right",
     "factuality": "high",
+    "credibility": "high",
     "perspective": "canadian",
     "region": "N. America"
   },
@@ -138,8 +153,9 @@
     "id": "haaretz_middle_east",
     "name": "Haaretz Middle East",
     "url": "https://www.haaretz.com/srv/middle-east-news-rss",
-    "bias": "lean-left",
-    "factuality": "very-high",
+    "bias": "left",
+    "factuality": "high",
+    "credibility": "high",
     "perspective": "israeli",
     "region": "Middle East"
   },
@@ -147,8 +163,9 @@
     "id": "haaretz_world",
     "name": "Haaretz World",
     "url": "https://www.haaretz.com/srv/world-news-rss",
-    "bias": "lean-left",
-    "factuality": "very-high",
+    "bias": "left",
+    "factuality": "high",
+    "credibility": "high",
     "perspective": "israeli",
     "region": "Middle East"
   },
@@ -158,6 +175,7 @@
     "url": "https://hnrss.org/newest?points=100",
     "bias": "center",
     "factuality": "unrated",
+    "credibility": "unrated",
     "perspective": "tech",
     "region": "N. America"
   },
@@ -166,7 +184,8 @@
     "name": "Le Monde",
     "url": "https://www.lemonde.fr/rss/une.xml",
     "bias": "lean-left",
-    "factuality": "very-high",
+    "factuality": "high",
+    "credibility": "high",
     "perspective": "french",
     "region": "Europe"
   },
@@ -176,6 +195,7 @@
     "url": "https://news.google.com/rss/search?q=site:asia.nikkei.com&hl=en-US&gl=US&ceid=US:en",
     "bias": "lean-right",
     "factuality": "high",
+    "credibility": "high",
     "perspective": "japanese",
     "region": "Asia-Pacific"
   },
@@ -184,7 +204,8 @@
     "name": "NPR World",
     "url": "https://feeds.npr.org/1004/rss.xml",
     "bias": "lean-left",
-    "factuality": "very-high",
+    "factuality": "high",
+    "credibility": "high",
     "perspective": "american",
     "region": "N. America"
   },
@@ -194,6 +215,7 @@
     "url": "https://rss.nytimes.com/services/xml/rss/nyt/World.xml",
     "bias": "lean-left",
     "factuality": "high",
+    "credibility": "high",
     "perspective": "american",
     "region": "N. America"
   },
@@ -203,6 +225,7 @@
     "url": "https://www.rappler.com/feed/",
     "bias": "lean-left",
     "factuality": "high",
+    "credibility": "high",
     "perspective": "filipino",
     "region": "Asia-Pacific"
   },
@@ -212,6 +235,7 @@
     "url": "https://restofworld.org/feed/latest",
     "bias": "center",
     "factuality": "mixed",
+    "credibility": "medium",
     "perspective": "global_tech",
     "region": "Global"
   },
@@ -221,6 +245,7 @@
     "url": "https://news.google.com/rss/search?q=site:reuters.com&hl=en-US&gl=US&ceid=US:en",
     "bias": "center",
     "factuality": "very-high",
+    "credibility": "high",
     "perspective": "wire_service",
     "region": "Global"
   },
@@ -228,8 +253,9 @@
     "id": "scmp_asia",
     "name": "SCMP Asia",
     "url": "https://www.scmp.com/rss/2/feed",
-    "bias": "center",
-    "factuality": "high",
+    "bias": "lean-left",
+    "factuality": "mixed",
+    "credibility": "medium",
     "perspective": "asian",
     "region": "Asia-Pacific"
   },
@@ -237,8 +263,9 @@
     "id": "scmp_china",
     "name": "SCMP China",
     "url": "https://www.scmp.com/rss/4/feed",
-    "bias": "center",
-    "factuality": "high",
+    "bias": "lean-left",
+    "factuality": "mixed",
+    "credibility": "medium",
     "perspective": "asian",
     "region": "Asia-Pacific"
   },
@@ -246,8 +273,9 @@
     "id": "scmp_world",
     "name": "SCMP World",
     "url": "https://www.scmp.com/rss/5/feed",
-    "bias": "center",
-    "factuality": "high",
+    "bias": "lean-left",
+    "factuality": "mixed",
+    "credibility": "medium",
     "perspective": "asian",
     "region": "Asia-Pacific"
   },
@@ -256,7 +284,8 @@
     "name": "Straits Times",
     "url": "https://www.straitstimes.com/news/world/rss.xml",
     "bias": "lean-right",
-    "factuality": "high",
+    "factuality": "mostly-factual",
+    "credibility": "high",
     "perspective": "singaporean",
     "region": "Asia-Pacific"
   },
@@ -266,6 +295,7 @@
     "url": "https://thediplomat.com/feed/",
     "bias": "center",
     "factuality": "high",
+    "credibility": "high",
     "perspective": "asia_pacific",
     "region": "Asia-Pacific"
   },
@@ -275,6 +305,7 @@
     "url": "https://www.theguardian.com/international/rss",
     "bias": "lean-left",
     "factuality": "high",
+    "credibility": "high",
     "perspective": "western",
     "region": "Europe"
   },
@@ -283,7 +314,8 @@
     "name": "The Hindu",
     "url": "https://www.thehindu.com/news/international/feeder/default.rss",
     "bias": "lean-left",
-    "factuality": "very-high",
+    "factuality": "mostly-factual",
+    "credibility": "high",
     "perspective": "indian",
     "region": "Asia-Pacific"
   },
@@ -293,6 +325,7 @@
     "url": "https://www.theverge.com/rss/index.xml",
     "bias": "lean-left",
     "factuality": "high",
+    "credibility": "high",
     "perspective": "tech",
     "region": "N. America"
   },
@@ -301,7 +334,8 @@
     "name": "Washington Post",
     "url": "https://feeds.washingtonpost.com/rss/world",
     "bias": "lean-left",
-    "factuality": "high",
+    "factuality": "mostly-factual",
+    "credibility": "high",
     "perspective": "american",
     "region": "N. America"
   },
@@ -309,8 +343,9 @@
     "id": "wsj_world",
     "name": "WSJ World",
     "url": "https://feeds.content.dowjones.io/public/rss/RSSWorldNews",
-    "bias": "center",
-    "factuality": "very-high",
+    "bias": "lean-right",
+    "factuality": "mostly-factual",
+    "credibility": "high",
     "perspective": "american",
     "region": "N. America"
   }

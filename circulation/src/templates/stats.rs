@@ -155,13 +155,13 @@ fn balance_section(m: &StatsMetrics) -> String {
             &format!("{} of 7", m.buckets_sourced),
             "warn",
             "Spectrum buckets sourced",
-            "bounded by the factuality floor"
+            "left and right fold into lean-*"
         ),
         tile(
             &format!("{}%", m.factuality_high_pct),
             fact_cls,
             "Shipped ≥ high factuality",
-            "the bar the extremes fail"
+            "MBFC High or Very High"
         ),
     );
     let shipped_aria = format!(
@@ -181,7 +181,7 @@ fn balance_section(m: &StatsMetrics) -> String {
     {cat_row}
     <p class="ballegend"><span class="k k-l"><span class="sw"></span>Lean left</span><span class="k k-c"><span class="sw"></span>Centre</span><span class="k k-r"><span class="sw"></span>Lean right</span></p>
   </div>
-  <p class="note">The two bars compare the shipped mix against the catalog it draws from — they track closely, so the digest is balanced <em>relative to its shelf</em>. Only lean-left &rarr; lean-right appear <b style="color:var(--ink2);font-weight:600;">by design</b>: a factuality floor excludes low-rated sources, and the political extremes skew low-factuality — so they're out on <b style="color:var(--ink2);font-weight:600;">quality, not omitted by accident</b>.</p>
+  <p class="note">The two bars compare the shipped mix against the catalog it draws from — they track closely, so the digest is balanced <em>relative to its shelf</em>. Three buckets appear because left and right <b style="color:var(--ink2);font-weight:600;">fold into lean-left and lean-right</b> here; the catalog does hold Left-rated outlets. What it holds none of is far-left or far-right, and that is a <b style="color:var(--ink2);font-weight:600;">curation choice, not a quality law</b> — plenty of strongly-slanted outlets report accurately.</p>
 </section>"##,
         ship_row = spectrum_row("Shipped", m.shipped_pct, &shipped_aria),
         cat_row = spectrum_row("Catalog", m.catalog_pct, &catalog_aria),

@@ -97,7 +97,7 @@ docker compose up -d digest-circulation
 
 ## Sources
 
-35 sources across five continents, weighted toward high-factuality outlets and spanning the political spectrum. Bias is rated on the [Ground News](https://ground.news/) 7-point scale, and every source is shown with its bias and factuality on the live [sources page](https://news-digest.seanfloyd.dev/sources). See [`newsroom/sources.json`](newsroom/sources.json) for the full list.
+35 feeds from 28 outlets across five continents, spanning the political spectrum. Bias, factual reporting and credibility are taken from [Media Bias/Fact Check](https://mediabiasfactcheck.com), read per outlet so each rating traces to one published assessment; 23 of 35 feeds rate High or Very High for factual reporting, the rest Mostly Factual or Mixed. Every source is shown with its bias and factuality on the live [sources page](https://news-digest.seanfloyd.dev/sources). See [`newsroom/sources.json`](newsroom/sources.json) for the full list.
 
 ## Cost
 
