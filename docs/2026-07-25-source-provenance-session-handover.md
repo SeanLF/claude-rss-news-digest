@@ -5,7 +5,7 @@ under *Queued 2026-07-25*; this file is the narrative and the state.
 
 ## State in one paragraph
 
-`main` is **16 commits ahead of origin, unpushed and undeployed**. Everything is CI-green
+`main` is **unpushed and undeployed** (15 commits ahead of origin at time of writing; `git log origin/main..main` is the authority). Everything is CI-green
 (Python + Rust). A deploy-readiness review returned **GO-WITH-CAVEATS** and its blocking
 findings are fixed. The next production run is the real test. Nothing has been applied to
 the production database.
