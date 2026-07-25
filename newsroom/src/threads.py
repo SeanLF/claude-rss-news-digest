@@ -435,7 +435,7 @@ class ThreadStore:
             raise ValueError(f"merge target thread {target_id} does not exist")
 
         src_label, src_first, src_last = src
-        _, tgt_first, tgt_last = tgt
+        tgt_label, tgt_first, tgt_last = tgt
 
         with self.transaction():
             moved = self.conn.execute(
@@ -451,16 +451,16 @@ class ThreadStore:
             # wins (it is the real delta); ties break on lowest id for determinism.
             dropped = self.conn.execute(
                 """
-                DELETE FROM thread_installments WHERE thread_id = ? AND id NOT IN (
+                DELETE FROM thread_installments WHERE id IN (
                     SELECT id FROM (
                         SELECT id, ROW_NUMBER() OVER (
                             PARTITION BY run_id ORDER BY (content IS NULL), id
                         ) AS rn
                         FROM thread_installments WHERE thread_id = ?
-                    ) WHERE rn = 1
+                    ) WHERE rn > 1
                 )
                 """,
-                (target_id, target_id),
+                (target_id,),
             ).rowcount
 
             # Move only questions the target has not already ANSWERED. A duplicate thread asks
@@ -481,7 +481,9 @@ class ThreadStore:
                 (target_id, source_id),
             ).rowcount
 
-            # The newer side owns the label the linker will see next run.
+            # The newer side owns the label the linker will see next run. Either run id may be
+            # NULL (a thread seeded outside a run), so span the merged thread across whichever
+            # bounds actually exist rather than treating a missing one as run 0.
             source_is_newer = (src_last or 0) > (tgt_last or 0)
             self.conn.execute(
                 """
@@ -491,9 +493,9 @@ class ThreadStore:
                 WHERE id = ?
                 """,
                 (
-                    src_label if source_is_newer else tgt[0],
-                    max(src_last or 0, tgt_last or 0) or None,
-                    min(r for r in (src_first, tgt_first) if r is not None) if (src_first or tgt_first) else None,
+                    src_label if source_is_newer else tgt_label,
+                    max((r for r in (src_last, tgt_last) if r is not None), default=None),
+                    min((r for r in (src_first, tgt_first) if r is not None), default=None),
                     target_id,
                 ),
             )
