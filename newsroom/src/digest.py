@@ -36,14 +36,36 @@ def _repost_key(title: str, source_name: str) -> str:
     return re.sub(r"\s+", " ", title).strip()
 
 
-def collapse_reposts(sources: list[dict]) -> list[dict]:
-    """Within one story's resolved source list, collapse verbatim reposts (identical
-    normalized title) to a single source-priority canonical, preserving order otherwise.
+def _collapse_key(src: dict) -> str:
+    """What makes two entries in ONE story's source list the same item.
 
-    Distinct headlines are left untouched -- that is genuine multi-source coverage, not a
-    duplicate link. Only near-identical wire copy is collapsed (see A4 in
+    Known wire provenance wins over the title, because reposters rewrite headlines: only
+    48% of measured near-duplicate cross-source pairs shared an exact normalized title, so
+    the title key alone missed about half the wire duplication ("Wildfires force 250,000 to
+    flee Spain and France" vs "Untamed blazes in Spain, France force 200,000 out" -- one
+    AFP story). Within a story the cluster has already established these are the same
+    event, so a shared agency means shared copy.
+
+    Falls back to the title key when provenance is unknown, which is most feeds -- absence
+    of a byline is not evidence of independence, but it is not evidence of reposting
+    either, so those are left alone.
+    """
+    agency = src.get("wire_agency")
+    if agency:
+        return f"agency:{agency}"
+    return _repost_key(src.get("original_title", ""), src.get("name", ""))
+
+
+def collapse_reposts(sources: list[dict]) -> list[dict]:
+    """Within one story's resolved source list, collapse reposts of the same item to a
+    single source-priority canonical, preserving order otherwise.
+
+    Two things count as the same item (see `_collapse_key`): a shared wire agency, or --
+    where provenance is unknown -- a verbatim identical normalized title. Distinct
+    headlines from outlets with no shared agency are left untouched; that is genuine
+    multi-source coverage, not a duplicate link (see A4 in
     docs/2026-07-02-dedup-poc-findings.md)."""
-    keyed = [(_repost_key(s.get("original_title", ""), s.get("name", "")), s) for s in sources]
+    keyed = [(_collapse_key(s), s) for s in sources]
 
     groups: dict[str, list[dict]] = {}
     for key, src in keyed:
@@ -140,6 +162,11 @@ def resolve_article_ids(selections: dict) -> dict:
                 "source_id": meta["source_id"],
                 "original_title": meta["original_title"],
                 "wire": meta.get("wire", False),
+                # .get, never [...]: --write-only re-renders from a PERSISTED article_index
+                # that may predate this field, and a KeyError here is caught below and drops
+                # the source -- lose them all and the whole story is dropped. Absent simply
+                # degrades collapse_reposts to its title-only behaviour.
+                "wire_agency": meta.get("wire_agency"),
             }
         except KeyError as e:
             logger.warning("Incomplete metadata for %s (missing %s)", article_id, e)

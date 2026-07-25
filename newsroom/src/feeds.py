@@ -103,6 +103,10 @@ def fetch_source(source: dict, timeout: int = 15) -> tuple[str, list[dict], str 
                     "url": entry.get("link", ""),
                     "published": pub_str,
                     "summary": (entry.get("summary") or entry.get("description") or "")[:500],
+                    # Kept for wire provenance: several outlets put the originating agency
+                    # here verbatim ("Agence France-Presse", "Reuters"). Free -- feedparser
+                    # already parsed it and we were discarding it.
+                    "author": (entry.get("author") or entry.get("dc_creator") or "").strip()[:200],
                 }
                 if article["title"] and article["url"]:
                     articles.append(article)
@@ -135,6 +139,96 @@ def collect_fetched_articles(fetched_dir: Path) -> list[dict]:
             for article in json.load(f):
                 articles.append({**article, "source_id": source_id})
     return articles
+
+
+# Agencies whose name in a byline means the item is REPOSTED wire copy rather than the
+# outlet's own reporting. Matched EXACTLY against a normalized author string, never as a
+# substring: "Reuters Institute" is a research body, "Michael Bloomberg" is a person, and
+# substring matching would credit an outlet's own journalism to a wire. That is the worse
+# error of the two, so this deliberately under-detects.
+#
+# Measured 2026-07-25: this catches 32 of scmp_world's 50 items (its audited wire share is
+# 67%), plus haaretz x2, daily_maverick, npr_world and rappler. It catches NOTHING on
+# the_hindu, straits_times or al_monitor -- they publish no author field at all, and their
+# provenance lives in the article body. See docs/2026-07-25-feed-sourcing-findings.md.
+WIRE_AGENCIES = frozenset(
+    {
+        "reuters",
+        "afp",
+        "agence france-presse",
+        "associated press",
+        "ap",
+        "dpa",
+        "deutsche presse-agentur",
+        "pa media",
+        "press association",
+        "efe",
+        "agencia efe",
+        "ansa",
+        "bloomberg",
+        "xinhua",
+        "pti",
+        "press trust of india",
+        "ians",
+        "anadolu agency",
+        "kyodo",
+        "yonhap",
+        "tass",
+        "upi",
+        "united press international",
+    }
+)
+
+
+def wire_agency(value: str | None) -> str | None:
+    """The wire agency a byline names, or None if it names anyone else.
+
+    Also used on a source's own name, so the agency's feed and a reposter of it resolve to
+    the same key and collapse together.
+    """
+    if not value:
+        return None
+    name = " ".join(value.split()).strip(".,;:-–—").lower()
+    # "The Associated Press" is NPR's form of the byline; the set stores the bare name.
+    name = name.removeprefix("the ")
+    return name if name in WIRE_AGENCIES else None
+
+
+# A wire dateline opening the body: "WASHINGTON, July 24 (Reuters) - ", optionally preceded
+# by the correspondent's name. Anchored at the START on purpose -- that anchoring, not the
+# agency set, is what keeps a mid-prose "(AFP)" out, which in The Diplomat means Armed Forces
+# of the Philippines. The captured name is letters-only and must also clear WIRE_AGENCIES, so
+# a self-labelled "(FRANCE 24 with AFP)" never qualifies. One residual is accepted knowingly:
+# an "(AFP)" sitting in dateline position is indistinguishable from the military usage, and
+# dateline position is the stronger signal of the two.
+_DATELINE = re.compile(
+    r"^\s*(?:By\s+[^,]{0,60}?)?"  # optional "By <correspondent>", which runs straight into the place
+    r"(?:[A-Z][A-Za-z.\-']*(?:[ ,][A-Z][A-Za-z.\-']*){0,4}\s*,?\s*)?"  # optional place: "WASHINGTON", "RIO DE JANEIRO"
+    r"(?:\w+\s+\d{1,2}\s*)?"  # optional date: "July 24"
+    r"\(\s*([A-Za-z][A-Za-z \-]{1,28}?)\s*\)\s*[-–—:]"  # the required part: "(Reuters) -"
+)
+
+
+def wire_from_dateline(text: str | None) -> str | None:
+    """The agency named in a wire dateline at the start of an article body, else None.
+
+    COST NOTE: the optional groups make this quadratic in the input length, and the only
+    thing keeping that harmless is prepare.py truncating the summary to MAX_SUMMARY_LENGTH
+    (200) before calling here. Measured: 200 chars costs 21us on prose and 9.8ms on a
+    pathological all-letters input, but 2560 chars costs ~1.9s. If MAX_SUMMARY_LENGTH ever
+    grows substantially, bound this input explicitly rather than relying on the caller.
+
+    Complements the byline check for outlets that publish no author but do syndicate the
+    body verbatim -- al_monitor is the measured case (6 of 20 items, all Reuters).
+
+    Deliberately NOT paired with a trailing-sigil detector. Trying one immediately
+    mislabelled globe_and_mail's "...sources told AP" -- an outlet CITING a wire's
+    reporting, which is the opposite of republishing it.
+    """
+    if not text:
+        return None
+    match = _DATELINE.match(text)
+    return wire_agency(match.group(1)) if match else None
 
 
 def fetch_feeds(

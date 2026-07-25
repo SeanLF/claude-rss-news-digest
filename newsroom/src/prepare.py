@@ -23,6 +23,7 @@ from config import (
 )
 from db import get_previous_headlines, get_yesterday_digest_headlines, log_dedup_action
 from dedup import TfidfMatcher
+from feeds import wire_agency, wire_from_dateline
 from render import estimate_tokens, is_safe_url, strip_html
 
 logger = logging.getLogger(__name__)
@@ -108,6 +109,7 @@ def prepare_claude_input(sources: list[dict], dry_run: bool = False, article_lim
         if source_file.exists():
             with open(source_file) as sf:
                 articles = json.load(sf)
+            is_wire = source.get("perspective") == "wire_service"
             for a in articles:
                 url = a.get("url", "")[:2000]
                 if not is_safe_url(url):
@@ -153,7 +155,17 @@ def prepare_claude_input(sources: list[dict], dry_run: bool = False, article_lim
                     "name": source["name"],
                     # captured here (sources.json is loaded) so the render layer can pick the
                     # wire origin as the canonical link among reposts without re-reading it
-                    "wire": source.get("perspective") == "wire_service",
+                    "wire": is_wire,
+                    # Which agency actually wrote it, when the feed says so: an explicit
+                    # byline first, then a dateline in the body for the outlets that publish
+                    # no author at all. Falls back to the outlet itself for a wire's own feed,
+                    # so Reuters and an outlet reposting Reuters resolve to the same key and
+                    # collapse together.
+                    "wire_agency": (
+                        wire_agency(a.get("author"))
+                        or wire_from_dateline(summary)
+                        or (wire_agency(source["name"]) if is_wire else None)
+                    ),
                 }
 
                 # CSV row: no URL (Claude sees article_id instead)
