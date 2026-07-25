@@ -1,0 +1,247 @@
+#!/usr/bin/env python3
+"""Run the stored analytics queries in analytics/queries/ against the digest DB.
+
+The queries answer "how is the pipeline actually behaving" questions that are
+too slow to re-derive by hand every time someone asks. They are plain .sql so
+they can be read, diffed and run without this script (`sqlite3 data/digest.db
+< analytics/queries/funnel-per-run.sql` works if you substitute the params).
+
+Why Python stdlib and not the bare `sqlite3` shell (cf. bin/usage, which is
+shell): this needs named-parameter binding for the windows, a read-only
+connection, header parsing for `list`, and json/csv output. The shell can do
+output formats but not parameters, and every alternative to stdlib sqlite3
+would add a dependency. No uv/Docker either -- unlike bin/trace this imports
+nothing from newsroom/, so the host interpreter is enough.
+
+The DB is opened read-only. This tool cannot modify a digest database.
+
+Usage:
+  bin/analytics list                 List queries with their QUESTION
+  bin/analytics show NAME            Print a query's header and SQL
+  bin/analytics run NAME [NAME...]   Run one or more queries
+  bin/analytics run --all            Run every query
+
+Options:
+  --db PATH          Database (default $DIGEST_DB or data/digest.db)
+  --format FMT       table | json | csv   (default table)
+  --runs N           Window in runs, for queries that take :runs (default 30)
+  --days N           Window in days, for queries that take :days (default 30)
+  --limit N          Row cap applied by queries that take :limit (default 40)
+  --timing           Print wall-clock runtime per query to stderr
+"""
+
+from __future__ import annotations
+
+import argparse
+import csv
+import json
+import os
+import sqlite3
+import sys
+import time
+from pathlib import Path
+
+PROJECT_DIR = Path(__file__).resolve().parent.parent
+QUERY_DIR = PROJECT_DIR / "analytics" / "queries"
+HEADER_FIELDS = ("QUESTION", "WHY", "CAVEAT", "PARAMS")
+
+
+class Query:
+    """A stored .sql file plus the metadata in its leading comment block."""
+
+    def __init__(self, path: Path):
+        self.path = path
+        self.name = path.stem
+        self.sql = path.read_text()
+        self.meta = _parse_header(self.sql)
+
+    def __getitem__(self, field: str) -> str:
+        return self.meta.get(field, "")
+
+
+def _parse_header(sql: str) -> dict[str, str]:
+    """Pull `-- FIELD: text` (with `--` continuation lines) off the top of a file."""
+    meta: dict[str, str] = {}
+    field = None
+    for line in sql.splitlines():
+        stripped = line.strip()
+        if not stripped.startswith("--"):
+            if stripped:  # first real SQL ends the header
+                break
+            continue
+        body = stripped[2:].strip()
+        head, sep, rest = body.partition(":")
+        if sep and head in HEADER_FIELDS:
+            field = head
+            meta[field] = rest.strip()
+        elif field and body:
+            meta[field] += " " + body
+    return meta
+
+
+def load_queries() -> list[Query]:
+    if not QUERY_DIR.is_dir():
+        sys.exit(f"No query directory at {QUERY_DIR}")
+    return [Query(p) for p in sorted(QUERY_DIR.glob("*.sql"))]
+
+
+def connect(db_path: Path) -> sqlite3.Connection:
+    if not db_path.is_file():
+        sys.exit(f"No database at {db_path}. Run: bin/db-clone")
+    return sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+
+
+def render_table(cols: list[str], rows: list[tuple], out) -> None:
+    if not rows:
+        print("(no rows)", file=out)
+        return
+    cells = [[_fmt(v) for v in row] for row in rows]
+    widths = [
+        max(len(col), *(len(row[i]) for row in cells)) for i, col in enumerate(cols)
+    ]
+    line = "  ".join(c.ljust(w) for c, w in zip(cols, widths))
+    print(line, file=out)
+    print("  ".join("-" * w for w in widths), file=out)
+    for row in cells:
+        print("  ".join(c.ljust(w) for c, w in zip(row, widths)), file=out)
+
+
+def _fmt(value) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, float):
+        return f"{value:g}"
+    return str(value)
+
+
+def run_query(conn: sqlite3.Connection, query: Query, params: dict, args) -> float:
+    # Time execute() too: sqlite3 prepares and steps the first row there, so
+    # timing only fetchall() understates a slow query.
+    started = time.perf_counter()
+    try:
+        cur = conn.execute(query.sql, params)
+        rows = cur.fetchall()
+    except sqlite3.OperationalError as exc:
+        # Almost always an older DB clone: columns and tables were added by
+        # migration over time (articles_fetched -> articles_kept at run 206,
+        # run_artifacts at 204, duration_ms at 220). Say so instead of a traceback.
+        raise SystemExit(
+            f"{query.name}: {exc}\n"
+            f"The database at this path may predate a migration this query needs.\n"
+            f"Check with: bin/migrate --status, or pull a current clone: bin/db-clone"
+        ) from exc
+    elapsed = time.perf_counter() - started
+    cols = [d[0] for d in cur.description] if cur.description else []
+
+    if args.format == "table":
+        print(f"\n### {query.name}")
+        print(f"QUESTION: {query['QUESTION']}")
+        if query["CAVEAT"]:
+            print(f"CAVEAT:   {query['CAVEAT']}")
+        print()
+        render_table(cols, rows, sys.stdout)
+    elif args.format == "json":
+        json.dump(
+            {
+                "query": query.name,
+                "question": query["QUESTION"],
+                "caveat": query["CAVEAT"],
+                "params": params,
+                "rows": [dict(zip(cols, row)) for row in rows],
+            },
+            sys.stdout,
+            indent=2,
+            default=str,
+        )
+        print()
+    elif args.format == "csv":
+        writer = csv.writer(sys.stdout)
+        writer.writerow(cols)
+        writer.writerows(rows)
+
+    if args.timing:
+        print(
+            f"[{query.name}: {elapsed * 1000:.0f} ms, {len(rows)} rows]",
+            file=sys.stderr,
+        )
+    return elapsed
+
+
+def cmd_list(queries: list[Query]) -> None:
+    width = max(len(q.name) for q in queries)
+    for q in queries:
+        print(f"{q.name.ljust(width)}  {q['QUESTION']}")
+
+
+def cmd_show(queries: list[Query], names: list[str]) -> None:
+    by_name = {q.name: q for q in queries}
+    for name in names:
+        if name not in by_name:
+            sys.exit(f"Unknown query: {name} (try: bin/analytics list)")
+        print(by_name[name].sql)
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(
+        prog="bin/analytics",
+        description="Run stored analytics queries against the digest database.",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=(
+            "Examples:\n"
+            "  bin/analytics list\n"
+            "  bin/analytics run funnel-per-run --runs 10\n"
+            "  bin/analytics run --all --timing\n"
+            "  bin/analytics run source-selection-lift --format csv > lift.csv\n"
+        ),
+    )
+    parser.add_argument("command", choices=["list", "show", "run"])
+    parser.add_argument("names", nargs="*", help="query names (or --all for run)")
+    parser.add_argument("--db", default=None, help="database path")
+    parser.add_argument("--all", action="store_true", help="run every query")
+    parser.add_argument(
+        "--format", choices=["table", "json", "csv"], default="table", dest="format"
+    )
+    parser.add_argument("--runs", type=int, default=30, help="window in runs (:runs)")
+    parser.add_argument("--days", type=int, default=30, help="window in days (:days)")
+    parser.add_argument("--limit", type=int, default=40, help="row cap (:limit)")
+    parser.add_argument("--timing", action="store_true", help="print runtime per query")
+    args = parser.parse_args()
+
+    queries = load_queries()
+    if args.command == "list":
+        cmd_list(queries)
+        return 0
+    if args.command == "show":
+        cmd_show(queries, args.names or [q.name for q in queries])
+        return 0
+
+    if args.all:
+        selected = queries
+    elif args.names:
+        by_name = {q.name: q for q in queries}
+        unknown = [n for n in args.names if n not in by_name]
+        if unknown:
+            sys.exit(f"Unknown query: {', '.join(unknown)} (try: bin/analytics list)")
+        selected = [by_name[n] for n in args.names]
+    else:
+        sys.exit("Nothing to run. Give a query name or --all (see: bin/analytics list)")
+
+    db_path = Path(
+        args.db or os.environ.get("DIGEST_DB") or PROJECT_DIR / "data" / "digest.db"
+    )
+    params = {"runs": args.runs, "days": args.days, "limit": args.limit}
+
+    total = 0.0
+    with connect(db_path) as conn:
+        for query in selected:
+            total += run_query(conn, query, params, args)
+    if args.timing and len(selected) > 1:
+        print(
+            f"[total: {total * 1000:.0f} ms across {len(selected)} queries]",
+            file=sys.stderr,
+        )
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

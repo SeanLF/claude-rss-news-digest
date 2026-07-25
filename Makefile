@@ -3,7 +3,10 @@
 
 .DEFAULT_GOAL := help
 .PHONY: ci ci-fix ci-full test eval eval-stages eval-coherence eval-repair a11y lighthouse deploy deploy-dry migrate migrate-status \
-        ssh db-clone usage usage-daily versions circulation preview prompt help
+        ssh db-clone usage usage-daily analytics analytics-list analytics-q versions circulation preview prompt help
+
+# Default window for the analytics queries; override with RUNS=N
+RUNS ?= 30
 
 ## CI
 ci: ## Run all checks (Python + Rust, in Docker)
@@ -46,6 +49,17 @@ usage: ## Token usage breakdown (requires db-clone)
 	bin/usage
 usage-daily: ## Daily usage totals (requires db-clone)
 	bin/usage daily
+
+## Analytics
+analytics: ## Run every stored analytics query (usage: make analytics [RUNS=30])
+	bin/analytics run --all --runs $(RUNS) --timing
+analytics-list: ## List the stored analytics questions
+	bin/analytics list
+analytics-q: ## Run one analytics query (usage: make analytics-q Q=funnel-per-run [RUNS=30])
+ifndef Q
+	$(error Q is required. Usage: make analytics-q Q=funnel-per-run. See: make analytics-list)
+endif
+	bin/analytics run $(Q) --runs $(RUNS)
 
 ## Server
 ssh: ## SSH to production server
