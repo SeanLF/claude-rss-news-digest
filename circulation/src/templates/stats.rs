@@ -403,7 +403,9 @@ fn geographic_section(m: &StatsMetrics) -> String {
             &format!("{:.1}", m.geo_effective),
             "",
             "Effective regions",
-            &format!("of 6 · geo-HHI {:.2}", m.geo_hhi)
+            // Denominator is the regions actually SHIPPED, not a hardcoded 6 -- adding
+            // "S. America" made that literal wrong, and geo_effective could exceed it.
+            &format!("of {} · geo-HHI {:.2}", m.regions.len(), m.geo_hhi)
         ),
         tile(
             m.regions.first().map(|(n, _)| n.as_str()).unwrap_or(""),
