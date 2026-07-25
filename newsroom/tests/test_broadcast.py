@@ -7,6 +7,7 @@ response fails but whose broadcast is in an accepted state is treated as
 delivered, while a send that genuinely did not dispatch still fails loudly.
 """
 
+import logging
 import sys
 from pathlib import Path
 
@@ -201,3 +202,47 @@ def test_broadcast_omits_reply_to_when_contact_email_unset(monkeypatch):
     captured = _capture_broadcast_create(monkeypatch)
     broadcast.send_broadcast("<html>d</html>")
     assert "reply_to" not in captured
+
+
+# --- misconfigured alerting must not itself be silent ----------------------
+#
+# Terraform wrote DIGEST_ALERT_EMAIL while the code read HEALTH_ALERT_EMAIL, so every
+# alert no-op'd at WARNING for months -- including 18 straight days of the_hindu
+# returning 403. A monitor that cannot reach anyone is an outage in the monitor: it
+# must log at ERROR and say what it threw away, so the dropped payload is recoverable
+# from the log even when the email never sends.
+
+
+# Each alert paired with a distinctive fragment of its payload that must reach the log.
+_ALERTS = [
+    (lambda: broadcast.send_health_alert([("the_hindu", 10)], 1, 30), "the_hindu"),
+    (lambda: broadcast.send_thread_audit_alert(3, 244), "244"),
+    (lambda: broadcast.send_archival_alert(["threads"], 244), "threads"),
+]
+
+
+@pytest.mark.parametrize(("call", "payload"), _ALERTS)
+def test_alert_without_recipient_logs_error_naming_dropped_payload(monkeypatch, caplog, call, payload):
+    monkeypatch.delenv("HEALTH_ALERT_EMAIL", raising=False)
+    monkeypatch.setenv("RESEND_API_KEY", "re_test")
+    monkeypatch.setenv("RESEND_FROM", "digest@example.com")
+    with caplog.at_level(logging.DEBUG):
+        call()
+    errors = [r for r in caplog.records if r.levelno >= logging.ERROR]
+    assert errors, f"missing recipient logged below ERROR: {caplog.text!r}"
+    assert "HEALTH_ALERT_EMAIL" in caplog.text
+    assert payload in caplog.text, "the dropped alert content must survive in the log"
+
+
+@pytest.mark.parametrize(("call", "payload"), _ALERTS)
+def test_alert_rejected_by_resend_logs_error_naming_dropped_payload(monkeypatch, caplog, call, payload):
+    """A recipient exists but Resend rejects the send: same outage class as having nobody to
+    tell, so the same obligation -- the log line is the alert's only surviving copy, and the
+    caller must not see an exception (a failed alert never breaks a delivered digest)."""
+    monkeypatch.setenv("HEALTH_ALERT_EMAIL", "ops@example.com")
+    monkeypatch.setattr(broadcast.resend.Emails, "send", _raise_timeout)
+    with caplog.at_level(logging.DEBUG):
+        call()
+    errors = [r for r in caplog.records if r.levelno >= logging.ERROR]
+    assert errors, f"send failure logged below ERROR: {caplog.text!r}"
+    assert payload in caplog.text, "the dropped alert content must survive in the log"

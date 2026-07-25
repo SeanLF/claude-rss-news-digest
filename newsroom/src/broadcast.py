@@ -226,38 +226,71 @@ def send_test_digest(html: str, to_addr: str, *, subject_prefix: str = "[TEST] "
     return email_id
 
 
-def send_thread_audit_alert(audit_failures: int, run_id: int):
-    """Alert when the thread faithfulness audit failed-open this run.
+def _send_alert(kind: str, *, subject: str, content: str, dropped: str) -> None:
+    """Send one operational alert email; if it can't be delivered, log what it would have said.
 
-    The audit fails OPEN (keeps facts) so the digest never breaks, but that means unsupported
-    facts went UNCHECKED into the thread state. This must surface -- a persistently-failing audit
-    is a silent quality regression once threads are reader-visible."""
+    Alerting IS the monitor, so a monitor that can't reach anyone is itself an outage -- and it
+    is the one failure no alert can report. Both undeliverable paths (unusable config, Resend
+    error) therefore log at ERROR, not WARNING, and repeat ``dropped``: a one-line rendering of
+    the alert's payload, so the content survives in the log even when the email never sends.
+    Terraform wrote DIGEST_ALERT_EMAIL while this read HEALTH_ALERT_EMAIL, and that mismatch hid
+    18 consecutive days of a dead source behind a WARNING nobody greps for.
+    """
     to_email = os.environ.get("HEALTH_ALERT_EMAIL")
+    api_key = os.environ.get("RESEND_API_KEY")
     from_email = os.environ.get("RESEND_FROM")
-    if not to_email or not os.environ.get("RESEND_API_KEY") or not from_email:
-        logger.warning("Skipping thread-audit alert: HEALTH_ALERT_EMAIL/RESEND_API_KEY/RESEND_FROM not set")
+    if not (to_email and api_key and from_email):
+        missing = [
+            name
+            for name, value in (
+                ("HEALTH_ALERT_EMAIL", to_email),
+                ("RESEND_API_KEY", api_key),
+                ("RESEND_FROM", from_email),
+            )
+            if not value
+        ]
+        logger.error(
+            "ALERTING MISCONFIGURED (%s unset): %s alert DROPPED, not delivered. It said: %s",
+            "/".join(missing),
+            kind,
+            dropped,
+        )
         return
 
-    resend.api_key = os.environ["RESEND_API_KEY"]
-    content = f"""<h2>News Digest Thread Audit Alert</h2>
-<p>The thread faithfulness audit failed-open on <strong>{audit_failures}</strong> thread(s) in run {run_id}.</p>
-<p>Those installments' facts were kept WITHOUT being fact-checked. If this recurs, unsupported
-facts are reaching thread state unchecked -- investigate the audit model/endpoint.</p>
-<p style="color: #777; font-size: 0.85em;">This is an automated alert from your News Digest system.</p>
-"""
+    resend.api_key = api_key
     try:
         resend_with_retry(
             resend.Emails.send,
             {
                 "from": f"News Digest Alerts <{from_email}>",
                 "to": [to_email],
-                "subject": f"[Alert] Thread audit failed-open on {audit_failures} thread(s)",
+                "subject": subject,
                 "html": content,
             },
         )
-        logger.info("Thread-audit alert sent to %s", to_email)
     except resend.exceptions.ResendError as e:
-        logger.error("Failed to send thread-audit alert: %s", e)
+        logger.error("%s alert send FAILED (%s); alert DROPPED. It said: %s", kind, e, dropped)
+        return
+    logger.info("%s alert sent to %s", kind, to_email)
+
+
+def send_thread_audit_alert(audit_failures: int, run_id: int):
+    """Alert when the thread faithfulness audit failed-open this run.
+
+    The audit fails OPEN (keeps facts) so the digest never breaks, but that means unsupported
+    facts went UNCHECKED into the thread state. This must surface -- a persistently-failing audit
+    is a silent quality regression once threads are reader-visible."""
+    _send_alert(
+        "thread-audit",
+        subject=f"[Alert] Thread audit failed-open on {audit_failures} thread(s)",
+        content=f"""<h2>News Digest Thread Audit Alert</h2>
+<p>The thread faithfulness audit failed-open on <strong>{audit_failures}</strong> thread(s) in run {run_id}.</p>
+<p>Those installments' facts were kept WITHOUT being fact-checked. If this recurs, unsupported
+facts are reaching thread state unchecked -- investigate the audit model/endpoint.</p>
+<p style="color: #777; font-size: 0.85em;">This is an automated alert from your News Digest system.</p>
+""",
+        dropped=f"thread faithfulness audit failed-open on {audit_failures} thread(s) in run {run_id}",
+    )
 
 
 def send_archival_alert(failed_steps: list[str], run_id: int | None):
@@ -266,34 +299,19 @@ def send_archival_alert(failed_steps: list[str], run_id: int | None):
     Archival is fail-soft (a trace write must never block a delivered digest), so
     a failure here does NOT stop the send -- but a persistent one silently rots
     the eval/reproducibility trace. This surfaces it so it doesn't stay silent."""
-    to_email = os.environ.get("HEALTH_ALERT_EMAIL")
-    from_email = os.environ.get("RESEND_FROM")
-    if not to_email or not os.environ.get("RESEND_API_KEY") or not from_email:
-        logger.warning("Skipping archival alert: HEALTH_ALERT_EMAIL/RESEND_API_KEY/RESEND_FROM not set")
-        return
-
-    resend.api_key = os.environ["RESEND_API_KEY"]
     steps = ", ".join(failed_steps)
-    content = f"""<h2>News Digest Archival Alert</h2>
+    _send_alert(
+        "archival",
+        subject=f"[Alert] Digest archival failed ({steps})",
+        content=f"""<h2>News Digest Archival Alert</h2>
 <p>Trace/analytics archival failed for <strong>{steps}</strong> on run {run_id}.</p>
 <p>The digest still delivered (archival is fail-soft), but this run's reproducibility
 trace is incomplete. If this recurs, the eval golden set is silently rotting -- check
 the DB volume (disk/permissions/locks).</p>
 <p style="color: #777; font-size: 0.85em;">This is an automated alert from your News Digest system.</p>
-"""
-    try:
-        resend_with_retry(
-            resend.Emails.send,
-            {
-                "from": f"News Digest Alerts <{from_email}>",
-                "to": [to_email],
-                "subject": f"[Alert] Digest archival failed ({steps})",
-                "html": content,
-            },
-        )
-        logger.info("Archival alert sent to %s", to_email)
-    except resend.exceptions.ResendError as e:
-        logger.error("Failed to send archival alert: %s", e)
+""",
+        dropped=f"archival failed for {steps} on run {run_id}",
+    )
 
 
 def send_health_alert(
@@ -302,36 +320,17 @@ def send_health_alert(
     total_sources: int,
 ):
     """Send alert email when sources are persistently failing."""
-    to_email = os.environ.get("HEALTH_ALERT_EMAIL")
-    if not to_email:
-        logger.warning("Skipping health alert: HEALTH_ALERT_EMAIL not set")
-        return
-    if not os.environ.get("RESEND_API_KEY"):
-        logger.warning("Skipping health alert: RESEND_API_KEY not set")
-        return
-
-    resend.api_key = os.environ["RESEND_API_KEY"]
-    from_email = os.environ["RESEND_FROM"]
-
     source_list = "\n".join(f"  • {sid}: {count} consecutive failures" for sid, count in failing_sources)
-    content = f"""<h2>News Digest Source Health Alert</h2>
+    failing_summary = ", ".join(f"{sid} ({n}x)" for sid, n in failing_sources)
+    _send_alert(
+        "source-health",
+        subject=f"[Alert] {len(failing_sources)} RSS sources failing",
+        content=f"""<h2>News Digest Source Health Alert</h2>
 <p><strong>{failed_this_run}/{total_sources}</strong> sources failed this run.</p>
 <p>The following sources have failed 3+ times in a row:</p>
 <pre>{source_list}</pre>
 <p>Consider checking these feeds or removing them from sources.json.</p>
 <p style="color: #777; font-size: 0.85em;">This is an automated alert from your News Digest system.</p>
-"""
-
-    try:
-        resend_with_retry(
-            resend.Emails.send,
-            {
-                "from": f"News Digest Alerts <{from_email}>",
-                "to": [to_email],
-                "subject": f"[Alert] {len(failing_sources)} RSS sources failing",
-                "html": content,
-            },
-        )
-        logger.info("Health alert sent to %s", to_email)
-    except resend.exceptions.ResendError as e:
-        logger.error("Failed to send health alert: %s", e)
+""",
+        dropped=f"{failed_this_run}/{total_sources} sources failed this run; persistently failing: {failing_summary}",
+    )

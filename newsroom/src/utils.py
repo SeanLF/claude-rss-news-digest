@@ -63,3 +63,14 @@ def validate_env(dry_run: bool = False):
     if missing:
         logger.error("Missing environment variables: %s", ", ".join(missing))
         sys.exit(1)
+
+    # Alerting config is checked at second zero, not at alert time -- the one moment it
+    # cannot be reported. HEALTH_ALERT_EMAIL was absent for months (terraform wrote
+    # DIGEST_ALERT_EMAIL, which nothing reads) and the only symptom was a WARNING buried
+    # inside runs that were already failing, so 18 days of a dead source went unseen.
+    # NOT fatal: alerting is observability, and a digest must still ship without it.
+    if not dry_run and not os.environ.get("HEALTH_ALERT_EMAIL"):
+        logger.error(
+            "HEALTH_ALERT_EMAIL is not set: source-health, archival and thread-audit alerts "
+            "will be DROPPED this run. Digest continues; alerting is blind until this is set."
+        )
