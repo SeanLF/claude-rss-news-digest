@@ -80,9 +80,50 @@ def test_wire_from_dateline_is_anchored_at_the_start(text, expected):
     assert wire_from_dateline(text) == expected
 
 
-def test_collapse_reposts_folds_same_agency_under_different_headlines():
-    """The measured failure: reposters rewrite the headline, so the verbatim-title key
-    misses them. Only 48% of near-duplicate cross-source pairs shared an exact key."""
+def test_collapse_reposts_keeps_distinct_articles_from_one_outlet():
+    """Regression: keying on the agency folded FOUR distinct Reuters articles about the
+    Korea chip deals into one link. An outlet is never a repost of itself, and WRITE had
+    cited all four -- that is attribution loss, not deduplication."""
+    sources = [
+        {
+            "name": "Reuters",
+            "original_title": "Samsung and SK seal $950bn in chip deals",
+            "wire_agency": "reuters",
+            "wire": True,
+        },
+        {
+            "name": "Reuters",
+            "original_title": "Nvidia and SK to build $500bn of data centres",
+            "wire_agency": "reuters",
+            "wire": True,
+        },
+        {
+            "name": "Reuters",
+            "original_title": "South Korea chipmakers expand US footprint",
+            "wire_agency": "reuters",
+            "wire": True,
+        },
+    ]
+    assert len(collapse_reposts(sources)) == 3
+
+
+def test_collapse_reposts_still_folds_a_verbatim_repost_of_the_wire_itself():
+    """Regression: the agency key made Reuters' own item and a VERBATIM Straits Times
+    repost diverge -- Reuters got `agency:reuters`, Straits Times (no byline, no dateline,
+    so no detected provenance) kept a title key -- and they stopped collapsing."""
+    title = "Venezuela notifies UN of withdrawal from ICC, alleging 'bias'"
+    sources = [
+        {"name": "Reuters", "original_title": f"{title} - Reuters", "wire_agency": "reuters", "wire": True},
+        {"name": "Straits Times", "original_title": title, "wire_agency": None},
+    ]
+    assert [x["name"] for x in collapse_reposts(sources)] == ["Reuters"]
+
+
+def test_collapse_reposts_leaves_rewritten_headlines_alone():
+    """Documents the gap the reverted key tried to close, so it is not mistaken for
+    solved: one AFP story under two rewritten headlines still renders as two links.
+    Closing it needs a similarity measure (title unigram containment measured 57% recall
+    at precision 1.00), not an equality key."""
     sources = [
         {
             "name": "SCMP",
@@ -96,15 +137,19 @@ def test_collapse_reposts_folds_same_agency_under_different_headlines():
         },
         {"name": "The Guardian", "original_title": "Bordeaux evacuations as fire spreads", "wire_agency": None},
     ]
-    out = collapse_reposts(sources)
-    assert [s["name"] for s in out] == ["SCMP", "The Guardian"], "same AFP copy should appear once"
+    assert len(collapse_reposts(sources)) == 3, "known gap: rewritten headlines do not fold"
 
 
 def test_collapse_reposts_prefers_the_wire_itself_as_canonical():
     """When the agency's own feed is in the story, it is the honest link to show."""
     sources = [
-        {"name": "SCMP", "original_title": "Rewritten headline", "wire_agency": "reuters"},
-        {"name": "Reuters", "original_title": "Original wire headline", "wire_agency": "reuters", "wire": True},
+        {"name": "SCMP", "original_title": "Shares fall as central bank holds rates", "wire_agency": "reuters"},
+        {
+            "name": "Reuters",
+            "original_title": "Shares fall as central bank holds rates - Reuters",
+            "wire_agency": "reuters",
+            "wire": True,
+        },
     ]
     out = collapse_reposts(sources)
     assert [s["name"] for s in out] == ["Reuters"]
@@ -175,8 +220,10 @@ def test_wire_agency_survives_resolution_end_to_end(tmp_path, monkeypatch):
         {"must_know": [{"headline": "h", "sources": [{"article_id": "A1"}, {"article_id": "A2"}]}]}
     )
 
-    names = [s["name"] for s in resolved["must_know"][0]["sources"]]
-    assert names == ["SCMP"], "one AFP story reposted twice must resolve to one link"
+    got = {s["name"]: s.get("wire_agency") for s in resolved["must_know"][0]["sources"]}
+    assert got == {"SCMP": "agence france-presse", "Straits Times": "agence france-presse"}, (
+        "provenance lost at the resolve boundary -- render cannot credit the agency"
+    )
 
 
 def test_resolution_tolerates_an_article_index_predating_wire_agency(tmp_path, monkeypatch):

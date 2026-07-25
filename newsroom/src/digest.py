@@ -39,20 +39,25 @@ def _repost_key(title: str, source_name: str) -> str:
 def _collapse_key(src: dict) -> str:
     """What makes two entries in ONE story's source list the same item.
 
-    Known wire provenance wins over the title, because reposters rewrite headlines: only
-    48% of measured near-duplicate cross-source pairs shared an exact normalized title, so
-    the title key alone missed about half the wire duplication ("Wildfires force 250,000 to
-    flee Spain and France" vs "Untamed blazes in Spain, France force 200,000 out" -- one
-    AFP story). Within a story the cluster has already established these are the same
-    event, so a shared agency means shared copy.
+    Title only. Keying on the shared wire agency was tried and REVERTED -- it was wrong in
+    both directions, measured against a real run:
 
-    Falls back to the title key when provenance is unknown, which is most feeds -- absence
-    of a byline is not evidence of independence, but it is not evidence of reposting
-    either, so those are left alone.
+    - It over-collapsed. Four DISTINCT Reuters articles on the Korea chip deals all keyed
+      to `agency:reuters` and folded into one link. An outlet is never a repost of itself,
+      and WRITE had cited all four.
+    - It under-collapsed. Reuters' own item and a VERBATIM Straits Times repost of it
+      stopped collapsing, because Reuters' entry got an agency key while Straits Times --
+      which publishes no byline and no dateline -- kept a title key, so they diverged.
+
+    The case it was built for (a rewritten headline over shared wire copy) needs BOTH
+    entries to carry detected provenance, and detection covers ~7% of the corpus
+    concentrated in three feeds. So it rarely fired and sometimes did harm.
+
+    `wire_agency` is still resolved and still rendered -- crediting "AFP · via SCMP" is
+    independent of, and more valuable than, merging the rows. Merging rewritten headlines
+    needs a similarity measure (title unigram containment measured 57% recall at precision
+    1.00), not an equality key. See docs/2026-07-25-feed-sourcing-findings.md.
     """
-    agency = src.get("wire_agency")
-    if agency:
-        return f"agency:{agency}"
     return _repost_key(src.get("original_title", ""), src.get("name", ""))
 
 

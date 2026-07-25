@@ -60,7 +60,10 @@ section{margin-top:44px;}
 .share{display:grid; grid-template-columns:130px 1fr 42px; gap:12px; align-items:center;}
 .share .sn{font-family:var(--serif); font-size:14px; color:var(--ink2);}
 .share .track{height:8px; background:var(--wash); border-radius:999px; overflow:hidden;}
-.share .fill{height:100%; background:var(--bias-c); border-radius:999px;}
+/* display:block is load-bearing -- .track is a grid child so it blockifies, but
+   .fill is a plain inline span and silently ignores width/height, so every share
+   bar rendered as an empty track in production. `.sbar span` above has the same fix. */
+.share .fill{display:block; height:100%; background:var(--bias-c); border-radius:999px;}
 .share .pc{font-family:var(--mono); font-size:12px; color:var(--muted); text-align:right; font-variant-numeric:tabular-nums;}
 .drill{font-family:var(--sans); font-size:13px; color:var(--muted); margin-top:14px;}
 .drill code{font-family:var(--mono); font-size:12px; color:var(--ink2);}
