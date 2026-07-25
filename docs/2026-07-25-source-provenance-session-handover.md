@@ -155,3 +155,59 @@ Research briefs worth not repeating: prior art in
 hapax containment beat higher-order n-grams on short news text; off-the-shelf embeddings lose
 to 3-gram Jaccard; skip LSH at this scale). Blindspot is **closed NO-GO** with 39 runs of
 evidence — do not re-litigate without changing the source catalog.
+
+## Analytics backtest — measured over 194 runs
+
+Prompted by the observation that the day's failures were all *already recorded* and simply
+never queried. Prototypes in `scratchpad/poc-analytics/`.
+
+**The reframe that matters: five of the seven known failures are CHRONIC, not degradations.**
+They were present from the first run that had the feed, so change detection cannot catch them
+by construction. Per-source yield is stationary across five 40-run blocks (`der_spiegel`
+0/0/0/0/0%, `nikkei_asia` 8/9/9/9/11%); degenerate summaries are 100% of `reuters` and
+`nikkei_asia` output in every run; unresolved redirect links appear in **211 of 220 issues**
+back to 2025-12-08. The "per-source baseline health check" proposed earlier in this session
+would therefore have caught almost none of them. It needs to be two instruments: a quiet
+daily alert set (change detection) and a standing catalog audit (absolute invariants).
+
+**Four checks survived backtesting**, precision in brackets: source-down at 3 consecutive
+failures, 0.005/run [1/1]; empty feed = HTTP 200 with zero entries, 0.021/run [4/4]; short
+freshness window <18h, 0.015/run [2/2]; unsafe dedup drop, 0.46/run [11/11]. The first
+**already exists** at `db.py:363` and would have caught `the_hindu` on **day 3, not day 18** —
+detection was never the problem, the alert email was dead. Add a monthly liveness heartbeat:
+an alert path with no proof of life is not a control.
+
+**Checks killed, with evidence — do not re-propose without new data.** Yield-collapse vs a
+trailing median fired 0.45/run and *every* fire was a Sunday or Monday (the 10:25 UTC Sunday
+run covers Saturday). Feed-stopped-updating survived weekday-matching down to 9 fires, and
+**every actionable one was a public holiday** — Easter, SA Freedom Day, Memorial Day,
+Juneteenth, July 4. Technically correct, operationally worthless. Unresolved-link share is
+chronic and fires on 90% of issues.
+
+**Two findings nobody went looking for:**
+
+- **Google News link resolution has never worked in production** — not degraded, never worked.
+  0% resolution on 38 of 39 runs. Across issues 204-244, `reuters.com` appears in shipped HTML
+  **exactly once** while `news.google.com` appears 8-31 times per issue. The 429 observed on
+  2026-07-25 is the steady state, not an incident.
+- **Five feeds cover only a fraction of each 24h window** (measured as the age of the oldest
+  *kept* article): `rappler` 4.3h, `financial_times` 6.4h, **`al_jazeera` 8.7h — the
+  4th-most-cited source**, `le_monde` 14.6h. Each keeps ~100% of what it serves, so the entry
+  cap is binding. The mirror image of the stale-slots problem.
+
+**Email size is NOT measurable from the database.** `digests.html` is the *web* copy —
+`prepare_for_web()` strips email-only nodes and MSO conditionals before storing, so stored
+sizes are 42-74KB against a real email of ~120KB. Querying the DB would tell you the opposite
+of the truth. Assert `len(email_html) < 102400` before `send_broadcast` and persist
+`digests.email_bytes`.
+
+**Worth instrumenting, since the data cannot substitute:** `source_health.newest_item_at` /
+`oldest_item_at` / `entries_returned` (makes feed truncation first-class rather than
+inferred), an age histogram of *discarded* articles (`fetched_articles` stores only kept
+rows), and per-run gnews counters plus a canary asserting zero `news.google.com` links in the
+shipped digest — without which the link problem stays invisible even after a fix.
+
+**One caution on the audit:** `stories cited/run` is a *usage* metric. Pruning the catalog on
+it will quietly narrow coverage toward whatever the curation stages already favour;
+`rest_of_world` at zero citations may be a genuine editorial gap rather than dead weight.
+Treat it as a prompt to look, not a rule to act on.
