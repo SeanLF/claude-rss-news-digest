@@ -65,8 +65,34 @@ Three local pipeline runs. **The first two were void and it took an outside prom
    clarin_mundo in 3; `wire_agency` populates end-to-end; der_spiegel went from 0 to
    appearing in 8 of ~16 shipped stories.
 3. **Valid** — verified image, prod DB cloned and integrity-checked (page_count × page_size ==
-   filesize, `integrity_check ok`, 854 rows in the dedup window). SELECT completed in 112s
-   with no timeout, confirming (2)'s timeouts were corpus-size artifacts.
+   filesize, `integrity_check ok`, 854 rows in the dedup window). **Completed exit 0.**
+
+   | | |
+   |---|---|
+   | Corpus | 231 kept of 2,717 fetched, 37/38 sources (france24 failed *locally only*, see below) |
+   | Window | since prod's 10:25 run, so ~10h not 24h — counts are not directly comparable to prod |
+   | Cluster | 215 articles → 91 clusters, $0.30 |
+   | Select | 112s, $0.29 — **no idle timeout**, confirming (2)'s timeouts were corpus-size artifacts |
+   | Write | 335s, $0.63 |
+   | Coherence | 220s, **$1.64 — the most expensive stage**, matching the `/open` finding |
+   | Shipped | 3 must_know + 12 should_know |
+
+   What it proves:
+   - **Zero non-English headlines** across all 15 stories, with der_spiegel in 3 and
+     clarin_mundo in 3. The unconstrained-language risk does not materialise.
+   - **`wire_agency` populates at 41/215 (19.1%)** — reuters 30, upi 8, AFP/dpa/PA Media 1 each.
+   - New sources contribute: der_spiegel 3 stories, clarin_mundo 3, upi 1.
+   - **The alerting fix fired, live, on real history:**
+     `ALERTING MISCONFIGURED (HEALTH_ALERT_EMAIL unset): source-health alert DROPPED … persistently
+     failing: the_hindu (10x)` — the exact information that was invisible for 18 days. Note "10x"
+     against a true 18 days: `get_consecutive_failures` caps at 10.
+   - COHERENCE stripped two `why_it_matters` for claims absent from cited sources (a June that
+     "already overwhelmed emergency services"; "already absorbing US tariff pressures"). Working.
+
+   Unexplained and minor: `data/digest.log` and `.log.1` both reset to 11K mid-run with only
+   migration lines, while the run's own stdout stayed intact. Tests do patch `DATA_DIR`, so it
+   is not obvious test bleed. The stdout capture is the authoritative record; on-disk logs were
+   not trustworthy for this run.
 
 **Local runs still diverge from production in two ways that cannot be fixed locally:**
 `the_hindu` fetches fine from a residential IP but is blocked from the production ASN, and
