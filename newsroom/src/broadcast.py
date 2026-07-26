@@ -314,6 +314,31 @@ the DB volume (disk/permissions/locks).</p>
     )
 
 
+def send_run_health_alert(violations: list[str], run_id: int):
+    """Alert when a run finished successfully but violated a post-run invariant.
+
+    These are the silent failures: the process exits 0, nothing raises, and the
+    digest ships -- but the run did not do its job. Run 244 lost every thread
+    continuation and looked like a clean run for a full day. The conditions are
+    the same ones `analytics/queries/run-reliability.sql` flags; the difference is
+    that this does not wait for someone to go and ask.
+    """
+    listed = "\n".join(f"  • {v}" for v in violations)
+    _send_alert(
+        "run-health",
+        subject=f"[Alert] Run {run_id} completed but violated {len(violations)} invariant(s)",
+        content=f"""<h2>News Digest Run Health Alert</h2>
+<p>Run <strong>{run_id}</strong> completed and exited cleanly, but did not pass its
+post-run checks:</p>
+<pre>{listed}</pre>
+<p>Nothing crashed -- this is the silent-failure class, so the run looks healthy in
+the logs. Start with <code>bin/analytics run run-reliability</code>.</p>
+<p style="color: #777; font-size: 0.85em;">This is an automated alert from your News Digest system.</p>
+""",
+        dropped=f"run {run_id} violated: {'; '.join(violations)}",
+    )
+
+
 def send_health_alert(
     failing_sources: list[tuple[str, int]],
     failed_this_run: int,

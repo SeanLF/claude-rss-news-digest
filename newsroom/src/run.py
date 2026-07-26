@@ -15,6 +15,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 import db
+import run_health
 from broadcast import (
     ACCEPTED_BROADCAST_STATES,
     probe_status,
@@ -22,6 +23,7 @@ from broadcast import (
     send_archival_alert,
     send_broadcast,
     send_health_alert,
+    send_run_health_alert,
     send_test_digest,
     send_test_email,
     send_thread_audit_alert,
@@ -79,6 +81,43 @@ def _load_run_articles() -> dict:
                 if aid:
                     arts[aid] = {"title": row.get("title", ""), "summary": row.get("summary", "")}
     return arts
+
+
+def _alert_on_run_health() -> None:
+    """Check post-run invariants on a finished run and alert on any violation.
+
+    Runs only after the digest is built, sent and recorded, so every failure it
+    can detect has already happened. That ordering is deliberate: this is
+    best-effort instrumentation on a run that already succeeded, and an exception
+    escaping here would turn a delivered digest into a failed run and trip the
+    healthcheck down-alert. Not knowing whether an invariant held is strictly
+    better than that, so everything is caught and logged.
+    """
+    run_id = None
+    try:
+        run_id = db.current_run_id()
+        if run_id is None:
+            return
+        health = db.get_run_health(run_id)
+        # An empty dict means the DB could not be read. Absence of evidence is not
+        # evidence of failure -- alerting on it would cry wolf on every hiccup.
+        if not health:
+            return
+        violations = run_health.violations(health)
+        if not violations:
+            return
+        # Logged BEFORE the send, at ERROR: if the send fails, or alerting is off
+        # for this run, this line is the violations' only surviving copy. Same
+        # obligation as _send_alert's `dropped` argument, and the same lesson --
+        # a WARNING nobody greps for hid 18 days of a dead feed.
+        logger.error("Run %s violated post-run invariants: %s", run_id, "; ".join(violations))
+        if db.should_alert():
+            send_run_health_alert(violations, run_id)
+    except Exception:
+        # Deliberately broad -- see the docstring. But ERROR, not WARNING: a
+        # monitor that failed to run is an outage in the monitor, and it is the
+        # one failure no alert can report.
+        logger.error("run-health check FAILED to run for run %s (non-fatal)", run_id, exc_info=True)
 
 
 def _archive_run_and_threads(selections_json: str, *, model: str | None) -> None:
@@ -700,6 +739,9 @@ Examples:
     else:
         if monitored:
             healthcheck_ping()  # success
+        # After the success ping, not before: a violated invariant is a quality
+        # signal about a run that DID deliver, not a delivery failure.
+        _alert_on_run_health()
 
     cleanup_shown_headlines()
     return 0

@@ -218,6 +218,10 @@ _ALERTS = [
     (lambda: broadcast.send_health_alert([("the_hindu", 10)], 1, 30), "the_hindu"),
     (lambda: broadcast.send_thread_audit_alert(3, 244), "244"),
     (lambda: broadcast.send_archival_alert(["threads"], 244), "threads"),
+    (
+        lambda: broadcast.send_run_health_alert(["NO_THREAD_CONTINUATIONS: nothing continued"], 244),
+        "NO_THREAD_CONTINUATIONS",
+    ),
 ]
 
 

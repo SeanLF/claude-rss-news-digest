@@ -8,6 +8,8 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
+from config import THREADS_ENABLED
+
 logger = logging.getLogger(__name__)
 
 
@@ -450,6 +452,71 @@ def get_failing_sources(min_consecutive: int = 3) -> list[tuple[str, int]]:
 
     failing = [(sid, count) for sid in source_ids if (count := get_consecutive_failures(sid)) >= min_consecutive]
     return sorted(failing, key=lambda x: -x[1])
+
+
+def get_run_health(run_id: int) -> dict:
+    """Counts a finished run is judged on, for ``run_health.violations``.
+
+    The shipped/stages/artifacts counts mirror
+    ``analytics/queries/run-reliability.sql`` so the alert and the hand-run audit
+    cannot disagree. The thread counts have no counterpart there.
+
+    A continuation is an installment the LINKER matched (``matched_score`` set),
+    not one that merely sits on a thread with an earlier run. The two differ
+    exactly where it matters: run 244's 16 installments all recorded no match --
+    the incident -- but ``bin/repair-threads`` later merged five of those threads
+    into older ones, so the structural definition now scores that run as five
+    continuations and hides the failure in its own audit trail.
+
+    ``threads_available`` counts LIVE threads seen before this run. An all-time
+    count never returns to zero, so it would stop being a guard the moment the
+    system had any history.
+
+    ``recipients`` stays None when unknown. The resend-existing-draft path records
+    a delivered broadcast without a count, and collapsing that to 0 would claim a
+    successful recovery had been "sent to nobody".
+
+    Returns {} when the DB is unavailable; the caller treats that as "cannot
+    judge" and stays quiet rather than alerting on missing data.
+    """
+    if not _state.db_path or not _state.db_path.exists():
+        return {}
+    try:
+        with _connect(_state.db_path) as conn:
+            row = conn.execute(
+                """
+                SELECT
+                  (SELECT COUNT(DISTINCT headline) FROM shown_narratives WHERE run_id = :r),
+                  (SELECT COUNT(DISTINCT subagent)  FROM run_usage       WHERE run_id = :r),
+                  (SELECT COUNT(*)                  FROM run_artifacts   WHERE run_id = :r),
+                  (SELECT SUM(broadcast_recipients) FROM digests WHERE run_id = :r),
+                  (SELECT COUNT(*) FROM thread_installments
+                     WHERE run_id = :r AND matched_score IS NOT NULL),
+                  (SELECT COUNT(*) FROM threads t
+                     WHERE t.status = 'active'
+                       AND EXISTS (SELECT 1 FROM thread_installments p
+                                    WHERE p.thread_id = t.id AND p.run_id < :r))
+                """,
+                {"r": run_id},
+            ).fetchone()
+    except sqlite3.Error as e:
+        logger.error("DB error getting run health for run %s: %s", run_id, e)
+        return {}
+
+    return {
+        "run_id": run_id,
+        "shipped": row[0],
+        "stages": row[1],
+        "artifacts": row[2],
+        "recipients": row[3],
+        "thread_continuations": row[4],
+        "threads_available": row[5],
+        "broadcasting": _state.broadcasting,
+        # Config, not DB state: with the thread layer switched off no installments
+        # are written at all, and the live threads that remain would otherwise make
+        # the continuity rule fire on every run forever.
+        "threads_enabled": THREADS_ENABLED,
+    }
 
 
 def log_dedup_action(
