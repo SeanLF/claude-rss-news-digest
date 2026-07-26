@@ -20,8 +20,14 @@ from config import (
     MAX_TITLE_LENGTH,
     MAX_TOKENS_PER_FILE,
     OUTPUT_DIR,
+    RECENT_HEADLINE_DAYS,
 )
-from db import get_previous_headlines, get_yesterday_digest_headlines, log_dedup_action
+from db import (
+    get_previous_headlines,
+    get_recent_digest_headlines,
+    get_yesterday_digest_headlines,
+    log_dedup_action,
+)
 from dedup import TfidfMatcher
 from feeds import wire_agency, wire_from_dateline
 from render import estimate_tokens, is_safe_url, strip_html
@@ -94,6 +100,19 @@ def prepare_claude_input(sources: list[dict], dry_run: bool = False, article_lim
             for h in yesterday_headlines:
                 f.write(f"{h['tier']}: {h['headline']}\n")
         logger.info("Context: %d yesterday digest headlines", len(yesterday_headlines))
+
+    # Write the last week of shipped headlines for WRITE. SELECT gets yesterday's
+    # (above) to decide WHETHER to re-cover; WRITE gets a week to decide how to
+    # HEADLINE a story it is already re-covering. Without this WRITE has no memory
+    # at all, which is how a continuation ships restating the previous headline
+    # while its thread delta sits unread (see test_write_recent_headlines.py).
+    recent_headlines = get_recent_digest_headlines(days=RECENT_HEADLINE_DAYS)
+    if recent_headlines:
+        recent_file = CLAUDE_INPUT_DIR / "recent_digest_headlines.txt"
+        with open(recent_file, "w") as f:
+            for h in recent_headlines:
+                f.write(f"{h['date']} | {h['tier']}: {h['headline']}\n")
+        logger.info("Context: %d recent digest headlines for WRITE", len(recent_headlines))
 
     # Collect all articles, filtering duplicates via TF-IDF
     all_articles = []

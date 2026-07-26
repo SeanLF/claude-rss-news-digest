@@ -50,6 +50,11 @@ MAX_SUMMARY_LENGTH = 200
 # =============================================================================
 
 DEDUP_WINDOW_DAYS = 7  # Days of headline history for deduplication
+# Days of SHIPPED editorial headlines handed to WRITE so a continuation can lead with what
+# changed instead of restating the previous headline. Not a dedup control: nothing is filtered
+# on it. 7 days because the measured re-ship gaps ran +1d through +7d, so a shorter window
+# misses half of them. See test_write_recent_headlines.py.
+RECENT_HEADLINE_DAYS = 7
 # High-precision near-verbatim backstop. At the old 0.35 this hand-rolled title-TF-IDF filter fired
 # on entity collisions: a 180-pair blind-judge study put its false-positive rate at 65%, and a
 # counterfactual found ~23% of those drops were real world-news stories lost before Claude saw them

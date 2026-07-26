@@ -262,6 +262,79 @@ def get_yesterday_digest_headlines() -> list[dict]:
         return []
 
 
+def _warn_if_recent_headlines_missing(conn: sqlite3.Connection, window: str, days: int) -> None:
+    """Tell "no history yet" apart from "the query stopped matching".
+
+    A tier rename, a completed_at regression, or a run_id backfill gap all make
+    get_recent_digest_headlines match nothing while staying valid SQL -- there is
+    no sqlite3.Error to catch, and the empty result is byte-identical to a fresh
+    install, so WRITE would silently lose continuation context.
+    """
+    completed = conn.execute(
+        "SELECT COUNT(*) FROM digest_runs WHERE completed_at IS NOT NULL AND date(run_at) >= date('now', ?)",
+        (window,),
+    ).fetchone()[0]
+    if completed:
+        logger.warning(
+            "recent digest headlines: 0 rows despite %d completed run(s) in the last %d days "
+            "-- WRITE loses continuation context",
+            completed,
+            days,
+        )
+    else:
+        logger.info("recent digest headlines: no completed runs in window (expected on a new install)")
+
+
+def get_recent_digest_headlines(days: int = 7) -> list[dict]:
+    """Editorial headlines readers were actually shown over the last `days`.
+
+    Wider than get_yesterday_digest_headlines (which SELECT uses) because this
+    feeds WRITE, and the observed re-ship gaps run +1d through +7d -- a
+    yesterday-only window misses half of them.
+
+    Only COMPLETED runs count: an aborted run's headlines never reached anyone,
+    so treating them as "already told the reader" would suppress a story nobody
+    has seen. Deduped by headline because shown_narratives stores one row PER
+    SOURCE, not per story (mean 2.10, max 48), which would otherwise repeat a
+    well-sourced story a dozen times in the prompt.
+    """
+    if not _state.db_path or not _state.db_path.exists():
+        return []
+    window = f"-{days} days"
+    try:
+        with _connect(_state.db_path) as conn:
+            cursor = conn.execute(
+                """
+                SELECT sn.headline, sn.tier, MAX(dr.run_at) AS last_shown
+                FROM shown_narratives sn
+                JOIN digest_runs dr ON dr.id = sn.run_id
+                WHERE dr.completed_at IS NOT NULL
+                  AND date(dr.run_at) >= date('now', ?)
+                  AND sn.tier IN ('must_know', 'should_know')
+                  AND sn.headline IS NOT NULL AND sn.headline != ''
+                GROUP BY sn.headline
+                ORDER BY last_shown DESC
+            """,
+                (window,),
+            )
+            # `tier` rides SQLite's bare-column rule: it comes from the row that produced
+            # MAX(run_at), which is ONLY defined while the statement has exactly one
+            # min()/max() aggregate -- hence the `last_shown` alias in ORDER BY rather
+            # than a second MAX(). Adding another min/max (e.g. a "first shown" column)
+            # silently starts returning an arbitrary row's tier, with no error.
+            # test_tier_and_date_come_from_the_newest_showing is the guard.
+            rows = cursor.fetchall()
+            if not rows:
+                _warn_if_recent_headlines_missing(conn, window, days)
+            # last_shown is `YYYY-MM-DD HH:MM:SS` (run_at's column default is
+            # datetime('now','utc')). Sliced here rather than wrapped in SQL date() so
+            # the ORDER BY above keeps full intra-day precision.
+            return [{"headline": row[0], "tier": row[1], "date": row[2][:10]} for row in rows]
+    except sqlite3.Error as e:
+        logger.error("DB error getting recent digest headlines: %s", e)
+        return []
+
+
 def get_issue_number(date_str: str) -> int | None:
     """Sequential edition number ("No. N") for the digest dated ``date_str``.
 
@@ -475,6 +548,11 @@ _TRACE_ARTIFACTS = (
     "article_index.json",
     "selections.json",
     "recap.txt",
+    # Context files handed TO the stages rather than produced by them. Without these
+    # the archive shows the headline that shipped but not the prior headlines SELECT
+    # and WRITE were shown against, and claude_input/ is rmtree'd next run.
+    "recent_digest_headlines.txt",
+    "yesterday_headlines.txt",
 )
 
 

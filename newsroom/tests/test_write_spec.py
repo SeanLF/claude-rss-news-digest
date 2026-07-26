@@ -25,6 +25,19 @@ def _body():
     return SPEC_PATH.read_text(encoding="utf-8")
 
 
+def _section(heading: str) -> str:
+    """The prompt text from `heading` up to the next bolded heading.
+
+    Anchored on the real section boundary rather than a fixed character count so
+    that adding a paragraph to a section cannot push a pinned rule out of the
+    window and fail a test whose subject has not changed.
+    """
+    text = _body().lower()
+    start = text.index(heading.lower())
+    end = text.find("\n**", start)
+    return text[start:] if end == -1 else text[start:end]
+
+
 def test_citation_self_check_covers_why_it_matters():
     """The citation self-check section must explicitly extend to why_it_matters,
     not just headline/summary -- that's the whole point of the extension."""
@@ -100,6 +113,49 @@ def test_anti_overstatement_blocks_uncited_duration():
     idx = text.index("tenure" if "tenure" in text else "duration")
     window = text[max(0, idx - 300) : idx + 300]
     assert "cited" in window or "source" in window
+
+
+# --- Null-delta continuations: WRITE must know what readers were already told ---
+# Measured 2026-07-25: stories re-ship days later under a headline that restates
+# the previous one. For the census cases that were thread continuations the delta
+# EXISTED (7 facts for Burnham, 5 for the Spain wildfire) -- WRITE simply had no
+# input carrying it, because threads are processed after assembly. Full rationale
+# in test_write_recent_headlines.py.
+
+
+def test_write_reads_recent_digest_headlines():
+    """The file is useless if the prompt never opens it. Pinned because the read
+    list is the whole interface -- prepare.py writing the file is a no-op
+    otherwise, exactly the shape that made wire_agency a no-op through 841
+    green tests."""
+    text = _body()
+    assert "recent_digest_headlines.txt" in text
+    idx = text.index("recent_digest_headlines.txt")
+    window = text[max(0, idx - 600) : idx + 200].lower()
+    assert "read" in window  # must appear in the numbered read-these-files step
+
+
+def test_continuation_headline_must_lead_with_what_changed():
+    """Angle movement, not fact presence. Burnham had seven new facts available
+    and still read as a repeat because the headline's angle was identical --
+    audience research (IJoC) finds fatigue tracks the repeated angle rather than
+    the volume of new facts. So the rule must demand the headline LEAD with the
+    change, not merely permit re-coverage when facts exist."""
+    assert "continuing stories" in _body().lower(), "no section instructing how to headline a continuation"
+    section = _section("continuing stories")
+    assert "lead with" in section
+    assert "restate" in section or "reword" in section
+
+
+def test_recent_headlines_never_gate_a_story():
+    """This input must stay advisory. Novelty detection tops out near 75-80% on
+    far richer input than we have, and its documented failure is scoring the
+    RESOLUTION of an anticipated event as redundant with its anticipation -- we
+    have a live instance (run 226, Le Pen conviction upheld, zero whats_new
+    facts). WRITE must never drop or skip a story on this basis."""
+    section = _section("continuing stories")
+    assert "never" in section
+    assert "drop" in section or "skip" in section or "omit" in section
 
 
 def test_thin_source_summary_cap():
