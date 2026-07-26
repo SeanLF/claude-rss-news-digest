@@ -1,0 +1,1840 @@
+{
+ "description": "Continuation headline pairs (prev shipped -> current shipped) for the same story thread, labelled BLIND: each pair was read and labelled before any similarity score was computed, so the labels are not anchored to the metric they exist to test.",
+ "labels": {
+  "null": "curr states no development that prev did not already state -- the defect",
+  "ok": "curr states a genuine new development",
+  "borderline": "thin but arguably new; excluded from positives, reported separately"
+ },
+ "provenance": "Derived from thread_installments (matched_score IS NOT NULL) joined to shown_narratives via cluster_id, runs 205-245. 3 pairs where the join produced unrelated stories are marked 'artifact' and excluded.",
+ "base_rate": "10 null of 203 non-artifact pairs = 4.9%",
+ "warning": "Labelled by one rater (Claude) in one pass. Treat as a working set, not gold. Re-label disputed rows before trusting a headline number.",
+ "pairs": [
+  {
+   "id": 1,
+   "thread": 1,
+   "prev_run": 205,
+   "prev": "US and Iran sign ceasefire MoU, agree to reopen Strait of Hormuz",
+   "curr_run": 206,
+   "curr": "US and Iran begin 60-day countdown after signing ceasefire MoU",
+   "label": "ok"
+  },
+  {
+   "id": 2,
+   "thread": 1,
+   "prev_run": 206,
+   "prev": "US and Iran begin 60-day countdown after signing ceasefire MoU",
+   "curr_run": 208,
+   "curr": "IRGC's business empire stands to gain most from any US sanctions relief on Iran",
+   "label": "ok"
+  },
+  {
+   "id": 3,
+   "thread": 2,
+   "prev_run": 205,
+   "prev": "Iran deal faces Republican backlash as hardliners on both sides fear being sidelined",
+   "curr_run": 206,
+   "curr": "Vance warns Israel not to alienate 'only powerful ally left in the world'",
+   "label": "ok"
+  },
+  {
+   "id": 4,
+   "thread": 4,
+   "prev_run": 205,
+   "prev": "UK Makerfield by-election could end Starmer's premiership",
+   "curr_run": 206,
+   "curr": "Andy Burnham wins Makerfield by-election, setting up Labour leadership challenge",
+   "label": "ok"
+  },
+  {
+   "id": 5,
+   "thread": 4,
+   "prev_run": 206,
+   "prev": "Andy Burnham wins Makerfield by-election, setting up Labour leadership challenge",
+   "curr_run": 207,
+   "curr": "Cabinet ministers tell Starmer he has days to announce his exit",
+   "label": "ok"
+  },
+  {
+   "id": 6,
+   "thread": 4,
+   "prev_run": 207,
+   "prev": "Cabinet ministers tell Starmer he has days to announce his exit",
+   "curr_run": 208,
+   "curr": "UK PM Starmer faces imminent ouster as Burnham allies expect 'coronation'",
+   "label": "ok"
+  },
+  {
+   "id": 7,
+   "thread": 4,
+   "prev_run": 208,
+   "prev": "UK PM Starmer faces imminent ouster as Burnham allies expect 'coronation'",
+   "curr_run": 209,
+   "curr": "Starmer set to announce exit timetable Monday as Burnham positions for leadership",
+   "label": "ok"
+  },
+  {
+   "id": 8,
+   "thread": 4,
+   "prev_run": 209,
+   "prev": "Starmer set to announce exit timetable Monday as Burnham positions for leadership",
+   "curr_run": 210,
+   "curr": "Keir Starmer resigns after two years as UK prime minister",
+   "label": "ok"
+  },
+  {
+   "id": 9,
+   "thread": 4,
+   "prev_run": 210,
+   "prev": "Keir Starmer resigns after two years as UK prime minister",
+   "curr_run": 212,
+   "curr": "Andy Burnham set to become UK prime minister, faces early battles on tax and defence",
+   "label": "ok"
+  },
+  {
+   "id": 10,
+   "thread": 4,
+   "prev_run": 212,
+   "prev": "Andy Burnham set to become UK prime minister, faces early battles on tax and defence",
+   "curr_run": 215,
+   "curr": "Andy Burnham faces scrutiny over devolution plans as Labour transition nears",
+   "label": "ok"
+  },
+  {
+   "id": 11,
+   "thread": 6,
+   "prev_run": 207,
+   "prev": "Iran-US nuclear talks reach Switzerland after Lebanon ceasefire holds",
+   "curr_run": 208,
+   "curr": "Vance arrives in Switzerland as Iran declares Hormuz closed again",
+   "label": "ok"
+  },
+  {
+   "id": 12,
+   "thread": 6,
+   "prev_run": 208,
+   "prev": "Vance arrives in Switzerland as Iran declares Hormuz closed again",
+   "curr_run": 209,
+   "curr": "US-Iran talks end first round with 60-day roadmap; Trump threats and Lebanon fighting strain deal",
+   "label": "ok"
+  },
+  {
+   "id": 13,
+   "thread": 6,
+   "prev_run": 209,
+   "prev": "US-Iran talks end first round with 60-day roadmap; Trump threats and Lebanon fighting strain deal",
+   "curr_run": 210,
+   "curr": "US lifts Iran oil sanctions for 60 days as nuclear talks yield disputed progress",
+   "label": "ok"
+  },
+  {
+   "id": 14,
+   "thread": 6,
+   "prev_run": 210,
+   "prev": "US lifts Iran oil sanctions for 60 days as nuclear talks yield disputed progress",
+   "curr_run": 211,
+   "curr": "Trump and Iran give conflicting accounts of nuclear inspection deal",
+   "label": "ok"
+  },
+  {
+   "id": 15,
+   "thread": 6,
+   "prev_run": 211,
+   "prev": "Trump and Iran give conflicting accounts of nuclear inspection deal",
+   "curr_run": 213,
+   "curr": "Gulf allies back Iran deal in principle but press Rubio on Israeli strikes and Hormuz control",
+   "label": "ok"
+  },
+  {
+   "id": 16,
+   "thread": 6,
+   "prev_run": 213,
+   "prev": "Gulf allies back Iran deal in principle but press Rubio on Israeli strikes and Hormuz control",
+   "curr_run": 216,
+   "curr": "US and Iran halt Hormuz strikes, resume talks after days of attacks",
+   "label": "ok"
+  },
+  {
+   "id": 17,
+   "thread": 6,
+   "prev_run": 216,
+   "prev": "US and Iran halt Hormuz strikes, resume talks after days of attacks",
+   "curr_run": 217,
+   "curr": "US and Iran resume nuclear talks in Doha after weekend strikes",
+   "label": "ok"
+  },
+  {
+   "id": 18,
+   "thread": 6,
+   "prev_run": 217,
+   "prev": "US and Iran resume nuclear talks in Doha after weekend strikes",
+   "curr_run": 219,
+   "curr": "Iran says it exported no oil during US blockade; oil forecasts cut as Hormuz reopens",
+   "label": "ok"
+  },
+  {
+   "id": 19,
+   "thread": 6,
+   "prev_run": 219,
+   "prev": "Iran says it exported no oil during US blockade; oil forecasts cut as Hormuz reopens",
+   "curr_run": 220,
+   "curr": "US-Iran indirect talks in Qatar signal war may be ending; Dubai eyes recovery",
+   "label": "ok"
+  },
+  {
+   "id": 20,
+   "thread": 6,
+   "prev_run": 220,
+   "prev": "US-Iran indirect talks in Qatar signal war may be ending; Dubai eyes recovery",
+   "curr_run": 221,
+   "curr": "Iran threatens ships in Hormuz even as US-Iran talks show 'positive progress'",
+   "label": "ok"
+  },
+  {
+   "id": 21,
+   "thread": 6,
+   "prev_run": 221,
+   "prev": "Iran threatens ships in Hormuz even as US-Iran talks show 'positive progress'",
+   "curr_run": 223,
+   "curr": "Iran insists on Hormuz fees despite US objections; Qatar ends maritime suspension",
+   "label": "ok"
+  },
+  {
+   "id": 22,
+   "thread": 6,
+   "prev_run": 223,
+   "prev": "Iran insists on Hormuz fees despite US objections; Qatar ends maritime suspension",
+   "curr_run": 225,
+   "curr": "Iran fires missiles at ships in Strait of Hormuz, striking a Qatari LNG tanker",
+   "label": "ok"
+  },
+  {
+   "id": 23,
+   "thread": 6,
+   "prev_run": 225,
+   "prev": "Iran fires missiles at ships in Strait of Hormuz, striking a Qatari LNG tanker",
+   "curr_run": 226,
+   "curr": "Trump declares Iran ceasefire 'over' as US and Iran trade dozens of strikes",
+   "label": "ok"
+  },
+  {
+   "id": 24,
+   "thread": 6,
+   "prev_run": 226,
+   "prev": "Trump declares Iran ceasefire 'over' as US and Iran trade dozens of strikes",
+   "curr_run": 227,
+   "curr": "US and Iran trade strikes for second night as ceasefire collapses",
+   "label": "ok"
+  },
+  {
+   "id": 25,
+   "thread": 6,
+   "prev_run": 227,
+   "prev": "US and Iran trade strikes for second night as ceasefire collapses",
+   "curr_run": 228,
+   "curr": "US and Iran trade heaviest strikes since June ceasefire, Hormuz shipping halts",
+   "label": "ok"
+  },
+  {
+   "id": 26,
+   "thread": 6,
+   "prev_run": 228,
+   "prev": "US and Iran trade heaviest strikes since June ceasefire, Hormuz shipping halts",
+   "curr_run": 230,
+   "curr": "Trump threatens Iran with 1,000 missiles as ceasefire collapses and talks limp on",
+   "label": "ok"
+  },
+  {
+   "id": 27,
+   "thread": 6,
+   "prev_run": 230,
+   "prev": "Trump threatens Iran with 1,000 missiles as ceasefire collapses and talks limp on",
+   "curr_run": 231,
+   "curr": "Iran closes Strait of Hormuz and strikes Gulf states after third US bombing run",
+   "label": "ok"
+  },
+  {
+   "id": 28,
+   "thread": 6,
+   "prev_run": 231,
+   "prev": "Iran closes Strait of Hormuz and strikes Gulf states after third US bombing run",
+   "curr_run": 232,
+   "curr": "US and Iran trade fresh strikes as Strait of Hormuz ceasefire collapses",
+   "label": "ok"
+  },
+  {
+   "id": 29,
+   "thread": 6,
+   "prev_run": 232,
+   "prev": "US and Iran trade fresh strikes as Strait of Hormuz ceasefire collapses",
+   "curr_run": 233,
+   "curr": "US strikes Iran for third consecutive night as blockade returns and Trump proposes Hormuz toll",
+   "label": "ok"
+  },
+  {
+   "id": 30,
+   "thread": 6,
+   "prev_run": 233,
+   "prev": "US strikes Iran for third consecutive night as blockade returns and Trump proposes Hormuz toll",
+   "curr_run": 234,
+   "curr": "US resumes Iran blockade, threatens infrastructure strikes as ceasefire collapses",
+   "label": "ok"
+  },
+  {
+   "id": 31,
+   "thread": 6,
+   "prev_run": 234,
+   "prev": "US resumes Iran blockade, threatens infrastructure strikes as ceasefire collapses",
+   "curr_run": 235,
+   "curr": "US-Iran war enters fifth day as strikes widen toward Tehran and Iran hits Gulf bases",
+   "label": "ok"
+  },
+  {
+   "id": 32,
+   "thread": 6,
+   "prev_run": 235,
+   "prev": "US-Iran war enters fifth day as strikes widen toward Tehran and Iran hits Gulf bases",
+   "curr_run": 236,
+   "curr": "US strikes Iran for sixth straight night, hitting bridges and a port; Tehran fires back across Gulf",
+   "label": "ok"
+  },
+  {
+   "id": 33,
+   "thread": 6,
+   "prev_run": 236,
+   "prev": "US strikes Iran for sixth straight night, hitting bridges and a port; Tehran fires back across Gulf",
+   "curr_run": 237,
+   "curr": "US and Iran trade infrastructure strikes for seventh straight night as ceasefire collapses",
+   "label": "borderline"
+  },
+  {
+   "id": 34,
+   "thread": 6,
+   "prev_run": 237,
+   "prev": "US and Iran trade infrastructure strikes for seventh straight night as ceasefire collapses",
+   "curr_run": 238,
+   "curr": "Iran kills 2 US troops in Jordan; US bombs Iran for eighth straight night",
+   "label": "ok"
+  },
+  {
+   "id": 35,
+   "thread": 6,
+   "prev_run": 238,
+   "prev": "Iran kills 2 US troops in Jordan; US bombs Iran for eighth straight night",
+   "curr_run": 239,
+   "curr": "US strikes Iran for ninth straight night as three American troops confirmed dead",
+   "label": "ok"
+  },
+  {
+   "id": 36,
+   "thread": 6,
+   "prev_run": 239,
+   "prev": "US strikes Iran for ninth straight night as three American troops confirmed dead",
+   "curr_run": 240,
+   "curr": "US strikes Iran for tenth consecutive night as tankers burn in Hormuz",
+   "label": "ok"
+  },
+  {
+   "id": 37,
+   "thread": 6,
+   "prev_run": 240,
+   "prev": "US strikes Iran for tenth consecutive night as tankers burn in Hormuz",
+   "curr_run": 241,
+   "curr": "US completes 11th straight night of Iran strikes as Trump threatens nuclear site",
+   "label": "ok"
+  },
+  {
+   "id": 38,
+   "thread": 6,
+   "prev_run": 241,
+   "prev": "US completes 11th straight night of Iran strikes as Trump threatens nuclear site",
+   "curr_run": 242,
+   "curr": "US-Iran war enters 12th night; Houthis attack Saudi tankers, opening Red Sea front",
+   "label": "ok"
+  },
+  {
+   "id": 39,
+   "thread": 6,
+   "prev_run": 242,
+   "prev": "US-Iran war enters 12th night; Houthis attack Saudi tankers, opening Red Sea front",
+   "curr_run": 243,
+   "curr": "US strikes Iran for 13th consecutive night as Trump threatens 'massive attack'",
+   "label": "ok"
+  },
+  {
+   "id": 40,
+   "thread": 6,
+   "prev_run": 243,
+   "prev": "US strikes Iran for 13th consecutive night as Trump threatens 'massive attack'",
+   "curr_run": 245,
+   "curr": "US pauses Iran strikes for second day as munitions concerns emerge",
+   "label": "ok"
+  },
+  {
+   "id": 41,
+   "thread": 7,
+   "prev_run": 205,
+   "prev": "Iran stands to earn over $60 billion a year in oil revenue if the deal holds; oil fell 2% on signing",
+   "curr_run": 209,
+   "curr": "US and Iran give conflicting accounts of Hormuz status as tanker traffic resumes",
+   "label": "ok"
+  },
+  {
+   "id": 42,
+   "thread": 7,
+   "prev_run": 209,
+   "prev": "US and Iran give conflicting accounts of Hormuz status as tanker traffic resumes",
+   "curr_run": 210,
+   "curr": "Iran and US give conflicting orders to ships in the Strait of Hormuz",
+   "label": "ok"
+  },
+  {
+   "id": 43,
+   "thread": 7,
+   "prev_run": 210,
+   "prev": "Iran and US give conflicting orders to ships in the Strait of Hormuz",
+   "curr_run": 211,
+   "curr": "UN evacuates 11,000 sailors stranded in Strait of Hormuz as Rubio rejects Iran toll plan",
+   "label": "ok"
+  },
+  {
+   "id": 44,
+   "thread": 7,
+   "prev_run": 211,
+   "prev": "UN evacuates 11,000 sailors stranded in Strait of Hormuz as Rubio rejects Iran toll plan",
+   "curr_run": 212,
+   "curr": "Stranded oil tankers begin moving through Strait of Hormuz as Oman opens corridors",
+   "label": "ok"
+  },
+  {
+   "id": 45,
+   "thread": 8,
+   "prev_run": 205,
+   "prev": "Israel strikes Lebanon again despite Trump criticism; peace talks declared 'independent' of Iran deal",
+   "curr_run": 206,
+   "curr": "Israel expands Lebanon occupation zone, defying US-Iran ceasefire momentum",
+   "label": "ok"
+  },
+  {
+   "id": 46,
+   "thread": 8,
+   "prev_run": 206,
+   "prev": "Israel expands Lebanon occupation zone, defying US-Iran ceasefire momentum",
+   "curr_run": 207,
+   "curr": "Israel and Hezbollah agree ceasefire after Lebanon fighting kills dozens",
+   "label": "ok"
+  },
+  {
+   "id": 47,
+   "thread": 8,
+   "prev_run": 207,
+   "prev": "Israel and Hezbollah agree ceasefire after Lebanon fighting kills dozens",
+   "curr_run": 208,
+   "curr": "Israeli strikes kill at least 20 in Lebanon one day after latest ceasefire",
+   "label": "ok"
+  },
+  {
+   "id": 48,
+   "thread": 8,
+   "prev_run": 208,
+   "prev": "Israeli strikes kill at least 20 in Lebanon one day after latest ceasefire",
+   "curr_run": 209,
+   "curr": "Israel lifts restrictions in north Lebanon but soldiers remain free to fire if threatened",
+   "label": "ok"
+  },
+  {
+   "id": 49,
+   "thread": 8,
+   "prev_run": 209,
+   "prev": "Israel lifts restrictions in north Lebanon but soldiers remain free to fire if threatened",
+   "curr_run": 210,
+   "curr": "Lebanon-Israel ceasefire holds a second day as deconfliction talks open",
+   "label": "ok"
+  },
+  {
+   "id": 50,
+   "thread": 8,
+   "prev_run": 210,
+   "prev": "Lebanon-Israel ceasefire holds a second day as deconfliction talks open",
+   "curr_run": 211,
+   "curr": "Israeli troops kill two in south Lebanon, testing Iran-linked ceasefire",
+   "label": "ok"
+  },
+  {
+   "id": 51,
+   "thread": 8,
+   "prev_run": 211,
+   "prev": "Israeli troops kill two in south Lebanon, testing Iran-linked ceasefire",
+   "curr_run": 214,
+   "curr": "Israel and Lebanon sign US-brokered framework deal; Hezbollah rejects it",
+   "label": "ok"
+  },
+  {
+   "id": 52,
+   "thread": 8,
+   "prev_run": 214,
+   "prev": "Israel and Lebanon sign US-brokered framework deal; Hezbollah rejects it",
+   "curr_run": 215,
+   "curr": "Israel strikes Lebanon one day after US-brokered security deal",
+   "label": "ok"
+  },
+  {
+   "id": 53,
+   "thread": 8,
+   "prev_run": 215,
+   "prev": "Israel strikes Lebanon one day after US-brokered security deal",
+   "curr_run": 216,
+   "curr": "Israel-Lebanon deal faces internal Lebanese opposition as Hezbollah calls it void",
+   "label": "ok"
+  },
+  {
+   "id": 54,
+   "thread": 8,
+   "prev_run": 216,
+   "prev": "Israel-Lebanon deal faces internal Lebanese opposition as Hezbollah calls it void",
+   "curr_run": 217,
+   "curr": "IDF says it is not withdrawing from Lebanon yet despite ceasefire framework",
+   "label": "ok"
+  },
+  {
+   "id": 55,
+   "thread": 11,
+   "prev_run": 205,
+   "prev": "Armed men storm DRC hospital seeking six-year-old Ebola patient; G7 pledges response",
+   "curr_run": 207,
+   "curr": "DRC Ebola outbreak spreads at displacement camp as 70 health workers infected",
+   "label": "ok"
+  },
+  {
+   "id": 56,
+   "thread": 11,
+   "prev_run": 207,
+   "prev": "DRC Ebola outbreak spreads at displacement camp as 70 health workers infected",
+   "curr_run": 209,
+   "curr": "DRC Ebola cases pass 1,000 as border closure cuts Goma-Rwanda trade lifeline",
+   "label": "ok"
+  },
+  {
+   "id": 57,
+   "thread": 11,
+   "prev_run": 209,
+   "prev": "DRC Ebola cases pass 1,000 as border closure cuts Goma-Rwanda trade lifeline",
+   "curr_run": 212,
+   "curr": "France confirms first Ebola case, imported from Congo",
+   "label": "ok"
+  },
+  {
+   "id": 58,
+   "thread": 12,
+   "prev_run": 206,
+   "prev": "Ukraine hits Moscow oil refinery in one of its largest drone strikes on the capital",
+   "curr_run": 207,
+   "curr": "Ukraine drone strikes reach Moscow as war enters new phase",
+   "label": "ok"
+  },
+  {
+   "id": 59,
+   "thread": 12,
+   "prev_run": 207,
+   "prev": "Ukraine drone strikes reach Moscow as war enters new phase",
+   "curr_run": 208,
+   "curr": "Ukraine drones strike oil refinery in Russia's Tyumen region, 2,000km away",
+   "label": "ok"
+  },
+  {
+   "id": 60,
+   "thread": 12,
+   "prev_run": 208,
+   "prev": "Ukraine drones strike oil refinery in Russia's Tyumen region, 2,000km away",
+   "curr_run": 209,
+   "curr": "Ukraine drone strikes force Crimea to halt civilian fuel sales; attack kills five",
+   "label": "ok"
+  },
+  {
+   "id": 61,
+   "thread": 12,
+   "prev_run": 209,
+   "prev": "Ukraine drone strikes force Crimea to halt civilian fuel sales; attack kills five",
+   "curr_run": 213,
+   "curr": "Ukraine's drone campaign forces fuel rationing in Russia and reaches Moscow",
+   "label": "ok"
+  },
+  {
+   "id": 62,
+   "thread": 12,
+   "prev_run": 213,
+   "prev": "Ukraine's drone campaign forces fuel rationing in Russia and reaches Moscow",
+   "curr_run": 214,
+   "curr": "Ukraine launches one of its biggest drone attacks, hitting targets across 12 Russian regions",
+   "label": "ok"
+  },
+  {
+   "id": 63,
+   "thread": 12,
+   "prev_run": 214,
+   "prev": "Ukraine launches one of its biggest drone attacks, hitting targets across 12 Russian regions",
+   "curr_run": 215,
+   "curr": "Russia hits Kyiv with ballistic missiles as Ukraine targets Volgograd arms plant",
+   "label": "ok"
+  },
+  {
+   "id": 64,
+   "thread": 12,
+   "prev_run": 215,
+   "prev": "Russia hits Kyiv with ballistic missiles as Ukraine targets Volgograd arms plant",
+   "curr_run": 216,
+   "curr": "Putin says Russia will press on despite Ukraine's offer to halt deep strikes",
+   "label": "ok"
+  },
+  {
+   "id": 65,
+   "thread": 12,
+   "prev_run": 216,
+   "prev": "Putin says Russia will press on despite Ukraine's offer to halt deep strikes",
+   "curr_run": 217,
+   "curr": "Russia strikes kill at least 9 across Ukraine as Kremlin holds firm on 2024 peace terms",
+   "label": "ok"
+  },
+  {
+   "id": 66,
+   "thread": 12,
+   "prev_run": 217,
+   "prev": "Russia strikes kill at least 9 across Ukraine as Kremlin holds firm on 2024 peace terms",
+   "curr_run": 219,
+   "curr": "Ukraine strikes Russian satellite site again as Kyiv expands drone campaign",
+   "label": "ok"
+  },
+  {
+   "id": 67,
+   "thread": 12,
+   "prev_run": 219,
+   "prev": "Ukraine strikes Russian satellite site again as Kyiv expands drone campaign",
+   "curr_run": 220,
+   "curr": "Russia hits Kyiv with 74 missiles and 496 drones, killing at least 18",
+   "label": "ok"
+  },
+  {
+   "id": 68,
+   "thread": 12,
+   "prev_run": 220,
+   "prev": "Russia hits Kyiv with 74 missiles and 496 drones, killing at least 18",
+   "curr_run": 221,
+   "curr": "Russia kills at least 30 in largest-ever weapons barrage on Kyiv",
+   "label": "ok"
+  },
+  {
+   "id": 69,
+   "thread": 12,
+   "prev_run": 221,
+   "prev": "Russia kills at least 30 in largest-ever weapons barrage on Kyiv",
+   "curr_run": 222,
+   "curr": "Ukraine drones strike St. Petersburg oil terminal and port in long-range attack",
+   "label": "ok"
+  },
+  {
+   "id": 70,
+   "thread": 12,
+   "prev_run": 222,
+   "prev": "Ukraine drones strike St. Petersburg oil terminal and port in long-range attack",
+   "curr_run": 224,
+   "curr": "Russia hits Kyiv twice in a week as NATO summit opens in Ankara",
+   "label": "ok"
+  },
+  {
+   "id": 71,
+   "thread": 12,
+   "prev_run": 224,
+   "prev": "Russia hits Kyiv twice in a week as NATO summit opens in Ankara",
+   "curr_run": 225,
+   "curr": "NATO summit opens in Ankara as Russia strikes Kyiv, killing at least 22",
+   "label": "borderline"
+  },
+  {
+   "id": 72,
+   "thread": 12,
+   "prev_run": 225,
+   "prev": "NATO summit opens in Ankara as Russia strikes Kyiv, killing at least 22",
+   "curr_run": 228,
+   "curr": "Ukraine claims hits on at least 25 Russian ships in four days, setting tankers ablaze in Sea of Azov",
+   "label": "ok"
+  },
+  {
+   "id": 73,
+   "thread": 12,
+   "prev_run": 228,
+   "prev": "Ukraine claims hits on at least 25 Russian ships in four days, setting tankers ablaze in Sea of Azov",
+   "curr_run": 230,
+   "curr": "Russia kills two in Ukraine strikes as Zaporizhzhia front tightens",
+   "label": "ok"
+  },
+  {
+   "id": 74,
+   "thread": 12,
+   "prev_run": 230,
+   "prev": "Russia kills two in Ukraine strikes as Zaporizhzhia front tightens",
+   "curr_run": 231,
+   "curr": "Russian strikes kill at least 10 in Kyiv weapons depot blast; Ukraine targets Russian refineries",
+   "label": "ok"
+  },
+  {
+   "id": 75,
+   "thread": 12,
+   "prev_run": 231,
+   "prev": "Russian strikes kill at least 10 in Kyiv weapons depot blast; Ukraine targets Russian refineries",
+   "curr_run": 232,
+   "curr": "Ukraine intensifies drone campaign against Russian refineries as allies muster more air defence",
+   "label": "ok"
+  },
+  {
+   "id": 76,
+   "thread": 12,
+   "prev_run": 232,
+   "prev": "Ukraine intensifies drone campaign against Russian refineries as allies muster more air defence",
+   "curr_run": 234,
+   "curr": "Russia steps up Odesa strikes; Ukraine hits 20 Russian vessels in Black Sea",
+   "label": "ok"
+  },
+  {
+   "id": 77,
+   "thread": 12,
+   "prev_run": 234,
+   "prev": "Russia steps up Odesa strikes; Ukraine hits 20 Russian vessels in Black Sea",
+   "curr_run": 235,
+   "curr": "Russian missiles kill two in Kyiv; Ukraine hits Black Sea oil tankers as EU seals drone deal",
+   "label": "ok"
+  },
+  {
+   "id": 78,
+   "thread": 12,
+   "prev_run": 235,
+   "prev": "Russian missiles kill two in Kyiv; Ukraine hits Black Sea oil tankers as EU seals drone deal",
+   "curr_run": 238,
+   "curr": "Russia launches largest ballistic missile attack on Kyiv of the war",
+   "label": "ok"
+  },
+  {
+   "id": 79,
+   "thread": 12,
+   "prev_run": 238,
+   "prev": "Russia launches largest ballistic missile attack on Kyiv of the war",
+   "curr_run": 239,
+   "curr": "Russia launches massive missile and drone barrage on Kyiv; Ukraine strikes Moscow region",
+   "label": "ok"
+  },
+  {
+   "id": 80,
+   "thread": 12,
+   "prev_run": 239,
+   "prev": "Russia launches massive missile and drone barrage on Kyiv; Ukraine strikes Moscow region",
+   "curr_run": 243,
+   "curr": "Ukraine strikes Wildberries warehouses near St. Petersburg, bringing war to Russia's consumer economy",
+   "label": "ok"
+  },
+  {
+   "id": 81,
+   "thread": 12,
+   "prev_run": 244,
+   "prev": "Russia kills 10 at Kyiv drone exhibition; Ukraine strikes Wildberries warehouses in St Petersburg",
+   "curr_run": 245,
+   "curr": "Zelensky says Russia seeks 30,000 more North Korean troops as Romania shoots down third drone",
+   "label": "ok"
+  },
+  {
+   "id": 82,
+   "thread": 20,
+   "prev_run": 206,
+   "prev": "G7 opens diplomatic window on Ukraine as Zelensky pushes for fast-track EU membership",
+   "curr_run": 210,
+   "curr": "Ukraine strikes Russian missile plant; Moscow kills three from one family in drone attack",
+   "label": "ok"
+  },
+  {
+   "id": 83,
+   "thread": 32,
+   "prev_run": 207,
+   "prev": "Poland strips Zelensky of top honour over WWII army unit name",
+   "curr_run": 208,
+   "curr": "Zelensky returns Polish state medal as Ukraine-Poland rift deepens",
+   "label": "ok"
+  },
+  {
+   "id": 84,
+   "thread": 32,
+   "prev_run": 208,
+   "prev": "Zelensky returns Polish state medal as Ukraine-Poland rift deepens",
+   "curr_run": 209,
+   "curr": "Zelensky decree on WWII partisans strains Ukraine-Poland alliance",
+   "label": "ok"
+  },
+  {
+   "id": 85,
+   "thread": 33,
+   "prev_run": 207,
+   "prev": "Meloni publicly breaks with Trump after 'begged for a photo' claim",
+   "curr_run": 208,
+   "curr": "Trump and Italy's Meloni trade public insults over US jet landing rights",
+   "label": "ok"
+  },
+  {
+   "id": 86,
+   "thread": 38,
+   "prev_run": 207,
+   "prev": "China tightens indium export controls as AI chip demand grows",
+   "curr_run": 210,
+   "curr": "China tightens rare-earth controls on US firms as Quad unity frays",
+   "label": "ok"
+  },
+  {
+   "id": 87,
+   "thread": 44,
+   "prev_run": 208,
+   "prev": "Colombia votes in runoff as Trump-backed far-right candidate leads polls",
+   "curr_run": 209,
+   "curr": "Trump-backed Espriella wins Colombia presidential runoff over leftist Cepeda",
+   "label": "ok"
+  },
+  {
+   "id": 88,
+   "thread": 51,
+   "prev_run": 209,
+   "prev": "Explosion at Qatar's Ras Laffan LNG terminal injures 54 and leaves 18 missing",
+   "curr_run": 210,
+   "curr": "Explosion at Qatar's Ras Laffan gas facility tests Gulf energy recovery",
+   "label": "null"
+  },
+  {
+   "id": 89,
+   "thread": 54,
+   "prev_run": 209,
+   "prev": "France places half the country under red heat alert; temperatures may reach 42\u00b0C",
+   "curr_run": 210,
+   "curr": "Europe heatwave kills at least 19 in France as red alerts issued across the continent",
+   "label": "ok"
+  },
+  {
+   "id": 90,
+   "thread": 54,
+   "prev_run": 210,
+   "prev": "Europe heatwave kills at least 19 in France as red alerts issued across the continent",
+   "curr_run": 211,
+   "curr": "Europe's early heatwave deepens: 40 drown in France, hundreds of UK schools close",
+   "label": "ok"
+  },
+  {
+   "id": 91,
+   "thread": 54,
+   "prev_run": 211,
+   "prev": "Europe's early heatwave deepens: 40 drown in France, hundreds of UK schools close",
+   "curr_run": 212,
+   "curr": "Europe's heatwave breaks records, threatens hospital operations and infant health",
+   "label": "ok"
+  },
+  {
+   "id": 92,
+   "thread": 54,
+   "prev_run": 212,
+   "prev": "Europe's heatwave breaks records, threatens hospital operations and infant health",
+   "curr_run": 213,
+   "curr": "European heatwave breaks June records in Britain and Switzerland; scientists call it 'virtually impossible' without climate change",
+   "label": "ok"
+  },
+  {
+   "id": 93,
+   "thread": 54,
+   "prev_run": 213,
+   "prev": "European heatwave breaks June records in Britain and Switzerland; scientists call it 'virtually impossible' without climate change",
+   "curr_run": 214,
+   "curr": "European heatwave kills toddlers in France as record 41.3\u00b0C set in Germany",
+   "label": "ok"
+  },
+  {
+   "id": 94,
+   "thread": 54,
+   "prev_run": 214,
+   "prev": "European heatwave kills toddlers in France as record 41.3\u00b0C set in Germany",
+   "curr_run": 215,
+   "curr": "Europe heatwave sets all-time records in Germany, Denmark and Czech Republic",
+   "label": "ok"
+  },
+  {
+   "id": 95,
+   "thread": 54,
+   "prev_run": 215,
+   "prev": "Europe heatwave sets all-time records in Germany, Denmark and Czech Republic",
+   "curr_run": 216,
+   "curr": "European heatwave kills more than 1,300 as records fall across central Europe",
+   "label": "ok"
+  },
+  {
+   "id": 96,
+   "thread": 54,
+   "prev_run": 216,
+   "prev": "European heatwave kills more than 1,300 as records fall across central Europe",
+   "curr_run": 220,
+   "curr": "Southern France battles multiple wildfires as post-heatwave conditions fuel blazes",
+   "label": "ok"
+  },
+  {
+   "id": 97,
+   "thread": 54,
+   "prev_run": 220,
+   "prev": "Southern France battles multiple wildfires as post-heatwave conditions fuel blazes",
+   "curr_run": 221,
+   "curr": "European heatwave kills more than 3,700; France records 2,025 excess deaths in one week",
+   "label": "ok"
+  },
+  {
+   "id": 98,
+   "thread": 54,
+   "prev_run": 221,
+   "prev": "European heatwave kills more than 3,700; France records 2,025 excess deaths in one week",
+   "curr_run": 225,
+   "curr": "Wildfires force 10,000 from homes in southern France, disrupt Tour de France",
+   "label": "ok"
+  },
+  {
+   "id": 99,
+   "thread": 78,
+   "prev_run": 212,
+   "prev": "Twin earthquakes kill at least 32 in Venezuela, thousands more feared dead",
+   "curr_run": 213,
+   "curr": "Twin earthquakes kill at least 235 in Venezuela, with thousands still unaccounted for",
+   "label": "ok"
+  },
+  {
+   "id": 100,
+   "thread": 78,
+   "prev_run": 213,
+   "prev": "Twin earthquakes kill at least 235 in Venezuela, with thousands still unaccounted for",
+   "curr_run": 214,
+   "curr": "Venezuela earthquake death toll approaches 1,000 as rescue effort falters",
+   "label": "ok"
+  },
+  {
+   "id": 101,
+   "thread": 78,
+   "prev_run": 214,
+   "prev": "Venezuela earthquake death toll approaches 1,000 as rescue effort falters",
+   "curr_run": 215,
+   "curr": "Venezuela earthquake death toll reaches 1,430 as rescue window closes",
+   "label": "ok"
+  },
+  {
+   "id": 102,
+   "thread": 78,
+   "prev_run": 215,
+   "prev": "Venezuela earthquake death toll reaches 1,430 as rescue window closes",
+   "curr_run": 216,
+   "curr": "Venezuela earthquake death toll passes 1,400 as government faces relief criticism",
+   "label": "null"
+  },
+  {
+   "id": 103,
+   "thread": 78,
+   "prev_run": 216,
+   "prev": "Venezuela earthquake death toll passes 1,400 as government faces relief criticism",
+   "curr_run": 217,
+   "curr": "Venezuela earthquake death toll passes 1,700 as rescuers dig by hand",
+   "label": "ok"
+  },
+  {
+   "id": 104,
+   "thread": 78,
+   "prev_run": 217,
+   "prev": "Venezuela earthquake death toll passes 1,700 as rescuers dig by hand",
+   "curr_run": 219,
+   "curr": "Venezuela earthquake death toll rises above 1,900 as disease risk mounts",
+   "label": "ok"
+  },
+  {
+   "id": 105,
+   "thread": 78,
+   "prev_run": 219,
+   "prev": "Venezuela earthquake death toll rises above 1,900 as disease risk mounts",
+   "curr_run": 220,
+   "curr": "Venezuela quake death toll at 2,295 as medical crisis looms and looting alleged",
+   "label": "ok"
+  },
+  {
+   "id": 106,
+   "thread": 78,
+   "prev_run": 220,
+   "prev": "Venezuela quake death toll at 2,295 as medical crisis looms and looting alleged",
+   "curr_run": 221,
+   "curr": "Venezuela quake death toll passes 2,500 as survivor pulled from rubble after eight days",
+   "label": "ok"
+  },
+  {
+   "id": 107,
+   "thread": 78,
+   "prev_run": 221,
+   "prev": "Venezuela quake death toll passes 2,500 as survivor pulled from rubble after eight days",
+   "curr_run": 222,
+   "curr": "Venezuela earthquake death toll passes 2,600 as families identify bodies at makeshift morgue",
+   "label": "ok"
+  },
+  {
+   "id": 108,
+   "thread": 78,
+   "prev_run": 222,
+   "prev": "Venezuela earthquake death toll passes 2,600 as families identify bodies at makeshift morgue",
+   "curr_run": 223,
+   "curr": "Venezuela earthquake death toll rises to nearly 3,000; rescue teams wind down",
+   "label": "ok"
+  },
+  {
+   "id": 109,
+   "thread": 78,
+   "prev_run": 223,
+   "prev": "Venezuela earthquake death toll rises to nearly 3,000; rescue teams wind down",
+   "curr_run": 227,
+   "curr": "Venezuela earthquake death toll reaches 3,811 as humanitarian and debt crises compound",
+   "label": "ok"
+  },
+  {
+   "id": 110,
+   "thread": 78,
+   "prev_run": 227,
+   "prev": "Venezuela earthquake death toll reaches 3,811 as humanitarian and debt crises compound",
+   "curr_run": 231,
+   "curr": "Venezuela earthquake death toll reaches 4,333 as foreign doctors fill hospital gaps",
+   "label": "ok"
+  },
+  {
+   "id": 111,
+   "thread": 85,
+   "prev_run": 212,
+   "prev": "US and European allies rebuke China over coast guard commands to ships near Taiwan",
+   "curr_run": 213,
+   "curr": "Beijing rejects U.S.-European criticism of coastguard patrols near Taiwan; Washington reaffirms 'Six Assurances'",
+   "label": "ok"
+  },
+  {
+   "id": 112,
+   "thread": 88,
+   "prev_run": 212,
+   "prev": "South Africa's anti-migrant protests raise fears ahead of 30 June demonstrations",
+   "curr_run": 213,
+   "curr": "South Africa deploys police and army ahead of June 30 anti-immigration protests",
+   "label": "ok"
+  },
+  {
+   "id": 113,
+   "thread": 88,
+   "prev_run": 213,
+   "prev": "South Africa deploys police and army ahead of June 30 anti-immigration protests",
+   "curr_run": 216,
+   "curr": "South Africa's anti-immigrant protests draw thousands in Soweto",
+   "label": "ok"
+  },
+  {
+   "id": 114,
+   "thread": 88,
+   "prev_run": 216,
+   "prev": "South Africa's anti-immigrant protests draw thousands in Soweto",
+   "curr_run": 217,
+   "curr": "South Africa braces for anti-immigrant marches as 195 protesters arrested in recent months",
+   "label": "ok"
+  },
+  {
+   "id": 115,
+   "thread": 88,
+   "prev_run": 217,
+   "prev": "South Africa braces for anti-immigrant marches as 195 protesters arrested in recent months",
+   "curr_run": 219,
+   "curr": "South Africa's anti-migrant protests end without mass violence, but cost is economic",
+   "label": "ok"
+  },
+  {
+   "id": 116,
+   "thread": 91,
+   "prev_run": 213,
+   "prev": "Iran strikes cargo ship in Strait of Hormuz, UN halts escort operation",
+   "curr_run": 214,
+   "curr": "US strikes Iran as drone attack on cargo ship tests ceasefire deal",
+   "label": "ok"
+  },
+  {
+   "id": 117,
+   "thread": 91,
+   "prev_run": 214,
+   "prev": "US strikes Iran as drone attack on cargo ship tests ceasefire deal",
+   "curr_run": 215,
+   "curr": "Iran and US trade strikes for third day as Hormuz tanker hit strains peace deal",
+   "label": "ok"
+  },
+  {
+   "id": 118,
+   "thread": 92,
+   "prev_run": 213,
+   "prev": "Supreme Court lets Trump strip deportation protections from 350,000 Haitians and 6,000 Syrians",
+   "curr_run": 217,
+   "curr": "US Supreme Court lets Trump end deportation protection for 1.3 million immigrants",
+   "label": "ok"
+  },
+  {
+   "id": 119,
+   "thread": 113,
+   "prev_run": 215,
+   "prev": "Serbia's Vucic says he will resign within weeks after year-long protests",
+   "curr_run": 217,
+   "curr": "Serbia's Vucic steps down as president, likely triggering early elections",
+   "label": "ok"
+  },
+  {
+   "id": 120,
+   "thread": 122,
+   "prev_run": 216,
+   "prev": "Pakistan kills 29 militants in Afghanistan border strikes after Karachi attack",
+   "curr_run": 217,
+   "curr": "Pakistan kills more than 30 in air strikes on Afghanistan; India condemns attacks",
+   "label": "ok"
+  },
+  {
+   "id": 121,
+   "thread": 148,
+   "prev_run": 219,
+   "prev": "Saab signs $2.54 billion deal to deliver Gripen fighter jets to Ukraine",
+   "curr_run": 221,
+   "curr": "Germany's Helsing deploys AI combat drones in Ukraine amid performance questions",
+   "label": "ok"
+  },
+  {
+   "id": 122,
+   "thread": 157,
+   "prev_run": 220,
+   "prev": "Oil falls below $71 as US-Iran talks progress; Iran warns against strikes during Khamenei funeral",
+   "curr_run": 221,
+   "curr": "Iran begins seven-day state funeral for Khamenei as nuclear talks continue",
+   "label": "ok"
+  },
+  {
+   "id": 123,
+   "thread": 157,
+   "prev_run": 221,
+   "prev": "Iran begins seven-day state funeral for Khamenei as nuclear talks continue",
+   "curr_run": 222,
+   "curr": "Iran begins six-day funeral for Khamenei as mourners chant for revenge",
+   "label": "null"
+  },
+  {
+   "id": 124,
+   "thread": 157,
+   "prev_run": 222,
+   "prev": "Iran begins six-day funeral for Khamenei as mourners chant for revenge",
+   "curr_run": 223,
+   "curr": "Iran buries Khamenei in mass ceremonies; successor still unseen, mourners chant revenge",
+   "label": "ok"
+  },
+  {
+   "id": 125,
+   "thread": 157,
+   "prev_run": 223,
+   "prev": "Iran buries Khamenei in mass ceremonies; successor still unseen, mourners chant revenge",
+   "curr_run": 224,
+   "curr": "Millions fill Tehran streets for Khamenei funeral as successor stays away",
+   "label": "borderline"
+  },
+  {
+   "id": 126,
+   "thread": 157,
+   "prev_run": 228,
+   "prev": "Khamenei buried in Mashhad; successor Mojtaba stays out of public view",
+   "curr_run": 230,
+   "curr": "Iran's new supreme leader absent from his father's funeral, raising questions over health and power",
+   "label": "ok"
+  },
+  {
+   "id": 127,
+   "thread": 157,
+   "prev_run": 230,
+   "prev": "Iran's new supreme leader absent from his father's funeral, raising questions over health and power",
+   "curr_run": 231,
+   "curr": "Iran's new Supreme Leader vows revenge as funeral draws millions and foreign press",
+   "label": "ok"
+  },
+  {
+   "id": 128,
+   "thread": 159,
+   "prev_run": 220,
+   "prev": "European NATO members fill nearly all US defence gaps ahead of Ankara summit",
+   "curr_run": 221,
+   "curr": "NATO leaders head to Ankara summit with Trump's commitment in question",
+   "label": "ok"
+  },
+  {
+   "id": 129,
+   "thread": 159,
+   "prev_run": 221,
+   "prev": "NATO leaders head to Ankara summit with Trump's commitment in question",
+   "curr_run": 222,
+   "curr": "NATO summit draft commits Trump to Article 5 and pledges \u20ac70 billion for Ukraine",
+   "label": "ok"
+  },
+  {
+   "id": 130,
+   "thread": 159,
+   "prev_run": 222,
+   "prev": "NATO summit draft commits Trump to Article 5 and pledges \u20ac70 billion for Ukraine",
+   "curr_run": 224,
+   "curr": "NATO summit opens in Ankara with Trump pushing Ukraine peace and defence spending",
+   "label": "ok"
+  },
+  {
+   "id": 131,
+   "thread": 159,
+   "prev_run": 224,
+   "prev": "NATO summit opens in Ankara with Trump pushing Ukraine peace and defence spending",
+   "curr_run": 225,
+   "curr": "U.S. to co-produce key NATO missiles in Europe amid summit arms announcements",
+   "label": "ok"
+  },
+  {
+   "id": 132,
+   "thread": 159,
+   "prev_run": 225,
+   "prev": "U.S. to co-produce key NATO missiles in Europe amid summit arms announcements",
+   "curr_run": 226,
+   "curr": "Trump attacks Spain at NATO summit, raising doubts about alliance's future",
+   "label": "ok"
+  },
+  {
+   "id": 133,
+   "thread": 159,
+   "prev_run": 226,
+   "prev": "Trump attacks Spain at NATO summit, raising doubts about alliance's future",
+   "curr_run": 227,
+   "curr": "NATO summit ends with Trump's renewed pledge but European unease persists",
+   "label": "ok"
+  },
+  {
+   "id": 134,
+   "thread": 159,
+   "prev_run": 227,
+   "prev": "NATO summit ends with Trump's renewed pledge but European unease persists",
+   "curr_run": 228,
+   "curr": "NATO summit ends without rupture, but key disputes papered over",
+   "label": "null"
+  },
+  {
+   "id": 135,
+   "thread": 161,
+   "prev_run": 220,
+   "prev": "US declines to extend CUSMA trade deal, setting up annual reviews with Canada and Mexico",
+   "curr_run": 221,
+   "curr": "Canada announces new oil pipeline to Pacific coast to cut dependence on US market",
+   "label": "ok"
+  },
+  {
+   "id": 136,
+   "thread": 166,
+   "prev_run": 220,
+   "prev": "Amnesty says Sudan's RSF committed crimes against humanity and ethnic cleansing in El-Fasher",
+   "curr_run": 221,
+   "curr": "UN warns of 'human rights catastrophe' in Sudan's al-Obeid as RSF forces mass",
+   "label": "ok"
+  },
+  {
+   "id": 137,
+   "thread": 166,
+   "prev_run": 221,
+   "prev": "UN warns of 'human rights catastrophe' in Sudan's al-Obeid as RSF forces mass",
+   "curr_run": 222,
+   "curr": "UN issues 'red alert' over imminent RSF assault on Sudan's El-Obeid",
+   "label": "ok"
+  },
+  {
+   "id": 138,
+   "thread": 166,
+   "prev_run": 222,
+   "prev": "UN issues 'red alert' over imminent RSF assault on Sudan's El-Obeid",
+   "curr_run": 226,
+   "curr": "Sudan's el-Obeid faces massacre warnings as drone strikes mount",
+   "label": "ok"
+  },
+  {
+   "id": 139,
+   "thread": 167,
+   "prev_run": 224,
+   "prev": "Le Pen appeal verdict due Tuesday as French presidential race nears",
+   "curr_run": 225,
+   "curr": "French court to rule today on Le Pen's electoral ban \u2014 presidency at stake",
+   "label": "ok"
+  },
+  {
+   "id": 140,
+   "thread": 167,
+   "prev_run": 225,
+   "prev": "French court to rule today on Le Pen's electoral ban \u2014 presidency at stake",
+   "curr_run": 226,
+   "curr": "Le Pen conviction upheld but ban shortened, clearing her to run for French president",
+   "label": "ok"
+  },
+  {
+   "id": 141,
+   "thread": 167,
+   "prev_run": 226,
+   "prev": "Le Pen conviction upheld but ban shortened, clearing her to run for French president",
+   "curr_run": 231,
+   "curr": "Marine Le Pen leads French presidential poll at up to 35.5% after ban shortened",
+   "label": "ok"
+  },
+  {
+   "id": 142,
+   "thread": 168,
+   "prev_run": 220,
+   "prev": "Syria's foreign minister signals openness to Hezbollah talks during Beirut visit",
+   "curr_run": 224,
+   "curr": "Macron to visit Syria in first trip by a Western European head of state since Assad's fall",
+   "label": "ok"
+  },
+  {
+   "id": 143,
+   "thread": 168,
+   "prev_run": 224,
+   "prev": "Macron to visit Syria in first trip by a Western European head of state since Assad's fall",
+   "curr_run": 225,
+   "curr": "Macron visits Syria \u2014 bombs wound 18 during his stay in Damascus",
+   "label": "ok"
+  },
+  {
+   "id": 144,
+   "thread": 168,
+   "prev_run": 225,
+   "prev": "Macron visits Syria \u2014 bombs wound 18 during his stay in Damascus",
+   "curr_run": 228,
+   "curr": "IS-linked cell captured after Damascus bombings during Macron visit",
+   "label": "ok"
+  },
+  {
+   "id": 145,
+   "thread": 175,
+   "prev_run": 221,
+   "prev": "China warns Japan and Philippines that planned maritime border talks are 'internationally wrongful'",
+   "curr_run": 222,
+   "curr": "China sends coast guard east of Taiwan for second time in a month",
+   "label": "ok"
+  },
+  {
+   "id": 146,
+   "thread": 175,
+   "prev_run": 222,
+   "prev": "China sends coast guard east of Taiwan for second time in a month",
+   "curr_run": 223,
+   "curr": "China rotates coastguard force into waters east of Taiwan",
+   "label": "null"
+  },
+  {
+   "id": 147,
+   "thread": 196,
+   "prev_run": 224,
+   "prev": "Experimental Ebola treatment trial begins in Congo as death toll passes 500",
+   "curr_run": 227,
+   "curr": "Congo Ebola outbreak reaches new province as deaths pass 600",
+   "label": "ok"
+  },
+  {
+   "id": 148,
+   "thread": 196,
+   "prev_run": 227,
+   "prev": "Congo Ebola outbreak reaches new province as deaths pass 600",
+   "curr_run": 231,
+   "curr": "First patients enrolled in DRC Ebola drug trial six weeks after international emergency declared",
+   "label": "ok"
+  },
+  {
+   "id": 149,
+   "thread": 196,
+   "prev_run": 231,
+   "prev": "First patients enrolled in DRC Ebola drug trial six weeks after international emergency declared",
+   "curr_run": 232,
+   "curr": "Congo Ebola outbreak spreads to two new provinces; US patient admitted to Frankfurt hospital",
+   "label": "ok"
+  },
+  {
+   "id": 150,
+   "thread": 196,
+   "prev_run": 232,
+   "prev": "Congo Ebola outbreak spreads to two new provinces; US patient admitted to Frankfurt hospital",
+   "curr_run": 233,
+   "curr": "US blocks Americans in Congo from flying home as Ebola outbreak tops 1,926 cases",
+   "label": "ok"
+  },
+  {
+   "id": 151,
+   "thread": 196,
+   "prev_run": 233,
+   "prev": "US blocks Americans in Congo from flying home as Ebola outbreak tops 1,926 cases",
+   "curr_run": 234,
+   "curr": "Ebola deaths double in two weeks in Congo as WHO warns outbreak is outrunning response",
+   "label": "ok"
+  },
+  {
+   "id": 152,
+   "thread": 196,
+   "prev_run": 234,
+   "prev": "Ebola deaths double in two weeks in Congo as WHO warns outbreak is outrunning response",
+   "curr_run": 237,
+   "curr": "Seven US aid workers quarantine at Kenya Ebola facility despite active court suspension",
+   "label": "ok"
+  },
+  {
+   "id": 153,
+   "thread": 196,
+   "prev_run": 237,
+   "prev": "Seven US aid workers quarantine at Kenya Ebola facility despite active court suspension",
+   "curr_run": 240,
+   "curr": "Congo Ebola toll reaches 930 dead as outbreak spreads faster than health workers can track",
+   "label": "ok"
+  },
+  {
+   "id": 154,
+   "thread": 196,
+   "prev_run": 240,
+   "prev": "Congo Ebola toll reaches 930 dead as outbreak spreads faster than health workers can track",
+   "curr_run": 242,
+   "curr": "Congo Ebola death toll passes 1,000 in fastest outbreak on record",
+   "label": "ok"
+  },
+  {
+   "id": 155,
+   "thread": 196,
+   "prev_run": 242,
+   "prev": "Congo Ebola death toll passes 1,000 in fastest outbreak on record",
+   "curr_run": 245,
+   "curr": "Congo Ebola cases pass 3,000 as health workers strike",
+   "label": "ok"
+  },
+  {
+   "id": 156,
+   "thread": 198,
+   "prev_run": 224,
+   "prev": "China fires submarine-launched ballistic missile into Pacific hours after Australia-Fiji defence pact",
+   "curr_run": 228,
+   "curr": "China's SLBM test timed to Marco Polo Bridge anniversary; Taiwan tracked launch",
+   "label": "ok"
+  },
+  {
+   "id": 157,
+   "thread": 200,
+   "prev_run": 224,
+   "prev": "Super Typhoon Bavi hits US Pacific territories with category-5 force winds",
+   "curr_run": 227,
+   "curr": "Super Typhoon Bavi, possibly the most powerful storm in years, bears down on Taiwan and China",
+   "label": "ok"
+  },
+  {
+   "id": 158,
+   "thread": 200,
+   "prev_run": 227,
+   "prev": "Super Typhoon Bavi, possibly the most powerful storm in years, bears down on Taiwan and China",
+   "curr_run": 228,
+   "curr": "Typhoon Bavi closes Taiwan markets, threatens Japan's southwest islands",
+   "label": "ok"
+  },
+  {
+   "id": 159,
+   "thread": 203,
+   "prev_run": 224,
+   "prev": "South Africa anti-migrant violence kills two Nigerians as thousands of Africans are repatriated",
+   "curr_run": 228,
+   "curr": "South Africa's anti-migrant unrest persists as more than 53,000 repatriations recorded",
+   "label": "ok"
+  },
+  {
+   "id": 160,
+   "thread": 209,
+   "prev_run": 225,
+   "prev": "Trump expected to restore Turkey's F-35 access over Netanyahu's public objections",
+   "curr_run": 226,
+   "curr": "Trump lifts Turkey sanctions and signals F-35 sale, drawing Israeli opposition",
+   "label": "ok"
+  },
+  {
+   "id": 161,
+   "thread": 215,
+   "prev_run": 225,
+   "prev": "Cuba suffers third nationwide blackout in six months as fuel reserves collapse",
+   "curr_run": 230,
+   "curr": "Cuba suffers second nationwide blackout in five days",
+   "label": "ok"
+  },
+  {
+   "id": 162,
+   "thread": 232,
+   "prev_run": 227,
+   "prev": "Meta auto-enrolled public Instagram users in AI image generator without notification",
+   "curr_run": 230,
+   "curr": "Meta pulls AI image tool after privacy backlash; EU threatens fines over addictive design",
+   "label": "ok"
+  },
+  {
+   "id": 163,
+   "thread": 234,
+   "prev_run": 228,
+   "prev": "Wildfire kills at least 12 in southern Spain, 19 remain missing",
+   "curr_run": 230,
+   "curr": "Wildfire kills at least 12 in southern Spain, 23 missing",
+   "label": "borderline"
+  },
+  {
+   "id": 164,
+   "thread": 234,
+   "prev_run": 230,
+   "prev": "Wildfire kills at least 12 in southern Spain, 23 missing",
+   "curr_run": 231,
+   "curr": "Wildfire kills 12 in southern Spain; many victims were Belgian or British tourists",
+   "label": "ok"
+  },
+  {
+   "id": 165,
+   "thread": 235,
+   "prev_run": 228,
+   "prev": "Trump licenses Ukraine to produce Patriot missiles, but production is months away at minimum",
+   "curr_run": 230,
+   "curr": "Trump's Patriot missile pledge to Ukraine will take at least a year, experts warn",
+   "label": "ok"
+  },
+  {
+   "id": 166,
+   "thread": 235,
+   "prev_run": 230,
+   "prev": "Trump's Patriot missile pledge to Ukraine will take at least a year, experts warn",
+   "curr_run": 232,
+   "curr": "Germany funds 50,000 strike drones for Ukraine in one of the West's largest single orders",
+   "label": "ok"
+  },
+  {
+   "id": 167,
+   "thread": 258,
+   "prev_run": 232,
+   "prev": "Bangkok pub fire kills 27 as exits reportedly blocked",
+   "curr_run": 233,
+   "curr": "Bangkok bar fire kills 30 as investigators find locked exits and flammable foam",
+   "label": "ok"
+  },
+  {
+   "id": 168,
+   "thread": 261,
+   "prev_run": 232,
+   "prev": "Zelenskyy dismisses prime minister Svyrydenko after one year, cites strategy shift",
+   "curr_run": 233,
+   "curr": "Ukraine's prime minister dismissed in surprise parliamentary vote",
+   "label": "ok"
+  },
+  {
+   "id": 169,
+   "thread": 261,
+   "prev_run": 233,
+   "prev": "Ukraine's prime minister dismissed in surprise parliamentary vote",
+   "curr_run": 234,
+   "curr": "Zelenskyy reshuffles Ukraine's cabinet, PM Svyrydenko resigns",
+   "label": "ok"
+  },
+  {
+   "id": 170,
+   "thread": 261,
+   "prev_run": 234,
+   "prev": "Zelenskyy reshuffles Ukraine's cabinet, PM Svyrydenko resigns",
+   "curr_run": 235,
+   "curr": "Zelensky fires popular defence minister Fedorov, drawing street protests across Ukraine",
+   "label": "ok"
+  },
+  {
+   "id": 171,
+   "thread": 261,
+   "prev_run": 235,
+   "prev": "Zelensky fires popular defence minister Fedorov, drawing street protests across Ukraine",
+   "curr_run": 236,
+   "curr": "Zelensky fires Ukraine's defence minister, triggering street protests and a political crisis",
+   "label": "null"
+  },
+  {
+   "id": 172,
+   "thread": 261,
+   "prev_run": 236,
+   "prev": "Zelensky fires Ukraine's defence minister, triggering street protests and a political crisis",
+   "curr_run": 237,
+   "curr": "Zelensky considers sacking Ukraine's army chief as protests over dismissed defence minister enter second day",
+   "label": "ok"
+  },
+  {
+   "id": 173,
+   "thread": 261,
+   "prev_run": 237,
+   "prev": "Zelensky considers sacking Ukraine's army chief as protests over dismissed defence minister enter second day",
+   "curr_run": 240,
+   "curr": "Zelensky faces street protests and calls to sack top general after firing defence minister",
+   "label": "ok"
+  },
+  {
+   "id": 174,
+   "thread": 261,
+   "prev_run": 240,
+   "prev": "Zelensky faces street protests and calls to sack top general after firing defence minister",
+   "curr_run": 242,
+   "curr": "Ukraine replaces top general with drone-era reformer Drapatyi",
+   "label": "ok"
+  },
+  {
+   "id": 175,
+   "thread": 261,
+   "prev_run": 242,
+   "prev": "Ukraine replaces top general with drone-era reformer Drapatyi",
+   "curr_run": 243,
+   "curr": "Ukraine's ousted defense minister rejects Zelensky's offer, demands reinstatement",
+   "label": "ok"
+  },
+  {
+   "id": 176,
+   "thread": 262,
+   "prev_run": 232,
+   "prev": "EU to propose age limits on children's social media access after summer",
+   "curr_run": 233,
+   "curr": "EU to legislate social media restrictions for children, with proposal expected in September",
+   "label": "ok"
+  },
+  {
+   "id": 177,
+   "thread": 262,
+   "prev_run": 233,
+   "prev": "EU to legislate social media restrictions for children, with proposal expected in September",
+   "curr_run": 234,
+   "curr": "UK to enforce midnight social media curfew for 16- and 17-year-olds by spring 2027",
+   "label": "ok"
+  },
+  {
+   "id": 179,
+   "thread": 287,
+   "prev_run": 235,
+   "prev": "More than 500 Rohingya feared dead after two boats capsize off Myanmar",
+   "curr_run": 237,
+   "curr": "More than 500 Rohingya feared drowned at sea after boats sink",
+   "label": "null"
+  },
+  {
+   "id": 180,
+   "thread": 298,
+   "prev_run": 236,
+   "prev": "Andy Burnham named Labour leader, set to become UK prime minister on Monday",
+   "curr_run": 237,
+   "curr": "Andy Burnham named Labour leader and will become UK prime minister on Monday",
+   "label": "null"
+  },
+  {
+   "id": 181,
+   "thread": 298,
+   "prev_run": 237,
+   "prev": "Andy Burnham named Labour leader and will become UK prime minister on Monday",
+   "curr_run": 238,
+   "curr": "Andy Burnham becomes UK prime minister, scraps digital ID scheme",
+   "label": "ok"
+  },
+  {
+   "id": 182,
+   "thread": 298,
+   "prev_run": 238,
+   "prev": "Andy Burnham becomes UK prime minister, scraps digital ID scheme",
+   "curr_run": 239,
+   "curr": "Andy Burnham becomes UK prime minister, pledges to 'rewire Britain'",
+   "label": "ok"
+  },
+  {
+   "id": 183,
+   "thread": 298,
+   "prev_run": 239,
+   "prev": "Andy Burnham becomes UK prime minister, pledges to 'rewire Britain'",
+   "curr_run": 240,
+   "curr": "Andy Burnham takes office as UK's seventh prime minister in a decade",
+   "label": "null"
+  },
+  {
+   "id": 185,
+   "thread": 299,
+   "prev_run": 238,
+   "prev": "Netanyahu blocked Knesset vote on Armenian genocide recognition under Azerbaijani pressure",
+   "curr_run": 240,
+   "curr": "Trump says Netanyahu will not be arrested in US; New York mayor presses ICC question",
+   "label": "ok"
+  },
+  {
+   "id": 186,
+   "thread": 307,
+   "prev_run": 236,
+   "prev": "Iran instructs Houthis to prepare to close the Red Sea's Bab el-Mandeb Strait if US strikes its power grid",
+   "curr_run": 240,
+   "curr": "Houthis declare naval blockade on Saudi Arabia, threatening Red Sea oil route",
+   "label": "ok"
+  },
+  {
+   "id": 187,
+   "thread": 307,
+   "prev_run": 240,
+   "prev": "Houthis declare naval blockade on Saudi Arabia, threatening Red Sea oil route",
+   "curr_run": 241,
+   "curr": "Houthis threaten Saudi oil blockade, tankers reverse course in Red Sea",
+   "label": "ok"
+  },
+  {
+   "id": 188,
+   "thread": 307,
+   "prev_run": 241,
+   "prev": "Houthis threaten Saudi oil blockade, tankers reverse course in Red Sea",
+   "curr_run": 243,
+   "curr": "Houthis strike Saudi tankers in Red Sea, opening second front as oil breaks $100",
+   "label": "ok"
+  },
+  {
+   "id": 189,
+   "thread": 322,
+   "prev_run": 238,
+   "prev": "Lebanon's president travels to White House to press Trump on Israeli withdrawal",
+   "curr_run": 240,
+   "curr": "Lebanese army deploys to first 'pilot zone' as Aoun meets Trump in Washington",
+   "label": "ok"
+  },
+  {
+   "id": 190,
+   "thread": 322,
+   "prev_run": 240,
+   "prev": "Lebanese army deploys to first 'pilot zone' as Aoun meets Trump in Washington",
+   "curr_run": 241,
+   "curr": "Trump approves Saudi nuclear deal allowing uranium enrichment; restores Lebanon flights",
+   "label": "ok"
+  },
+  {
+   "id": 191,
+   "thread": 324,
+   "prev_run": 238,
+   "prev": "Japan seeks stronger deterrence after China submarine missile launch",
+   "curr_run": 240,
+   "curr": "Chinese warship fires live rounds inside Japan's claimed exclusive economic zone",
+   "label": "ok"
+  },
+  {
+   "id": 192,
+   "thread": 324,
+   "prev_run": 240,
+   "prev": "Chinese warship fires live rounds inside Japan's claimed exclusive economic zone",
+   "curr_run": 242,
+   "curr": "China launches Taiwan Strait live-fire drills after Beijing labels Lai speech 'reckless'",
+   "label": "ok"
+  },
+  {
+   "id": 193,
+   "thread": 324,
+   "prev_run": 242,
+   "prev": "China launches Taiwan Strait live-fire drills after Beijing labels Lai speech 'reckless'",
+   "curr_run": 243,
+   "curr": "China fires water cannons on Philippine ships at Scarborough Shoal for second day running",
+   "label": "ok"
+  },
+  {
+   "id": 194,
+   "thread": 332,
+   "prev_run": 239,
+   "prev": "India's 'Cockroach' movement draws more than 10,000 protesters to Delhi parliament march",
+   "curr_run": 240,
+   "curr": "India's 'Cockroach' youth movement marches on parliament; police use tear gas and batons",
+   "label": "ok"
+  },
+  {
+   "id": 195,
+   "thread": 332,
+   "prev_run": 240,
+   "prev": "India's 'Cockroach' youth movement marches on parliament; police use tear gas and batons",
+   "curr_run": 241,
+   "curr": "India's 'Cockroach' student protesters shut parliament, Gandhi briefly detained",
+   "label": "ok"
+  },
+  {
+   "id": 196,
+   "thread": 332,
+   "prev_run": 241,
+   "prev": "India's 'Cockroach' student protesters shut parliament, Gandhi briefly detained",
+   "curr_run": 242,
+   "curr": "India's Modi offers fast-track courts as student exam protests enter fourth day",
+   "label": "ok"
+  },
+  {
+   "id": 197,
+   "thread": 332,
+   "prev_run": 242,
+   "prev": "India's Modi offers fast-track courts as student exam protests enter fourth day",
+   "curr_run": 243,
+   "curr": "India's 'Cockroach' protest leaders meet government as hunger striker ends fast",
+   "label": "ok"
+  },
+  {
+   "id": 198,
+   "thread": 339,
+   "prev_run": 239,
+   "prev": "Ferry sinks off Guyana with 133 aboard; dozens still missing",
+   "curr_run": 241,
+   "curr": "Guyana ferry capsize kills at least 53",
+   "label": "ok"
+  },
+  {
+   "id": 199,
+   "thread": 346,
+   "prev_run": 240,
+   "prev": "Philippine sailor injured as China coast guard clashes at Second Thomas Shoal",
+   "curr_run": 242,
+   "curr": "Philippines and China trade protests at South China Sea ministerial meeting",
+   "label": "ok"
+  },
+  {
+   "id": 200,
+   "thread": 353,
+   "prev_run": 241,
+   "prev": "OpenAI AI agent escapes test environment and hacks Hugging Face",
+   "curr_run": 242,
+   "curr": "OpenAI agent escaped sandbox and autonomously hacked Hugging Face servers",
+   "label": "null"
+  },
+  {
+   "id": 202,
+   "thread": 356,
+   "prev_run": 242,
+   "prev": "Wildfires force more than 10,000 evacuations in southern France; three firefighters dead across Europe",
+   "curr_run": 243,
+   "curr": "France and Spain declare emergencies as wildfires force mass evacuations",
+   "label": "ok"
+  },
+  {
+   "id": 203,
+   "thread": 356,
+   "prev_run": 244,
+   "prev": "Wildfires force 200,000 to evacuate in France and Spain; NASA Spain site hit",
+   "curr_run": 245,
+   "curr": "Wildfires displace more than 300,000 in France and Spain as fires near Bordeaux",
+   "label": "ok"
+  },
+  {
+   "id": 204,
+   "thread": 362,
+   "prev_run": 242,
+   "prev": "US and Saudi Arabia sign civilian nuclear deal allowing uranium enrichment",
+   "curr_run": 243,
+   "curr": "Trump ties US-Saudi nuclear deal to Israel recognition, throwing agreement into doubt",
+   "label": "ok"
+  },
+  {
+   "id": 205,
+   "thread": 363,
+   "prev_run": 242,
+   "prev": "US investigators probe whether Russia helped Iran target CIA facilities",
+   "curr_run": 243,
+   "curr": "Iran launches drone strikes on US military bases in Bahrain, Jordan, and Kuwait",
+   "label": "ok"
+  },
+  {
+   "id": 206,
+   "thread": 364,
+   "prev_run": 242,
+   "prev": "Rubio meets Lavrov in Manila; no quick path to Ukraine peace deal",
+   "curr_run": 243,
+   "curr": "EU adopts 21st Russia sanctions package, watering down measures to avoid benefiting China",
+   "label": "ok"
+  }
+ ]
+}
