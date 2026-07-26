@@ -75,6 +75,13 @@ COPY --chown=appuser:appuser newsroom/templates/ ./templates/
 COPY --chown=appuser:appuser design/ ./design/
 COPY --chown=appuser:appuser migrations/ ./migrations/
 COPY --chown=appuser:appuser bin/ ./bin/
+# bin/analytics reads these .sql files at runtime, so shipping the script without
+# them puts a broken tool on the server. Worth carrying (60K, stdlib-only, opens the
+# DB read-only and writes only to stdout) because the production database lives in a
+# Docker volume and the host has no sqlite3 binary -- this image is the only way to
+# query it in place. The alternative, bin/db-clone, raw-cats 117MB over SSH and can
+# truncate, and a clone is point-in-time when the live DB is what you need.
+COPY --chown=appuser:appuser analytics/ ./analytics/
 COPY --chown=appuser:appuser .claude/agents/ /app/.claude/agents/
 COPY --chmod=755 newsroom/entrypoint.sh /app/entrypoint.sh
 
