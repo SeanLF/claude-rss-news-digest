@@ -1,0 +1,19 @@
+#!/bin/bash
+# Replay a past run through the real WRITE stage under two arms, N reps each.
+# Arm A = archived inputs as production runs them today; arm B = A plus the
+# linker-matched threads' whats_new facts, injected as thread_deltas.txt.
+#
+# Reports the WITHIN-ARM SPREAD first: on run 237 the control alone ranged
+# 0.375-0.810 on identical inputs, which is wider than any effect claimed on that
+# endpoint. Read the noise floor before the comparison.
+#
+# Makes REAL model calls on the subscription -- opt-in, never in CI.
+# Usage: bin/eval-write-arms [--run 237] [--prior-run 236] [--story burnham] [--reps 4]
+set -euo pipefail
+cd "$(dirname "${BASH_SOURCE[0]}")/.."
+exec docker compose run --rm \
+  -v "$(pwd)/newsroom/src:/app/src" \
+  -v "$(pwd)/.claude/agents:/app/.claude/agents" \
+  -e PYTHONPATH=/app/src \
+  --entrypoint /app/.venv/bin/python3 \
+  digest-newsroom /app/src/eval_write_arms.py "$@"

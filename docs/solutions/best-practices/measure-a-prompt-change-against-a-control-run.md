@@ -85,3 +85,39 @@ So the diagnosis from
 and wasn't delivered — but the wrong payload got transported. Delivering the right one
 needs the ordering change that was deferred as unjustified. **Being right about the
 mechanism does not make you right about the fix.**
+
+## Update, same day: one run per arm is still not a measurement
+
+The section above ends by proposing the ordering change. It was then tested, with
+4 reps per arm instead of 1, using `bin/eval-write-arms`. Both conclusions above
+need revising.
+
+**The noise floor is wider than every effect ever claimed on this endpoint.** The
+control alone, on byte-identical inputs:
+
+| arm | values (vs the prior headline) | mean | near-dup ≥0.75 | led with a new development |
+|---|---|---|---|---|
+| A control | 0.375, 0.810, 0.495, 0.810 | 0.623 | 2/4 | 1/4 |
+| B + delta | 0.333, 0.558, 0.225, 0.869 | 0.496 | 1/4 | 3/4 |
+
+Fisher exact: near-dup p=1.0, led-with-new p≈0.49. **No significant effect.** A
+single control run lands anywhere in 0.375–0.810, so the three-arm design above —
+history, one control, one treatment — is still underpowered. The fix is reps of the
+*same* configuration, and the spread is the number to read first.
+
+**And the proposed fix targets a cause that is not there.** Run 237's shipped
+*summary* already contained the winning fact — "faces immediate decisions on Iran —
+the US has asked to use British military bases for strikes" — while its headline
+did not. WRITE had the fact and buried it. That is a prioritisation failure, so
+making thread state available earlier cannot fix it. The ordering refactor was
+dropped on this evidence.
+
+**Cost note that generalises.** Resolving a 50%→25% difference in near-dup rate at
+conventional power needs ~58 reps per arm — roughly $80, for one story on one run,
+generalising to neither. Prompt-level A/B on headline similarity is not affordable
+here. Prefer a deterministic check with a citable trigger over another prompt arm.
+
+**Do not reach for a fixed similarity threshold either.** The same headline pair
+scores 0.869 against a prior-week IDF corpus and 0.661 against an all-time one, and
+at 0.75 the rule caught only 2 of the 4 bad headlines in this experiment. Full
+record: `docs/2026-07-26-write-delta-poc-findings.md`.
