@@ -427,7 +427,11 @@ async def run_stage(
 
         row = usage_row_from_sdk(label, model, result.usage, result.total_cost_usd, duration_ms=result.duration_ms)
         duration = result.duration_ms / 1000
-        logger.info("[%s complete] %.1fs $%.4f", label.capitalize(), duration, row["api_cost_usd"])
+        # Basenames only -- every path shares the same container prefix, which is noise
+        # on every line. "NOTHING" rather than a bare "read=" so the case worth catching
+        # (a stage that wrote valid output without opening its input) reads as a claim.
+        read = ", ".join(Path(p).name for p in result.files_read) or "NOTHING"
+        logger.info("[%s complete] %.1fs $%.4f read=%s", label.capitalize(), duration, row["api_cost_usd"], read)
         return row
 
     # Unreachable: the loop either returns or raises on attempt 2.

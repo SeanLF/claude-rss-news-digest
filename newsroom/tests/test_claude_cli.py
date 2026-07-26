@@ -30,7 +30,9 @@ from claude_agent_sdk import (
     ResultMessage,
     StreamEvent,
     TextBlock,
+    ToolResultBlock,
     ToolUseBlock,
+    UserMessage,
 )
 
 
@@ -73,6 +75,31 @@ def _fake_query(messages):
             yield m
 
     return _gen
+
+
+def _assistant(*blocks):
+    """Build an SDK AssistantMessage carrying the given content blocks."""
+    return AssistantMessage(content=list(blocks), model="m", parent_tool_use_id=None)
+
+
+def _read_tool_use(path):
+    """Build the ToolUseBlock the SDK emits when an agent opens ``path`` with Read."""
+    return ToolUseBlock(id=f"tu_{path}", name="Read", input={"file_path": path})
+
+
+def _read_result(path, *, is_error=False):
+    """Build the UserMessage carrying the tool_result the SDK sends back for a Read.
+
+    A ToolUseBlock is only the model ASKING to open a file; this is the answer. An
+    agent told to read a file "if it exists" produces a tool_use plus an ERROR
+    result when it does not -- so the pair, not the request, is what proves a read.
+    """
+    return UserMessage(content=[ToolResultBlock(tool_use_id=f"tu_{path}", content="data", is_error=is_error)])
+
+
+def _read_ok(path):
+    """The two SDK messages of one successful Read: the request and its result."""
+    return [_assistant(_read_tool_use(path)), _read_result(path)]
 
 
 def _run_agent(*a, **k):
@@ -185,6 +212,100 @@ class TestRunAgent:
         monkeypatch.setattr(claude_cli, "query", _fake_query(msgs))
         with pytest.raises(RuntimeError, match="no result"):
             _run_agent("Begin.", model="sonnet")
+
+
+# ---------------------------------------------------------------------------
+# files_read: which input files a stage actually opened
+#
+# Every stage is handed input files it is *expected* to read, but nothing proved
+# it did. The measured-null WRITE experiment (2026-07-26) could not distinguish
+# "WRITE read recent_digest_headlines.txt and ignored it" from "WRITE never
+# opened it" -- the Read tool calls that would settle it were discarded with
+# every other non-text block.
+# ---------------------------------------------------------------------------
+
+
+class TestFilesRead:
+    def test_captures_file_path_from_read_tool_use(self, monkeypatch):
+        messages = [*_read_ok("/w/recent_digest_headlines.txt"), _result(subtype="success", result="done")]
+        monkeypatch.setattr(claude_cli, "query", _fake_query(messages))
+
+        res = _run_agent("Begin.", model="sonnet")
+
+        assert res.files_read == ("/w/recent_digest_headlines.txt",)
+
+    def test_read_that_failed_is_not_reported_as_read(self, monkeypatch):
+        # THE case this field exists for. prepare.py writes
+        # recent_digest_headlines.txt only `if recent_headlines:`, and write.md
+        # tells WRITE to open it "if it exists -- skip if not found". So on any run
+        # with no rows in the window, WRITE issues the Read and the tool ERRORS.
+        # Counting the request would print read=recent_digest_headlines.txt for a
+        # file that was never there -- answering "did WRITE read it?" with a
+        # confident yes, which is the exact opposite of the truth.
+        messages = [
+            _assistant(_read_tool_use("/w/recent_digest_headlines.txt")),
+            _read_result("/w/recent_digest_headlines.txt", is_error=True),
+            _result(subtype="success", result="done"),
+        ]
+        monkeypatch.setattr(claude_cli, "query", _fake_query(messages))
+
+        res = _run_agent("Begin.", model="sonnet")
+
+        assert res.files_read == ()
+
+    def test_write_tool_use_is_not_counted_as_a_read(self, monkeypatch):
+        # Every curation stage WRITES its output file. Counting that as a read
+        # would make files_read report success for a stage that opened nothing.
+        messages = [
+            _assistant(
+                ToolUseBlock(id="tu_w", name="Write", input={"file_path": "/w/draft_selections.json"}),
+                _read_tool_use("/w/selected.json"),
+            ),
+            UserMessage(content=[ToolResultBlock(tool_use_id="tu_w", content="ok")]),
+            _read_result("/w/selected.json"),
+            _result(subtype="success", result="done"),
+        ]
+        monkeypatch.setattr(claude_cli, "query", _fake_query(messages))
+
+        res = _run_agent("Begin.", model="sonnet")
+
+        assert res.files_read == ("/w/selected.json",)
+
+    def test_malformed_non_string_file_path_is_dropped(self, monkeypatch):
+        # ToolUseBlock.input is dict[str, Any] -- nothing constrains file_path to a
+        # string, and a malformed tool call still streams before the CLI rejects it.
+        # A non-str must never reach files_read: run_stage feeds every entry to
+        # Path() in its completion log, OUTSIDE the try/except that guards the
+        # stage, so one bad value would kill the run AFTER the stage succeeded and
+        # paid for itself. Instrumentation must not be able to break the job.
+        bad = ToolUseBlock(id="tu_bad", name="Read", input={"file_path": ["/w/a.csv", "/w/b.csv"]})
+        messages = [
+            _assistant(bad),
+            UserMessage(content=[ToolResultBlock(tool_use_id="tu_bad", content="data")]),
+            _result(subtype="success", result="done"),
+        ]
+        monkeypatch.setattr(claude_cli, "query", _fake_query(messages))
+
+        res = _run_agent("Begin.", model="sonnet")
+
+        assert res.files_read == ()
+
+    def test_repeated_reads_of_one_file_collapse_to_one_entry(self, monkeypatch):
+        # Agents re-read a file across turns (paging a long input, re-checking a
+        # value). The question this answers is "which files did it open", so a
+        # re-read is not new information -- and a run that paged one file 40 times
+        # would otherwise bury every other entry.
+        messages = [
+            *_read_ok("/w/article_index.json"),
+            *_read_ok("/w/article_index.json"),
+            *_read_ok("/w/clusters.json"),
+            _result(subtype="success", result="done"),
+        ]
+        monkeypatch.setattr(claude_cli, "query", _fake_query(messages))
+
+        res = _run_agent("Begin.", model="sonnet")
+
+        assert res.files_read == ("/w/article_index.json", "/w/clusters.json")
 
 
 # ---------------------------------------------------------------------------

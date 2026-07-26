@@ -39,6 +39,9 @@ from claude_agent_sdk import (
     ResultMessage,
     TextBlock,
     ThinkingConfig,
+    ToolResultBlock,
+    ToolUseBlock,
+    UserMessage,
     query,
 )
 from config import DEFAULT_MODEL
@@ -67,6 +70,12 @@ class StageResult:
     # a retryable, status-bearing error. Default to the clean-success shape.
     is_error: bool = False
     api_error_status: int | None = None
+    # Paths the agent actually opened with the Read tool, first-seen order. Every
+    # stage is HANDED input files; nothing proved it read them. Without this,
+    # "read it and ignored it" and "never opened it" are indistinguishable from
+    # the outside -- which is exactly the ambiguity that sat under the measured-null
+    # WRITE experiment. Empty is honest for stages that read nothing.
+    files_read: tuple[str, ...] = ()
 
     @property
     def ok(self) -> bool:
@@ -222,6 +231,9 @@ async def run_agent(
         effort=effort,
     )
     text_parts: list[str] = []
+    files_read: list[str] = []
+    # tool_use_id -> path, for Reads awaiting their result.
+    pending_reads: dict[str, str] = {}
     result: ResultMessage | None = None
     agen = query(prompt=prompt, options=options).__aiter__()
     try:
@@ -233,13 +245,36 @@ async def run_agent(
             except TimeoutError as e:
                 raise RuntimeError(f"SDK idle timeout: no event in {idle_timeout}s") from e
             if isinstance(message, AssistantMessage):
-                # Collect assistant text as the fallback for ResultMessage.result.
-                text_parts.extend(b.text for b in message.content if isinstance(b, TextBlock))
+                for block in message.content:
+                    if isinstance(block, TextBlock):
+                        # Collect assistant text as the fallback for ResultMessage.result.
+                        text_parts.append(block.text)
+                    elif isinstance(block, ToolUseBlock) and block.name == "Read":
+                        # Only the model ASKING to open a file. Held until its result
+                        # arrives below -- see files_read. isinstance guards a malformed
+                        # tool call: input is dict[str, Any], and a non-str path would
+                        # later blow up Path() in the caller's log line, killing a run
+                        # that had already succeeded and paid for itself.
+                        path = (block.input or {}).get("file_path")
+                        if isinstance(path, str) and path:
+                            pending_reads[block.id] = path
+            elif isinstance(message, UserMessage):
+                # The tool_result answering a Read. An agent told to open a file "if it
+                # exists" still emits the tool_use when it does not, and gets an ERROR
+                # back -- so only a non-error result proves the file was opened.
+                # content is str | list; only the list form carries blocks.
+                for block in message.content if isinstance(message.content, list) else ():
+                    if isinstance(block, ToolResultBlock):
+                        path = pending_reads.pop(block.tool_use_id, None)
+                        # Deduped, first-seen: agents re-read a file across turns (paging a
+                        # long input), and one file paged 40 times would bury every other entry.
+                        if path and not block.is_error and path not in files_read:
+                            files_read.append(path)
             elif isinstance(message, ResultMessage):
                 result = message
-            # Any other message (UserMessage, SystemMessage, partial StreamEvent)
-            # carries nothing a caller needs -- but each one still reset the idle
-            # timer above, which is the whole point of streaming them.
+            # Any other message (SystemMessage, partial StreamEvent) carries nothing a
+            # caller needs -- but each one still reset the idle timer above, which is
+            # the whole point of streaming them.
     finally:
         aclose = getattr(agen, "aclose", None)
         if aclose is not None:
@@ -268,6 +303,7 @@ async def run_agent(
         duration_ms=result.duration_ms or 0,
         is_error=bool(result.is_error),
         api_error_status=result.api_error_status,
+        files_read=tuple(files_read),
     )
 
 

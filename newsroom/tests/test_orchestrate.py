@@ -27,7 +27,15 @@ CLUSTER_SPEC = REPO_ROOT / ".claude" / "agents" / "cluster.md"
 
 
 def _stage_result(
-    *, text="", usage=None, cost=0.05, duration_ms=1000, subtype="success", is_error=False, api_error_status=None
+    *,
+    text="",
+    usage=None,
+    cost=0.05,
+    duration_ms=1000,
+    subtype="success",
+    is_error=False,
+    api_error_status=None,
+    files_read=(),
 ):
     """Build a StageResult like ``claude_cli.run_agent`` resolves to."""
     return StageResult(
@@ -44,6 +52,7 @@ def _stage_result(
         duration_ms=duration_ms,
         is_error=is_error,
         api_error_status=api_error_status,
+        files_read=files_read,
     )
 
 
@@ -230,6 +239,50 @@ def _fail_validator(_dir):
 
 
 class TestRunStage:
+    def test_logs_the_input_files_the_stage_actually_read(self, tmp_path, monkeypatch, caplog):
+        # A stage is handed input files; until now nothing recorded whether it
+        # opened them. Names go in the completion line so a run's log answers
+        # "did WRITE ever read recent_digest_headlines.txt" without a replay.
+        out = tmp_path / "clusters.json"
+        out.write_text(json.dumps({"clusters": [{"story": "x", "article_ids": ["A1"]}]}))
+        reads = ("/w/claude_input/articles_1.csv", "/w/claude_input/recent_digest_headlines.txt")
+        monkeypatch.setattr(orchestrate.claude_cli, "run_agent", _async_return(_stage_result(files_read=reads)))
+
+        with caplog.at_level("INFO"):
+            _run_stage(
+                _spec(),
+                label="cluster",
+                output_path=out,
+                validate=_ok_validator,
+                model_override=None,
+                cwd=None,
+                claude_input_dir=tmp_path,
+            )
+
+        assert "articles_1.csv" in caplog.text
+        assert "recent_digest_headlines.txt" in caplog.text
+
+    def test_stage_that_opened_nothing_says_so_explicitly(self, tmp_path, monkeypatch, caplog):
+        # A bare "read=" with nothing after it is exactly what a tired reader skims
+        # past, and this is the case worth catching: a stage that produced valid
+        # output without ever opening its input is guessing from the prompt alone.
+        out = tmp_path / "clusters.json"
+        out.write_text(json.dumps({"clusters": [{"story": "x", "article_ids": ["A1"]}]}))
+        monkeypatch.setattr(orchestrate.claude_cli, "run_agent", _async_return(_stage_result(files_read=())))
+
+        with caplog.at_level("INFO"):
+            _run_stage(
+                _spec(),
+                label="cluster",
+                output_path=out,
+                validate=_ok_validator,
+                model_override=None,
+                cwd=None,
+                claude_input_dir=tmp_path,
+            )
+
+        assert "read=NOTHING" in caplog.text
+
     def test_builds_usage_row(self, tmp_path, monkeypatch):
         out = tmp_path / "clusters.json"
         out.write_text(json.dumps({"clusters": [{"story": "x", "article_ids": ["A1"]}]}))
