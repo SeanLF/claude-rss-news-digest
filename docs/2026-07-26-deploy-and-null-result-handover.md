@@ -76,6 +76,13 @@ would move the angle exist (Burnham had 7) but sit in `whats_new`, computed *aft
 Transport was right; the payload was wrong. Delivering the right one needs the ordering
 change (link before WRITE) that was deferred as unjustified — it is now known-necessary.
 
+> **SUPERSEDED the same day — do not act on the paragraph above.** The ordering change was
+> tested (`bin/eval-write-arms`, 4 reps/arm) and shows **no significant effect**, and its
+> premise is false: run 237's shipped *summary* already contained the Iran fact its headline
+> omitted, so WRITE HAD the information and buried it. That is a prioritisation failure,
+> which supplying the same information earlier cannot fix. **The refactor is dropped.**
+> See `docs/2026-07-26-write-delta-poc-findings.md`.
+
 The commit is harmless (fail-open, ~$0.006/run) and is a prerequisite for a real fix. It is
 not one. Lesson: `docs/solutions/best-practices/measure-a-prompt-change-against-a-control-run.md`.
 
@@ -132,8 +139,10 @@ truth exist here: Le Pen (in `whats_new`), Jimmy Lai's sentencing and Portugal's
 
 ## Deferred deliberately — decisions, not oversights
 
-- **Move thread linking before WRITE.** The real null-delta fix, now known-necessary. Compute
-  the link in memory pre-WRITE and persist post-assembly so an aborted run leaves no rows.
+- ~~**Move thread linking before WRITE.**~~ **DROPPED 2026-07-26 on measurement.** No
+  significant effect at 4 reps/arm, and the premise was false — WRITE already had the fact
+  and buried it in the summary. Do not re-propose without new data.
+  See `docs/2026-07-26-write-delta-poc-findings.md`.
 - **Schema-constrained decoding for the linker** — cheapest robustness win available.
 - **Pre-filter linker candidates** — see the listwise-regime note above.
 - **Verify WRITE actually *reads* its inputs.** `claude_cli.py:235-237` discards every
@@ -147,7 +156,8 @@ truth exist here: Le Pen (in `whats_new`), Jimmy Lai's sentencing and Portugal's
   Was queued to "ride a deploy"; this deploy had no migrations, so it went past. Needs a
   migration written.
 - **Consolidate `thread_audit` into COHERENCE** — two overlapping verification passes,
-  $0.962/run combined = 28% of spend. Only sensible after the ordering change.
+  $0.962/run combined = 28% of spend. (Was gated on the ordering change, which is now
+  dropped — so this stands on its own merits, or not at all.)
 - **Crowding allocation rule.** Galtung & Ruge call it *continuity*: a running story has
   inertia independent of new developments. Every product that manages this does structural
   allocation at selection time; nobody publishes a diversity formula. Calibration first —
