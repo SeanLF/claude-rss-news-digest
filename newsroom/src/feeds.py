@@ -116,7 +116,7 @@ def fetch_source(source: dict, timeout: int = 15) -> tuple[str, list[dict], str 
         except (urllib.error.URLError, TimeoutError, OSError) as e:
             last_error = e
             if attempt < MAX_RETRIES - 1:
-                delay = RETRY_DELAY * (2**attempt)  # 1s, 2s, 4s
+                delay = RETRY_DELAY * (2**attempt)  # exponential from RETRY_DELAY; the last attempt never sleeps
                 time.sleep(delay)
             continue
         except Exception as e:
