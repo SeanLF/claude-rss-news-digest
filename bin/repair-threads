@@ -1,0 +1,40 @@
+#!/bin/bash
+# Fold duplicate threads back into the threads they should have continued.
+#
+# A one-off repair, not part of the pipeline. When the linker fails to recognise a continuation it
+# opens a SECOND thread for a story already being tracked: the reader-visible "Ongoing - day N"
+# badge resets to day 1, and the duplicate holds the newest label -- which is what the linker
+# matches on next run, so the split compounds. Run 244 (2026-07-25) split five stories this way.
+#
+# Pairs are EXPLICIT. Nothing here infers which thread continues which; that inference is what
+# failed, and re-running it to repair its own damage would be a second outage. Read the dry-run
+# plan, check each pair, then apply.
+#
+# Usage:
+#   bin/repair-threads --merge 378:356 --merge 382:12            # dry run, prints the plan
+#   bin/repair-threads --merge 378:356 --merge 382:12 --apply    # commits
+#
+# Safe by default: no --apply means no writes. Idempotent -- a re-run skips pairs already merged.
+# Refuses a pair whose source has MORE history than its target (almost certainly reversed); pass
+# --force if you genuinely mean it.
+#
+# Production -- on the server, AFTER deploy, against the live volume:
+#   docker run --rm --env-file /opt/news-digest/.env -v news-digest-data:/app/data \
+#     <registry>/digest-newsroom:latest .venv/bin/python src/repair_threads.py --merge 378:356
+#   (add --apply once the plan reads correctly)
+#
+# Published issues are NOT rewritten. `digests` holds immutable HTML blobs and stays exactly as
+# sent; this reconciles story identity going forward only.
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
+
+# If not in Docker, run via docker compose (mirrors bin/seed-threads and bin/migrate)
+if [[ -z "${IN_DOCKER:-}" ]]; then
+  cd "$PROJECT_DIR"
+  exec docker compose run --rm digest-newsroom .venv/bin/python src/repair_threads.py "$@"
+fi
+
+exec .venv/bin/python src/repair_threads.py "$@"
