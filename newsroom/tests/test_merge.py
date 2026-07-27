@@ -9,7 +9,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 from merge import assemble_selections
-from schema import SELECTIONS_SCHEMA, validate_selections
+from schema import NOT_COVERED_BLURB_MAX_LEN, SELECTIONS_SCHEMA, validate_selections
 
 # Every top-level string field in the schema that carries a length cap. Derived
 # from the schema so a newly-added capped field is picked up automatically.
@@ -592,7 +592,7 @@ class TestValidateSelections:
 
     def test_rejects_overlong_not_covered_blurb(self):
         bad = self._valid()
-        bad["not_covered_blurb"] = "x" * 301
+        bad["not_covered_blurb"] = "x" * (NOT_COVERED_BLURB_MAX_LEN + 1)
         errors = validate_selections(bad)
         assert any("not_covered_blurb" in e for e in errors)
 
@@ -755,10 +755,30 @@ class TestNotCoveredBlurb:
         warnings = [r for r in caplog.records if r.levelname == "WARNING"]
         assert any("selected.json unreadable" in r.getMessage() for r in warnings)
 
+    def test_blurb_at_observed_production_length_is_not_truncated(self, tmp_path):
+        # The cap exists to bound a reader-facing footer, not to clip it mid-clause.
+        # Measured over 26 production digests (2026-07-02 onwards): SELECT writes
+        # 303-463 chars and 62% of digests shipped a footer ending in an ellipsis.
+        # The longest real blurb observed must survive verbatim.
+        real_blurb = "We left out " + "several genuine in-scope stories today, " * 11 + "and others."
+        assert len(real_blurb) == 463  # the longest blurb observed in production
+        draft = _draft(must_know=[_article("h")])
+        _write(
+            tmp_path,
+            draft,
+            _coherence({"headline": "h", "pass": True}),
+            selected={"not_covered_blurb": real_blurb},
+        )
+
+        assembled = json.loads(assemble_selections(tmp_path).read_text())
+
+        assert assembled["not_covered_blurb"] == real_blurb.strip()
+        assert not assembled["not_covered_blurb"].endswith("…")
+
     def test_overlong_blurb_is_truncated_not_dropped(self, tmp_path):
         # Never let a garnish break schema validation: truncate to the schema
         # cap instead of failing assembly.
-        long_blurb = "x" * 400
+        long_blurb = "x" * (NOT_COVERED_BLURB_MAX_LEN + 100)
         draft = _draft(must_know=[_article("h")])
         _write(
             tmp_path,
@@ -769,7 +789,7 @@ class TestNotCoveredBlurb:
 
         assembled = json.loads(assemble_selections(tmp_path).read_text())
 
-        assert len(assembled["not_covered_blurb"]) <= 300
+        assert len(assembled["not_covered_blurb"]) <= NOT_COVERED_BLURB_MAX_LEN
 
     @pytest.mark.parametrize(
         "leaky_blurb",
@@ -820,7 +840,8 @@ class TestNotCoveredBlurb:
     def test_overlong_blurb_truncates_on_word_boundary(self, tmp_path):
         # A legit-but-long blurb must degrade to a clean truncation, never a
         # mid-word cut like the "...SO…" that shipped on 2026-07-02.
-        long_blurb = "We deliberately skipped several softer stories " * 10  # > 300 chars
+        long_blurb = "We deliberately skipped several softer stories " * 20  # over the cap
+        assert len(long_blurb) > NOT_COVERED_BLURB_MAX_LEN
         draft = _draft(must_know=[_article("h")])
         _write(
             tmp_path,
@@ -832,7 +853,7 @@ class TestNotCoveredBlurb:
         assembled = json.loads(assemble_selections(tmp_path).read_text())
         blurb = assembled["not_covered_blurb"]
 
-        assert len(blurb) <= 300
+        assert len(blurb) <= NOT_COVERED_BLURB_MAX_LEN
         assert blurb.endswith("…")
         # The character before the ellipsis must be a word char, and the word it
         # ends on must be whole -- i.e. the truncation happened at a space, so

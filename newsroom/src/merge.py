@@ -14,7 +14,7 @@ from pathlib import Path
 
 import config
 from eval_graders import grade_selections
-from schema import SELECTIONS_SCHEMA, validate_selections
+from schema import NOT_COVERED_BLURB_MAX_LEN, SELECTIONS_SCHEMA, validate_selections
 
 logger = logging.getLogger(__name__)
 
@@ -25,10 +25,6 @@ logger = logging.getLogger(__name__)
 # whole-story drop path. Single source of truth -- repair.py imports this. A
 # frozenset so it serves both merge's membership test and repair's subset check.
 _REPAIRABLE_FIELDS = frozenset({"headline", "summary"})
-
-# Footer garnish length cap -- matches SELECTIONS_SCHEMA's not_covered_blurb maxLength
-# (see eval_graders.GraderLimits.preheader_max_chars for the same pattern).
-_NOT_COVERED_BLURB_MAX_LEN = 300
 
 # The not_covered_blurb is reader-facing (rendered in the digest footer), but it
 # originates from SELECT, whose working vocabulary includes internal cluster
@@ -332,13 +328,13 @@ def _load_not_covered_blurb(claude_input_dir: Path) -> str | None:
             repr(blurb)[:120],
         )
         return None
-    if len(blurb) > _NOT_COVERED_BLURB_MAX_LEN:
+    if len(blurb) > NOT_COVERED_BLURB_MAX_LEN:
         logger.warning(
             "not_covered_blurb exceeds %d chars (%d) -- truncating rather than dropping",
-            _NOT_COVERED_BLURB_MAX_LEN,
+            NOT_COVERED_BLURB_MAX_LEN,
             len(blurb),
         )
-        blurb = _truncate_on_word_boundary(blurb, _NOT_COVERED_BLURB_MAX_LEN)
+        blurb = _truncate_on_word_boundary(blurb, NOT_COVERED_BLURB_MAX_LEN)
     return blurb
 
 

@@ -8,6 +8,15 @@ from typing import Any
 
 from jsonschema import Draft7Validator
 
+# Cap on the not_covered_blurb footer garnish. 300 was borrowed from the preheader cap, where the
+# number is a real external constraint (inbox preview length). Nothing external bounds this footer,
+# and the borrowed number bit: over the 26 digests since the blurb shipped 2026-07-02, SELECT wrote
+# 303-463 chars and 62% of digests shipped a footer truncated mid-clause ("...didn't clear the…").
+# 500 clears every observed blurb with headroom. The cap is kept, not removed -- it still bounds a
+# reader-facing string built from model output -- but it is now sized from what SELECT actually
+# writes. Named rather than inlined because merge enforces it before validation reaches it.
+NOT_COVERED_BLURB_MAX_LEN = 500
+
 SOURCE_SCHEMA = {
     "type": "object",
     "properties": {
@@ -58,7 +67,7 @@ SELECTIONS_SCHEMA = {
         # Optional SELECT-stage garnish (what was deliberately filtered and why),
         # copied through by merge.assemble_selections. Absent when SELECT's
         # selected.json has no usable field -- see _load_not_covered_blurb.
-        "not_covered_blurb": {"type": "string", "maxLength": 300},
+        "not_covered_blurb": {"type": "string", "maxLength": NOT_COVERED_BLURB_MAX_LEN},
     },
     "required": ["must_know", "should_know", "preheader"],
     "additionalProperties": False,
