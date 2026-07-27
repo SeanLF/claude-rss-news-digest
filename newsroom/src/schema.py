@@ -15,6 +15,12 @@ from jsonschema import Draft7Validator
 # 500 clears every observed blurb with headroom. The cap is kept, not removed -- it still bounds a
 # reader-facing string built from model output -- but it is now sized from what SELECT actually
 # writes. Named rather than inlined because merge enforces it before validation reaches it.
+#
+# This is a FAIL-SAFE, not a target. select.md still asks for "under ~250 characters" and that
+# number is deliberately left alone: SELECT already overshoots it to 303-463, so raising the
+# instruction to match this cap would just move the overshoot up and put us back to truncating.
+# Keep the prompt asking for short and the cap sized for what actually arrives; if the measured
+# distribution climbs toward 500, fix the prompt rather than the cap.
 NOT_COVERED_BLURB_MAX_LEN = 500
 
 SOURCE_SCHEMA = {
