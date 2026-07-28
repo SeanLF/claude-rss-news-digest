@@ -1100,3 +1100,65 @@ class TestReportingVariesIdLeak:
             assemble_selections(tmp_path)
 
         assert any("3 entries scrubbed of internal ids, 0 dropped" in r.getMessage() for r in caplog.records)
+
+
+class TestWriteFieldIdLeakIsObservedNotEdited:
+    """headline/summary/why_it_matters/preheader are WRITE-authored and render
+    verbatim (render.py, render_email.py), exactly like reporting_varies -- but
+    unlike reporting_varies they are deliberately NOT scrubbed.
+
+    Run 247 proved WRITE will put "(A316)" in a field its prompt forbids it in, so
+    the risk is real. The response is asymmetric on purpose: the id pattern cannot
+    be told apart from a real "(A320)" Airbus or "(A7)" motorway, and eating a
+    parenthetical out of a source NAME is survivable where silently rewriting a
+    headline is not. Zero leaks in these four fields across all 30 published
+    digests, so this WATCHES them -- the L1 graders already run non-fatally on the
+    assembled payload, so the next occurrence lands in the run log as evidence
+    instead of in a subscriber's inbox unnoticed.
+    """
+
+    def test_leak_in_summary_is_warned_but_text_ships_untouched(self, tmp_path, caplog):
+        leaky = "The quake measured 6.8 (A316) by early estimates."
+        item = _article("Quake hits northern Japan")
+        item["summary"] = leaky
+        _write(tmp_path, _draft(must_know=[item]), _coherence({"headline": "Quake hits northern Japan", "pass": True}))
+
+        with caplog.at_level("WARNING", logger="merge"):
+            assembled = json.loads(assemble_selections(tmp_path).read_text())
+
+        # The whole point: observed, never edited. Byte-identical to WRITE's output.
+        assert assembled["must_know"][0]["summary"] == leaky
+        messages = [r.getMessage() for r in caplog.records]
+        assert any("no_internal_article_ids" in m for m in messages)
+        assert any("(A316)" in m for m in messages), "the log must quote the match, or it is not evidence"
+
+    def test_leak_in_headline_is_warned(self, tmp_path, caplog):
+        item = _article("Quake hits northern Japan (A316)")
+        _write(
+            tmp_path,
+            _draft(must_know=[item]),
+            _coherence({"headline": "Quake hits northern Japan (A316)", "pass": True}),
+        )
+
+        with caplog.at_level("WARNING", logger="merge"):
+            assembled = json.loads(assemble_selections(tmp_path).read_text())
+
+        assert assembled["must_know"][0]["headline"] == "Quake hits northern Japan (A316)"
+        assert any("no_internal_article_ids" in r.getMessage() for r in caplog.records)
+
+    def test_clean_run_says_nothing_about_id_leaks(self, tmp_path, caplog):
+        # A guard that cries on every clean run trains people to ignore it.
+        draft = _draft(
+            must_know=[_article("Quake hits northern Japan")],
+            should_know=[_article(f"Brief {i}", article_id=f"A{i + 2}") for i in range(3)],
+        )
+        coherence = _coherence(
+            {"headline": "Quake hits northern Japan", "pass": True},
+            *({"headline": f"Brief {i}", "pass": True} for i in range(3)),
+        )
+        _write(tmp_path, draft, coherence)
+
+        with caplog.at_level("WARNING", logger="merge"):
+            assemble_selections(tmp_path)
+
+        assert not any("no_internal_article_ids" in r.getMessage() for r in caplog.records)

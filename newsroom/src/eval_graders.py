@@ -6,8 +6,11 @@ pass/fail only (never a 1-5 Likert), cheap enough to run on every change and
 even in prod. Conceptually this is "the digest's schema validation extended"
 with length caps, count ranges, and dedup checks the JSON schema can't express.
 
-Standalone: this module does not touch the live pipeline. Wiring it into
-merge.py/run.py is a separate, reviewed step.
+Wired into the live pipeline: merge._grade_assembled runs these on every
+assembled selections.json, NON-FATALLY -- a failed check logs a warning and the
+run continues. That is deliberate (they are an observability floor, not a gate),
+but it does mean a check that raises loses the whole report, so every check must
+tolerate any shape that survives schema validation.
 
 The selections shape (see schema.SELECTIONS_SCHEMA) is::
 
@@ -24,9 +27,17 @@ import re
 from dataclasses import dataclass, field
 
 from schema import validate_selections
+from utils import ARTICLE_ID_GROUP
 
 # Tiers that carry full article shape (headline + summary + why_it_matters + sources).
 ARTICLE_TIERS = ("must_know", "should_know")
+
+# The per-story WRITE fields that render verbatim to readers. reporting_varies is
+# checked too (see _leak_checked_values) despite merge scrubbing it, because that
+# scrubber is delimited-only -- "clean by construction" holds for exactly the form
+# that is not the problem. not_covered_blurb is genuinely absent: merge DROPS the
+# whole blurb rather than editing it, so nothing carrying a leak survives to here.
+LEAK_CHECKED_ARTICLE_FIELDS = ("headline", "summary", "why_it_matters")
 
 
 @dataclass(frozen=True)
@@ -242,6 +253,130 @@ def _check_dedup_vs_recent(selections: dict, report: GradeReport, recent_titles:
     )
 
 
+def _leaked_ids(text: str, cited: tuple[str, ...]) -> list[str]:
+    """Internal article ids visible in one reader-facing string.
+
+    Two detectors, because production has produced two shapes. Delimited groups
+    ("(A316)", "[A221]") are caught by pattern. A BARE id is caught only when the
+    story also cites it -- no pattern separates "A238" from "the A19 chip", but
+    "cited by this very story" does, and it costs nothing in an observer.
+    """
+    spans = [m.span() for m in ARTICLE_ID_GROUP.finditer(text)]
+    found = [text[a:b].strip() for a, b in spans]
+    # Dedupe by POSITION, not by string. An id INSIDE a delimited match is the same leak; the
+    # same id occurring again bare elsewhere is a second place someone has to look, and the
+    # count is what tells them they have found them all.
+    for i in cited:
+        found += [i for m in re.finditer(rf"\b{re.escape(i)}\b", text) if not any(a <= m.start() < b for a, b in spans)]
+    return found
+
+
+def _cited_ids(item: dict) -> tuple[str, ...]:
+    """The article ids a story cites, trimmed, blanks dropped.
+
+    Container type is checked as strictly as the element type: a scalar ``sources`` ("A3" not
+    ["A3"]) would iterate as characters, and a blank id makes ``re.escape("")`` compile to
+    ``\b\b``, which matches at every word boundary and reports a clean story as leaking ''.
+    Trimming mirrors ``threads._clean_fact``, which strips for the same reason.
+    """
+    sources = item.get("sources")
+    if not isinstance(sources, list):
+        return ()
+    return tuple(
+        t
+        for s in sources
+        if isinstance(s, dict) and isinstance(s.get("article_id"), str) and (t := s["article_id"].strip())
+    )
+
+
+def _leak_checked_values(item: dict):
+    """(field, text) for every reader-facing string on a story, reporting_varies included."""
+    for fld in LEAK_CHECKED_ARTICLE_FIELDS:
+        if isinstance(value := item.get(fld), str):
+            yield fld, value
+    varies = item.get("reporting_varies")
+    for entry in varies if isinstance(varies, list) else ():
+        if isinstance(entry, dict):
+            for key in ("source", "angle", "bias"):
+                if isinstance(value := entry.get(key), str):
+                    yield f"reporting_varies.{key}", value
+
+
+def _check_no_internal_article_ids(selections: dict, report: GradeReport) -> None:
+    """Flag any reader-facing WRITE field still carrying an internal article id.
+
+    OBSERVE ONLY. This check never edits the text, and that asymmetry against
+    merge's reporting_varies scrubber is the whole design.
+
+    Run 247 (2026-07-28) shipped ``NYT (A316):`` into reporting_varies, a field
+    write.md line 96 already told WRITE was "NOT article references". merge now
+    strips that field. headline/summary/why_it_matters/preheader come from the
+    same agent under the same prompt and render verbatim (render.render_article,
+    render_email._story), and nothing checks them -- COHERENCE grades factuality,
+    not leaks. So the exposure is real.
+
+    But the remedy does not transfer. ``ARTICLE_ID_GROUP`` cannot distinguish an
+    article id from a real "(A320)" Airbus or "(A7)" motorway -- ids run A1..A{n}
+    with n in the hundreds, so the ranges genuinely overlap and no lexical rule
+    separates them. That was an acceptable trade for a source NAME, where a
+    misfire eats a parenthetical from an attribution label. It is not the same
+    trade in a headline, which is also the story's slug, its dedup key, and the
+    string COHERENCE verified. Across 195 published digests these four fields
+    have leaked zero times, so there is no measured problem to justify putting a
+    silent rewriter in front of every headline the product ships.
+
+    Watching costs nothing and is strictly more informative: ``_grade_assembled``
+    logs failures non-fatally, so the next real occurrence arrives in the run log
+    with the field named and the match quoted -- which is exactly the evidence
+    needed to decide whether stripping is warranted, and in which form.
+
+    Two forms are checked. Delimited groups are caught by pattern. A BARE id is
+    caught only when the story also cites it: nothing separates "A238" from "the
+    A19 chip" lexically, but "cited by this very story" does, and it costs
+    nothing in an observer.
+
+    SCOPE, because the bare form is easy to over-claim: 2026-07-12 did ship a
+    bare "...according to A238.", but through the THREAD path, which this check
+    cannot see. The delta occupies the summary SLOT at render time
+    (``render.py`` ``body = delta if delta else summary``); it is never written
+    to ``item["summary"]``, thread context attaches inside ``write_digest``
+    AFTER grading, and SELECTIONS_SCHEMA is ``additionalProperties: False`` with
+    no ``thread`` key, so it cannot be present here. That leak is guarded in
+    ``threads._clean_fact`` instead. The bare detector here is for WRITE doing
+    the same thing in its own fields -- plausible under the same prompt, but so
+    far UNOBSERVED. Do not cite 07-12 as evidence this check would have caught
+    anything.
+
+    reporting_varies is checked too, despite merge scrubbing it: merge's scrubber
+    is delimited-only, so "clean by construction" holds for exactly the form that
+    is not the problem.
+    """
+    offenders: list[str] = []
+    story_offenders: list[str] = []
+    all_cited: set[str] = set()
+    for tier, item in _iter_articles(selections):
+        raw_head = item.get("headline")
+        head = raw_head[:50] if isinstance(raw_head, str) else repr(raw_head)[:50]
+        cited = _cited_ids(item)
+        all_cited.update(cited)
+        for fld, value in _leak_checked_values(item):
+            # Quote every match, not just a count: "was that an article id or an
+            # aircraft?" is the only question the follow-up decision turns on.
+            story_offenders += [f"{tier}.{fld} {m!r} in {head!r}" for m in _leaked_ids(value, cited)]
+    # preheader FIRST: it is the most-seen string the pipeline emits, so appended last it would
+    # be the first thing dropped by the cap below. It is written from the same stories, so the
+    # self-citation premise holds against the union of every story's cited ids.
+    preheader = selections.get("preheader")
+    if isinstance(preheader, str):
+        offenders += [f"preheader {m!r}" for m in _leaked_ids(preheader, tuple(sorted(all_cited)))]
+    offenders += story_offenders
+    report.add(
+        "no_internal_article_ids",
+        passed=not offenders,
+        detail="ok" if not offenders else f"{len(offenders)} leak(s): " + " | ".join(offenders[:5]),
+    )
+
+
 def grade_selections(
     selections: dict,
     *,
@@ -274,5 +409,6 @@ def grade_selections(
     _check_story_counts_in_range(selections, report, limits)
     _check_sources_nonempty(selections, report)
     _check_dedup_vs_recent(selections, report, recent_titles)
+    _check_no_internal_article_ids(selections, report)
 
     return report
