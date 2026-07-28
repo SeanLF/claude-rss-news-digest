@@ -972,6 +972,47 @@ fn inject(html: &str, needle: &str, replacement: &str, date: &str) -> String {
     }
 }
 
+/// The outlet's own homepage, derived from the feed URL we poll (the feed URL itself
+/// is a machine endpoint, not somewhere to send a reader).
+fn website_from_rss(rss_url: &str, name: &str) -> String {
+    // Special cases where RSS URL doesn't match the outlet's website
+    match name {
+        "BBC World" => return "https://www.bbc.com".to_string(),
+        "Hacker News" => return "https://news.ycombinator.com".to_string(),
+        "Nikkei Asia" => return "https://asia.nikkei.com".to_string(),
+        "Wall Street Journal" => return "https://www.wsj.com".to_string(),
+        _ => {}
+    }
+    if rss_url.starts_with("https://news.google.com") {
+        // Google News proxy -- extract the site: operator's domain. The operator sits in
+        // a query string, so it ends at the first character a hostname cannot contain:
+        // `q=site:reuters.com+when:1d` is a `+`-separated query, and reading to the `&`
+        // shipped readers a link to `https://reuters.com+when:1d`.
+        if let Some(pos) = rss_url.find("site:") {
+            let domain = &rss_url[pos + 5..];
+            let end = domain
+                .find(|c: char| !(c.is_ascii_alphanumeric() || c == '.' || c == '-'))
+                .unwrap_or(domain.len());
+            if end > 0 {
+                return format!("https://{}", &domain[..end]);
+            }
+        }
+    }
+    // Extract scheme + host from URL
+    if let Some(rest) = rss_url.strip_prefix("https://") {
+        let host_end = rest.find('/').unwrap_or(rest.len());
+        let host = &rest[..host_end];
+        // Strip common RSS subdomains
+        let host = host
+            .strip_prefix("feeds.")
+            .or_else(|| host.strip_prefix("rss."))
+            .unwrap_or(host);
+        format!("https://{host}")
+    } else {
+        rss_url.to_string()
+    }
+}
+
 /// Sources page -- lists all news sources with bias and factuality ratings.
 /// Source data is embedded at compile time from newsroom/sources.json.
 pub async fn sources(
@@ -1006,39 +1047,6 @@ pub async fn sources(
         seen.entry(dedup_key)
             .and_modify(|(_, count)| *count += 1)
             .or_insert((s, 1));
-    }
-
-    // Extract website from RSS URL (strip path for display)
-    fn website_from_rss(rss_url: &str, name: &str) -> String {
-        // Special cases where RSS URL doesn't match the outlet's website
-        match name {
-            "BBC World" => return "https://www.bbc.com".to_string(),
-            "Hacker News" => return "https://news.ycombinator.com".to_string(),
-            "Nikkei Asia" => return "https://asia.nikkei.com".to_string(),
-            "Wall Street Journal" => return "https://www.wsj.com".to_string(),
-            _ => {}
-        }
-        if rss_url.starts_with("https://news.google.com") {
-            // Google News proxy -- extract site: param
-            if let Some(pos) = rss_url.find("site:") {
-                let domain = &rss_url[pos + 5..];
-                let end = domain.find('&').unwrap_or(domain.len());
-                return format!("https://{}", &domain[..end]);
-            }
-        }
-        // Extract scheme + host from URL
-        if let Some(rest) = rss_url.strip_prefix("https://") {
-            let host_end = rest.find('/').unwrap_or(rest.len());
-            let host = &rest[..host_end];
-            // Strip common RSS subdomains
-            let host = host
-                .strip_prefix("feeds.")
-                .or_else(|| host.strip_prefix("rss."))
-                .unwrap_or(host);
-            format!("https://{host}")
-        } else {
-            rss_url.to_string()
-        }
     }
 
     let mut sources: Vec<Source> = seen
@@ -1522,6 +1530,65 @@ mod feed_tests {
             .unwrap();
         let body = String::from_utf8(body_bytes.to_vec()).unwrap();
         (status, content_type, body)
+    }
+
+    #[test]
+    fn google_news_site_operator_stops_at_the_query_separator() {
+        // Regression: reading to the `&` produced `https://reuters.com+when:1d`, a dead
+        // link shipped on /sources. Caught by the Lighthouse crawlable-anchors audit
+        // once bin/web-check pointed the gate at the real page instead of the mockups.
+        assert_eq!(
+            website_from_rss(
+                "https://news.google.com/rss/search?q=site:reuters.com+when:1d&hl=en-US&gl=US&ceid=US:en",
+                "Reuters"
+            ),
+            "https://reuters.com"
+        );
+    }
+
+    #[test]
+    fn google_news_site_operator_without_a_time_window_still_works() {
+        assert_eq!(
+            website_from_rss(
+                "https://news.google.com/rss/search?q=site:apnews.com&hl=en-US",
+                "AP"
+            ),
+            "https://apnews.com"
+        );
+    }
+
+    #[test]
+    fn direct_feeds_keep_their_host_and_shed_rss_subdomains() {
+        assert_eq!(
+            website_from_rss("https://feeds.bbci.co.uk/news/rss.xml", "X"),
+            "https://bbci.co.uk"
+        );
+        assert_eq!(
+            website_from_rss("https://www.theguardian.com/world/rss", "X"),
+            "https://www.theguardian.com"
+        );
+    }
+
+    #[test]
+    fn every_shipped_source_yields_a_well_formed_homepage() {
+        // The gate that matters: no entry in the real sources.json may produce a URL
+        // with a character that cannot appear in a host. One bad row is one dead link.
+        #[derive(Deserialize)]
+        struct Row {
+            name: String,
+            url: String,
+        }
+        let rows: Vec<Row> = serde_json::from_str(include_str!("../sources.json")).unwrap();
+        for row in &rows {
+            let site = website_from_rss(&row.url, &row.name);
+            let host = site.strip_prefix("https://").unwrap_or(&site);
+            assert!(
+                host.chars()
+                    .all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '-'),
+                "{} -> {site}",
+                row.name
+            );
+        }
     }
 
     #[test]
