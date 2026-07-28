@@ -109,7 +109,7 @@ Recorded because each was stated with confidence before being falsified:
   remain the right source for probes — because they are tokens you have not already *spent*
   against the per-IP budget, not because stored ones go stale.
 
-## The measurement that closes all of this: production is not throttled
+## Production budget: measured, then spent by the measurement
 
 Run from the Hetzner box on 2026-07-28, after dual-stacking, against fresh tokens from ten
 search queries:
@@ -120,6 +120,30 @@ search queries:
 | IPv4 | **200** | no 429, ever |
 
 Both figures are the script's own cap, not a limit — the ceiling was never found. **We need 48.**
+
+### RETRACTED the same day. The measurement caused the condition it failed to find.
+
+Minutes after that run, a five-URL decode from the deployed image resolved **0/5**, and the next
+article fetch returned **HTTP 429**. So the budget is larger than 400 and *finite*, and the
+ceiling script spent it. "No 429 within 600 requests" was never "no limit" — the script stopped
+at its own caps.
+
+Two compounding errors, both the same shape as every other one in this document:
+
+- **It counted status codes, not usable responses.** The 0/5 failures came back as "Failed to
+  fetch data attributes", i.e. Google served 200s with no signature in them *before* it started
+  refusing. Those were counted as clean. A degraded page and a good one are indistinguishable
+  to a check that only reads the status line.
+- **It was a load test run against production**, on the one address whose budget the pipeline
+  depends on, hours before a scheduled run.
+
+What actually stands: the budget on this address is somewhere above 400 and below 600, which is
+still far above the 48 a run needs — **when it has not just been spent by a probe.** Whether it
+refills before the next run is the open question, and the only prior evidence (a VPN exit,
+polled for 25 minutes) says recovery is not quick.
+
+Do not run `v6ceiling` against production again. Probe from a VPN exit, or accept that the run
+after a probe may resolve nothing.
 
 Everything else in this document about budgets was measured from a laptop or a VPN exit. Those
 numbers are real for those addresses and **do not describe production**. That is the same error
@@ -186,7 +210,7 @@ Nothing below has been committed, pushed or deployed. No production behaviour ch
 | Upstream contribution | forked, branch pushed, 86 tests, CI + lint added | send the email; decide whether to collapse the legacy decoders first |
 | `newsroom/src/gnews.py` | on the library adapter, against **PyPI**, not the fork | decide: stay on PyPI 0.1.7 (measured working), or pin the fork |
 | `not_covered_blurb` cap 300 -> 500 | done, tested, green | commit |
-| Hetzner budget | **DONE — 400 IPv6 / 200 IPv4, no 429.** 48 GETs/run is safe | nothing |
+| Hetzner budget | measured >400 and finite; the probe SPENT it and prod 429d immediately after | recheck before relying on it; do not re-run v6ceiling against prod |
 | `scratch/gnews-rate-lab/` | working harness | keep as-is; gitignored, holds VPN credentials |
 
 The upstream approach is deliberately **one branch, proposed privately by email**, rather than
