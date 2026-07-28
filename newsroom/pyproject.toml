@@ -25,9 +25,12 @@ dependencies = [
     # correctness dependency. It buys hardening: bounded decompression, tag-keyed batch mapping,
     # UTF-8 payloads, and a varint length that does not truncate URLs over 128 bytes.
     #
-    # Revert to plain "googlenewsdecoder" if the fork becomes a liability; the call site uses
-    # `gnewsdecoder`, which both provide.
-    "googlenewsdecoder @ https://github.com/SeanLF/google-news-url-decoder/archive/c69c7645be0b5cb876b00b118acfe35c63e82f73.tar.gz",
+    # NOT a drop-in swap back to PyPI any more. gnews.py drives the flow directly
+    # (`drive`/`decode_flow`/`RequestsTransport`/`TransportError`) to pass a timeout the
+    # `gnewsdecoder` shortcut does not accept, and 0.1.7 has none of those names. Reverting to
+    # PyPI means restoring the `gnewsdecoder(url, interval=...)` call site and accepting a
+    # hardcoded 15s timeout again.
+    "googlenewsdecoder @ https://github.com/SeanLF/google-news-url-decoder/archive/e7f0f29fafece8b9398e1bc68fa05d1224fa9ead.tar.gz",
 ]
 
 [project.optional-dependencies]
