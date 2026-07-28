@@ -1,11 +1,12 @@
 #!/bin/bash
 # Deploy news-digest infrastructure
-# Usage: bin/deploy [--skip-build] [-y|--yes] [--dry-run]
+# Usage: bin/deploy [--skip-build] [--skip-web-check] [-y|--yes] [--dry-run]
 #
 # Builds and pushes Docker images, then applies Terraform
 #
 # Options:
 #   --skip-build  Skip Docker image build/push
+#   --skip-web-check  Skip the a11y/Lighthouse gate on the rendered pages
 #   -y, --yes     Skip confirmation prompt
 #   --dry-run     Show what would be done without making changes
 #
@@ -28,12 +29,14 @@ DOCKER_CHECK_TIMEOUT=5
 # ============================================
 
 SKIP_BUILD=false
+SKIP_WEB_CHECK=false
 AUTO_APPROVE=false
 DRY_RUN=false
 
 for arg in "$@"; do
   case $arg in
     --skip-build) SKIP_BUILD=true ;;
+    --skip-web-check) SKIP_WEB_CHECK=true ;;
     -y|--yes) AUTO_APPROVE=true ;;
     --dry-run) DRY_RUN=true ;;
   esac
@@ -131,6 +134,30 @@ check_docker() {
   wait_for_condition "OrbStack started" $DOCKER_CHECK_TIMEOUT docker info && return 0
 
   log_error "Docker failed to start within ${DOCKER_CHECK_TIMEOUT}s"
+  return 1
+}
+
+# Grades the pages circulation actually renders (a11y invariants + Lighthouse),
+# not the design mockups the two gates pointed at before. Catches the class of
+# regression that ships silently because nothing is broken enough to 500.
+check_web() {
+  if [[ $SKIP_WEB_CHECK == true ]]; then
+    log_info "Skipping web gate (--skip-web-check)"
+    return 0
+  fi
+
+  log_step "Checking rendered pages (a11y + Lighthouse)..."
+
+  if dry_run_skip "bin/web-check"; then
+    return 0
+  fi
+
+  if "$SCRIPT_DIR/web-check"; then
+    log_success "Web gate passed"
+    return 0
+  fi
+
+  log_error "Web gate failed -- fix, or re-run with --skip-web-check"
   return 1
 }
 
@@ -456,6 +483,7 @@ main() {
   log_stage "PRE-FLIGHT CHECKS"
   check_docker || exit 1
   check_tailscale || exit 1
+  check_web || exit 1
 
   # Git operations
   log_stage "GIT OPERATIONS"

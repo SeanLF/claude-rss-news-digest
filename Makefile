@@ -2,7 +2,7 @@
 # Run `make` or `make help` to see available targets
 
 .DEFAULT_GOAL := help
-.PHONY: ci ci-fix ci-full test eval eval-stages eval-coherence eval-repair a11y lighthouse deploy deploy-dry migrate migrate-status \
+.PHONY: ci ci-fix ci-full test eval eval-stages eval-coherence eval-repair a11y lighthouse web-check deploy deploy-dry migrate migrate-status \
         ssh db-clone usage usage-daily analytics analytics-list analytics-q versions circulation preview prompt help
 
 # Default window for the analytics queries; override with RUNS=N
@@ -31,6 +31,8 @@ a11y: ## Fast structural a11y invariant check (no browser; suitable per-commit)
 	bin/a11y-check
 lighthouse: ## Lighthouse a11y/BP/SEO gate on the design mockups (pre-deploy; needs headless Chrome)
 	bin/lighthouse
+web-check: ## Both gates against the pages circulation really serves (pre-deploy; use FAST=1 to skip Lighthouse)
+	bin/web-check $(if $(FAST),--fast,)
 
 ## Deploy
 deploy: ## Deploy to production (build, push, terraform, migrate)

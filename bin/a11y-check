@@ -17,9 +17,16 @@ invariants that survive a static HTML parse:
 Usage:
     bin/a11y-check                       # scratch/chrome-mockups/*.html
     bin/a11y-check path/to/file.html ...
+    bin/a11y-check --url http://localhost:8080/sources --url .../stats
+
+--url checks what the server actually renders, which is the only form that
+speaks for production; the file mode still covers the design mockups.
 """
+import argparse
 import glob
 import sys
+import urllib.error
+import urllib.request
 from html.parser import HTMLParser
 from pathlib import Path
 
@@ -76,9 +83,9 @@ class A11yParser(HTMLParser):
             frame[2] += data
 
 
-def check(path):
+def check_html(html):
     p = A11yParser()
-    p.feed(Path(path).read_text())
+    p.feed(html)
     issues = list(p.issues)
     if p.h1 != 1:
         issues.append(f"expected exactly one <h1>, found {p.h1}")
@@ -96,21 +103,59 @@ def check(path):
     return uniq
 
 
+def check(path):
+    return check_html(Path(path).read_text())
+
+
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, *a, **k):
+        return None
+
+
+def check_url(url):
+    """A fetch/HTTP failure is a gate failure, never a silent pass.
+
+    Redirects are deliberately not followed: urlopen would follow /privacy's 307
+    off to another origin and report `[ ok ]` against a page this server never
+    rendered. Grading the URL you were given, or saying you could not, is the only
+    honest option for a gate.
+    """
+    try:
+        with urllib.request.build_opener(_NoRedirect).open(url, timeout=20) as r:
+            if r.status != 200:
+                return [f"HTTP {r.status} (redirect to {r.headers.get('Location')})"]
+            return check_html(r.read().decode("utf-8", "replace"))
+    except urllib.error.HTTPError as e:
+        return [f"HTTP {e.code}"]
+    except Exception as e:  # URLError, timeout, decode -- all mean "could not verify"
+        return [f"fetch failed: {e}"]
+
+
 def main():
-    args = sys.argv[1:]
-    files = args or sorted(glob.glob("scratch/chrome-mockups/*.html"))
-    if not files:
-        sys.exit("error: no HTML files to check")
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--url", action="append", help="check a served page instead of a file")
+    ap.add_argument("files", nargs="*", help="HTML files (default: scratch/chrome-mockups/*.html)")
+    args = ap.parse_args()
+
+    if args.url:
+        targets = [(u, check_url) for u in args.url]
+    else:
+        files = args.files or sorted(glob.glob("scratch/chrome-mockups/*.html"))
+        if not files:
+            sys.exit("error: no HTML files to check")
+        targets = [(f, check) for f in files]
+
     failed = False
-    for f in files:
-        issues = check(f)
+    for target, checker in targets:
+        issues = checker(target)
+        label = target if target.startswith("http") else Path(target).name
         if issues:
             failed = True
-            print(f"  [FAIL] {Path(f).name}")
+            print(f"  [FAIL] {label}")
             for i in issues:
                 print(f"         - {i}")
         else:
-            print(f"  [ ok ] {Path(f).name}")
+            print(f"  [ ok ] {label}")
     if failed:
         print("\na11y invariants FAILED.")
         sys.exit(1)

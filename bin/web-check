@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+# Pre-deploy web gate: a11y invariants + Lighthouse against what circulation serves.
+# Usage: bin/web-check [--fast] [--base URL] [--min N]
+set -euo pipefail
+
+cd "$(dirname "$0")/.."
+
+PY="newsroom/.venv/bin/python"
+[ -x "$PY" ] || PY="python3"
+
+exec "$PY" newsroom/tools/web_check.py "$@"
