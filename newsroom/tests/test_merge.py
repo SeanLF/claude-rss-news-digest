@@ -797,8 +797,13 @@ class TestNotCoveredBlurb:
             "Skipped sports (clusters 0, 1, and World Cup articles) and the heatwave (cluster 132).",
             "Filtered US domestic lifestyle: cluster 46 and cluster 89.",
             "Dropped a minor thread referenced as [A221] in the source set.",
+            # Parenthesised ids are the form WRITE actually used in run 247
+            # (2026-07-28); the guard matched only the bracketed form until then,
+            # so the same leak class had a live hole on the footer path too.
+            "Dropped a minor thread referenced as (A221) in the source set.",
+            "Skipped duplicate wire copy (A110, A263).",
         ],
-        ids=["cluster-list", "single-clusters", "article-id"],
+        ids=["cluster-list", "single-clusters", "article-id", "article-id-paren", "article-id-paren-multi"],
     )
     def test_drops_blurb_leaking_internal_ids(self, tmp_path, caplog, leaky_blurb):
         # The footer is reader-facing. SELECT's internal cluster/article
@@ -881,3 +886,217 @@ class TestMalformedIntermediateFiles:
 
         with pytest.raises(RuntimeError):
             assemble_selections(tmp_path)
+
+
+class TestReportingVariesIdLeak:
+    """reporting_varies is reader-facing (rendered in both the web digest and the
+    email), but nothing downstream ever checked it for internal article IDs.
+
+    Run 247 (2026-07-28) shipped ``<b>NYT (A316):</b>`` and
+    ``<b>Daily Maverick, Le Monde, Rappler, Reuters (A110, A263, A349, A358):</b>``
+    to 11 subscribers. write.md tells WRITE these are "NOT article references",
+    but a prompt instruction is not enforcement -- and the existing
+    ``_INTERNAL_ID_PATTERNS`` guard only ran on not_covered_blurb, matching the
+    bracketed ``[A221]`` form, so it would have missed the parenthesised form
+    even if it had been wired up here.
+
+    The policy is STRIP, on every field, never drop the entry. An id group is a
+    self-contained parenthetical, so removing it leaves readable text behind --
+    and when the guard misfires on a real "(A320)" or "(A7)", a lost
+    parenthetical beats a lost comparison.
+    """
+
+    @staticmethod
+    def _with_varies(*entries):
+        item = _article("h")
+        item["reporting_varies"] = list(entries)
+        return _draft(must_know=[item])
+
+    @pytest.mark.parametrize(
+        ("leaky_source", "expected"),
+        [
+            ("NYT (A316)", "NYT"),
+            (
+                "Daily Maverick, Le Monde, Rappler, Reuters (A110, A263, A349, A358)",
+                "Daily Maverick, Le Monde, Rappler, Reuters",
+            ),
+            ("Reuters / AFP (A30, A32)", "Reuters / AFP"),
+            ("NYT [A221]", "NYT"),  # legacy bracketed form
+            # A model writing a list of four ends the run with "and" as often as
+            # with a comma; a separator-blind guard is the same hole as a
+            # delimiter-blind one.
+            ("NYT (A316, A317 and A318)", "NYT"),
+            ("NYT (A110; A263)", "NYT"),
+        ],
+        ids=["single-paren", "multi-id-paren", "slash-names", "bracketed", "and-join", "semicolon-join"],
+    )
+    def test_strips_id_group_from_source_and_keeps_entry(self, tmp_path, caplog, leaky_source, expected):
+        draft = self._with_varies({"source": leaky_source, "angle": "Reports 6.8.", "bias": "center"})
+        _write(tmp_path, draft, _coherence({"headline": "h", "pass": True}))
+
+        with caplog.at_level("WARNING", logger="merge"):
+            assembled = json.loads(assemble_selections(tmp_path).read_text())
+
+        varies = assembled["must_know"][0]["reporting_varies"]
+        assert [v["source"] for v in varies] == [expected]
+        assert varies[0]["angle"] == "Reports 6.8."  # untouched
+        assert any("reporting_varies" in r.getMessage() for r in caplog.records)
+
+    def test_leaves_clean_entry_untouched_and_silent(self, tmp_path, caplog):
+        clean = {"source": "Reuters / AFP", "angle": "Frame the visit as pivotal.", "bias": "center"}
+        _write(tmp_path, self._with_varies(clean), _coherence({"headline": "h", "pass": True}))
+
+        with caplog.at_level("WARNING", logger="merge"):
+            assembled = json.loads(assemble_selections(tmp_path).read_text())
+
+        assert assembled["must_know"][0]["reporting_varies"] == [clean]
+        assert not any("reporting_varies" in r.getMessage() for r in caplog.records)
+
+    @pytest.mark.parametrize(
+        ("leaky_entry", "expected"),
+        [
+            (
+                {"source": "NYT", "angle": "Reports the quake as 6.8 (A316), a preliminary reading.", "bias": "c"},
+                {"source": "NYT", "angle": "Reports the quake as 6.8, a preliminary reading.", "bias": "c"},
+            ),
+            (
+                {"source": "NYT", "angle": "Reports 6.8.", "bias": "center [A316]"},
+                {"source": "NYT", "angle": "Reports 6.8.", "bias": "center"},
+            ),
+        ],
+        ids=["angle-prose", "bias"],
+    )
+    def test_strips_leak_from_prose_fields_and_keeps_the_entry(self, tmp_path, caplog, leaky_entry, expected):
+        # Dropping the entry would cost the reader a whole comparison over a
+        # parenthetical -- and would do so on a false positive too.
+        _write(tmp_path, self._with_varies(leaky_entry), _coherence({"headline": "h", "pass": True}))
+
+        with caplog.at_level("WARNING", logger="merge"):
+            assembled = json.loads(assemble_selections(tmp_path).read_text())
+
+        assert assembled["must_know"][0]["reporting_varies"] == [expected]
+        assert any("reporting_varies" in r.getMessage() for r in caplog.records)
+
+    @pytest.mark.parametrize(
+        "field_value",
+        [
+            "Frames it as a cluster 40 cases wide, not a national outbreak.",
+            "Reports the toll (at least 40) as provisional.",
+            "Notes the vote split 6-3 (Roberts concurring).",
+        ],
+        ids=["cluster-n-prose", "plain-parenthetical", "parenthetical-with-name"],
+    )
+    def test_preserves_legitimate_parentheses_and_cluster_prose(self, tmp_path, caplog, field_value):
+        # The guard edits reader-facing text, so its false-positive boundary is
+        # the half worth pinning. "cluster 40 cases" is ordinary news prose --
+        # the SELECT-scoped cluster pattern must not reach WRITE's fields at all.
+        entry = {"source": "Reuters", "angle": field_value, "bias": "center"}
+        _write(tmp_path, self._with_varies(entry), _coherence({"headline": "h", "pass": True}))
+
+        with caplog.at_level("WARNING", logger="merge"):
+            assembled = json.loads(assemble_selections(tmp_path).read_text())
+
+        assert assembled["must_know"][0]["reporting_varies"] == [entry]
+        assert not any("reporting_varies" in r.getMessage() for r in caplog.records)
+
+    @pytest.mark.parametrize(
+        ("field_value", "expected"),
+        [
+            (
+                "Focuses on the aircraft type (A320) rather than the carrier.",
+                "Focuses on the aircraft type rather than the carrier.",
+            ),
+            ("Places the crash on the motorway (A7) near Lyon.", "Places the crash on the motorway near Lyon."),
+        ],
+        ids=["airbus", "motorway"],
+    )
+    def test_known_collateral_a_designators_are_stripped(self, tmp_path, field_value, expected):
+        # KNOWN AND ACCEPTED: "(A320)" is an Airbus model and "(A7)" a French
+        # motorway. Neither is distinguishable from an article id by any lexical
+        # rule -- article ids run A1..A{n} with n in the hundreds, so the ranges
+        # genuinely overlap. This test exists so that when someone finds an
+        # aircraft model missing from a digest, one grep lands here instead of a
+        # log dive. Stripping is why this is survivable: the sentence still
+        # reads, which a dropped entry would not.
+        entry = {"source": "Reuters", "angle": field_value, "bias": "center"}
+        _write(tmp_path, self._with_varies(entry), _coherence({"headline": "h", "pass": True}))
+
+        assembled = json.loads(assemble_selections(tmp_path).read_text())
+
+        assert assembled["must_know"][0]["reporting_varies"][0]["angle"] == expected
+
+    def test_scrubs_should_know_tier_too(self, tmp_path):
+        brief = _article("brief")
+        brief["reporting_varies"] = [{"source": "NYT (A316)", "angle": "Reports 6.8.", "bias": "center"}]
+        _write(
+            tmp_path,
+            _draft(must_know=[_article("h")], should_know=[brief]),
+            _coherence({"headline": "h", "pass": True}, {"headline": "brief", "pass": True}),
+        )
+
+        assembled = json.loads(assemble_selections(tmp_path).read_text())
+
+        assert assembled["should_know"][0]["reporting_varies"][0]["source"] == "NYT"
+
+    @pytest.mark.parametrize(
+        "entry",
+        [
+            {"source": "(A316)", "angle": "Reports 6.8.", "bias": "center"},
+            {"source": "NYT", "angle": "[A316]", "bias": "center"},
+        ],
+        ids=["source-was-only-an-id", "angle-was-only-an-id"],
+    )
+    def test_drops_entry_left_empty_by_scrubbing(self, tmp_path, entry):
+        # Nothing readable survives, and "NYT:" with no angle is a dangling row.
+        _write(tmp_path, self._with_varies(entry), _coherence({"headline": "h", "pass": True}))
+
+        assembled = json.loads(assemble_selections(tmp_path).read_text())
+
+        # Schema allows the key to be absent; an empty array would render a
+        # dangling "How reporting varies" label with no content.
+        assert "reporting_varies" not in assembled["must_know"][0]
+
+    def test_drops_non_dict_entry_with_a_warning(self, tmp_path, caplog):
+        clean = {"source": "Reuters", "angle": "Reports 7.1.", "bias": "center"}
+        _write(tmp_path, self._with_varies("not an object", clean), _coherence({"headline": "h", "pass": True}))
+
+        with caplog.at_level("WARNING", logger="merge"):
+            assembled = json.loads(assemble_selections(tmp_path).read_text())
+
+        assert assembled["must_know"][0]["reporting_varies"] == [clean]
+        assert any("not an object" in r.getMessage() for r in caplog.records)
+
+    def test_warns_rather_than_declining_silently_on_a_non_list(self, tmp_path, caplog):
+        # Schema validation rejects this shape and aborts the run; without a log
+        # line here the abort gives no hint the guard was ever involved.
+        item = _article("h")
+        item["reporting_varies"] = {"source": "NYT", "angle": "a", "bias": "b"}  # dict, not list
+        _write(tmp_path, _draft(must_know=[item]), _coherence({"headline": "h", "pass": True}))
+
+        with caplog.at_level("WARNING", logger="merge"), pytest.raises(RuntimeError):
+            assemble_selections(tmp_path)
+
+        assert any("not a list" in r.getMessage() for r in caplog.records)
+
+    def test_names_the_story_in_every_warning(self, tmp_path, caplog):
+        # A bare warning cannot be traced back to a story once a digest has 16.
+        item = _article("Quake hits northern Japan")
+        item["reporting_varies"] = [{"source": "NYT (A316)", "angle": "Reports 6.8.", "bias": "center"}]
+        _write(tmp_path, _draft(must_know=[item]), _coherence({"headline": "Quake hits northern Japan", "pass": True}))
+
+        with caplog.at_level("WARNING", logger="merge"):
+            assemble_selections(tmp_path)
+
+        rv = [r.getMessage() for r in caplog.records if "reporting_varies" in r.getMessage()]
+        assert rv and all("Quake hits northern Japan" in m for m in rv if "entries scrubbed" not in m)
+
+    def test_logs_one_aggregate_tally(self, tmp_path, caplog):
+        # N scattered warnings each read as a one-off; the tally reads as a
+        # WRITE regression, which is what a broad misfire actually is.
+        leaky = [{"source": f"NYT (A{i})", "angle": "Reports 6.8.", "bias": "center"} for i in (1, 2, 3)]
+        _write(tmp_path, self._with_varies(*leaky), _coherence({"headline": "h", "pass": True}))
+
+        with caplog.at_level("WARNING", logger="merge"):
+            assemble_selections(tmp_path)
+
+        assert any("3 entries scrubbed of internal ids, 0 dropped" in r.getMessage() for r in caplog.records)

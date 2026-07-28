@@ -26,6 +26,19 @@ logger = logging.getLogger(__name__)
 # frozenset so it serves both merge's membership test and repair's subset check.
 _REPAIRABLE_FIELDS = frozenset({"headline", "summary"})
 
+# A delimited group of opaque article IDs: "[A221]", "(A316)", "(A110, A263)",
+# "(A316, A317 and A318)". Both delimiters matter -- the 2026-06-30 thread leak
+# used brackets, the 2026-07-28 reporting_varies leak used parentheses, and a
+# guard that knows only one form is a guard with a live hole. The same argument
+# applies to the separator, so the id run accepts the joins a model actually
+# writes, not just commas. Delimiters must MATCH: "[A316)" is not a form any
+# generator produces, and accepting it only widens the false-positive surface.
+#
+# Bare "A316" is deliberately NOT matched: without a delimiter it cannot be told
+# apart from a legitimate token, and a false positive silently edits reader text.
+_ID_RUN = r"A\d+(?:\s*(?:,|;|&|and)\s*A\d+)*"
+_ARTICLE_ID_GROUP = re.compile(rf"\s*(?:\[\s*{_ID_RUN}\s*\]|\(\s*{_ID_RUN}\s*\))")
+
 # The not_covered_blurb is reader-facing (rendered in the digest footer), but it
 # originates from SELECT, whose working vocabulary includes internal cluster
 # indices ("cluster 132", "clusters 0, 1") and opaque article IDs ("[A221]").
@@ -35,7 +48,7 @@ _REPAIRABLE_FIELDS = frozenset({"headline", "summary"})
 # visible in logs instead of shipping garbage.
 _INTERNAL_ID_PATTERNS = (
     re.compile(r"\bclusters?\s+\d", re.IGNORECASE),  # "cluster 132", "clusters 0, 1"
-    re.compile(r"\[A\d+\]"),  # bracketed article IDs like "[A221]"
+    _ARTICLE_ID_GROUP,
 )
 
 
@@ -390,6 +403,83 @@ def _enforce_capped_string_fields(draft: dict) -> None:
             draft[name] = _truncate_on_word_boundary(value, cap)
 
 
+def _strip_article_ids(text: str) -> str:
+    """Remove delimited article-id groups, tidying the whitespace they leave.
+
+    Returns the input byte-identical when nothing matched, so callers can use
+    ``!=`` as the "did this leak?" test without cosmetic whitespace fixes
+    masquerading as leaks in the logs.
+    """
+    stripped = _ARTICLE_ID_GROUP.sub("", text)
+    return re.sub(r"\s{2,}", " ", stripped).strip() if stripped != text else text
+
+
+def _scrub_reporting_varies(item: dict) -> tuple[int, int]:
+    """Strip leaked internal article IDs out of a story's reporting_varies block.
+
+    reporting_varies renders verbatim into the must-know cards on both the web
+    digest and the email (``<b>{source}:</b> {angle}``), yet nothing downstream
+    ever checked it. write.md tells WRITE these are "NOT article references";
+    run 247 (2026-07-28) shipped ``NYT (A316):`` to 11 subscribers anyway. That
+    is what a prompt-only guard buys you, so enforcement lives here in Python.
+
+    STRIP rather than drop, on every field. An id group is a self-contained
+    parenthetical, so removing it leaves the surrounding text intact and
+    readable -- unlike not_covered_blurb, where the leak is woven through one
+    freeform sentence and dropping the whole blurb is the only clean move.
+    Stripping also fails better than dropping when the guard is WRONG: "(A320)"
+    is a real Airbus model and "(A7)" a real motorway, neither distinguishable
+    from an article id. Misfiring costs a parenthetical; dropping would have
+    cost the reader the entire comparison.
+
+    The SELECT-scoped cluster pattern is deliberately NOT applied here. WRITE
+    has no cluster vocabulary to leak, and "a cluster 40 cases wide" is ordinary
+    news prose that the pattern would match.
+
+    Returns ``(entries_scrubbed, entries_dropped)`` for the run-level tally.
+    """
+    entries = item.get("reporting_varies")
+    if entries is None:
+        return 0, 0
+    headline = item.get("headline")
+    if not isinstance(entries, list):
+        # Not ours to fix; say so, or the schema abort downstream is a mystery.
+        logger.warning(
+            "[%s] reporting_varies is %s, not a list -- leaving it to schema validation",
+            headline,
+            type(entries).__name__,
+        )
+        return 0, 0
+
+    kept: list[dict] = []
+    scrubbed = dropped = 0
+    for entry in entries:
+        if not isinstance(entry, dict):
+            logger.warning(
+                "[%s] reporting_varies entry is %s, not an object -- dropping", headline, type(entry).__name__
+            )
+            dropped += 1
+            continue
+        clean = {k: _strip_article_ids(v) if isinstance(v, str) else v for k, v in entry.items()}
+        if clean != entry:
+            scrubbed += 1
+            logger.warning("[%s] reporting_varies leaked internal ids -- stripped %r to %r", headline, entry, clean)
+        # A source or angle that was ONLY an id leaves a dangling "NYT:" row.
+        if not clean.get("source") or not clean.get("angle"):
+            logger.warning("[%s] reporting_varies entry is empty after scrubbing -- dropping: %r", headline, entry)
+            dropped += 1
+            continue
+        kept.append(clean)
+
+    if kept:
+        item["reporting_varies"] = kept
+    else:
+        # An empty array would render a dangling "How reporting varies" label
+        # with no content. The schema makes the key optional -- drop it instead.
+        item.pop("reporting_varies", None)
+    return scrubbed, dropped
+
+
 def assemble_selections(claude_input_dir: Path) -> Path:
     """Read draft + coherence, drop coherence-failed entries, write selections.json.
 
@@ -428,11 +518,17 @@ def assemble_selections(claude_input_dir: Path) -> Path:
     matched_failed: set[int] = set()
 
     dropped = []
+    rv_scrubbed = rv_dropped = 0
     for tier in ("must_know", "should_know"):
         kept = []
         for item in draft.get(tier, []):
             item_ids = _item_article_ids(item)
             item_norm = _norm_headline(item.get("headline", ""))
+            # Before any keep/drop branch, so every path that can reach a reader
+            # is covered -- including ones added later.
+            scrubbed, entries_dropped = _scrub_reporting_varies(item)
+            rv_scrubbed += scrubbed
+            rv_dropped += entries_dropped
 
             # Coverage: surface any headline COHERENCE never reported on -- it was
             # supposed to check EVERY headline, so a gap is a silent miss.
@@ -500,6 +596,16 @@ def assemble_selections(claude_input_dir: Path) -> Path:
         logger.info("Coherence dropped %d headlines:", len(dropped))
         for section, headline in dropped:
             logger.info("  [%s] %s", section, headline)
+
+    # One aggregate line, so a broad WRITE regression reads as a regression
+    # rather than as N scattered warnings that each look like a one-off.
+    if rv_scrubbed or rv_dropped:
+        logger.warning(
+            "reporting_varies: %d entries scrubbed of internal ids, %d dropped -- WRITE is putting "
+            "article ids in a reader-facing field (see write.md)",
+            rv_scrubbed,
+            rv_dropped,
+        )
 
     # A pass:false entry that matched no draft headline means a coherence failure
     # was silently NOT applied (headline drift, stale report) -- never swallow it.
