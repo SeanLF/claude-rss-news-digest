@@ -1,0 +1,178 @@
+#!/usr/bin/env node
+// Cross-page computed-style diff for the app chrome.
+//
+// chrome.rs's module doc says keeping the chrome in one place "guarantees pixel-parity".
+// It does, for the seven pages that render through `chrome::page_head`. digest.rs keeps
+// its own copy of 15 of those selectors, and that copy was written a day after the
+// original, by regenerating it rather than copying it. This finds where the two drifted.
+//
+//   bin/cssdiff                          # against http://127.0.0.1:8080
+//   bin/cssdiff --base http://host:8081
+//   bin/cssdiff --el toggle              # one element
+//
+// Needs a running circulation (`docker compose up -d digest-circulation`) and the
+// Playwright that `npx playwright` installs under ~/.npm/_npx.
+//
+// Design notes, both learned the hard way on this repo:
+//   - Computed styles from a real browser, never parsed source. A source-level pass
+//     flagged three divergences here and all three were false: one whitespace, one
+//     documented token choice, one rule inside a media query it could not see.
+//   - Viewports are compared WITHIN a width, never across. A property that differs
+//     only at 390px is a media query working, not drift.
+//   - height/min-height are excluded. They are content-dependent geometry: .masthead
+//     holds the page title, so its height differs per page for reasons that are not CSS.
+
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
+
+const NPX = path.join(os.homedir(), '.npm/_npx');
+const PW = fs.existsSync(NPX)
+  ? fs.readdirSync(NPX).map(h => path.join(NPX, h, 'node_modules/playwright')).find(p => fs.existsSync(p))
+  : null;
+if (!PW) {
+  console.error('playwright not found under ~/.npm/_npx -- run `npx playwright` once to install it.');
+  process.exit(2);
+}
+const { chromium } = require(PW);
+
+const arg = (flag, dflt) => {
+  const i = process.argv.indexOf(flag);
+  return i === -1 ? dflt : process.argv[i + 1];
+};
+const base = arg('--base', 'http://127.0.0.1:8080').replace(/\/$/, '');
+const only = arg('--el', null);
+
+// Static routes render through chrome::page_head and must agree with each other.
+const CHROME_ROUTES = [
+  ['index', '/'], ['sources', '/sources'], ['stats', '/stats'],
+  ['threads', '/threads'], ['search', '/search'], ['feedback', '/feedback'],
+];
+const DIGEST = 'digest';
+
+const ELEMENTS = [
+  ['skip link', '.skip'],
+  ['top bar', '.topbar'],
+  ['nav container', '.topnav'],
+  ['nav link', '.topnav a'],
+  ['nav separator', '.topnav .sep'],
+  ['translate pill', '.pill'],
+  ['pill glyph', '.pill .g'],
+  ['theme toggle', '.toggle, #themeBtn'],
+  ['toggle glyph', '.tglyph'],
+  ['toggle word', '.tword'],
+  ['masthead', '.masthead'],
+  ['brandmark', '.brandmark'],
+  ['footer', 'footer'],
+];
+
+const PROPS = [
+  'display', 'box-sizing', 'font-family', 'font-size', 'font-weight', 'font-style', 'line-height',
+  'letter-spacing', 'text-transform', 'text-decoration-line', 'text-align', 'color', 'background-color',
+  'border-top-width', 'border-top-style', 'border-top-color', 'border-bottom-width', 'border-bottom-color',
+  'border-radius', 'padding-top', 'padding-right', 'padding-bottom', 'padding-left',
+  'margin-top', 'margin-right', 'margin-bottom', 'margin-left', 'column-gap', 'row-gap',
+  'align-items', 'justify-content', 'flex-wrap', 'box-shadow', 'white-space',
+];
+
+const VIEWPORTS = [['desktop', 1100], ['mobile', 390]];
+const FONT_PROPS = new Set(['font-family', 'font-size', 'line-height', 'letter-spacing',
+  'text-transform', 'text-decoration-line', 'text-align']);
+
+// The digest and a thread detail only exist at runtime, so ask the server for them
+// rather than hardcoding a date that rots.
+async function discoverRoutes(page) {
+  const routes = [...CHROME_ROUTES];
+  const res = await page.goto(base + '/today', { waitUntil: 'commit' }).catch(() => null);
+  const url = res && page.url();
+  if (url && /\/issues\//.test(url)) routes.push([DIGEST, url.replace(/^https?:\/\/[^/]+/, '')]);
+  else console.error('  !! no issue found via /today; the digest copy will not be compared');
+
+  await page.goto(base + '/threads', { waitUntil: 'load' }).catch(() => null);
+  const href = await page.evaluate(() => {
+    const a = document.querySelector('a[href^="/thread/"]');
+    return a && a.getAttribute('href');
+  }).catch(() => null);
+  if (href) routes.push(['thread', href]);
+  return routes;
+}
+
+(async () => {
+  const browser = await chromium.launch({ channel: 'chrome' });
+  const probe = await browser.newPage();
+  const ROUTES = await discoverRoutes(probe);
+  await probe.close();
+
+  const names = ROUTES.map(([n]) => n);
+  const chromePages = names.filter(n => n !== DIGEST);
+  const data = {};
+
+  for (const [vp, width] of VIEWPORTS) {
+    data[vp] = {};
+    for (const [name, route] of ROUTES) {
+      const ctx = await browser.newContext({ viewport: { width, height: 800 }, deviceScaleFactor: 1 });
+      const p = await ctx.newPage();
+      const res = await p.goto(base + route, { waitUntil: 'load' });
+      if (!res || res.status() !== 200) console.error(`  !! ${route} returned ${res ? res.status() : 'nothing'}`);
+      await p.waitForTimeout(120);
+      data[vp][name] = await p.evaluate(([els, props]) => {
+        const out = {};
+        for (const [n, sel] of els) {
+          const nodes = document.querySelectorAll(sel);
+          if (!nodes.length) { out[n] = null; continue; }
+          const cs = getComputedStyle(nodes[0]);
+          const rec = { _hasText: [...nodes[0].childNodes].some(c => c.nodeType === 3 && c.textContent.trim()) };
+          for (const prop of props) rec[prop] = cs.getPropertyValue(prop).trim();
+          out[n] = rec;
+        }
+        return out;
+      }, [ELEMENTS, PROPS]);
+      await ctx.close();
+    }
+  }
+  await browser.close();
+
+  let drift = 0, digestRows = 0, dead = 0;
+  for (const [elName, sel] of ELEMENTS) {
+    if (only && !elName.includes(only) && !sel.includes(only)) continue;
+
+    // A selector matching nothing cannot diverge, so a naive differ calls it a pass and
+    // a typo'd selector stays green forever. Loud, and non-zero exit, instead.
+    if (VIEWPORTS.every(([vp]) => names.every(n => !data[vp][n][elName]))) {
+      console.log(`\n### ${elName}  (${sel})\n    !! DEAD SELECTOR: matched nothing on any page`);
+      dead++;
+      continue;
+    }
+
+    const rows = [];
+    for (const [vp] of VIEWPORTS) {
+      for (const prop of PROPS) {
+        if (FONT_PROPS.has(prop) && !names.some(n => data[vp][n][elName]?._hasText)) continue;
+        const val = n => (data[vp][n][elName] ? data[vp][n][elName][prop] : null);
+        const chromeVals = chromePages.filter(n => data[vp][n][elName]).map(val);
+        if (!chromeVals.length) continue;
+        const chromeDiffers = new Set(chromeVals).size > 1;
+        const dv = names.includes(DIGEST) ? val(DIGEST) : null;
+        if (chromeDiffers || (dv !== null && dv !== chromeVals[0])) rows.push({ vp, prop, chromeDiffers, val });
+      }
+    }
+
+    console.log(`\n### ${elName}  (${sel})`);
+    for (const [vp] of VIEWPORTS) {
+      const absent = names.filter(n => !data[vp][n][elName]);
+      if (absent.length) console.log(`    [${vp}] absent on: ${absent.join(', ')}`);
+    }
+    if (!rows.length) { console.log('    ok  identical everywhere, both viewports'); continue; }
+    for (const { vp, prop, chromeDiffers, val } of rows) {
+      chromeDiffers ? drift++ : digestRows++;
+      console.log(`  ${chromeDiffers ? 'DRIFT ' : 'digest'} [${vp}] ${prop}`);
+      for (const n of names) console.log(`        ${n.padEnd(10)} ${val(n) ?? '(absent)'}`);
+    }
+  }
+
+  console.log('\n' + '='.repeat(68));
+  console.log(`chrome-vs-chrome drift : ${drift}   <- pages that share chrome.rs; any hit is a bug`);
+  console.log(`digest-vs-chrome       : ${digestRows}   <- digest.rs's own copy; most are intentional`);
+  console.log(`dead selectors         : ${dead}`);
+  process.exit(drift > 0 || dead > 0 ? 1 : 0);
+})();
