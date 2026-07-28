@@ -109,6 +109,35 @@ Recorded because each was stated with confidence before being falsified:
   remain the right source for probes — because they are tokens you have not already *spent*
   against the per-IP budget, not because stored ones go stale.
 
+## The measurement that closes all of this: production is not throttled
+
+Run from the Hetzner box on 2026-07-28, after dual-stacking, against fresh tokens from ten
+search queries:
+
+| address family | requests | result |
+|---|---|---|
+| IPv6 | **400** | no 429, ever |
+| IPv4 | **200** | no 429, ever |
+
+Both figures are the script's own cap, not a limit — the ceiling was never found. **We need 48.**
+
+Everything else in this document about budgets was measured from a laptop or a VPN exit. Those
+numbers are real for those addresses and **do not describe production**. That is the same error
+as the france24 diagnosis, in a different costume: reasoning about prod from a route prod does
+not take. It is now the fourth time in this investigation.
+
+What this retires:
+
+- **Pacing, batching and "resolve only the first source per story" are all unnecessary.** There
+  is no budget pressure to relieve. Resolve every article.
+- **Routing production through a VPN would make things strictly worse** — a median-27 Proton
+  exit in place of an address that took 400 without complaint.
+- The per-address-versus-/64 question is moot. It came back inconclusive only because no
+  address could be pushed to refusal.
+
+Not retired: `AdaptiveRateLimit` and the 429 back-off stay, because "not throttled today" is
+not "cannot be throttled". They cost nothing while unused.
+
 ## What this means for the pipeline
 
 We make **48 GETs per run**, one per article, against a budget that measured 22–43 on VPN
@@ -157,7 +186,7 @@ Nothing below has been committed, pushed or deployed. No production behaviour ch
 | Upstream contribution | forked, branch pushed, 86 tests, CI + lint added | send the email; decide whether to collapse the legacy decoders first |
 | `newsroom/src/gnews.py` | on the library adapter, against **PyPI**, not the fork | decide: stay on PyPI 0.1.7 (measured working), or pin the fork |
 | `not_covered_blurb` cap 300 -> 500 | done, tested, green | commit |
-| Hetzner `degrade` run | not started | the measurement that decides whether 48 GETs/run is safe. Now the *only* open question, since pacing and the embedded short-circuit are both dead |
+| Hetzner budget | **DONE — 400 IPv6 / 200 IPv4, no 429.** 48 GETs/run is safe | nothing |
 | `scratch/gnews-rate-lab/` | working harness | keep as-is; gitignored, holds VPN credentials |
 
 The upstream approach is deliberately **one branch, proposed privately by email**, rather than
