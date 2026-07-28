@@ -15,6 +15,7 @@ from pathlib import Path
 import config
 from eval_graders import grade_selections
 from schema import NOT_COVERED_BLURB_MAX_LEN, SELECTIONS_SCHEMA, validate_selections
+from utils import ARTICLE_ID_GROUP, strip_article_ids
 
 logger = logging.getLogger(__name__)
 
@@ -26,19 +27,6 @@ logger = logging.getLogger(__name__)
 # frozenset so it serves both merge's membership test and repair's subset check.
 _REPAIRABLE_FIELDS = frozenset({"headline", "summary"})
 
-# A delimited group of opaque article IDs: "[A221]", "(A316)", "(A110, A263)",
-# "(A316, A317 and A318)". Both delimiters matter -- the 2026-06-30 thread leak
-# used brackets, the 2026-07-28 reporting_varies leak used parentheses, and a
-# guard that knows only one form is a guard with a live hole. The same argument
-# applies to the separator, so the id run accepts the joins a model actually
-# writes, not just commas. Delimiters must MATCH: "[A316)" is not a form any
-# generator produces, and accepting it only widens the false-positive surface.
-#
-# Bare "A316" is deliberately NOT matched: without a delimiter it cannot be told
-# apart from a legitimate token, and a false positive silently edits reader text.
-_ID_RUN = r"A\d+(?:\s*(?:,|;|&|and)\s*A\d+)*"
-_ARTICLE_ID_GROUP = re.compile(rf"\s*(?:\[\s*{_ID_RUN}\s*\]|\(\s*{_ID_RUN}\s*\))")
-
 # The not_covered_blurb is reader-facing (rendered in the digest footer), but it
 # originates from SELECT, whose working vocabulary includes internal cluster
 # indices ("cluster 132", "clusters 0, 1") and opaque article IDs ("[A221]").
@@ -48,7 +36,7 @@ _ARTICLE_ID_GROUP = re.compile(rf"\s*(?:\[\s*{_ID_RUN}\s*\]|\(\s*{_ID_RUN}\s*\))
 # visible in logs instead of shipping garbage.
 _INTERNAL_ID_PATTERNS = (
     re.compile(r"\bclusters?\s+\d", re.IGNORECASE),  # "cluster 132", "clusters 0, 1"
-    _ARTICLE_ID_GROUP,
+    ARTICLE_ID_GROUP,
 )
 
 
@@ -403,17 +391,6 @@ def _enforce_capped_string_fields(draft: dict) -> None:
             draft[name] = _truncate_on_word_boundary(value, cap)
 
 
-def _strip_article_ids(text: str) -> str:
-    """Remove delimited article-id groups, tidying the whitespace they leave.
-
-    Returns the input byte-identical when nothing matched, so callers can use
-    ``!=`` as the "did this leak?" test without cosmetic whitespace fixes
-    masquerading as leaks in the logs.
-    """
-    stripped = _ARTICLE_ID_GROUP.sub("", text)
-    return re.sub(r"\s{2,}", " ", stripped).strip() if stripped != text else text
-
-
 def _scrub_reporting_varies(item: dict) -> tuple[int, int]:
     """Strip leaked internal article IDs out of a story's reporting_varies block.
 
@@ -460,7 +437,7 @@ def _scrub_reporting_varies(item: dict) -> tuple[int, int]:
             )
             dropped += 1
             continue
-        clean = {k: _strip_article_ids(v) if isinstance(v, str) else v for k, v in entry.items()}
+        clean = {k: strip_article_ids(v) if isinstance(v, str) else v for k, v in entry.items()}
         if clean != entry:
             scrubbed += 1
             logger.warning("[%s] reporting_varies leaked internal ids -- stripped %r to %r", headline, entry, clean)

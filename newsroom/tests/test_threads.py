@@ -739,3 +739,39 @@ def test_render_context_strips_ids_from_already_stored_dirty_facts(conn):
     ctx = store.render_context(tid, 2)
     assert "[A" not in ctx["delta"]
     assert ctx["delta"] == "Doha talks set this week."
+
+
+# --- strip_article_ids: the parenthesised form (run 247, 2026-07-28) ---
+# The cases above cover the bracketed form the 2026-06-30 fix was built for. Run 247 proved the
+# models also write "(A316)". Worth covering on the thread path specifically: it feeds both the
+# rendered delta and the carried recent_deltas memory, so a leak here is shown AND persisted.
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ("Talks resumed in Doha. (A221)", "Talks resumed in Doha."),
+        ("Iran denied it (A164, A407) and stalled.", "Iran denied it and stalled."),
+        ("Strikes resumed (A316, A317 and A318).", "Strikes resumed."),
+        ("The vote split (A110; A263)", "The vote split"),
+        ("Aid convoys turned back (A11 & A12)", "Aid convoys turned back"),
+    ],
+    ids=["trailing", "midsentence-multi", "and-join", "semicolon-join", "ampersand-join"],
+)
+def test_strip_article_ids_removes_parenthesised_citations(text, expected):
+    assert threads.strip_article_ids(text) == expected
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "The council met (see annex) before the vote.",
+        "Casualties (at least 40) remain unconfirmed.",
+        # Mismatched delimiters are not a form any generator produces, so matching them would only
+        # add false positives -- and a false positive silently edits reader text.
+        "Split ruling [A316) stands",
+    ],
+    ids=["parenthetical-phrase", "parenthetical-number", "mismatched-delimiters"],
+)
+def test_strip_article_ids_leaves_legitimate_delimited_text(text):
+    assert threads.strip_article_ids(text) == text

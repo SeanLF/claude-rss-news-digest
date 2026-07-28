@@ -26,6 +26,8 @@ import re
 from contextlib import contextmanager, suppress
 from dataclasses import dataclass, field
 
+from utils import strip_article_ids
+
 logger = logging.getLogger(__name__)
 
 HAIKU_MODEL = "claude-haiku-4-5-20251001"
@@ -78,18 +80,9 @@ class ThreadAssignment:
     open_questions: list[str] = field(default_factory=list)
 
 
-_ARTICLE_ID_CITATION = re.compile(r"\s*\[A\d+(?:\s*,\s*A\d+)*\]")
-
-
-def strip_article_ids(text: str) -> str:
-    """Remove inline ``[A123]`` / ``[A1, A2]`` article-id citations the synthesis model
-    sometimes embeds in fact prose. Source ids belong only in the separate ``sources`` field
-    (provenance for the audit) and must never reach reader-facing text or the thread's carried
-    fact memory (recent_deltas) -- the thread path's analog of COHERENCE's leak guard. Numeric
-    source markers like ``[1]`` are left untouched (only A-prefixed ids match)."""
-    if not text:
-        return text
-    return re.sub(r"\s{2,}", " ", _ARTICLE_ID_CITATION.sub("", text)).strip()
+def _tidy(text: str) -> str:
+    """Collapse whitespace runs and trim -- what stripping a citation leaves behind."""
+    return re.sub(r"\s{2,}", " ", text).strip()
 
 
 def delta_from_facts(facts: list[dict], *, top_n: int = 3) -> str:
@@ -98,9 +91,17 @@ def delta_from_facts(facts: list[dict], *, top_n: int = 3) -> str:
     Facts are ordered most-important-first by the synthesis, so the top N lead with what matters.
 
     This is the single funnel for both the rendered delta and the carried memory (recent_deltas),
-    so it strips any inline ``[A123]`` citations the synthesis leaked into fact prose -- the thread
-    path's reader-facing leak guard, resilient to already-stored facts that still carry them."""
-    return " ".join(strip_article_ids(f.get("fact", "")) for f in facts[:top_n] if f.get("fact"))
+    so it strips any inline ``[A123]`` / ``(A123)`` citations the synthesis leaked into fact prose
+    -- the thread path's reader-facing leak guard, resilient to already-stored facts that still
+    carry them.
+
+    Tidying is done HERE, not in ``strip_article_ids``, because the two callers want opposite
+    things: merge compares before/after to decide whether a leak occurred, so it needs the
+    no-op case byte-identical, while these facts are joined with a space and a stray trailing
+    or doubled space would show up in the rendered delta (and in tomorrow's carried memory).
+    The Rust mirror in ``circulation/src/thread.rs`` collapses unconditionally for the same
+    reason -- the same stored fact must render identically on the archive page."""
+    return " ".join(_tidy(strip_article_ids(f.get("fact", ""))) for f in facts[:top_n] if f.get("fact"))
 
 
 def _whats_new(content: str | None) -> list[dict]:

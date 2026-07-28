@@ -263,11 +263,16 @@ fn facts_from_content(content: Option<&str>) -> Vec<String> {
         .collect()
 }
 
-/// Mirror of Python's `threads.strip_article_ids` (`newsroom/src/threads.py`) -- keep in sync.
-/// Removes leaked internal `[A123]` / `[A1, A2]` article-id citations from synthesized fact
+/// Mirror of Python's `utils.strip_article_ids` (`newsroom/src/utils.py`) -- keep in sync.
+/// Removes leaked internal `[A123]` / `(A123)` article-id citations from synthesized fact
 /// prose before it reaches this public page: those ids are internal audit provenance and must
 /// never reach readers (see commit `1b804a7`, the id-leak bug this guards against; the thread
 /// path bypasses COHERENCE's leak guard so already-stored rows may still carry them).
+///
+/// This function reads the RAW stored facts, not Python's already-scrubbed delta, so on this
+/// page it is the only guard. That is why it went stale unnoticed: it learned the bracketed
+/// form in 2026-06-30 and run 247 (2026-07-28) showed the models also write the parenthesised
+/// one, which rendered here until the grammar below was widened to match.
 fn strip_article_ids(text: &str) -> String {
     let mut out = String::with_capacity(text.len());
     let mut i = 0;
@@ -284,18 +289,35 @@ fn strip_article_ids(text: &str) -> String {
     collapse_whitespace_runs(&out)
 }
 
-/// Matches `\[A\d+(?:\s*,\s*A\d+)*\]` at the start of `s`; returns the byte length consumed.
+/// Matches a delimited article-id group at the start of `s`; returns the byte length consumed.
+///
+/// Mirrors Python's `utils.ARTICLE_ID_GROUP`: `[A1]` or `(A1)`, ids joined by `,`, `;`, `&`, or
+/// `and`. Delimiters must MATCH -- `[A1)` is not a form any generator produces, and accepting it
+/// would only widen the false-positive surface over legitimate parenthesised prose.
 fn match_citation(s: &str) -> Option<usize> {
-    let mut rest = s.strip_prefix('[')?;
-    rest = match_article_id(rest)?;
-    while let Some(candidate) = rest.trim_start().strip_prefix(',').map(str::trim_start) {
-        match match_article_id(candidate) {
+    let (open, close) = if s.starts_with('[') {
+        ('[', ']')
+    } else {
+        ('(', ')')
+    };
+    let mut rest = match_article_id(s.strip_prefix(open)?.trim_start())?;
+    while let Some(candidate) = strip_id_separator(rest.trim_start()) {
+        match match_article_id(candidate.trim_start()) {
             Some(next) => rest = next,
             None => break,
         }
     }
-    let rest = rest.strip_prefix(']')?;
+    let rest = rest.trim_start().strip_prefix(close)?;
     Some(s.len() - rest.len())
+}
+
+/// The separators Python's `_ID_RUN` accepts between ids in one group. A model writing a list
+/// of four ends it with "and" as readily as with a comma, so a comma-only guard has the same
+/// shape of hole as a bracket-only one.
+fn strip_id_separator(s: &str) -> Option<&str> {
+    [",", ";", "&", "and"]
+        .into_iter()
+        .find_map(|sep| s.strip_prefix(sep))
 }
 
 /// Matches `A\d+` at the start of `s`; returns the remainder after it.
@@ -413,7 +435,10 @@ mod tests {
     use super::*;
     use std::sync::atomic::{AtomicU64, Ordering};
 
-    // --- strip_article_ids: mirrors newsroom/tests/test_threads.py exactly (parity check) ---
+    // --- strip_article_ids: parity check against newsroom/tests/test_threads.py ---
+    // Same inputs, same expected outputs. When one side learns a new citation form, the other
+    // must too -- this page is the only guard on the raw stored facts, and the two grammars
+    // silently disagreeing for four weeks is exactly how run 247 shipped.
 
     mod strip_article_ids_tests {
         use super::super::strip_article_ids;
@@ -507,6 +532,77 @@ mod tests {
         #[test]
         fn leaves_non_digit_bracket_alone() {
             assert_eq!(strip_article_ids("a note [Ax] here"), "a note [Ax] here");
+        }
+
+        // --- parenthesised form (run 247, 2026-07-28) ---
+        // This page reads the RAW stored facts, so until the grammar was widened these all
+        // rendered to readers. Parity with test_threads.py's parenthesised cases.
+
+        #[test]
+        fn removes_trailing_parenthesised_citation() {
+            assert_eq!(
+                strip_article_ids("Talks resumed in Doha. (A221)"),
+                "Talks resumed in Doha."
+            );
+        }
+
+        #[test]
+        fn removes_midsentence_parenthesised_multi_id() {
+            assert_eq!(
+                strip_article_ids("Iran denied it (A164, A407) and stalled."),
+                "Iran denied it and stalled."
+            );
+        }
+
+        #[test]
+        fn removes_and_joined_ids() {
+            assert_eq!(
+                strip_article_ids("Strikes resumed (A316, A317 and A318)."),
+                "Strikes resumed."
+            );
+        }
+
+        #[test]
+        fn removes_semicolon_and_ampersand_joined_ids() {
+            assert_eq!(
+                strip_article_ids("The vote split (A110; A263)"),
+                "The vote split"
+            );
+            assert_eq!(
+                strip_article_ids("Aid convoys turned back (A11 & A12)"),
+                "Aid convoys turned back"
+            );
+        }
+
+        #[test]
+        fn leaves_mismatched_delimiters_alone() {
+            // Not a form any generator produces; matching it would only widen the
+            // false-positive surface over legitimate prose.
+            assert_eq!(
+                strip_article_ids("Split ruling [A316) stands"),
+                "Split ruling [A316) stands"
+            );
+        }
+
+        #[test]
+        fn leaves_legitimate_parenthetical_text_alone() {
+            assert_eq!(
+                strip_article_ids("Casualties (at least 40) remain unconfirmed."),
+                "Casualties (at least 40) remain unconfirmed."
+            );
+            assert_eq!(
+                strip_article_ids("The council met (see annex) before the vote."),
+                "The council met (see annex) before the vote."
+            );
+        }
+
+        #[test]
+        fn leaves_and_lookalike_alone() {
+            // "android" starts with "and" but is not a separator followed by an id.
+            assert_eq!(
+                strip_article_ids("Shipped on (A1 android) devices"),
+                "Shipped on (A1 android) devices"
+            );
         }
     }
 
