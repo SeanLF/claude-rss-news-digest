@@ -361,6 +361,10 @@ run_migrations() {
 
 TF_TARGETS=(
   -target=null_resource.news_digest_env
+  # Named explicitly even though news_digest_service depends_on it, so a targeted apply would
+  # pull it in anyway. Relying on that is how a resource gets left behind the next time the
+  # dependency is reworked -- the same "update every reference" miss that has bitten renames here.
+  -target=null_resource.news_digest_v6_network
   -target=null_resource.news_digest_service
   -target=null_resource.news_digest_timer
   -target=null_resource.news_digest_alert
