@@ -492,3 +492,325 @@ def test_stage_retries_transient_via_with_retry_async(tmp_path, monkeypatch):
 def test_stage_no_articles_raises(tmp_path, monkeypatch):
     with pytest.raises(ValueError, match="no articles"):
         asyncio.run(cej.run_extractjoin_stage(tmp_path, model="claude-sonnet-4-6", cwd=None, threshold=0.80))
+
+
+# --------------------------------------------------------------------------- #
+# Zero-yield batches: a call that SUCCEEDS but returns nothing usable.
+# Run 247 lost batch 1 (40/688 articles) this way, and the archived traces show
+# the same wholesale single-batch loss in 7 of 40 runs -- at batches 1, 2, 6 and
+# 11, so it is not first-batch-specific. with_retry_async cannot see it: nothing
+# raised, the response was merely unusable.
+# --------------------------------------------------------------------------- #
+def _good_items(ids):
+    return json.dumps(
+        {"items": [{"article_id": a, "entities": [f"E{a}"], "keywords": ["k"], "primary_event": f"e{a}"} for a in ids]}
+    )
+
+
+def _batch_ids(prompt):
+    import re
+
+    return re.findall(r"\bA\d+\b", prompt)
+
+
+def test_zero_yield_batch_is_reattempted_once(tmp_path, monkeypatch):
+    """A batch whose response parses to nothing must be re-attempted before its 40 articles are
+    given up to title-only. The call succeeded, so no retry ladder fires -- this is the only guard."""
+    _write_articles(tmp_path, 80)  # 2 batches of 40
+    calls = {"n": 0}
+
+    async def flaky(prompt, **kw):
+        ids = _batch_ids(prompt)
+        if "A1" in ids:
+            calls["n"] += 1
+            if calls["n"] == 1:
+                return _result("Sure, I'll extract that for you.")  # unparseable first time
+        return _result(_good_items(ids))
+
+    monkeypatch.setattr(cej.claude_cli, "run_agent", flaky)
+    monkeypatch.setattr(cej, "with_retry_async", _passthrough)
+    asyncio.run(cej.run_extractjoin_stage(tmp_path, model="claude-sonnet-4-6", cwd=None, threshold=0.80))
+
+    assert calls["n"] == 2, "a zero-yield batch must be re-attempted exactly once"
+    data = json.loads((tmp_path / "clusters.json").read_text())
+    stories = {c["story"] for c in data["clusters"]}
+    assert not any(s.startswith("Title about topic") for s in stories), (
+        "the re-attempt succeeded, so no article should have fallen back to its title"
+    )
+
+
+def test_zero_yield_batch_gives_up_after_one_reattempt(tmp_path, monkeypatch):
+    """The re-attempt is bounded at one: a persistently bad batch falls back to title-only
+    (coverage preserved) instead of looping and re-paying indefinitely."""
+    _write_articles(tmp_path, 200)  # 5 batches; one lost = 20% < the 25% gate
+    calls = {"n": 0}
+
+    async def always_bad_first_batch(prompt, **kw):
+        ids = _batch_ids(prompt)
+        if "A1" in ids:
+            calls["n"] += 1
+            return _result("no json here at all")
+        return _result(_good_items(ids))
+
+    monkeypatch.setattr(cej.claude_cli, "run_agent", always_bad_first_batch)
+    monkeypatch.setattr(cej, "with_retry_async", _passthrough)
+    asyncio.run(cej.run_extractjoin_stage(tmp_path, model="claude-sonnet-4-6", cwd=None, threshold=0.80))
+
+    assert calls["n"] == 2, "exactly one re-attempt, then give up"
+    data = json.loads((tmp_path / "clusters.json").read_text())
+    flat = sorted((a for c in data["clusters"] for a in c["article_ids"]), key=lambda s: int(s[1:]))
+    assert flat == [f"A{i}" for i in range(1, 201)], "coverage must still be 100% via title fallback"
+
+
+def test_zero_yield_log_names_unparsed_vs_miskeyed(tmp_path, monkeypatch, caplog):
+    """ "unparsed" and "mis-keyed" need opposite fixes (response format vs id handling), so the
+    log must name which one happened -- and carry a snippet of what the model actually said,
+    since the raw response is not archived anywhere."""
+    _write_articles(tmp_path, 200)
+
+    async def miskeyed_first_batch(prompt, **kw):
+        ids = _batch_ids(prompt)
+        if "A1" in ids:
+            # well-formed JSON, but keyed to ids this batch never asked about
+            return _result(_good_items(["Z900", "Z901"]))
+        return _result(_good_items(ids))
+
+    monkeypatch.setattr(cej.claude_cli, "run_agent", miskeyed_first_batch)
+    monkeypatch.setattr(cej, "with_retry_async", _passthrough)
+    with caplog.at_level("WARNING"):
+        asyncio.run(cej.run_extractjoin_stage(tmp_path, model="claude-sonnet-4-6", cwd=None, threshold=0.80))
+
+    text = caplog.text
+    assert "mis-keyed" in text, f"a wrong-id response must be logged as mis-keyed, got: {text}"
+    assert "unparsed" not in text, "a parseable response must not be reported as unparsed"
+    assert "Z900" in text, "the log must show the ids that came back, or it cannot be acted on"
+
+
+def test_zero_yield_log_names_unparsed_for_prose(tmp_path, monkeypatch, caplog):
+    _write_articles(tmp_path, 200)
+
+    async def prose_first_batch(prompt, **kw):
+        ids = _batch_ids(prompt)
+        return _result("I cannot help with that request." if "A1" in ids else _good_items(ids))
+
+    monkeypatch.setattr(cej.claude_cli, "run_agent", prose_first_batch)
+    monkeypatch.setattr(cej, "with_retry_async", _passthrough)
+    with caplog.at_level("WARNING"):
+        asyncio.run(cej.run_extractjoin_stage(tmp_path, model="claude-sonnet-4-6", cwd=None, threshold=0.80))
+
+    assert "unparsed" in caplog.text
+    assert "mis-keyed" not in caplog.text
+    assert "I cannot help with that request." in caplog.text, "the response snippet is the whole point"
+
+
+def test_batch_cannot_claim_another_batchs_article_ids(tmp_path, monkeypatch):
+    """SILENT CORRUPTION guard. A model that renumbers its output -- answering A41..A80 with
+    "A1".."A40" -- currently writes batch 2's tags onto batch 1's ARTICLES whenever batch 1 itself
+    produced nothing, with no warning at all (the count still equals the batch size). Tags must be
+    accepted only for ids the batch actually asked about."""
+    # 10 batches, so losing both the empty batch and the renumbering one (80/400 = 20%) stays
+    # under the 25% coverage gate -- i.e. the run SHIPS, exactly as run 247 did at 40/688.
+    # At that scale the corruption is invisible without this guard.
+    _write_articles(tmp_path, 400)
+
+    async def renumbering(prompt, **kw):
+        ids = _batch_ids(prompt)
+        if "A1" in ids:
+            return _result("")  # batch 1 yields nothing
+        if "A41" in ids:
+            # batch 2 answers about A41..A80 but labels its items A1..A40
+            return _result(_good_items([f"A{i}" for i in range(1, 41)]))
+        return _result(_good_items(ids))
+
+    monkeypatch.setattr(cej.claude_cli, "run_agent", renumbering)
+    monkeypatch.setattr(cej, "with_retry_async", _passthrough)
+    asyncio.run(cej.run_extractjoin_stage(tmp_path, model="claude-sonnet-4-6", cwd=None, threshold=0.80))
+
+    data = json.loads((tmp_path / "clusters.json").read_text())
+    story_of = {a: c["story"] for c in data["clusters"] for a in c["article_ids"]}
+    # A1 asked about nothing usable -> it must fall back to its own TITLE, never to a tag
+    # the model produced while reading a different article.
+    assert story_of["A1"].startswith("Title about topic"), (
+        f"A1 took another batch's tags: {story_of['A1']!r} -- wrong article, silently"
+    )
+    assert story_of["A41"].startswith("Title about topic"), "batch 2's own articles must fall back too"
+
+
+def test_duplicate_ids_in_one_response_count_once(tmp_path, monkeypatch, caplog):
+    """A response that repeats one id 8 times has covered 1 article, not 8 -- the count in the
+    warning must say so, or a mostly-empty batch reads as a full one."""
+    _write_articles(tmp_path, 8)
+
+    async def repeats(prompt, **kw):
+        return _result(_good_items(["A1"] * 8))
+
+    monkeypatch.setattr(cej.claude_cli, "run_agent", repeats)
+    monkeypatch.setattr(cej, "with_retry_async", _passthrough)
+    with caplog.at_level("WARNING"), pytest.raises(RuntimeError, match="degenerate partition"):
+        asyncio.run(cej.run_extractjoin_stage(tmp_path, model="claude-sonnet-4-6", cwd=None, threshold=0.80))
+    assert "1/8 articles extracted" in caplog.text, f"expected a 1-of-8 count, got: {caplog.text}"
+
+
+# --- the re-attempt must use the coverage gate's own definition of "usable" ---
+# A batch can come back perfectly keyed and still be worthless: every item echoing the schema
+# with empty entities/keywords/primary_event. The gate counts those as tagless (_TOKEN_RE over
+# _tag_bag), but a trigger that only asks "did any id match?" sees a full batch, so it neither
+# re-attempts nor warns. Same wholesale loss as a zero-yield batch, arriving silently -- worse
+# than the failure this fix was written for. See test_stage_raises_on_empty_content_items for
+# the gate's own statement that key-presence is not coverage.
+
+
+def _empty_content(ids):
+    return json.dumps({"items": [{"article_id": a, "entities": [], "keywords": [], "primary_event": ""} for a in ids]})
+
+
+def test_empty_content_batch_is_reattempted_like_a_zero_yield(tmp_path, monkeypatch):
+    _write_articles(tmp_path, 80)  # 2 batches of 40
+    calls = {"n": 0}
+
+    async def flaky(prompt, **kw):
+        ids = _batch_ids(prompt)
+        if "A1" in ids:
+            calls["n"] += 1
+            if calls["n"] == 1:
+                return _result(_empty_content(ids))  # well-keyed, zero usable content
+        return _result(_good_items(ids))
+
+    monkeypatch.setattr(cej.claude_cli, "run_agent", flaky)
+    monkeypatch.setattr(cej, "with_retry_async", _passthrough)
+    asyncio.run(cej.run_extractjoin_stage(tmp_path, model="claude-sonnet-4-6", cwd=None, threshold=0.80))
+
+    assert calls["n"] == 2, "an all-empty-content batch is a wholesale loss and must be re-attempted"
+
+
+def test_empty_content_batch_is_not_silent(tmp_path, monkeypatch, caplog):
+    _write_articles(tmp_path, 200)  # 5 batches; one lost = 20%, under the gate, so it ships
+
+    async def all_empty_first_batch(prompt, **kw):
+        ids = _batch_ids(prompt)
+        return _result(_empty_content(ids) if "A1" in ids else _good_items(ids))
+
+    monkeypatch.setattr(cej.claude_cli, "run_agent", all_empty_first_batch)
+    monkeypatch.setattr(cej, "with_retry_async", _passthrough)
+    with caplog.at_level("WARNING", logger="cluster_extractjoin"):
+        asyncio.run(cej.run_extractjoin_stage(tmp_path, model="claude-sonnet-4-6", cwd=None, threshold=0.80))
+
+    assert any("0/40 articles extracted" in r.getMessage() for r in caplog.records), (
+        "a batch that yields no USABLE tags must be logged, not counted as a full batch"
+    )
+
+
+def test_duplicate_ids_are_not_reported_as_mis_keyed(tmp_path, monkeypatch, caplog):
+    # Splitting the counter is the point: "mis-keyed" and "duplicate" need different fixes, so
+    # folding duplicates into mis-keyed sends the reader hunting an id bug that is not there.
+    _write_articles(tmp_path, 200)  # 5 batches; one degraded batch stays under the 25% gate
+
+    async def dupes_in_first_batch(prompt, **kw):
+        ids = _batch_ids(prompt)
+        if "A1" not in ids:
+            return _result(_good_items(ids))
+        # Multi-char values on purpose: _TOKEN_RE needs 2+ word chars to call a tag usable.
+        item = {"article_id": ids[0], "entities": ["Iran"], "keywords": ["talks"], "primary_event": "summit"}
+        return _result(json.dumps({"items": [item for _ in range(len(ids))]}))
+
+    monkeypatch.setattr(cej.claude_cli, "run_agent", dupes_in_first_batch)
+    monkeypatch.setattr(cej, "with_retry_async", _passthrough)
+    with caplog.at_level("WARNING", logger="cluster_extractjoin"):
+        asyncio.run(cej.run_extractjoin_stage(tmp_path, model="claude-sonnet-4-6", cwd=None, threshold=0.80))
+
+    msg = next(r.getMessage() for r in caplog.records if "articles extracted" in r.getMessage())
+    assert "39 mis-keyed" not in msg, "duplicates are not mis-keys"
+    assert "39 duplicate" in msg and "0 not in this batch" in msg
+
+
+def test_discarded_attempt_cost_is_still_counted(tmp_path, monkeypatch):
+    # The docstring asserts "we paid for it, so it belongs in the run's cost". Nothing pinned it,
+    # and both mutants (drop the usage, drop the cost) survived the suite.
+    _write_articles(tmp_path, 40)
+    calls = {"n": 0}
+
+    async def zero_then_good(prompt, **kw):
+        calls["n"] += 1
+        ids = _batch_ids(prompt)
+        return _result("no json here" if calls["n"] == 1 else _good_items(ids))
+
+    monkeypatch.setattr(cej.claude_cli, "run_agent", zero_then_good)
+    monkeypatch.setattr(cej, "with_retry_async", _passthrough)
+    result = asyncio.run(cej.run_extractjoin_stage(tmp_path, model="claude-sonnet-4-6", cwd=None, threshold=0.80))
+
+    assert calls["n"] == 2
+    assert result["api_cost_usd"] == pytest.approx(2 * 0.01), "the discarded attempt was paid for"
+    # Cost and tokens are independent fields (SDK total_cost_usd vs _merge_usage), so asserting
+    # only the cost leaves run_usage free to under-report tokens undetected.
+    assert result["input_tokens"] == 200, "the discarded attempt's tokens were paid for too"
+
+
+def test_response_snippet_is_bounded_and_keeps_both_ends(tmp_path):
+    # Both halves matter: the bound stops a 3k-token response flooding the log, and the TAIL is
+    # the only part that distinguishes a truncated body from a prose preamble.
+    text = "HEAD" + ("x" * 5000) + "TAIL"
+    out = cej.response_snippet(text)
+
+    assert len(out) < 600, "an unbounded snippet floods the rotating log file"
+    assert out.startswith("HEAD") and out.endswith("TAIL")
+    assert "elided" in out
+
+
+# --- the usable-check runs on RAW model JSON, so it must coerce like the fold does ---
+# _tag_bag was written for the tag dict, whose values the fold already normalises. Calling it on
+# a raw item skips that: `"entities": null` and `"entities": [2026]` raise, and the raise escapes
+# _run_batch's (RuntimeError, ValueError) into a return_exceptions=False gather -- one malformed
+# item out of 688 aborts the stage and no digest ships. And `"primary_event": null` coerces to
+# the string "None", which the trigger reads as usable while the gate reads as tagless: the
+# silent wholesale loss the trigger exists to catch.
+
+
+@pytest.mark.parametrize(
+    "bad",
+    [
+        {"entities": None, "keywords": ["talks"], "primary_event": "summit"},
+        {"entities": [2026], "keywords": None, "primary_event": "summit"},
+        {"entities": ["Iran"], "keywords": ["talks"], "primary_event": None},
+    ],
+    ids=["null-entities", "int-entity-null-keywords", "null-primary-event"],
+)
+def test_malformed_item_values_do_not_abort_the_stage(tmp_path, monkeypatch, bad):
+    _write_articles(tmp_path, 200)  # one degraded batch stays under the 25% gate
+
+    async def one_bad_item(prompt, **kw):
+        ids = _batch_ids(prompt)
+        if "A1" not in ids:
+            return _result(_good_items(ids))
+        items = [{"article_id": ids[0], **bad}]
+        items += [
+            {"article_id": a, "entities": ["Iran"], "keywords": ["talks"], "primary_event": "summit"} for a in ids[1:]
+        ]
+        return _result(json.dumps({"items": items}))
+
+    monkeypatch.setattr(cej.claude_cli, "run_agent", one_bad_item)
+    monkeypatch.setattr(cej, "with_retry_async", _passthrough)
+    asyncio.run(cej.run_extractjoin_stage(tmp_path, model="claude-sonnet-4-6", cwd=None, threshold=0.80))
+
+    data = json.loads((tmp_path / "clusters.json").read_text())
+    flat = sorted(a for c in data["clusters"] for a in c["article_ids"])
+    assert len(flat) == 200, "one malformed item must not cost the run its digest"
+
+
+def test_null_primary_event_is_tagless_to_the_trigger_as_well_as_the_gate(tmp_path, monkeypatch, caplog):
+    # str(None) is "None" -- a truthy token. The trigger must agree with the gate, or a whole
+    # batch dies with only the aggregate fallback ERROR, which cannot say WHICH batch.
+    _write_articles(tmp_path, 200)
+
+    async def null_events_in_first_batch(prompt, **kw):
+        ids = _batch_ids(prompt)
+        if "A1" not in ids:
+            return _result(_good_items(ids))
+        items = [{"article_id": a, "entities": [], "keywords": [], "primary_event": None} for a in ids]
+        return _result(json.dumps({"items": items}))
+
+    monkeypatch.setattr(cej.claude_cli, "run_agent", null_events_in_first_batch)
+    monkeypatch.setattr(cej, "with_retry_async", _passthrough)
+    with caplog.at_level("WARNING", logger="cluster_extractjoin"):
+        asyncio.run(cej.run_extractjoin_stage(tmp_path, model="claude-sonnet-4-6", cwd=None, threshold=0.80))
+
+    assert any("0/40 articles extracted" in r.getMessage() for r in caplog.records)

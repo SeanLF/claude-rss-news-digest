@@ -151,6 +151,84 @@ def parse_extract_items(text: str) -> list[dict]:
     return []
 
 
+def coerce_tag(item: dict) -> dict:
+    """The tag dict for one raw extraction item, with every value normalised to a string.
+
+    ``_tag_bag`` lowercases entities and keywords directly, so it assumes normalised input --
+    an assumption that held only while the fold was its sole feeder. Model JSON is not
+    normalised: ``"entities": null`` raises TypeError and ``"entities": [2026]`` raises
+    AttributeError, and neither is caught by ``_run_batch``, so one malformed item out of ~688
+    would escape a ``return_exceptions=False`` gather and cost the run its digest.
+
+    Sharing one coercion between the usable-check and the fold also makes them agree by
+    construction rather than by coincidence: ``str(None)`` is the truthy token "None", so an
+    uncoerced ``"primary_event": null`` reads as usable to the check while the coverage gate
+    reads it as tagless -- exactly the silent wholesale loss the check exists to catch.
+    """
+    return {
+        "entities": [str(x) for x in (item.get("entities") or [])],
+        "keywords": [str(x) for x in (item.get("keywords") or [])],
+        "primary_event": str(item.get("primary_event") or ""),
+    }
+
+
+def _duplicate_count(items: list[dict], batch: list[str]) -> int:
+    """How many in-batch items repeat an id already seen -- counted separately from mis-keys.
+
+    A response repeating one id 40 times and a response about 40 other articles both lose the
+    batch, but one is a generation loop and the other an id-handling fault. Reporting them as a
+    single number sends the reader hunting the wrong bug, which is the failure the split logging
+    exists to prevent.
+    """
+    wanted, seen, dupes = set(batch), set(), 0
+    for it in items:
+        aid = it.get("article_id")
+        if aid in wanted:
+            dupes += aid in seen
+            seen.add(aid)
+    return dupes
+
+
+def items_for_batch(items: list[dict], batch: list[str]) -> list[dict]:
+    """The items a batch's response may key: ``article_id`` must be one THIS batch asked about.
+
+    Scoping to the batch (not the whole corpus) is a CORRECTNESS guard, not bookkeeping. A model
+    that renumbers its output -- answering A401..A440 with "A1".."A40" -- would otherwise write one
+    batch's tags onto another batch's ARTICLES whenever the other batch produced nothing itself, and
+    do it silently: the count still equals the batch size, so no warning fires and the digest ships
+    with 40 articles clustered on metadata extracted from 40 different articles.
+
+    Duplicates are dropped first-seen, so the returned length is the number of DISTINCT articles the
+    response actually covered -- a response repeating one id 40 times covered one article, not 40.
+    """
+    wanted, seen = set(batch), set()
+    out = []
+    for it in items:
+        aid = it.get("article_id")
+        if aid in wanted and aid not in seen:
+            seen.add(aid)
+            out.append(it)
+    return out
+
+
+def response_snippet(text: str, keep: int = 200) -> str:
+    """Head+tail of a model response, whitespace-collapsed, for the zero-yield log line.
+
+    The raw extraction response reaches nothing anyone reads: ``run_artifacts`` keeps the inputs
+    and ``clusters.json``, never the model's text. (It does persist in the SDK session JSONL in
+    the ``news-digest-claude`` volume, but no code reads that and it is awkward to reach from a
+    one-shot container.) So when a batch comes back unusable this snippet is the evidence that
+    actually lands where someone will see it -- and it is what distinguishes a prose preamble
+    from a truncated body from a refusal. Bounded on both ends so a 3k-token response cannot
+    flood the log.
+    """
+    flat = " ".join(text.split())
+    if keep <= 0 or len(flat) <= 2 * keep:
+        # keep<=0 would make flat[-keep:] the WHOLE string plus a lying "elided" label.
+        return flat
+    return f"{flat[:keep]} ...[{len(flat) - 2 * keep} chars elided]... {flat[-keep:]}"
+
+
 def _tag_bag(tag: dict) -> str:
     """Term bag for one article: entities x3 (strongest same-story signal), primary_event x2.
 
@@ -395,17 +473,84 @@ async def run_extractjoin_stage(
     deadline = time.monotonic() + _EXTRACT_RETRY_BUDGET_S  # shared across batches: ride out an outage, bounded
     sem = asyncio.Semaphore(_EXTRACT_CONCURRENCY)
 
-    async def _run_batch(n: int, batch: list[str]) -> claude_cli.StageResult | None:
-        """One batch's extraction, semaphore-bounded. Returns None on failure-after-retries so its
-        articles title-fallback -- identical to the old per-iteration `continue`, without failing
-        the whole gather."""
+    async def _run_batch(n: int, batch: list[str]) -> tuple[list[dict], list[dict], float]:
+        """One batch's extraction, semaphore-bounded. Returns (items, usage_dicts, cost).
+
+        Items are already scoped to this batch (:func:`items_for_batch`); an empty list means its
+        articles title-fallback -- as before, without failing the whole gather.
+
+        A batch whose response yields ZERO usable items is re-attempted ONCE. That condition is
+        invisible to ``with_retry_async``: the call SUCCEEDED, nothing raised, the response was
+        merely unusable (prose, a truncated body, renumbered ids). It costs the batch's 40 articles
+        their entity extraction, and the archived traces show it hitting roughly 1% of batch calls
+        (7 wholesale losses in ~503 archived batch calls -- at batches 1, 2, 6 and 11, so it is not
+        first-batch-specific). Re-attempting is safe to do blindly: extraction is a single-turn call
+        with ``tools=[]`` that writes nothing and reads nothing, so a repeat is side-effect-free;
+        one extra batch is ~1/13th of the stage's ~$0.95; and it is bounded at one so a persistently
+        bad batch degrades exactly as it does today instead of looping. Usage from a discarded
+        attempt is still returned -- we paid for it, so it belongs in the run's cost.
+        """
         prompt = build_extract_prompt(batch, arts)
+        usage_dicts: list[dict] = []
+        cost = 0.0
         async with sem:
-            try:
-                return await with_retry_async(partial(_extract, prompt), label="cluster-extract", deadline=deadline)
-            except (RuntimeError, ValueError) as e:
-                logger.warning("extract-join batch %d/%d failed after retries, title-fallback: %s", n, len(batches), e)
-                return None
+            for attempt in (1, 2):
+                try:
+                    result = await with_retry_async(
+                        partial(_extract, prompt), label="cluster-extract", deadline=deadline
+                    )
+                except (RuntimeError, ValueError) as e:
+                    logger.warning(
+                        "extract-join batch %d/%d failed after retries, title-fallback: %s", n, len(batches), e
+                    )
+                    return [], usage_dicts, cost
+                usage_dicts.append(result.usage)
+                cost += result.total_cost_usd
+                parsed = parse_extract_items(result.text)
+                scoped = items_for_batch(parsed, batch)
+                # "Usable" must mean what the COVERAGE GATE below means by it, not "an id
+                # matched". A response can be perfectly keyed and still carry no entities,
+                # keywords or primary_event -- the gate counts every one of those articles as
+                # tagless, so the batch is a wholesale loss. Judged by id alone it looks full,
+                # so it would be neither re-attempted nor logged: the same incident, silent.
+                items = [it for it in scoped if _TOKEN_RE.search(_tag_bag(coerce_tag(it)))]
+                if items:
+                    if len(items) < len(batch):  # partial: real but far smaller loss, not re-attempted
+                        logger.warning(
+                            "extract-join batch %d/%d: %d/%d articles extracted "
+                            "(%d items parsed, %d duplicate, %d not in this batch, %d empty-content)",
+                            n,
+                            len(batches),
+                            len(items),
+                            len(batch),
+                            len(parsed),
+                            _duplicate_count(parsed, batch),
+                            len([it for it in parsed if it.get("article_id") not in batch]),
+                            len(scoped) - len(items),
+                        )
+                    return items, usage_dicts, cost
+                # Zero usable. Name WHICH failure it was: unparsed, mis-keyed and empty-content
+                # need opposite fixes, so one merged counter is a log nobody can act on -- and
+                # carry the response itself, the only record of what the model said.
+                if scoped:
+                    how = f"empty-content ({len(scoped)} items keyed to this batch, none with usable tags)"
+                elif parsed:
+                    how = (
+                        f"mis-keyed ({len(parsed)} items parsed, none in this batch; "
+                        f"ids returned: {[it.get('article_id') for it in parsed[:5]]})"
+                    )
+                else:
+                    how = "unparsed (no JSON items in the response)"
+                logger.warning(
+                    "extract-join batch %d/%d: 0/%d articles extracted -- %s; %s | response: %s",
+                    n,
+                    len(batches),
+                    len(batch),
+                    how,
+                    "re-attempting once" if attempt == 1 else "giving up, title-fallback",
+                    response_snippet(result.text),
+                )
+        return [], usage_dicts, cost
 
     # Batches are independent -> run them concurrently (bounded), then fold results IN batch order so
     # tag assignment stays deterministic. Output (clusters.json) is identical to the serial version;
@@ -416,30 +561,13 @@ async def run_extractjoin_stage(
     # left to the loop teardown, fine for this one-shot cron run (revisit with TaskGroup only if this
     # is ever wrapped in a longer-lived loop that needs deterministic sibling cancellation).
     results = await asyncio.gather(*(_run_batch(n, b) for n, b in enumerate(batches, 1)))
-    for n, (batch, result) in enumerate(zip(batches, results, strict=True), 1):
-        if result is None:
-            continue
-        usage_rows.append(result.usage)
-        total_cost += result.total_cost_usd
-        added = 0
-        for item in parse_extract_items(result.text):
-            aid = item.get("article_id")
-            if aid in arts and aid not in tags:
-                tags[aid] = {
-                    "entities": [str(x) for x in (item.get("entities") or [])],
-                    "keywords": [str(x) for x in (item.get("keywords") or [])],
-                    "primary_event": str(item.get("primary_event") or ""),
-                }
-                added += 1
-        if added < len(batch):  # a "successful" batch that returned garbage/short is a corruption signal
-            logger.warning(
-                "extract-join batch %d/%d: %d/%d articles extracted (%d unparsed/mis-keyed)",
-                n,
-                len(batches),
-                added,
-                len(batch),
-                len(batch) - added,
-            )
+    # Fold in batch order. Every item is already scoped+deduped to its own batch and the batches
+    # partition `ids`, so an id can be written at most once -- no cross-batch precedence to resolve.
+    for items, batch_usage, batch_cost in results:
+        usage_rows.extend(batch_usage)
+        total_cost += batch_cost
+        for item in items:
+            tags[item["article_id"]] = coerce_tag(item)
 
     # Gate on USABLE tags, not key-presence. A batch can fail outright (article never keyed) OR a
     # "successful" batch can echo the schema with empty entities/keywords/primary_event (prompt
