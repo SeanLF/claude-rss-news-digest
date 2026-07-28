@@ -3,24 +3,29 @@
 We fetch Reuters and Nikkei Asia via Google News search feeds, so their RSS <link> is a
 Google-News redirect (``news.google.com/rss/articles/<token>``). Since ~2024 these are NOT plain
 HTTP redirects: resolving needs a signature + timestamp scraped from the article page, POSTed to
-the undocumented ``batchexecute`` ``Fbv4je`` RPC. Verified 60/61 on real Reuters/Nikkei URLs
-(docs/2026-07-02-dedup-poc-findings.md).
+an undocumented ``batchexecute`` RPC.
+
+The decode itself is DELEGATED to ``googlenewsdecoder`` (pinned to our fork; see pyproject). We
+hand-rolled that RPC once: it measured 98.4% in a spike on 2026-07-02, shipped with a malformed
+request envelope, and resolved **zero** links across the next 25 production digests. The PoC and
+the shipped code were never the same code. Delegating puts the envelope somewhere it is
+maintained and tested rather than somewhere it is assumed.
+
+What stays ours: the run cache, the paced background prefetch, the deadline, and the 429
+back-off, because those encode how *this* pipeline wants to fail (open, quietly, keeping the raw
+GN URL) rather than how the decode works.
 
 STRICTLY BEST-EFFORT: every failure path returns None and the caller keeps the original GN URL.
-This depends on undocumented Google internals (the ``data-n-a-sg``/``data-n-a-ts`` attributes and
-the RPC shape) and WILL break when Google changes them -- ``tests/test_gnews.py`` ships a
-network-marked canary (``-m gnews_live``) so a break surfaces loudly instead of degrading silently.
+The canary for a future break is no longer a test nobody runs -- ``resolution_stats()`` reports
+attempted/succeeded and the caller warns when a run resolves none of many, which is exactly the
+signal that went unnoticed for 25 days.
 """
 
 import json
 import logging
-import random
 import re
 import threading
 import time
-import urllib.error
-import urllib.parse
-import urllib.request
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -39,27 +44,13 @@ _cache_lock = threading.Lock()
 _prefetch_thread: threading.Thread | None = None
 
 
-_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Safari/537.36"
-_BATCHEXECUTE = "https://news.google.com/_/DotsSplashUi/data/batchexecute"
-# Opaque request scaffold for the garturlreq RPC -- copied verbatim from the verified decode; the
-# only variable fields are (art_id, ts, sig), appended as the last three elements.
-_REQ_PARAMS = [
-    ["X", "X", ["X", "X"], None, None, 1, 1, "US:en", None, 1, None, None, None, None, None, 0, 1],
-    "X",
-    "X",
-    1,
-    [1, 1, 1],
-    1,
-    1,
-    None,
-    0,
-    0,
-    None,
-    0,
-]
 _ART_ID_RE = re.compile(r"/articles/([^?/]+)")
-_SIG_RE = re.compile(r'data-n-a-sg="([^"]+)"')
-_TS_RE = re.compile(r'data-n-a-ts="([^"]+)"')
+
+# Per-run resolution tally, guarded by _cache_lock because the prefetch thread and the render
+# thread both write it. This IS the canary described above: attempted>0 with succeeded==0 is a
+# broken decode, and the caller warns on it.
+_attempted = 0
+_succeeded = 0
 
 
 def is_gnews_url(url: str) -> bool:
@@ -71,62 +62,100 @@ def _extract_art_id(url: str) -> str | None:
     return m.group(1) if m else None
 
 
-def _build_payload(art_id: str, ts: str, sig: str) -> bytes:
-    garturlreq = ["garturlreq", _REQ_PARAMS, art_id, ts, sig]
-    rpc = json.dumps([["Fbv4je", json.dumps(garturlreq)]])
-    return ("f.req=" + urllib.parse.quote(rpc)).encode()
+def resolution_stats() -> tuple[int, int]:
+    """(attempted, succeeded) decodes this run. Zero succeeded out of many attempted means the
+    upstream contract moved again -- alert on it rather than shipping Google links in silence."""
+    with _cache_lock:
+        return _attempted, _succeeded
 
 
-def _parse_batchexecute(body: str) -> str | None:
-    """Pull the resolved URL out of a batchexecute response. Tries each candidate line
-    independently so one malformed line never aborts the parse."""
-    for line in body.splitlines():
-        if "garturlres" not in line:
-            continue
+def reset_resolution_stats() -> None:
+    """Test seam. Production has no caller: a run (including --resume) is one process that makes
+    one resolution pass, so the tally starts at zero on its own."""
+    global _attempted, _succeeded
+    with _cache_lock:
+        _attempted = _succeeded = 0
+
+
+def _raise_on_429(inner):
+    """Wrap a transport so an HTTP 429 becomes GnewsRateLimited instead of a message string.
+
+    A transport is just a callable, so back-off is ordinary decoration. Intercepting here rather
+    than downstream keeps the status typed: by the time the flow has turned a TransportError into
+    a result dict, the only thing left to match on is prose.
+    """
+
+    def transport(request, **kwargs):
+        from googlenewsdecoder import TransportError
+
         try:
-            inner = json.loads(json.loads(line)[0][2])
-            if inner[0] == "garturlres" and isinstance(inner[1], str) and inner[1].startswith("http"):
-                return inner[1]
-        except Exception:  # malformed candidate line -- skip it, try the next
-            continue
-    return None
+            return inner(request, **kwargs)
+        except TransportError as e:
+            if e.status == 429:
+                raise GnewsRateLimited() from e
+            raise
+
+    return transport
 
 
-def _http(url: str, *, data: bytes | None = None, timeout: int, delay: float = 0.0) -> str:
-    if delay:  # serial pace + jitter; Google exposes no rate-limit headers, so we just go slow
-        time.sleep(delay + random.uniform(0, 1))
-    headers = {"User-Agent": _UA}
-    if data is not None:
-        headers["Content-Type"] = "application/x-www-form-urlencoded;charset=UTF-8"
-    req = urllib.request.Request(url, data=data, headers=headers)  # nosec B310 - fixed https host
-    with urllib.request.urlopen(req, timeout=timeout) as r:  # nosec B310
-        return r.read().decode("utf-8", "replace")
+def _fetch(url: str, timeout: int, delay: float) -> str | None:
+    """Decode one Google-News URL via googlenewsdecoder. Returns the publisher URL, or None on
+    any failure; raises GnewsRateLimited on a 429 so the caller can stop the batch.
 
-
-def _fetch(art_id: str, timeout: int, delay: float) -> str | None:
-    """The actual two-request decode for one art_id. Returns the publisher URL or None on any
-    failure; raises GnewsRateLimited on HTTP 429 so the caller can stop the batch."""
+    The 429 is detected from ``TransportError.status``, not from message text. The flow turns a
+    TransportError into ``{"status": False, "message": ...}``, which would leave us matching on a
+    string; intercepting at the transport keeps the HTTP status typed. Losing the back-off would
+    let a throttled run keep hammering Google and deepen the block.
+    """
+    global _attempted, _succeeded
+    with _cache_lock:
+        _attempted += 1
+    label = (_extract_art_id(url) or url)[:16]  # log the opaque token, never a reader-facing URL
     try:
-        html = _http(f"https://news.google.com/articles/{art_id}", timeout=timeout, delay=delay)
-        sig, ts = _SIG_RE.search(html), _TS_RE.search(html)
-        if not (sig and ts):
-            logger.info("gnews: no signature/timestamp in page for %s", art_id[:16])
-            return None
-        body = _http(
-            _BATCHEXECUTE, data=_build_payload(art_id, ts.group(1), sig.group(1)), timeout=timeout, delay=delay
-        )
-        resolved = _parse_batchexecute(body)
-        if not resolved:
-            logger.info("gnews: no resolved url in batchexecute response for %s", art_id[:16])
-        return resolved
-    except urllib.error.HTTPError as e:
-        if e.code == 429:
-            raise GnewsRateLimited() from e
-        logger.info("gnews: resolve failed for %s: HTTP %s", art_id[:16], e.code)
-        return None
+        # Driven through the library's sans-I/O seam rather than its `gnewsdecoder` shortcut,
+        # for one reason: `gnewsdecoder` takes no timeout and hardcodes 15s inside. We used to
+        # wrap it in socket.setdefaulttimeout(), which did NOTHING -- requests calls
+        # sock.settimeout() explicitly whenever a timeout is passed, so the process-global
+        # default is never consulted. GNEWS_RESOLVE_TIMEOUT_S was a dead knob: setting it to 60
+        # during an incident still gave you 15. Passing it to `drive` makes it real.
+        #
+        # (That also removes a latent race: the old context manager saved and restored a
+        # process-global, so two concurrent entries could leak a permanent 15s default.)
+        from googlenewsdecoder import RequestsTransport, decode_flow, drive
+
+        result = drive(decode_flow(url), _raise_on_429(RequestsTransport()), timeout=timeout)
+        if delay:
+            time.sleep(delay)  # serial pacing, unchanged; `drive` does not sleep for us
+    except GnewsRateLimited:
+        raise  # must outrun the blanket handler below; the caller stops the batch on it
     except Exception as e:  # best-effort; never propagate a resolution failure
-        logger.info("gnews: resolve failed for %s: %s: %s", art_id[:16], type(e).__name__, e)
+        logger.info("gnews: resolve failed for %s: %s: %s", label, type(e).__name__, e)
         return None
+
+    # Everything below is fail-open by contract, so shape-check before reading: a library that
+    # returned something other than its documented result dict must degrade to None, not raise an
+    # AttributeError past resolve() and abandon the remaining links.
+    if not isinstance(result, dict):
+        logger.info("gnews: decoder returned %s, not a result dict, for %s", type(result).__name__, label)
+        return None
+
+    if result.get("status"):
+        resolved = result.get("decoded_url")
+        if isinstance(resolved, str) and resolved.startswith("http"):
+            with _cache_lock:
+                _succeeded += 1
+            return resolved
+        logger.info("gnews: decoder reported success with no usable url for %s", label)
+        return None
+
+    message = str(result.get("message") or result.get("error") or "unknown")
+    # Belt and braces. `_raise_on_429` catches the throttle by status, which is the reliable
+    # path; this stays because a transport we did not wrap -- a caller-supplied one, or a future
+    # default that reports 429 some other way -- would otherwise silently lose the back-off.
+    if "429" in message or "too many requests" in message.lower():
+        raise GnewsRateLimited()
+    logger.info("gnews: resolve failed for %s: %s", label, message[:120])
+    return None
 
 
 def resolve(url: str, *, timeout: int = 15, delay: float = 0.0) -> str | None:
@@ -141,7 +170,7 @@ def resolve(url: str, *, timeout: int = 15, delay: float = 0.0) -> str | None:
     with _cache_lock:
         if art_id in _cache:
             return _cache[art_id]
-    result = _fetch(art_id, timeout, delay)  # may raise GnewsRateLimited (deliberately not cached)
+    result = _fetch(url, timeout, delay)  # may raise GnewsRateLimited (deliberately not cached)
     with _cache_lock:
         _cache[art_id] = result
     return result

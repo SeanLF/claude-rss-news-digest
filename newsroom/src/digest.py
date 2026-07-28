@@ -13,6 +13,10 @@ from render import extract_headlines, render_digest
 
 logger = logging.getLogger(__name__)
 
+# Below this many decode attempts, "zero succeeded" is not evidence of anything. One article
+# Google cannot decode is an ordinary occurrence; a whole contract moving is not.
+_CANARY_MIN_ATTEMPTS = 3
+
 
 def _source_priority(src: dict) -> int:
     # 0 = wire origin (canonical); 1 = everyone else. The 'wire' flag is data-driven
@@ -228,6 +232,7 @@ def _resolve_gnews_links(selections: dict) -> None:
     # fetch that races the live thread against Google.
     prefetch_done = gnews.wait_for_prefetch(config.GNEWS_RESOLVE_DEADLINE_S)
     upgraded = 0
+    rate_limited = False
     deadline = time.monotonic() + config.GNEWS_RESOLVE_DEADLINE_S
     for src in gn_sources:
         if prefetch_done:
@@ -240,14 +245,48 @@ def _resolve_gnews_links(selections: dict) -> None:
                 )
             except gnews.GnewsRateLimited:
                 logger.warning("gnews: rate-limited (429), stopping link resolution for this run")
+                rate_limited = True
                 break
         else:
             resolved = gnews.cached(src["url"])  # prefetch still in flight -- don't race it
         if resolved:
             src["url"] = resolved
             upgraded += 1
-    if upgraded:
-        logger.info("gnews: upgraded %d Google-News links to publisher URLs", upgraded)
+
+    # THE CANARY -- do not collapse this back into `if upgraded:`. That shape logged nothing when
+    # a run resolved nothing, which is how a decoder broken from 2026-07-03 shipped Google
+    # interstitial links for 25 consecutive digests unnoticed.
+    #
+    # Three conditions on it, each removing a way of crying wolf. An alert that fires on routine
+    # conditions trains the reader to ignore it, which costs more than the alert buys:
+    #
+    #   not rate_limited   a 429 also produces zero successes, and it is a NORMAL outcome that
+    #                      production has already hit. It has its own warning above, which says
+    #                      what actually happened instead of blaming the library.
+    #   attempted >= MIN   only Reuters and Nikkei arrive via GN feeds, and collapse_reposts
+    #                      thins that further, so single-digit attempts are the usual case. One
+    #                      undecodable article is not evidence the contract moved.
+    #   not upgraded       the reader-facing quantity. `succeeded` counts the PREFETCH
+    #                      population (every article_id of every selected story); `upgraded`
+    #                      counts the links actually shown. Keying off `succeeded` let a run
+    #                      where every shown link failed stay quiet because unshown ones worked.
+    attempted, succeeded = gnews.resolution_stats()
+    if gn_sources and not upgraded and not rate_limited and attempted >= _CANARY_MIN_ATTEMPTS:
+        logger.warning(
+            "gnews: upgraded 0 of %d shown links (%d decode attempts, %d succeeded) -- the decoder "
+            "contract has probably moved again; readers are getting news.google.com interstitials. "
+            "Check `googlenewsdecoder` for an update.",
+            len(gn_sources),
+            attempted,
+            succeeded,
+        )
+    elif gn_sources:
+        logger.info(
+            "gnews: upgraded %d of %d Google-News links to publisher URLs (%d decode attempts)",
+            upgraded,
+            len(gn_sources),
+            attempted,
+        )
 
 
 def read_shown_headlines() -> list[dict]:

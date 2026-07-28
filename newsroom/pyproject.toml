@@ -13,6 +13,21 @@ dependencies = [
     "claude-agent-sdk",
     "scikit-learn",
     "trafilatura",
+    # Google-News redirect decoding. Replaces a hand-rolled batchexecute RPC that broke within a
+    # day of shipping and resolved 0 links for 25 digests.
+    #
+    # Pinned to our fork at a COMMIT, not a branch: a branch ref makes the image contents depend
+    # on when it was built, which is the "what was actually under test" problem in packaging
+    # form. A codeload tarball rather than git+https, so the builder image needs no git binary
+    # (python:3.14-slim has none, and the build fails outright without it).
+    #
+    # PyPI 0.1.7 also decodes correctly -- measured 6/6 on live tokens -- so this is not a
+    # correctness dependency. It buys hardening: bounded decompression, tag-keyed batch mapping,
+    # UTF-8 payloads, and a varint length that does not truncate URLs over 128 bytes.
+    #
+    # Revert to plain "googlenewsdecoder" if the fork becomes a liability; the call site uses
+    # `gnewsdecoder`, which both provide.
+    "googlenewsdecoder @ https://github.com/SeanLF/google-news-url-decoder/archive/c69c7645be0b5cb876b00b118acfe35c63e82f73.tar.gz",
 ]
 
 [project.optional-dependencies]

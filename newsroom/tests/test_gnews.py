@@ -1,15 +1,18 @@
 """Google News URL resolver.
 
-Offline tests exercise the decode LOGIC (id extraction, payload shape, response parsing, and
-best-effort failure) against fixtures -- no network, so they run in CI. The live canary at the
-bottom actually hits Google and is skipped unless GNEWS_LIVE=1; run it out-of-band (or on a
-schedule) to catch Google changing the batchexecute contract. See gnews.py header.
+The decode itself now belongs to ``googlenewsdecoder``; these tests cover the part that is still
+ours -- id extraction, the adapter's failure handling, the 429 back-off, the run cache and the
+prefetch -- by substituting the library in ``sys.modules``. No network, so they run in CI.
+
+The real break detector is no longer a test. ``gnews.resolution_stats()`` is checked on every
+production run and warns on attempted>0 / succeeded==0, because the previous canary was gated
+behind GNEWS_LIVE=1, nothing ever set it, and a decoder that broke on 2026-07-03 shipped Google
+interstitial links for 25 digests. The live canary at the bottom is kept as a manual probe.
 """
 
 import json
 import sys
-import urllib.error
-import urllib.request
+import types
 from pathlib import Path
 from unittest.mock import patch
 
@@ -19,15 +22,21 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 import gnews
 
+# One arbitrary GN article link, reused wherever the specific token does not matter. The cache is
+# keyed by token, and the autouse fixture clears it, so tests never leak into each other.
+_GN_URL = "https://news.google.com/rss/articles/CBMiABC?oc=5"
+
 
 @pytest.fixture(autouse=True)
 def _clear_gnews_state():
-    """The resolved-URL cache and prefetch handle are module-global -- reset around each test."""
+    """Cache, prefetch handle and resolution tally are module-global -- reset around each test."""
     gnews._cache.clear()
     gnews._prefetch_thread = None
+    gnews.reset_resolution_stats()
     yield
     gnews._cache.clear()
     gnews._prefetch_thread = None
+    gnews.reset_resolution_stats()
 
 
 class TestIsGnewsUrl:
@@ -52,84 +61,139 @@ class TestExtractArtId:
         assert gnews._extract_art_id("https://news.google.com/rss/search?q=x") is None
 
 
-class TestBuildPayload:
-    def test_embeds_variable_fields(self):
-        payload = gnews._build_payload("ART123", "1700000000", "SIGVALUE").decode()
-        # url-encoded f.req carrying the three per-article fields
-        assert payload.startswith("f.req=")
-        assert "ART123" in payload and "1700000000" in payload and "SIGVALUE" in payload
-        assert "Fbv4je" in payload and "garturlreq" in payload
+@pytest.fixture
+def decoder(monkeypatch):
+    """Install a stand-in for googlenewsdecoder. _fetch imports the module at call time, so
+    substituting it in sys.modules is the seam. Pass the result dict the decode should produce,
+    or a callable that stands in for the whole decode.
 
+    This stubs the sans-I/O surface `_fetch` actually uses -- `drive`, `decode_flow`,
+    `RequestsTransport`, `TransportError` -- rather than the `gnewsdecoder` shortcut, because
+    `_fetch` drives the flow itself in order to pass a timeout the shortcut does not accept.
 
-class TestParseBatchexecute:
-    def _response(self, url):
-        # faithful shape: a line whose [0][2] is a JSON string ["garturlres", <url>]
-        line = json.dumps([["wrb.fr", "Fbv4je", json.dumps(["garturlres", url]), None, None, None, "generic"]])
-        return ")]}'\n\n" + line
+    A stub cannot notice the real library changing shape under it: that is what
+    `test_live_canary_resolves_a_fresh_gnews_url` is for.
+    """
 
-    def test_pulls_resolved_url(self):
-        body = self._response("https://www.reuters.com/world/europe/foo")
-        assert gnews._parse_batchexecute(body) == "https://www.reuters.com/world/europe/foo"
+    def install(result, *, transport_error=None):
+        module = types.ModuleType("googlenewsdecoder")
 
-    def test_none_when_no_garturlres(self):
-        assert gnews._parse_batchexecute(')]}\'\n[["wrb.fr","Other","[]"]]') is None
+        class TransportError(Exception):
+            def __init__(self, message="", status=None):
+                super().__init__(message)
+                self.status = status
 
-    def test_skips_malformed_lines_and_finds_later_match(self):
-        good = json.dumps([["wrb.fr", "Fbv4je", json.dumps(["garturlres", "https://x.com/a"]), None]])
-        body = "garturlres this line is not json\n" + good
-        assert gnews._parse_batchexecute(body) == "https://x.com/a"
+        module.TransportError = TransportError
+        module.RequestsTransport = lambda *a, **k: lambda request, **kw: ""
+        module.decode_flow = lambda url, *a, **k: url  # opaque handle; drive() below defines it
+
+        def drive(flow, transport, **kwargs):
+            # `flow` is the URL, per decode_flow above. Exercise the transport wrapper the way
+            # the real drive() does, so _raise_on_429 is under test rather than bypassed.
+            if transport_error is not None:
+                transport(_Req(), **kwargs)
+            return result(flow) if callable(result) else result
+
+        module.drive = drive
+
+        class _Req:
+            method, url, headers, body = "GET", "https://news.google.com/articles/T", {}, None
+
+        if transport_error is not None:
+            code = transport_error
+
+            def failing(*a, **k):
+                raise TransportError(f"HTTP {code}", status=code)
+
+            module.RequestsTransport = lambda *a, **k: failing
+
+        module.gnewsdecoder = result if callable(result) else (lambda *a, **k: result)
+        monkeypatch.setitem(sys.modules, "googlenewsdecoder", module)
+
+    return install
 
 
 class TestResolveBestEffort:
-    def test_non_gnews_url_returns_none_without_network(self, monkeypatch):
-        # guard: must not touch the network for a non-GN url
-        monkeypatch.setattr(gnews, "_http", lambda *a, **k: pytest.fail("no network expected"))
+    def test_non_gnews_url_returns_none_without_network(self, decoder):
+        # guard: must not touch the decoder for a non-GN url
+        decoder(lambda *a, **k: pytest.fail("no decode"))
         assert gnews.resolve("https://www.reuters.com/world/foo") is None
 
-    def test_network_failure_is_swallowed(self, monkeypatch):
+    def test_decoder_exception_is_swallowed(self, decoder):
         def boom(*a, **k):
-            raise urllib.request.URLError("429")
+            raise RuntimeError("connection reset")
 
-        monkeypatch.setattr(gnews, "_http", boom)
-        assert gnews.resolve("https://news.google.com/rss/articles/CBMiABC?oc=5") is None
+        decoder(boom)
+        assert gnews.resolve(_GN_URL) is None
 
-    def test_missing_signature_returns_none(self, monkeypatch):
-        monkeypatch.setattr(gnews, "_http", lambda *a, **k: "<html>no attrs here</html>")
-        assert gnews.resolve("https://news.google.com/rss/articles/CBMiABC?oc=5") is None
+    def test_decoder_failure_status_returns_none(self, decoder):
+        decoder({"status": False, "message": "Footer missing"})
+        assert gnews.resolve(_GN_URL) is None
 
-    def test_429_raises_rate_limited_so_caller_can_stop(self, monkeypatch):
-        def http429(*a, **k):
-            raise urllib.error.HTTPError("https://news.google.com", 429, "Too Many Requests", {}, None)  # type: ignore[arg-type]
+    def test_success_without_a_usable_url_returns_none(self, decoder):
+        # defensive: a truthy status with a junk payload must not become a reader-facing link
+        decoder({"status": True, "decoded_url": "notaurl"})
+        assert gnews.resolve(_GN_URL) is None
 
-        monkeypatch.setattr(gnews, "_http", http429)
+    def test_non_dict_result_returns_none(self, decoder):
+        # a library that stops honouring its result contract must degrade, not raise past resolve()
+        decoder("https://pub/x")
+        assert gnews.resolve(_GN_URL) is None
+
+    @pytest.mark.parametrize(
+        "message",
+        ["HTTP Error 429: Too Many Requests", "429 Client Error", "Too Many Requests for url"],
+        ids=["http-429", "client-429", "prose"],
+    )
+    def test_429_raises_rate_limited_so_caller_can_stop(self, decoder, message):
+        # The library reports no typed error, so the back-off can only key off the message. If
+        # this stops matching, a throttled run hammers Google instead of standing down.
+        decoder({"status": False, "message": message})
         with pytest.raises(gnews.GnewsRateLimited):
-            gnews.resolve("https://news.google.com/rss/articles/CBMiABC?oc=5")
+            gnews.resolve(_GN_URL)
 
-    def test_non_429_http_error_is_swallowed(self, monkeypatch):
-        def http500(*a, **k):
-            raise urllib.error.HTTPError("https://news.google.com", 500, "err", {}, None)  # type: ignore[arg-type]
-
-        monkeypatch.setattr(gnews, "_http", http500)
-        assert gnews.resolve("https://news.google.com/rss/articles/CBMiABC?oc=5") is None
+    def test_other_failures_do_not_raise_rate_limited(self, decoder):
+        decoder({"status": False, "message": "500 whoops"})
+        assert gnews.resolve(_GN_URL) is None
 
     def test_resolve_caches_per_art_id(self, monkeypatch):
         fetched = []
-        monkeypatch.setattr(gnews, "_fetch", lambda art, t, d: fetched.append(art) or "https://pub/x")
-        u = "https://news.google.com/rss/articles/CBMiSAME?oc=5"
-        assert gnews.resolve(u) == "https://pub/x"
-        assert gnews.resolve(u) == "https://pub/x"  # second call served from cache
+        monkeypatch.setattr(gnews, "_fetch", lambda url, t, d: fetched.append(url) or "https://pub/x")
+        assert gnews.resolve(_GN_URL) == "https://pub/x"
+        assert gnews.resolve(_GN_URL) == "https://pub/x"  # second call served from cache
         assert len(fetched) == 1
 
-    def test_happy_path_resolves(self, monkeypatch):
-        page = '<c-wiz data-n-a-id="x" data-n-a-sg="SIG" data-n-a-ts="1700000000">...</c-wiz>'
-        be = ")]}'\n" + json.dumps(
-            [["wrb.fr", "Fbv4je", json.dumps(["garturlres", "https://www.reuters.com/world/real"]), None]]
-        )
-        calls = iter([page, be])
-        monkeypatch.setattr(gnews, "_http", lambda *a, **k: next(calls))
-        assert (
-            gnews.resolve("https://news.google.com/rss/articles/CBMiABC?oc=5") == "https://www.reuters.com/world/real"
-        )
+    def test_happy_path_resolves(self, decoder):
+        decoder({"status": True, "decoded_url": "https://www.reuters.com/world/real"})
+        assert gnews.resolve(_GN_URL) == "https://www.reuters.com/world/real"
+
+    def test_the_url_reaches_the_decoder_not_the_bare_art_id(self, decoder):
+        # The library parses the token out of the URL itself; handing it a bare id decodes nothing.
+        seen = []
+        decoder(lambda url, **k: seen.append(url) or {"status": True, "decoded_url": "https://pub/x"})
+        gnews.resolve(_GN_URL)
+        assert seen == [_GN_URL]
+
+
+class TestResolutionStatsCanary:
+    """attempted>0 with succeeded==0 is the signal that went unnoticed for 25 digests."""
+
+    def test_counts_success(self, decoder):
+        decoder({"status": True, "decoded_url": "https://pub/x"})
+        gnews.resolve(_GN_URL)
+        assert gnews.resolution_stats() == (1, 1)
+
+    def test_total_failure_is_visible_as_attempted_without_success(self, decoder):
+        decoder({"status": False, "message": "400 Bad Request"})
+        for token in ("CBMiONE", "CBMiTWO", "CBMiTHREE"):
+            gnews.resolve(f"https://news.google.com/rss/articles/{token}?oc=5")
+        assert gnews.resolution_stats() == (3, 0)
+
+    def test_cache_hits_are_not_counted_as_fresh_attempts(self, decoder):
+        decoder({"status": True, "decoded_url": "https://pub/x"})
+        gnews.resolve(_GN_URL)
+        gnews.resolve(_GN_URL)
+        assert gnews.resolution_stats() == (1, 1)
 
 
 class TestResolveGnewsLinksWiring:
@@ -145,7 +209,7 @@ class TestResolveGnewsLinksWiring:
         import digest
 
         monkeypatch.setattr("gnews.resolve", lambda url, timeout=15, delay=0: "https://www.reuters.com/real")
-        sel = self._selections("https://news.google.com/rss/articles/CBMiABC?oc=5")
+        sel = self._selections(_GN_URL)
         digest._resolve_gnews_links(sel)
         assert sel["must_know"][0]["sources"][0]["url"] == "https://www.reuters.com/real"
 
@@ -153,7 +217,7 @@ class TestResolveGnewsLinksWiring:
         import digest
 
         fetched = []
-        monkeypatch.setattr(gnews, "_fetch", lambda art, t, d: fetched.append(art) or "https://pub/x")
+        monkeypatch.setattr(gnews, "_fetch", lambda url, t, d: fetched.append(url) or "https://pub/x")
         # two shown sources point at the same GN article -> the module cache fetches it once
         u = "https://news.google.com/rss/articles/CBMiSAME?oc=5"
         sel = self._selections(u, u)
@@ -215,7 +279,7 @@ class TestResolveGnewsLinksWiring:
 
         monkeypatch.setattr(config, "GNEWS_RESOLVE_ENABLED", False)
         monkeypatch.setattr("gnews.resolve", lambda *a, **k: pytest.fail("must not resolve when disabled"))
-        sel = self._selections("https://news.google.com/rss/articles/CBMiABC?oc=5")
+        sel = self._selections(_GN_URL)
         digest._resolve_gnews_links(sel)  # no crash, no resolve
         assert sel["must_know"][0]["sources"][0]["url"].startswith("https://news.google.com")
 
@@ -231,7 +295,7 @@ class TestResolveGnewsLinksWiring:
         monkeypatch.setattr("gnews.resolve", boom)
         index = {
             "A1": {
-                "url": "https://news.google.com/rss/articles/CBMiABC?oc=5",
+                "url": _GN_URL,
                 "source_id": "reuters",
                 "bias": "center",
                 "original_title": "T",
@@ -261,10 +325,10 @@ class TestPrefetch:
         gn = "https://news.google.com/rss/articles/CBMiPRE?oc=5"
         self._write(tmp_path, {"must_know": [{"article_ids": ["A1"]}], "should_know": []}, {"A1": {"url": gn}})
         fetched = []
-        monkeypatch.setattr(gnews, "_fetch", lambda art, t, d: fetched.append(art) or "https://pub/real")
+        monkeypatch.setattr(gnews, "_fetch", lambda url, t, d: fetched.append(url) or "https://pub/real")
         gnews.prefetch_selected(tmp_path, timeout=1, delay=0, deadline=5)
         gnews.wait_for_prefetch(5)
-        assert fetched == [gnews._extract_art_id(gn)]
+        assert fetched == [gn]  # the decoder needs the URL; the cache is still keyed by art_id
         assert gnews.resolve(gn) == "https://pub/real"  # render is now a pure cache hit
         assert len(fetched) == 1
 
@@ -285,13 +349,20 @@ class TestPrefetch:
 @pytest.mark.skipif(not __import__("os").environ.get("GNEWS_LIVE"), reason="live network canary; run with GNEWS_LIVE=1")
 def test_live_canary_resolves_a_fresh_gnews_url():
     """Hits Google for real: pull the first article from the Reuters GN feed and resolve it.
-    Fails loudly if Google has changed the batchexecute contract. Not run in CI."""
+    A manual probe for reproducing a break by hand -- production's real detector is the
+    attempted/succeeded warning in digest._resolve_gnews_links, which cannot be skipped."""
     import re
+    import urllib.request
 
-    feed = gnews._http("https://news.google.com/rss/search?q=site:reuters.com&hl=en-US&gl=US&ceid=US:en", timeout=20)
+    req = urllib.request.Request(  # nosec B310 - fixed https host
+        "https://news.google.com/rss/search?q=site:reuters.com&hl=en-US&gl=US&ceid=US:en",
+        headers={"User-Agent": "Mozilla/5.0"},
+    )
+    with urllib.request.urlopen(req, timeout=20) as r:  # nosec B310
+        feed = r.read().decode("utf-8", "replace")
     link = re.search(r"<link>(https://news\.google\.com/rss/articles/[^<]+)</link>", feed)
     assert link, "could not find a GN article link in the Reuters feed"
     resolved = gnews.resolve(link.group(1), timeout=20)
     assert resolved and resolved.startswith("http") and "news.google.com" not in resolved, (
-        f"GN decode returned {resolved!r} -- Google may have changed the RPC; update gnews.py"
+        f"GN decode returned {resolved!r} -- upstream contract may have moved; bump googlenewsdecoder"
     )
