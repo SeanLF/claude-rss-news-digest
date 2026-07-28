@@ -25,6 +25,7 @@ import logging
 import re
 from contextlib import contextmanager, suppress
 from dataclasses import dataclass, field
+from itertools import islice
 
 from utils import strip_article_ids
 
@@ -85,6 +86,42 @@ def _tidy(text: str) -> str:
     return re.sub(r"\s{2,}", " ", text).strip()
 
 
+def _clean_fact(fact: dict) -> str:
+    """A fact's reader-facing text, or "" if it still leaks an id and must be skipped.
+
+    Delimited citations are stripped in place -- removing "(A238)" leaves readable prose. A BARE
+    id can only be detected, never stripped, so the fact is dropped instead.
+
+    Detection uses the fact's OWN ``sources`` rather than a pattern, because that is ground truth
+    the regex does not have: an id in both the text and the sources is the model citing itself,
+    while "the A19 chip" is an Apple chip precisely because A19 is not among the cited sources.
+    That keeps a legitimate A-designator (aircraft, motorway, chip) out of the false-positive set
+    without needing the aggressive bare pattern that would eat them.
+
+    Every shape here is model-authored JSON, so the container types are checked as strictly as the
+    element types. A scalar ``sources`` ("A3" rather than ["A3"]) would otherwise iterate as
+    ``['A', '3']`` and drop any clean fact containing a lone capital or a bare digit; the Rust
+    mirror's typed accessors reject that shape outright, and the two must not disagree about the
+    same stored row. Ids are trimmed for the same reason -- a padded ``"A238 "`` matches under
+    Python's ``\\b`` but not under Rust's boundary check."""
+    raw = fact.get("fact") if isinstance(fact, dict) else None
+    text = _tidy(strip_article_ids(raw)) if isinstance(raw, str) else ""
+    if not text:
+        return ""
+    sources = fact.get("sources")
+    cited = [t for s in sources if isinstance(s, str) and (t := s.strip())] if isinstance(sources, list) else []
+    leaked = [s for s in cited if re.search(rf"\b{re.escape(s)}\b", text)]
+    if leaked:
+        logger.warning(
+            "thread fact cites %s inline in its own prose -- skipping it (see thread_synthesis "
+            "EVOLVE_SYSTEM: ids belong in `sources`, never in `fact`): %r",
+            ", ".join(leaked),
+            text[:120],
+        )
+        return ""
+    return text
+
+
 def delta_from_facts(facts: list[dict], *, top_n: int = 3) -> str:
     """The thread's delta = the top-N verified whats_new facts joined as prose. Faithful by
     construction: each fact already passed the per-fact audit, so there's nothing to re-gate.
@@ -100,8 +137,16 @@ def delta_from_facts(facts: list[dict], *, top_n: int = 3) -> str:
     no-op case byte-identical, while these facts are joined with a space and a stray trailing
     or doubled space would show up in the rendered delta (and in tomorrow's carried memory).
     The Rust mirror in ``circulation/src/thread.rs`` collapses unconditionally for the same
-    reason -- the same stored fact must render identically on the archive page."""
-    return " ".join(_tidy(strip_article_ids(f.get("fact", ""))) for f in facts[:top_n] if f.get("fact"))
+    reason -- the same stored fact must render identically on the archive page.
+
+    A fact still carrying a BARE self-citation after stripping is SKIPPED, and the next-ranked
+    fact takes its place. Bare ids cannot be stripped: "according to A238." would become
+    "according to ." -- and they cannot be matched by pattern either, since no regex separates
+    "A238" from "the A19 chip". Skipping keeps the delta full-length instead of shipping the
+    leak (2026-07-12) or a mangled stub, and costs at most one fact from the tail of the
+    ranking."""
+    clean = (t for f in facts if (t := _clean_fact(f)))
+    return " ".join(islice(clean, top_n))
 
 
 def _whats_new(content: str | None) -> list[dict]:

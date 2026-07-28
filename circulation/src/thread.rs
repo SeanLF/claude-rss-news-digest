@@ -254,13 +254,59 @@ fn facts_from_content(content: Option<&str>) -> Vec<String> {
     let Some(whats_new) = parsed.get("whats_new").and_then(|v| v.as_array()) else {
         return Vec::new();
     };
-    whats_new
-        .iter()
-        .take(3)
-        .filter_map(|f| f.get("fact").and_then(|v| v.as_str()))
-        .filter(|s| !s.is_empty())
-        .map(strip_article_ids)
-        .collect()
+    // `take(3)` AFTER the filter, so a skipped fact promotes the next-ranked one instead of
+    // shortening the entry -- mirrors Python's `delta_from_facts`.
+    whats_new.iter().filter_map(clean_fact).take(3).collect()
+}
+
+/// One fact's reader-facing text, or `None` when it must be skipped entirely.
+/// Mirror of Python's `threads._clean_fact` (`newsroom/src/threads.py`) -- keep in sync.
+///
+/// Delimited citations are stripped in place. A BARE id (`"...according to A238."`, shipped
+/// 2026-07-12) cannot be stripped without leaving `"according to ."`, and cannot be matched by
+/// pattern without also eating `"the A19 chip"`. But the fact carries its own `sources`, and an
+/// id present in BOTH the prose and that list is the model citing itself -- ground truth no
+/// regex has. Those facts are dropped; a legitimate A-designator is untouched because it is
+/// absent from `sources`.
+fn clean_fact(f: &serde_json::Value) -> Option<String> {
+    let text = strip_article_ids(f.get("fact")?.as_str()?);
+    if text.is_empty() {
+        return None;
+    }
+    let cites_itself = f
+        .get("sources")
+        .and_then(|v| v.as_array())
+        .is_some_and(|ids| {
+            ids.iter()
+                .filter_map(|v| v.as_str())
+                // Trimmed to match Python: a padded "A238 " matches under Python's \b but not
+                // under the boundary check below, and this side under-detecting means the leak
+                // ships on the public page while the email suppresses it.
+                .any(|id| contains_word(&text, id.trim()))
+        });
+    (!cites_itself).then_some(text)
+}
+
+/// Whether `needle` occurs in `hay` as a whole word -- mirrors Python's `\bID\b`, so that a
+/// cited "A2" does not match inside "A238".
+fn contains_word(hay: &str, needle: &str) -> bool {
+    // Without this, `find` returns Some(0) forever and `from` never advances -- an infinite
+    // loop inside an Axum handler, in a binary built with panic = "abort".
+    if needle.is_empty() {
+        return false;
+    }
+    let is_word = |c: char| c.is_alphanumeric() || c == '_';
+    let mut from = 0;
+    while let Some(pos) = hay[from..].find(needle) {
+        let (start, end) = (from + pos, from + pos + needle.len());
+        let before_ok = start == 0 || !hay[..start].chars().next_back().is_some_and(is_word);
+        let after_ok = end == hay.len() || !hay[end..].chars().next().is_some_and(is_word);
+        if before_ok && after_ok {
+            return true;
+        }
+        from = end;
+    }
+    false
 }
 
 /// Mirror of Python's `utils.strip_article_ids` (`newsroom/src/utils.py`) -- keep in sync.
@@ -593,6 +639,98 @@ mod tests {
             assert_eq!(
                 strip_article_ids("The council met (see annex) before the vote."),
                 "The council met (see annex) before the vote."
+            );
+        }
+
+        // --- bare self-citations (2026-07-12) ---
+        // Parity with test_threads.py: a bare id is detected via the fact's own `sources`,
+        // never by pattern, so a real A-designator survives.
+
+        #[test]
+        fn drops_fact_that_cites_its_own_source_inline_and_promotes_the_next() {
+            let content = serde_json::json!({"whats_new": [
+                {"fact": "Fire nears control, according to A238.", "sources": ["A238"]},
+                {"fact": "Authorities suspect arson.", "sources": ["A254"]},
+                {"fact": "Investigators widened the search.", "sources": ["A243"]},
+                {"fact": "A fourth development.", "sources": ["A9"]},
+            ]})
+            .to_string();
+            assert_eq!(
+                super::super::facts_from_content(Some(&content)),
+                vec![
+                    "Authorities suspect arson.",
+                    "Investigators widened the search.",
+                    "A fourth development.",
+                ]
+            );
+        }
+
+        #[test]
+        fn drops_fact_despite_padded_source_id() {
+            // Parity with Python: a padded id matches under \b, so it must match here too --
+            // this side is the only guard on the public archive page.
+            let content = serde_json::json!({"whats_new": [
+                {"fact": "Fire nears control, according to A238 today.", "sources": ["A238 "]},
+                {"fact": "Authorities suspect arson.", "sources": ["A254"]},
+            ]})
+            .to_string();
+            assert_eq!(
+                super::super::facts_from_content(Some(&content)),
+                vec!["Authorities suspect arson."]
+            );
+        }
+
+        #[test]
+        fn empty_source_id_terminates_and_keeps_the_fact() {
+            // An empty needle used to spin forever in contains_word.
+            let content = serde_json::json!({"whats_new": [
+                {"fact": "Authorities suspect arson.", "sources": ["", "   "]},
+            ]})
+            .to_string();
+            assert_eq!(
+                super::super::facts_from_content(Some(&content)),
+                vec!["Authorities suspect arson."]
+            );
+        }
+
+        #[test]
+        fn tolerates_malformed_whats_new_entries() {
+            // Mirrors Python: non-object entries and non-string facts are skipped, not fatal.
+            let content = serde_json::json!({"whats_new": [
+                "not an object",
+                {"fact": 123},
+                {"fact": "One.", "sources": "A3"},
+                {"fact": "Two."},
+            ]})
+            .to_string();
+            assert_eq!(
+                super::super::facts_from_content(Some(&content)),
+                vec!["One.", "Two."]
+            );
+        }
+
+        #[test]
+        fn keeps_a_designator_that_is_not_a_cited_source() {
+            let content = serde_json::json!({"whats_new": [
+                {"fact": "The iPhone 17e ships with the A19 chip.", "sources": ["A404"]},
+            ]})
+            .to_string();
+            assert_eq!(
+                super::super::facts_from_content(Some(&content)),
+                vec!["The iPhone 17e ships with the A19 chip."]
+            );
+        }
+
+        #[test]
+        fn cited_id_must_match_as_a_whole_word() {
+            // "A2" cited, "A238" in prose: a substring match would drop this wrongly.
+            let content = serde_json::json!({"whats_new": [
+                {"fact": "Damage along the A238 corridor.", "sources": ["A2"]},
+            ]})
+            .to_string();
+            assert_eq!(
+                super::super::facts_from_content(Some(&content)),
+                vec!["Damage along the A238 corridor."]
             );
         }
 

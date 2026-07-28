@@ -775,3 +775,85 @@ def test_strip_article_ids_removes_parenthesised_citations(text, expected):
 )
 def test_strip_article_ids_leaves_legitimate_delimited_text(text):
     assert threads.strip_article_ids(text) == text
+
+
+# --- bare self-citations: the 2026-07-12 leak ---
+# strip_article_ids only removes DELIMITED groups, because a bare "A19" cannot be told from
+# "the A19 chip" by any regex. But the synthesis writes bare trailing citations -- 2026-07-12
+# shipped "...according to A238." to subscribers and the public archive, and it is still there.
+#
+# The thread path has ground truth a regex does not: each fact declares its own `sources`. An
+# id that appears in BOTH the fact text and that fact's sources is a self-citation, not an
+# aircraft. Facts carrying one are skipped and the next-ranked fact is promoted, so the delta
+# stays full-length instead of shipping the leak or a mangled "according to ." stub.
+
+
+def test_delta_skips_fact_with_bare_self_citation_and_promotes_the_next():
+    facts = [
+        {"fact": "600 of 1,500 evacuees returned as the fire nears control, according to A238.", "sources": ["A238"]},
+        {"fact": "Spanish authorities suspect arson.", "sources": ["A254"]},
+        {"fact": "Third fact.", "sources": ["A243"]},
+        {"fact": "Fourth fact.", "sources": ["A9"]},
+    ]
+    # Leaky lead dropped; the 4th is promoted so the reader still gets three facts.
+    assert threads.delta_from_facts(facts) == "Spanish authorities suspect arson. Third fact. Fourth fact."
+
+
+def test_delta_keeps_a_designator_that_is_not_a_self_citation():
+    # "A19" here is an Apple chip, not a citation -- it is absent from sources, so it stays.
+    facts = [{"fact": "The iPhone 17e ships with the A19 chip.", "sources": ["A404"]}]
+    assert threads.delta_from_facts(facts) == "The iPhone 17e ships with the A19 chip."
+
+
+def test_delta_still_strips_delimited_citations_without_dropping_the_fact():
+    # Delimited groups remain strippable in place -- removing "(A238)" leaves readable prose,
+    # so there is no reason to lose the fact.
+    facts = [{"fact": "Talks resumed in Doha. (A238)", "sources": ["A238"]}]
+    assert threads.delta_from_facts(facts) == "Talks resumed in Doha."
+
+
+def test_delta_drops_fact_whose_bare_citation_survives_when_no_replacement_exists():
+    facts = [{"fact": "Fire nears control, according to A238.", "sources": ["A238"]}]
+    assert threads.delta_from_facts(facts) == ""
+
+
+# --- malformed shapes: model JSON drift must not eat clean facts or kill the run ---
+# The self-citation check reads model-authored JSON, so every container and element type is
+# untrusted. It must also agree with the Rust mirror, which tolerates all of these by virtue
+# of serde's typed accessors -- a divergence means the email and the archive page disagree
+# about the same stored row.
+
+
+@pytest.mark.parametrize(
+    "sources",
+    ["A3", {"A": 1}, 42, None],
+    ids=["scalar-string", "dict", "int", "null"],
+)
+def test_delta_keeps_clean_fact_when_sources_is_not_a_list(sources):
+    # A scalar "A3" iterates as ['A', '3'], so \bA\b and \b3\b were matched against the prose
+    # and dropped clean facts containing a lone capital or a bare digit.
+    facts = [{"fact": "Talks resumed at 3 p.m. Plan A was rejected.", "sources": sources}]
+    assert threads.delta_from_facts(facts) == "Talks resumed at 3 p.m. Plan A was rejected."
+
+
+def test_delta_survives_non_string_fact_beyond_the_top_n():
+    # Skip-and-promote walks past index 3, so entries the old facts[:3] never touched are now
+    # evaluated. A raise here loses ALL thread enrichment for the run, not just one fact.
+    facts = [
+        {"fact": "Leak, per A1.", "sources": ["A1"]},
+        {"fact": "One."},
+        {"fact": "Two."},
+        {"fact": 123},
+    ]
+    assert threads.delta_from_facts(facts) == "One. Two."
+
+
+def test_delta_survives_non_dict_fact_entry():
+    assert threads.delta_from_facts([{"fact": "One."}, "not an object", {"fact": "Two."}]) == "One. Two."
+
+
+def test_delta_detects_self_citation_despite_padded_source_id():
+    # Rust's hand-rolled boundary check keeps a padded id (it is "the only guard" on the public
+    # archive page), so Python must not diverge -- trim both sides before matching.
+    facts = [{"fact": "Fire nears control, according to A238 today.", "sources": ["A238 "]}]
+    assert threads.delta_from_facts(facts) == ""
