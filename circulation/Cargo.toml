@@ -20,7 +20,7 @@ mailchecker = "6"
 # Signed confirmation tokens for stateless double opt-in.
 hmac = "0.12"
 sha2 = "0.10"
-base64 = "0.22"
+base64 = "0.23"
 # Serve-time HTML->Markdown of the stored digest blob for the `.md` / `Accept: text/markdown`
 # LLM-visibility routes. Single source stays the stored HTML; Markdown is derived, never a
 # second content store.
