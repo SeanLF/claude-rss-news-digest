@@ -3,7 +3,7 @@
 Command reference and environment notes for running news-digest. Migrated from
 the untracked `.claude/learnings.md` so it survives outside one machine.
 
-Reusable *lessons* live in [`docs/solutions/`](solutions/); incident narratives
+Reusable *lessons* live in [`docs/lessons/`](solutions/); incident narratives
 live in [`docs/postmortems/`](postmortems/). This file is the how-to.
 
 ## Containers

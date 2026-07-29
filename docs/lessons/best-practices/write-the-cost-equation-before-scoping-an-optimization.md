@@ -76,6 +76,6 @@ When you do measure, make the numbers comparable:
 
 Generalised from the lever test in
 [koala73/worldmonitor](https://github.com/koala73/worldmonitor)'s
-`docs/solutions/best-practices/egress-cost-tracks-origin-miss-rate-not-client-count.md`,
+`docs/lessons/best-practices/egress-cost-tracks-origin-miss-rate-not-client-count.md`,
 where skipping this arithmetic pointed engineering-weeks of planned work at two
 targets that netted to zero. The arithmetic took thirty minutes.

@@ -84,7 +84,7 @@ change (link before WRITE) that was deferred as unjustified — it is now known-
 > See `docs/2026-07-26-write-delta-poc-findings.md`.
 
 The commit is harmless (fail-open, ~$0.006/run) and is a prerequisite for a real fix. It is
-not one. Lesson: `docs/solutions/best-practices/measure-a-prompt-change-against-a-control-run.md`.
+not one. Lesson: `docs/lessons/best-practices/measure-a-prompt-change-against-a-control-run.md`.
 
 ## Diagnosis that flipped: synthesis, not the auditor
 
@@ -98,7 +98,7 @@ generator emits an empty installment and the audit never sees anything to reject
 
 So the fix belongs in the synthesis prompt. Scale is 6/214 (2.8%) — **do not tune it without a
 measurement harness first**. Lesson:
-`docs/solutions/best-practices/an-unfiltered-sibling-tells-generator-from-validator.md`.
+`docs/lessons/best-practices/an-unfiltered-sibling-tells-generator-from-validator.md`.
 
 ## Killed — do not re-propose without new data
 

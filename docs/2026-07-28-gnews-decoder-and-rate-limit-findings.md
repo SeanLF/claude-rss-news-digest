@@ -232,5 +232,5 @@ Three times in one session the thing under test was not the code that shipped:
 Each produced confident, wrong numbers that looked like results. That is the transferable
 lesson, more than any measurement here.
 
-See also `docs/solutions/` for the lessons extracted from this, and
+See also `docs/lessons/` for the lessons extracted from this, and
 `scratch/gnews-rate-lab/README.md` for how to re-run any of the measurements.

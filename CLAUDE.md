@@ -87,9 +87,9 @@ is pointing the wrong way — pass it in instead.
 
 ## Working Docs
 
-- `docs/solutions/` — reusable lessons, one per file, named for the lesson.
+- `docs/lessons/` — reusable lessons, one per file, named for the lesson.
   Write one when closing an incident or landing a non-obvious fix, as its own
-  commit. Convention in `docs/solutions/README.md`.
+  commit. Convention in `docs/lessons/README.md`.
 - `docs/operations.md` — command reference and environment notes.
 - `docs/postmortems/` — incident narratives.
 - `docs/` (dated files) — design docs, evals, handoffs.

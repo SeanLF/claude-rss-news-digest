@@ -55,6 +55,6 @@ this have saved you time if you had read it before you started?
 ## Structure borrowed from
 
 The frontmatter-and-category shape is adapted from
-[koala73/worldmonitor](https://github.com/koala73/worldmonitor)'s `docs/solutions/`,
+[koala73/worldmonitor](https://github.com/koala73/worldmonitor)'s `docs/lessons/`,
 which is the best example of a compounding lessons corpus I have seen in a
 production repo.

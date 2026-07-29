@@ -38,7 +38,7 @@ the production database.
   `S. America` region). 31 outlets / 38 feeds.
 - **Every rating re-read from MBFC**; 18 of 35 moved. Reuters is now the only `very-high`.
   Attribution switched from Ground News to MBFC everywhere. Note the framing correction in
-  `docs/solutions/best-practices/an-aggregate-rating-and-a-single-rater-rating-are-different-scales.md`
+  `docs/lessons/best-practices/an-aggregate-rating-and-a-single-rater-rating-are-different-scales.md`
   — much of that diff is a scale re-base, not error.
 
 **Wire provenance**
@@ -53,7 +53,7 @@ the production database.
 ## How it was validated
 
 Three local pipeline runs. **The first two were void and it took an outside prompt to notice**
-— see `docs/solutions/best-practices/verify-the-validation-run-contains-the-code-under-test.md`.
+— see `docs/lessons/best-practices/verify-the-validation-run-contains-the-code-under-test.md`.
 
 1. **Void** — `docker compose run` does not rebuild, so it ran a 5-day-old image with the old
    `sources.json` (which is `COPY`d into the image, not mounted).

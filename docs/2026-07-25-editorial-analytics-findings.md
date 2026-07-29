@@ -2,7 +2,7 @@
 
 **2026-07-25.** Five questions run against a read-only prod clone. Nothing was modified.
 This file exists because the findings were about to be lost: the session that produced them
-recorded its *epistemics* (`docs/solutions/best-practices/a-per-source-metric-measures-feed-configuration-until-proven-otherwise.md`)
+recorded its *epistemics* (`docs/lessons/best-practices/a-per-source-metric-measures-feed-configuration-until-proven-otherwise.md`)
 but not its *evidence*. Recovered from the session transcript rather than re-derived.
 
 Scorecard: **one actionable defect, one definitive cleanup, one mixed, two measurement
@@ -150,5 +150,5 @@ shipped **3 summary failures that would have been full drops, 0 stories lost**. 
 
 The two measurement artifacts — scoop ranking (measured feed backfill depth, ρ = +0.746 with
 article age at fetch) and the China deficit above — are written up as a reusable lesson in
-`docs/solutions/best-practices/a-per-source-metric-measures-feed-configuration-until-proven-otherwise.md`.
+`docs/lessons/best-practices/a-per-source-metric-measures-feed-configuration-until-proven-otherwise.md`.
 That lesson, not this file, is the durable output of those two questions.
