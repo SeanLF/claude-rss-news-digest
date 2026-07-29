@@ -33,6 +33,8 @@ def _healthy(**overrides):
         "thread_continuations": 5,
         "threads_available": 55,
         "threads_enabled": True,
+        "batches_lost": 0,
+        "title_only_fallback": 0,
     }
     health.update(overrides)
     return health
@@ -115,3 +117,49 @@ class TestSilentOutageRules:
         found = run_health.violations(_healthy(recipients=0, broadcasting=False))
 
         assert found == []
+
+
+# --- degraded clustering: the failure every incident this module exists for has in common ---
+# One extraction batch returning nothing costs 40 articles their entity tags; they cluster on
+# titles alone, which manufactures collision-prone cluster ids and shipped 7 times in 40 runs.
+# Every one of those runs exited 0. The count lives nowhere the DB can see it, so the stage now
+# archives cluster_health.json and this rule reads it.
+
+
+def _health(**over):
+    base = {
+        "shipped": 16,
+        "stages": 5,
+        "artifacts": 15,
+        "recipients": 11,
+        "broadcasting": True,
+        "thread_continuations": 5,
+        "threads_available": 40,
+        "threads_enabled": True,
+        "batches_lost": 0,
+        "title_only_fallback": 0,
+    }
+    base.update(over)
+    return base
+
+
+def test_degraded_clustering_fires_on_any_title_only_fallback():
+    out = run_health.violations(_health(batches_lost=1))
+    assert any("DEGRADED_CLUSTERING" in v for v in out)
+
+
+def test_clean_clustering_is_silent():
+    assert not [v for v in run_health.violations(_health()) if "DEGRADED_CLUSTERING" in v]
+
+
+def test_missing_cluster_health_cannot_judge_and_stays_quiet():
+    # Runs archived before the artifact existed must not alert; absence is not evidence.
+    out = run_health.violations(_health(batches_lost=None))
+    assert not [v for v in out if "DEGRADED_CLUSTERING" in v]
+
+
+def test_missing_key_entirely_is_malformed_not_silently_skipped():
+    # The module's own discipline: a renamed/absent key must be loud, not fail-silent-off.
+    h = _health()
+    del h["batches_lost"]
+    assert any("MALFORMED_HEALTH" in v for v in run_health.violations(h))

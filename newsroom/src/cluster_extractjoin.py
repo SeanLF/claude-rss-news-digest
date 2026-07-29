@@ -151,6 +151,30 @@ def parse_extract_items(text: str) -> list[dict]:
     return []
 
 
+def _write_cluster_health(
+    claude_input_dir: Path, *, articles: int, title_only_fallback: int, batches_lost: int
+) -> None:
+    """Record this stage's degradation counts where an invariant can read them.
+
+    Best-effort: a failure here must never cost the digest. It is observability for a run that
+    otherwise completes and ships, which is exactly the failure class run_health exists for --
+    every one of the 7 archived degraded runs exited 0 with nothing but a log line to show for
+    it, and that log lives in a 100 KB rotating file.
+    """
+    try:
+        (claude_input_dir / "cluster_health.json").write_text(
+            json.dumps(
+                {
+                    "articles": articles,
+                    "title_only_fallback": title_only_fallback,
+                    "batches_lost": batches_lost,
+                }
+            )
+        )
+    except OSError as e:
+        logger.warning("could not write cluster_health.json (non-fatal): %s", e)
+
+
 def coerce_tag(item: dict) -> dict:
     """The tag dict for one raw extraction item, with every value normalised to a string.
 
@@ -587,6 +611,14 @@ async def run_extractjoin_stage(
         # A shipped-but-degraded run (title-only articles cluster worse -> reader-facing dups
         # possible). Log at ERROR so it surfaces in monitoring the same day, not just debug noise.
         logger.error("extract-join: %d/%d articles title-only fallback (degraded clustering)", len(missing), len(ids))
+    # Durable counterpart to that log line. A rotating 100 KB log file is not somewhere an
+    # invariant can be evaluated from, which is why every one of these runs shipped unnoticed.
+    _write_cluster_health(
+        claude_input_dir,
+        articles=len(ids),
+        title_only_fallback=len(missing),
+        batches_lost=sum(1 for items, _, _ in results if not items),
+    )
 
     clusters = join_tags(ids, tags, threshold=threshold)
     out = {"clusters": clusters}

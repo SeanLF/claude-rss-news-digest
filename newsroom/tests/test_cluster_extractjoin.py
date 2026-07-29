@@ -8,6 +8,7 @@ End-to-end behaviour on real articles is validated separately in a Docker dry ru
 
 import asyncio
 import json
+import pathlib
 import sys
 from pathlib import Path
 
@@ -814,3 +815,63 @@ def test_null_primary_event_is_tagless_to_the_trigger_as_well_as_the_gate(tmp_pa
         asyncio.run(cej.run_extractjoin_stage(tmp_path, model="claude-sonnet-4-6", cwd=None, threshold=0.80))
 
     assert any("0/40 articles extracted" in r.getMessage() for r in caplog.records)
+
+
+# --- cluster_health.json: the durable counterpart to the degradation log lines ---
+# These counts existed only in a 100 KB rotating log file, which is why 7 archived runs
+# shipped degraded and unnoticed. run_health reads this artifact via db.get_run_health.
+
+
+def test_stage_records_a_lost_batch_in_cluster_health(tmp_path, monkeypatch):
+    _write_articles(tmp_path, 200)  # 5 batches; one lost = 20%, under the gate, so it ships
+
+    async def first_batch_never_parses(prompt, **kw):
+        ids = _batch_ids(prompt)
+        return _result("not json at all" if "A1" in ids else _good_items(ids))
+
+    monkeypatch.setattr(cej.claude_cli, "run_agent", first_batch_never_parses)
+    monkeypatch.setattr(cej, "with_retry_async", _passthrough)
+    asyncio.run(cej.run_extractjoin_stage(tmp_path, model="claude-sonnet-4-6", cwd=None, threshold=0.80))
+
+    health = json.loads((tmp_path / "cluster_health.json").read_text())
+    assert health == {"articles": 200, "title_only_fallback": 40, "batches_lost": 1}
+
+
+def test_stage_records_a_clean_run_as_zero(tmp_path, monkeypatch):
+    _write_articles(tmp_path, 40)
+
+    async def all_good(prompt, **kw):
+        return _result(_good_items(_batch_ids(prompt)))
+
+    monkeypatch.setattr(cej.claude_cli, "run_agent", all_good)
+    monkeypatch.setattr(cej, "with_retry_async", _passthrough)
+    asyncio.run(cej.run_extractjoin_stage(tmp_path, model="claude-sonnet-4-6", cwd=None, threshold=0.80))
+
+    health = json.loads((tmp_path / "cluster_health.json").read_text())
+    assert health["batches_lost"] == 0 and health["title_only_fallback"] == 0
+
+
+def test_unwritable_cluster_health_does_not_break_the_stage(tmp_path, monkeypatch, caplog):
+    # Observability must never cost the digest. Patch the WRITE, not the helper, so the
+    # helper's own guard is what is under test.
+    _write_articles(tmp_path, 40)
+
+    async def all_good(prompt, **kw):
+        return _result(_good_items(_batch_ids(prompt)))
+
+    real_write = pathlib.Path.write_text
+
+    def refuse_health(self, *a, **kw):
+        if self.name == "cluster_health.json":
+            raise OSError("disk full")
+        return real_write(self, *a, **kw)
+
+    monkeypatch.setattr(cej.claude_cli, "run_agent", all_good)
+    monkeypatch.setattr(cej, "with_retry_async", _passthrough)
+    monkeypatch.setattr(pathlib.Path, "write_text", refuse_health)
+
+    with caplog.at_level("WARNING", logger="cluster_extractjoin"):
+        asyncio.run(cej.run_extractjoin_stage(tmp_path, model="claude-sonnet-4-6", cwd=None, threshold=0.80))
+
+    assert (tmp_path / "clusters.json").exists(), "the stage must still produce its real output"
+    assert any("cluster_health.json" in r.getMessage() for r in caplog.records)

@@ -495,7 +495,15 @@ def get_run_health(run_id: int) -> dict:
                   (SELECT COUNT(*) FROM threads t
                      WHERE t.status = 'active'
                        AND EXISTS (SELECT 1 FROM thread_installments p
-                                    WHERE p.thread_id = t.id AND p.run_id < :r))
+                                    WHERE p.thread_id = t.id AND p.run_id < :r)),
+                  (SELECT CASE WHEN json_valid(content)
+                               THEN json_extract(content, '$.batches_lost') END
+                     FROM run_artifacts
+                    WHERE run_id = :r AND artifact_name = 'cluster_health.json'),
+                  (SELECT CASE WHEN json_valid(content)
+                               THEN json_extract(content, '$.title_only_fallback') END
+                     FROM run_artifacts
+                    WHERE run_id = :r AND artifact_name = 'cluster_health.json')
                 """,
                 {"r": run_id},
             ).fetchone()
@@ -516,6 +524,20 @@ def get_run_health(run_id: int) -> dict:
         # are written at all, and the live threads that remain would otherwise make
         # the continuity rule fire on every run forever.
         "threads_enabled": THREADS_ENABLED,
+        # None when the artifact is absent (runs archived before it existed, or a
+        # stage that died before writing it) or unreadable. The rule treats that as
+        # "cannot judge" rather than as a clean run.
+        #
+        # json_valid guards the extract because json_extract RAISES on malformed
+        # input, and that raise is caught by this function's blanket sqlite3.Error
+        # handler -- which returns {} and makes the CALLER skip every invariant.
+        # A half-written observability file (an ENOSPC mid write_text) would
+        # otherwise silently disable the monitor it was added to feed.
+        "batches_lost": row[6],
+        # Reported, not triggered on: the trigger is a wholesale batch loss, but a
+        # short final batch means "a batch was lost" can be 1 article, not 40, and
+        # the alert should say which.
+        "title_only_fallback": row[7],
     }
 
 
@@ -615,6 +637,10 @@ _TRACE_ARTIFACTS = (
     "article_index.json",
     "selections.json",
     "recap.txt",
+    # Written by the extract-join stage. Its counts exist nowhere else the DB can
+    # see -- they were log lines only -- so run_health could not judge a degraded
+    # clustering run at all.
+    "cluster_health.json",
     # Context files handed TO the stages rather than produced by them. Without these
     # the archive shows the headline that shipped but not the prior headlines SELECT
     # and WRITE were shown against, and claude_input/ is rmtree'd next run.

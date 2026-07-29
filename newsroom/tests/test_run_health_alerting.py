@@ -35,6 +35,8 @@ _HEALTHY = {
     "thread_continuations": 5,
     "threads_available": 55,
     "threads_enabled": True,
+    "batches_lost": 0,
+    "title_only_fallback": 0,
 }
 
 

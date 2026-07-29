@@ -4,6 +4,7 @@ Uses a real temp SQLite database with migrations applied, so the schema under te
 is exactly what production runs.
 """
 
+import json
 import sqlite3
 import sys
 from pathlib import Path
@@ -118,3 +119,54 @@ class TestSchemaDrift:
 
         assert health, "get_run_health returned {} against a freshly migrated schema"
         assert health.keys() >= run_health.REQUIRED_KEYS
+
+
+class TestClusterHealthArtifactJoin:
+    """The archive->SQL join, end to end. Neither side's unit tests touch it: the stage tests
+    assert a file on disk, the rule tests hand-build a dict. Four one-token regressions (a
+    typo'd JSON path, a wrong artifact name, dropping it from _TRACE_ARTIFACTS, hardcoding the
+    count to 0) each kill the feature in production with the suite green.
+    """
+
+    def _archive(self, tmp_path, payload):
+        (tmp_path / "cluster_health.json").write_text(payload)
+        db.archive_run_artifacts(tmp_path)
+
+    def test_a_lost_batch_survives_the_round_trip_and_fires(self, fresh_db, tmp_path):
+        self._archive(tmp_path, json.dumps({"articles": 200, "title_only_fallback": 40, "batches_lost": 1}))
+
+        health = db.get_run_health(db._state.run_id)
+
+        assert health["batches_lost"] == 1
+        assert any("DEGRADED_CLUSTERING" in v for v in run_health.violations(health))
+
+    def test_a_clean_run_round_trips_as_zero_and_is_silent(self, fresh_db, tmp_path):
+        self._archive(tmp_path, json.dumps({"articles": 200, "title_only_fallback": 0, "batches_lost": 0}))
+
+        health = db.get_run_health(db._state.run_id)
+
+        assert health["batches_lost"] == 0
+        assert not [v for v in run_health.violations(health) if "DEGRADED_CLUSTERING" in v]
+
+    @pytest.mark.parametrize(
+        "payload",
+        ['{"batches_lost": 1', "", "not json at all"],
+        ids=["truncated", "empty", "prose"],
+    )
+    def test_a_corrupt_artifact_does_not_blind_every_other_invariant(self, fresh_db, tmp_path, payload):
+        # json_extract RAISES on malformed JSON. Caught by get_run_health's blanket
+        # `except sqlite3.Error`, that returns {} and the caller skips ALL rules -- so a
+        # half-written observability file would silently disable the monitor it was added to
+        # feed. A partial write is exactly what an ENOSPC leaves behind.
+        self._archive(tmp_path, payload)
+
+        health = db.get_run_health(db._state.run_id)
+
+        assert health, "a corrupt health artifact must not empty the whole health dict"
+        assert health["batches_lost"] is None, "unreadable means cannot judge, never clean"
+        assert not [v for v in run_health.violations(health) if "DEGRADED_CLUSTERING" in v]
+
+    def test_a_missing_artifact_reads_as_cannot_judge(self, fresh_db, tmp_path):
+        db.archive_run_artifacts(tmp_path)  # nothing written
+
+        assert db.get_run_health(db._state.run_id)["batches_lost"] is None

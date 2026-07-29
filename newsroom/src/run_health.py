@@ -20,7 +20,10 @@ from collections.abc import Callable
 # (code, predicate, message). A rule fires when its predicate returns True.
 # Keep predicates total -- a missing key means the caller built the health dict
 # wrong, and .get with a safe default is preferable to an alert path that raises.
-_RULES: list[tuple[str, Callable[[dict], bool], str]] = [
+# The message is a plain string for rules whose severity is fixed, or a callable when it
+# has to quote the run's own numbers (see DEGRADED_CLUSTERING: "a batch was lost" is 1
+# article or 40 depending on where the batch fell).
+_RULES: list[tuple[str, Callable[[dict], bool], str | Callable[[dict], str]]] = [
     (
         "ZERO_STORIES",
         lambda h: h.get("shipped", 0) == 0,
@@ -38,6 +41,26 @@ _RULES: list[tuple[str, Callable[[dict], bool], str]] = [
         "NO_USAGE_RECORDED",
         lambda h: h.get("stages", 0) == 0,
         "no subagent stage recorded usage, so the curation phase left no trace",
+    ),
+    (
+        "DEGRADED_CLUSTERING",
+        # Triggered by a WHOLESALE batch loss, not by the fallback count. Measured
+        # over 42 archived runs, the fallback count is BIMODAL: 21 runs at 0, 13 at
+        # 1-2 strays, 8 at 24-34. That upper mode IS the batch loss. Triggering on
+        # the count would fire on the stray mode too; batches_lost targets the
+        # upper mode directly, with no threshold to tune.
+        # `or 0` is the "cannot judge" path, not a default: runs archived before
+        # cluster_health.json existed carry None, and absence is not evidence of a
+        # clean run.
+        lambda h: (h.get("batches_lost") or 0) > 0,
+        # The count comes from the artifact rather than the batch size: a short
+        # final batch makes "a batch was lost" as few as 1 article (3 archived runs
+        # end with a 1-article batch), and a rule justified by not crying wolf
+        # should not overstate by 40x in its own message.
+        lambda h: (
+            f"{h.get('batches_lost')} extraction batch(es) returned nothing usable; "
+            f"{h.get('title_only_fallback')} articles lost their entity tags"
+        ),
     ),
     (
         "NO_ARTIFACTS",
@@ -72,6 +95,10 @@ REQUIRED_KEYS = frozenset(
         "thread_continuations",
         "threads_available",
         "threads_enabled",
+        "batches_lost",
+        # Not a trigger, but the alert message quotes it -- a message that says
+        # "None articles" is its own small lie.
+        "title_only_fallback",
     }
 )
 
@@ -84,4 +111,8 @@ def violations(health: dict) -> list[str]:
     # leave every test green. A malformed dict is itself the alertable condition.
     if missing := REQUIRED_KEYS - health.keys():
         return [f"MALFORMED_HEALTH: run health is missing {sorted(missing)}; invariants NOT evaluated"]
-    return [f"{code}: {message}" for code, predicate, message in _RULES if predicate(health)]
+    return [
+        f"{code}: {message(health) if callable(message) else message}"
+        for code, predicate, message in _RULES
+        if predicate(health)
+    ]
