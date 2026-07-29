@@ -6,6 +6,7 @@ import re
 import sys
 import urllib.error
 import urllib.request
+from collections import Counter
 from datetime import UTC, datetime
 from logging.handlers import RotatingFileHandler
 
@@ -28,6 +29,28 @@ logger = logging.getLogger(__name__)
 # silently edits what a reader sees.
 _ID_RUN = r"A\d+(?:\s*(?:,|;|&|and)\s*A\d+)*"
 ARTICLE_ID_GROUP = re.compile(rf"\s*(?:\[\s*{_ID_RUN}\s*\]|\(\s*{_ID_RUN}\s*\))")
+
+
+def cluster_for_articles(article_ids, owner: dict[str, str]) -> str | None:
+    """The cluster label holding the most of these DISTINCT article ids, or None.
+
+    The one derivation of "which cluster does this story belong to", shared by
+    merge (which sets ``cluster_id``) and threads (which labels the thread). Those
+    two values are joined at render time, so a second implementation is a second
+    chance for them to disagree -- which is exactly what a positional
+    ``cluster_index`` did (run 247: 7 of 12 should_know entries pointed at a
+    cluster containing none of their own articles).
+
+    Distinct ids, because a story's ``article_ids``/``sources`` is an evidence
+    list where one article can appear more than once; raw counts would let a
+    single repeated citation outvote several distinct ones.
+
+    Ties keep the earliest-cited cluster: ``max`` returns the first maximal item
+    and Counter iterates in insertion order, so this is stable across processes.
+    """
+    seen = dict.fromkeys(a for a in article_ids or [] if isinstance(a, str))
+    stories = [s for a in seen if (s := owner.get(a))]
+    return Counter(stories).most_common(1)[0][0] if stories else None
 
 
 def strip_article_ids(text: str) -> str:

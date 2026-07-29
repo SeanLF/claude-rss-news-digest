@@ -27,7 +27,7 @@ from contextlib import contextmanager, suppress
 from dataclasses import dataclass, field
 from itertools import islice
 
-from utils import strip_article_ids
+from utils import cluster_for_articles, strip_article_ids
 
 logger = logging.getLogger(__name__)
 
@@ -159,23 +159,57 @@ def _whats_new(content: str | None) -> list[dict]:
 
 
 def selected_labels(clusters_doc: dict, selected_doc: dict) -> list[dict]:
-    """Map the SELECT output (cluster_index references) + the CLUSTER output to this run's
-    selected story labels: `[{"story": label, "tier": tier}, ...]` in must_know-then-should_know
-    order. Pure; the integration adapter reads the two JSON files and passes them here."""
+    """Map the SELECT output + the CLUSTER output to this run's selected story labels:
+    `[{"story": label, "tier": tier}, ...]` in must_know-then-should_know order. Pure; the
+    integration adapter reads the two JSON files and passes them here.
+
+    Keyed on the entry's ``article_ids``, NOT its ``cluster_index``. The index is a 0-based
+    position into a several-hundred-element array that a model counts by eye, and it is wrong
+    often: in run 247, 7 of 12 should_know entries indexed a cluster containing NONE of their
+    own articles, always undercounting, the offset growing with position. The article_ids in
+    those same entries were unanimous every time. Since this label is later joined against
+    merge's ``cluster_id``, deriving it from the unreliable half meant those 7 threads were
+    filed under labels describing other stories and could never match.
+
+    ``utils.cluster_for_articles`` is that single derivation, shared with merge. The index
+    survives ONLY for an entry carrying no ids at all -- never fired in 487 archived entries,
+    but it is the pre-existing contract. An entry whose ids map NOWHERE is skipped rather than
+    labelled from its index: labelling from cluster X while synthesizing from articles in no
+    cluster is the same label/articles split, and it is worse here than internally, because
+    the label is published on /thread/{id} and a wrongly-labelled thread can be claimed by the
+    linker, denying it to the story that should have continued it. A missing "Ongoing · day N"
+    badge is the cheaper failure.
+
+    Note this does NOT make the join exact: WRITE is not a bijection onto SELECT's entries --
+    it drops selected entries and adds stories from clusters SELECT never picked -- and these
+    labels come from pre-WRITE selected.json while merge's cluster_id comes from post-WRITE,
+    post-COHERENCE selections.json. Different populations, so a residual mismatch is
+    STRUCTURAL. Closing it means deriving labels from the assembled selections instead, which
+    is a larger change."""
     clusters = clusters_doc.get("clusters", [])
+    owner = {a: c.get("story", "") for c in clusters for a in (c.get("article_ids") or []) if c.get("story")}
     out: list[dict] = []
     for tier in ("must_know", "should_know"):
         for entry in selected_doc.get(tier, []) or []:
+            article_ids = entry.get("article_ids") or []
             idx = entry.get("cluster_index")
-            if isinstance(idx, int) and 0 <= idx < len(clusters):
-                cluster = clusters[idx]
-                out.append(
-                    {
-                        "story": cluster.get("story", ""),
-                        "tier": tier,
-                        "article_ids": entry.get("article_ids") or cluster.get("article_ids", []),
-                    }
-                )
+            indexed = clusters[idx] if isinstance(idx, int) and 0 <= idx < len(clusters) else None
+            if article_ids:
+                story = cluster_for_articles(article_ids, owner)
+                if story is None:
+                    logger.warning(
+                        "selected %s entry cites articles in no cluster (%s) -- skipping rather than "
+                        "labelling it from cluster_index %r",
+                        tier,
+                        article_ids[:5],
+                        idx,
+                    )
+                    continue
+            elif indexed is not None:
+                story, article_ids = indexed.get("story", ""), indexed.get("article_ids", [])
+            else:
+                continue
+            out.append({"story": story, "tier": tier, "article_ids": article_ids})
     return out
 
 

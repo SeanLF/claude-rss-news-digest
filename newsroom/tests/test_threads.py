@@ -857,3 +857,85 @@ def test_delta_detects_self_citation_despite_padded_source_id():
     # archive page), so Python must not diverge -- trim both sides before matching.
     facts = [{"fact": "Fire nears control, according to A238 today.", "sources": ["A238 "]}]
     assert threads.delta_from_facts(facts) == ""
+
+
+# --- selected_labels must key on article_ids, not SELECT's positional index ---
+# `cluster_index` is a 0-based position into a 319-element array, produced by a model counting
+# entries by eye. Run 247: 7 of 12 should_know entries pointed at a cluster containing NONE of
+# their own articles, always undercounting, offsets growing with position (+1,+23,+23,+23,+43,
+# +43,+47). The article_ids in those same entries were unanimous every time. So the thread
+# label was derived from the unreliable half of the entry, and 7 stories were filed under
+# labels describing other stories entirely -- unable to ever match merge's cluster_id.
+
+
+def _clusters_doc(*groups):
+    return {"clusters": [{"story": s, "article_ids": ids} for s, ids in groups]}
+
+
+def test_selected_labels_uses_article_ids_not_a_wrong_cluster_index():
+    clusters = _clusters_doc(("wrong story", ["A1"]), ("filler", ["A2"]), ("real story", ["A5", "A6", "A7"]))
+    selected = {"must_know": [{"cluster_index": 0, "article_ids": ["A5", "A6", "A7"]}], "should_know": []}
+
+    out = threads.selected_labels(clusters, selected)
+
+    assert [e["story"] for e in out] == ["real story"]
+
+
+def test_selected_labels_uses_plurality_when_ids_span_clusters():
+    clusters = _clusters_doc(("minority", ["A1", "A2"]), ("majority", ["A5", "A6", "A7"]))
+    selected = {"must_know": [{"cluster_index": 0, "article_ids": ["A1", "A5", "A6", "A7"]}], "should_know": []}
+
+    out = threads.selected_labels(clusters, selected)
+
+    assert out[0]["story"] == "majority"
+
+
+def test_selected_labels_skips_an_entry_whose_ids_map_nowhere():
+    # Labelling from the index while synthesizing from unmappable ids is the exact
+    # label/articles split this change exists to remove: a thread publicly labelled from
+    # cluster X, built from articles in no cluster, and able to seize the thread the correct
+    # story would have continued. A missing "Ongoing" badge is the cheaper failure.
+    clusters = _clusters_doc(("indexed story", ["A1"]))
+    selected = {"must_know": [{"cluster_index": 0, "article_ids": ["A999"]}], "should_know": []}
+
+    assert threads.selected_labels(clusters, selected) == []
+
+
+def test_selected_labels_still_uses_the_index_when_the_entry_has_no_ids_at_all():
+    # The only case the index is the sole signal available. Never fired in 487 archived
+    # entries, but it is the pre-existing contract and costs nothing to keep.
+    clusters = _clusters_doc(("indexed story", ["A1", "A2"]))
+    selected = {"must_know": [{"cluster_index": 0}], "should_know": []}
+
+    out = threads.selected_labels(clusters, selected)
+
+    assert out[0]["story"] == "indexed story"
+    assert out[0]["article_ids"] == ["A1", "A2"]
+
+
+def test_selected_labels_ignores_non_string_ids_rather_than_dying():
+    # article_ids is raw model JSON. An unhashable element would raise into run.py's blanket
+    # handler and take the whole thread stage down for the run.
+    clusters = _clusters_doc(("real story", ["A5"]))
+    selected = {"must_know": [{"cluster_index": 0, "article_ids": [["A9"], "A5"]}], "should_know": []}
+
+    assert threads.selected_labels(clusters, selected)[0]["story"] == "real story"
+
+
+def test_selected_labels_counts_each_article_once():
+    clusters = _clusters_doc(("own", ["A1", "A2", "A3"]), ("other", ["A9"]))
+    selected = {
+        "must_know": [{"cluster_index": 0, "article_ids": ["A1", "A2", "A3", "A9", "A9", "A9", "A9"]}],
+        "should_know": [],
+    }
+
+    assert threads.selected_labels(clusters, selected)[0]["story"] == "own"
+
+
+def test_selected_labels_keeps_the_entrys_own_article_ids():
+    clusters = _clusters_doc(("real story", ["A5", "A6", "A7"]))
+    selected = {"must_know": [{"cluster_index": 99, "article_ids": ["A5", "A6"]}], "should_know": []}
+
+    out = threads.selected_labels(clusters, selected)
+
+    assert out[0]["article_ids"] == ["A5", "A6"]

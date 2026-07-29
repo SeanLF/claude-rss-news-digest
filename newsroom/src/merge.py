@@ -10,13 +10,12 @@ import json
 import logging
 import re
 import unicodedata
-from collections import Counter
 from pathlib import Path
 
 import config
 from eval_graders import grade_selections
 from schema import NOT_COVERED_BLURB_MAX_LEN, SELECTIONS_SCHEMA, validate_selections
-from utils import ARTICLE_ID_GROUP, strip_article_ids
+from utils import ARTICLE_ID_GROUP, cluster_for_articles, strip_article_ids
 
 logger = logging.getLogger(__name__)
 
@@ -293,8 +292,12 @@ def _attach_cluster_id(item: dict, sources: list[dict], cluster_map: dict[str, s
     where the story belongs, so this is biased toward large generic clusters. A
     story about a small specific cluster that cites a big one for context can be
     pulled to the big one, and two such stories could then collide where
-    first-source would not have. Constructed, not observed. Identical to
-    first-source whenever the sources agree, which is the normal case.
+    first-source would not have. OBSERVED once: run 236, where CLUSTER emitted
+    the same story twice in two languages and the vote picked the French label
+    (3 of 4 ids) over the English one (1 of 4). Harmless while cluster_id was
+    internal; threads.selected_labels now routes the same derivation into a
+    reader-facing label, so a duplicate-language cluster shows up on the page.
+    Identical to first-source whenever the sources agree, the normal case.
 
     Ties keep the earliest-cited cluster. ``max`` returns the first maximal item
     and Counter iterates in insertion order (a language guarantee since 3.7), so
@@ -303,11 +306,9 @@ def _attach_cluster_id(item: dict, sources: list[dict], cluster_map: dict[str, s
     """
     if not cluster_map:
         return
-    # Order-preserving dedupe, so the tie-break still reads in source order.
-    seen = dict.fromkeys(aid for src in sources if isinstance(aid := src.get("article_id"), str))
-    stories = [story for aid in seen if (story := cluster_map.get(aid))]
-    if stories:
-        item["cluster_id"] = Counter(stories).most_common(1)[0][0]
+    story = cluster_for_articles((aid for src in sources if isinstance(aid := src.get("article_id"), str)), cluster_map)
+    if story:
+        item["cluster_id"] = story
 
 
 def _load_not_covered_blurb(claude_input_dir: Path) -> str | None:
