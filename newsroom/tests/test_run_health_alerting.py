@@ -14,6 +14,10 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 import run
 
+# Imported rather than copied: this was a second literal of the same dict, and adding a
+# required health key broke it in a way only CI caught. One definition, one place to update.
+from tests.test_run_health import _healthy
+
 
 def _sent(monkeypatch, *, health, alerting=True):
     """Wire the check against a fake DB/alert pair; return the captured sends."""
@@ -26,18 +30,7 @@ def _sent(monkeypatch, *, health, alerting=True):
     return sends
 
 
-_HEALTHY = {
-    "shipped": 15,
-    "stages": 9,
-    "artifacts": 13,
-    "recipients": 11,
-    "broadcasting": True,
-    "thread_continuations": 5,
-    "threads_available": 55,
-    "threads_enabled": True,
-    "batches_lost": 0,
-    "title_only_fallback": 0,
-}
+_HEALTHY = _healthy()
 
 
 def test_violation_sends_an_alert_naming_the_run(monkeypatch):
@@ -104,3 +97,25 @@ def test_a_failing_check_never_breaks_the_run(monkeypatch, caplog):
     errors = [r for r in caplog.records if r.levelno >= logging.ERROR]
     assert errors, f"monitor failure logged below ERROR: {caplog.text!r}"
     assert "db exploded" in caplog.text
+
+
+class TestDroppedContinuationReporting:
+    """The count cannot be carried by a rule (it is mutually exclusive with the only rule that
+    could quote it), so run.py logs it directly -- before the no-violations early return, which
+    is the path every run that can produce it takes."""
+
+    def test_it_is_logged_on_an_otherwise_healthy_run(self, monkeypatch, caplog):
+        with caplog.at_level(logging.WARNING):
+            sends = _sent(monkeypatch, health={**_HEALTHY, "dropped_continuations": 2})
+        assert sends == [], "reporting must not become an alert"
+        assert "2 story/stories lost a proposed thread continuation" in caplog.text
+
+    def test_zero_is_silent(self, monkeypatch, caplog):
+        with caplog.at_level(logging.WARNING):
+            _sent(monkeypatch, health={**_HEALTHY, "dropped_continuations": 0})
+        assert "lost a proposed thread continuation" not in caplog.text
+
+    def test_cannot_judge_is_silent(self, monkeypatch, caplog):
+        with caplog.at_level(logging.WARNING):
+            _sent(monkeypatch, health={**_HEALTHY, "dropped_continuations": None})
+        assert "lost a proposed thread continuation" not in caplog.text

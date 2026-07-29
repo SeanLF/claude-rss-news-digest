@@ -80,7 +80,17 @@ _RULES: list[tuple[str, Callable[[dict], bool], str | Callable[[dict], str]]] = 
             and h.get("threads_available", 0) > 0
             and h.get("thread_continuations", 0) == 0
         ),
-        "no shipped story continued an existing thread, though live threads existed",
+        # linker_ok is quoted, not triggered on: when this rule fires the first question is
+        # "did the linker actually run?", and that answer used to live only in a log line.
+        #
+        # dropped_continuations is deliberately NOT quoted here. It cannot co-occur with this
+        # rule -- a refusal is only recorded when another story already claimed that thread,
+        # so it entails at least one continuation, and this rule needs zero. run.py reports it
+        # instead.
+        lambda h: (
+            "no shipped story continued an existing thread, though live threads existed"
+            + ("" if h.get("linker_ok") is not False else " -- the linker call itself failed")
+        ),
     ),
 ]
 
@@ -99,6 +109,18 @@ REQUIRED_KEYS = frozenset(
         # Not a trigger, but the alert message quotes it -- a message that says
         # "None articles" is its own small lie.
         "title_only_fallback",
+        # Quoted by the thread-continuity message, not triggered on.
+        #
+        # NOT a trigger yet, deliberately. A refusal is usually a dropped continuation (a
+        # week-old story rendering "day 1"), but it can also be the guard working correctly
+        # against a linker over-merge, and the replay that validated the linker measured ~2
+        # over-merges per 94 threads -- so the base rate is not known to be zero and an
+        # alert on `> 0` could cry wolf from day one. The measurement is available: give
+        # seed_threads a trace and have it write the traces to a FILE (not into run_artifacts
+        # -- see the comment there for why), then replay the archived runs and count. Promote
+        # this to a rule once there is a number.
+        "dropped_continuations",
+        "linker_ok",
     }
 )
 

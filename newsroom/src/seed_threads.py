@@ -108,6 +108,13 @@ def seed(conn: sqlite3.Connection, run_ids: list[int], *, latebind: bool = False
         stories = threads.selected_labels(
             json.loads(artifacts["clusters.json"]), json.loads(artifacts["selected.json"])
         )
+        # Deliberately no `trace=`. resolve_threads can record what the linker was offered and
+        # chose, and this replay is the highest-volume source of link decisions there is -- but
+        # the trace lands in run_artifacts keyed by the CURRENT run, while these are historical
+        # run ids that already hold their own artifacts. Filing a replayed decision under a real
+        # past run would make the archive unable to tell what shipped from what was re-simulated,
+        # and this tool resets the thread tables anyway. If a replay ever needs auditing, collect
+        # the traces here and write them to a file, not into the run record.
         assignments = threads.resolve_threads(stories, rid, store, dormant_after=THREAD_DORMANT_AFTER)
         installments, audit_failures = thread_synthesis.synthesize_threads(
             assignments,

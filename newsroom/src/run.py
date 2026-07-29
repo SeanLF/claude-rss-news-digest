@@ -103,6 +103,19 @@ def _alert_on_run_health() -> None:
         # evidence of failure -- alerting on it would cry wolf on every hiccup.
         if not health:
             return
+        # Reported here rather than inside a rule, because it cannot ride one: a refusal is
+        # only recorded when some OTHER story already claimed that thread, so
+        # dropped_continuations > 0 entails thread_continuations >= 1 and the continuity rule
+        # (which needs == 0) is the one rule that can never fire alongside it. Logged before
+        # the early return so it survives a run with no violations, which is every run that
+        # can produce it. Not an alert: the base rate is unmeasured (see run_health).
+        if health.get("dropped_continuations"):
+            logger.warning(
+                "Run %s: %s story/stories lost a proposed thread continuation to one already "
+                "claimed this run, and shipped as new threads",
+                run_id,
+                health["dropped_continuations"],
+            )
         violations = run_health.violations(health)
         if not violations:
             return

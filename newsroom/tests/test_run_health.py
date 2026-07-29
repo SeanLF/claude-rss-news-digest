@@ -35,6 +35,8 @@ def _healthy(**overrides):
         "threads_enabled": True,
         "batches_lost": 0,
         "title_only_fallback": 0,
+        "dropped_continuations": 0,
+        "linker_ok": True,
     }
     health.update(overrides)
     return health
@@ -127,20 +129,10 @@ class TestSilentOutageRules:
 
 
 def _health(**over):
-    base = {
-        "shipped": 16,
-        "stages": 5,
-        "artifacts": 15,
-        "recipients": 11,
-        "broadcasting": True,
-        "thread_continuations": 5,
-        "threads_available": 40,
-        "threads_enabled": True,
-        "batches_lost": 0,
-        "title_only_fallback": 0,
-    }
-    base.update(over)
-    return base
+    """The same run as _healthy, differing only in the counts these rules quote. Derived rather
+    than re-typed: this was a third literal of the dict, and every added health key had to be
+    hand-copied into all three."""
+    return _healthy(**{"shipped": 16, "stages": 5, "artifacts": 15, "threads_available": 40, **over})
 
 
 def test_degraded_clustering_fires_on_any_title_only_fallback():
@@ -163,3 +155,43 @@ def test_missing_key_entirely_is_malformed_not_silently_skipped():
     h = _health()
     del h["batches_lost"]
     assert any("MALFORMED_HEALTH" in v for v in run_health.violations(h))
+
+
+class TestDroppedContinuations:
+    """Reported by run.py, not by a rule here -- see TestDroppedContinuationReporting in
+    test_run_health_alerting.py. It cannot ride NO_THREAD_CONTINUATIONS: a refusal is only
+    recorded when another story already claimed that thread, so it entails at least one
+    continuation, and that rule requires zero. The two are mutually exclusive by construction.
+    """
+
+    def test_it_does_not_alert_on_its_own(self):
+        assert run_health.violations(_healthy(dropped_continuations=3)) == []
+
+    def test_a_failed_linker_call_is_named_in_the_message(self):
+        """ "Nothing continued" and "the linker never ran" are the same row otherwise."""
+        found = run_health.violations(_healthy(thread_continuations=0, linker_ok=False))
+        assert any("linker call itself failed" in v for v in found)
+
+    def test_a_healthy_linker_is_not_editorialised(self):
+        found = run_health.violations(_healthy(thread_continuations=0, linker_ok=True))
+        assert any("NO_THREAD_CONTINUATIONS" in v for v in found)
+        assert not any("linker call itself failed" in v for v in found)
+
+    def test_an_unknown_linker_state_is_not_editorialised(self):
+        """None is "cannot judge" -- every run archived before the trace existed."""
+        found = run_health.violations(_healthy(thread_continuations=0, linker_ok=None))
+        assert not any("linker call itself failed" in v for v in found)
+
+    def test_a_missing_key_is_still_a_violation(self):
+        """Reported-not-triggered still means a rename must not pass silently."""
+        health = _healthy()
+        del health["dropped_continuations"]
+        assert any("MALFORMED_HEALTH" in v for v in run_health.violations(health))
+
+
+class TestHealthFixtureOverrides:
+    def test_health_can_override_the_counts_it_pins(self):
+        """_health derives from _healthy; a naive `_healthy(shipped=16, **over)` raises
+        TypeError on exactly the four keys the outage rules trigger on."""
+        for key in ("shipped", "stages", "artifacts", "threads_available"):
+            assert _health(**{key: 0})[key] == 0

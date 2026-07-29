@@ -440,3 +440,26 @@ def test_record_run_artifact_fails_soft_on_db_error(fresh_db, monkeypatch, caplo
     with caplog.at_level("ERROR"):
         assert db.record_run_artifact("thread_links.json", "{}") is False
     assert "thread_links.json" in caplog.text
+
+
+def test_record_run_artifact_replaces_rather_than_duplicating(fresh_db):
+    """Two rows for one (run_id, artifact_name) is a silent fork: get_run_artifacts collapses to
+    a dict, so one of them wins arbitrarily and bin/trace shows only that one."""
+    assert db.record_run_artifact("thread_links.json", '{"v": 1}') is True
+    assert db.record_run_artifact("thread_links.json", '{"v": 2}') is True
+    with sqlite3.connect(fresh_db) as conn:
+        rows = conn.execute("SELECT content FROM run_artifacts WHERE artifact_name = 'thread_links.json'").fetchall()
+    assert rows == [('{"v": 2}',)], "expected one row holding the latest write"
+
+
+def test_archive_run_artifacts_is_idempotent(fresh_db, tmp_path):
+    """--resume re-runs archival; today it gets a fresh run_id so nothing collides, but nothing
+    structurally prevents a repeat call on the same run."""
+    d = tmp_path / "ci"
+    d.mkdir()
+    (d / "clusters.json").write_text('{"clusters": []}')
+    assert db.archive_run_artifacts(d) is True
+    assert db.archive_run_artifacts(d) is True
+    with sqlite3.connect(fresh_db) as conn:
+        n = conn.execute("SELECT COUNT(*) FROM run_artifacts WHERE artifact_name = 'clusters.json'").fetchone()[0]
+    assert n == 1

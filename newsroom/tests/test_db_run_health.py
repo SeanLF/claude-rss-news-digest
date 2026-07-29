@@ -170,3 +170,81 @@ class TestClusterHealthArtifactJoin:
         db.archive_run_artifacts(tmp_path)  # nothing written
 
         assert db.get_run_health(db._state.run_id)["batches_lost"] is None
+
+
+class TestDroppedContinuations:
+    """dropped_continuations is read straight out of thread_links.json rather than a new column:
+    the trace already records each refusal, and json_extract over run_artifacts is the pattern
+    cluster_health.json established."""
+
+    def _artifact(self, fresh_db, run_id, content):
+        with sqlite3.connect(fresh_db) as conn:
+            conn.execute(
+                "INSERT INTO run_artifacts (run_id, artifact_name, content) VALUES (?, 'thread_links.json', ?)",
+                (run_id, content),
+            )
+
+    def test_counts_only_the_refused_entries(self, fresh_db):
+        run_id = db.current_run_id()
+        self._artifact(
+            fresh_db,
+            run_id,
+            json.dumps(
+                {
+                    "linker_ok": True,
+                    "stories": [
+                        {"refused": "already_claimed"},
+                        {"refused": None},
+                        {"refused": "already_claimed"},
+                        {"refused": "unknown_thread"},
+                    ],
+                }
+            ),
+        )
+        health = db.get_run_health(run_id)
+        assert health["dropped_continuations"] == 2
+        assert health["linker_ok"] is True
+
+    def test_absent_artifact_is_none_not_zero(self, fresh_db):
+        """Runs archived before the trace existed must read as "cannot judge", or every one of
+        them would look like a clean run."""
+        health = db.get_run_health(db.current_run_id())
+        assert health["dropped_continuations"] is None
+
+    def test_malformed_artifact_does_not_disable_the_other_invariants(self, fresh_db):
+        """json_extract RAISES on malformed input, and this function's blanket sqlite3.Error
+        handler returns {} -- which would switch off every invariant, not just this one."""
+        run_id = db.current_run_id()
+        self._artifact(fresh_db, run_id, "{not json at all")
+        health = db.get_run_health(run_id)
+        assert health != {}, "a half-written trace silently disabled the whole monitor"
+        assert health["dropped_continuations"] is None
+        assert health["shipped"] is not None
+
+    @pytest.mark.parametrize(
+        ("shape", "why"),
+        [
+            ({"stories": "not an array"}, "container is not an array"),
+            ({"other": 1}, "no stories key at all"),
+            ({"stories": ["already_claimed"]}, "elements are strings, not objects"),
+            ({"stories": [{"refused": "already_claimed"}, "oops"]}, "one element is not an object"),
+            ({"stories": [1, 2]}, "elements are numbers"),
+            ([1, 2], "top-level array"),
+        ],
+    )
+    def test_a_malformed_trace_reads_as_cannot_judge_and_spares_the_other_invariants(self, fresh_db, shape, why):
+        """json_extract RAISES on a non-object, and this function's blanket sqlite3.Error handler
+        turns any raise into {} -- which makes the CALLER skip EVERY invariant, not just this one.
+        `{"stories": ["already_claimed"]}` clears both json_valid and json_type and still raises,
+        so the per-element guard is load-bearing, not belt-and-braces."""
+        run_id = db.current_run_id()
+        self._artifact(fresh_db, run_id, json.dumps(shape))
+        health = db.get_run_health(run_id)
+        assert health != {}, f"{why}: a malformed trace disabled the whole monitor"
+        assert health["dropped_continuations"] is None, why
+        assert health["shipped"] is not None
+
+    def test_an_empty_story_list_is_zero_not_unknown(self, fresh_db):
+        run_id = db.current_run_id()
+        self._artifact(fresh_db, run_id, json.dumps({"stories": []}))
+        assert db.get_run_health(run_id)["dropped_continuations"] == 0

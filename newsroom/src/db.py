@@ -503,7 +503,23 @@ def get_run_health(run_id: int) -> dict:
                   (SELECT CASE WHEN json_valid(content)
                                THEN json_extract(content, '$.title_only_fallback') END
                      FROM run_artifacts
-                    WHERE run_id = :r AND artifact_name = 'cluster_health.json')
+                    WHERE run_id = :r AND artifact_name = 'cluster_health.json'),
+                  (SELECT CASE WHEN json_valid(content)
+                                AND json_type(content, '$.stories') = 'array'
+                               THEN (
+                     SELECT CASE WHEN COALESCE(SUM(CASE WHEN type = 'object' THEN 0 ELSE 1 END), 0) > 0
+                                 THEN NULL
+                                 ELSE COALESCE(SUM(CASE WHEN type = 'object'
+                                       THEN (CASE WHEN json_extract(value, '$.refused') = 'already_claimed'
+                                                  THEN 1 ELSE 0 END)
+                                       ELSE 0 END), 0) END
+                       FROM json_each(run_artifacts.content, '$.stories')) END
+                     FROM run_artifacts
+                    WHERE run_id = :r AND artifact_name = 'thread_links.json'),
+                  (SELECT CASE WHEN json_valid(content)
+                               THEN json_extract(content, '$.linker_ok') END
+                     FROM run_artifacts
+                    WHERE run_id = :r AND artifact_name = 'thread_links.json')
                 """,
                 {"r": run_id},
             ).fetchone()
@@ -538,6 +554,27 @@ def get_run_health(run_id: int) -> dict:
         # short final batch means "a batch was lost" can be 1 article, not 40, and
         # the alert should say which.
         "title_only_fallback": row[7],
+        # Read out of the link trace rather than a column of its own: the trace already
+        # records every refusal, and a second copy in thread_runs is a second thing to
+        # keep in step.
+        #
+        # The guards are three-deep because json_extract RAISES on a non-object, and this
+        # function's blanket sqlite3.Error handler turns any raise into {} -- which makes
+        # the CALLER skip every invariant, not just this one. json_valid guards the syntax,
+        # json_type guards the container, and the per-element CASE guards the element,
+        # because `stories: ["already_claimed"]` passes the first two and raises on the
+        # third. Any malformation reads as NULL ("cannot judge"); only a well-formed array
+        # yields a number.
+        "dropped_continuations": row[8],
+        # Reported, not triggered on. It does not detect anything NO_THREAD_CONTINUATIONS
+        # misses, but it is the difference between "nothing continued today" and "the
+        # linker call failed", which is the first question asked when that rule fires.
+        #
+        # Coerced: json_extract returns 1/0 for a JSON boolean, and this dict is a Python
+        # contract -- a caller writing `is True` would silently never match. Only 1 and 0 are
+        # answers; a string or object in that slot is a malformed trace, and bool() would read
+        # it as healthy, which fails open in the direction of silence.
+        "linker_ok": True if row[9] == 1 else (False if row[9] == 0 else None),
     }
 
 
@@ -686,7 +723,7 @@ def archive_run_artifacts(claude_input_dir: Path, models: dict[str, str] | None 
             return True
         with _connect(_db_path()) as conn:
             conn.executemany(
-                "INSERT INTO run_artifacts (run_id, artifact_name, content) VALUES (?, ?, ?)",
+                "INSERT OR REPLACE INTO run_artifacts (run_id, artifact_name, content) VALUES (?, ?, ?)",
                 rows,
             )
         logger.info("Archived %d trace artifact(s) for run %d", len(rows), _state.run_id)
@@ -711,7 +748,7 @@ def record_run_artifact(name: str, content: str) -> bool:
     try:
         with _connect(_db_path()) as conn:
             conn.execute(
-                "INSERT INTO run_artifacts (run_id, artifact_name, content) VALUES (?, ?, ?)",
+                "INSERT OR REPLACE INTO run_artifacts (run_id, artifact_name, content) VALUES (?, ?, ?)",
                 (_state.run_id, name, content),
             )
     except Exception as e:
