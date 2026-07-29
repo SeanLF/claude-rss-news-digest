@@ -108,6 +108,59 @@ def test_process_story_threads_wiring_end_to_end(staged, monkeypatch):
     ).fetchone()[0]
     assert content is not None and "Iran talks resumed" in content
 
+    # The link trace reaches run_artifacts. Asserted on the real wiring, not just on
+    # resolve_threads: archive_run_artifacts sweeps claude_input/ BEFORE this runs, so a trace
+    # written as a file there would be silently dropped and every unit test would still pass.
+    trace = json.loads(
+        conn.execute(
+            "SELECT content FROM run_artifacts WHERE run_id=? AND artifact_name='thread_links.json'", (run_id,)
+        ).fetchone()[0]
+    )
+    assert [s["label"] for s in trace["stories"]] == ["Iran nuclear deal", "EU AI regulation"]
+    assert [s["outcome"] for s in trace["stories"]] == ["continued", "new"]
+    assert trace["stories"][0]["proposed_thread"] == iran_tid and trace["stories"][0]["refused"] is None
+    # the candidates the linker was offered -- without these a mis-link is undiagnosable
+    assert [c["thread_id"] for c in trace["candidates"]] == [iran_tid]
+    assert trace["linker_ok"] is True
+
+
+def test_link_trace_survives_a_failure_in_synthesis(staged, monkeypatch):
+    """resolve_threads commits identity as it goes, so a synthesis blow-up leaves threads
+    written. The trace explaining them must survive it -- a degraded run is the one worth
+    auditing, and it was previously discarded by the blanket handler."""
+    run_id = db.start_run(recording=True, broadcasting=False, alerting=False)
+    monkeypatch.setattr(
+        threads,
+        "link_threads",
+        lambda active, labels, **k: [
+            next((t.thread_id for t in active if "Iran" in t.label), None) if "Iran" in lab else None for lab in labels
+        ],
+    )
+
+    def boom(*a, **k):
+        raise RuntimeError("Sonnet 529 overloaded")
+
+    monkeypatch.setattr(thread_synthesis, "synthesize_threads", boom)
+
+    assert run._process_story_threads() == []  # non-fatal, and the trace write itself succeeded
+
+    conn = sqlite3.connect(staged["dbp"])
+    row = conn.execute(
+        "SELECT content FROM run_artifacts WHERE run_id=? AND artifact_name='thread_links.json'", (run_id,)
+    ).fetchone()
+    assert row is not None, "trace discarded on the exact runs worth auditing"
+    trace = json.loads(row[0])
+    assert [s["outcome"] for s in trace["stories"]] == ["continued", "new"]
+
+
+def test_failed_trace_write_is_surfaced_to_the_caller(staged, monkeypatch):
+    """fail-soft must not mean silent: _archive_run_and_threads alerts off this list."""
+    db.start_run(recording=True, broadcasting=False, alerting=False)
+    monkeypatch.setattr(threads, "link_threads", lambda active, labels, **k: [None for _ in labels])
+    monkeypatch.setattr(thread_synthesis, "synthesize_threads", lambda *a, **k: ([], 0))
+    monkeypatch.setattr(db, "record_run_artifact", lambda *a, **k: False)
+    assert run._process_story_threads() == ["thread_links"]
+
 
 def test_process_story_threads_disabled_is_noop(staged, monkeypatch):
     monkeypatch.setattr(run, "THREADS_ENABLED", False)

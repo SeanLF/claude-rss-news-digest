@@ -167,7 +167,7 @@ def test_archive_run_and_threads_runs_full_sequence(monkeypatch, tmp_path):
     monkeypatch.setattr(run.db, "archive_selections", lambda j: _ok(order, "selections"))
     monkeypatch.setattr(run.db, "archive_clusters", lambda j: _ok(order, "clusters"))
     monkeypatch.setattr(run.db, "archive_run_artifacts", lambda d, models=None: _ok(order, "artifacts"))
-    monkeypatch.setattr(run, "_process_story_threads", lambda: order.append("threads"))
+    monkeypatch.setattr(run, "_process_story_threads", lambda: (order.append("threads"), [])[1])
 
     run._archive_run_and_threads('{"must_know": []}', model="claude-x")
 
@@ -180,7 +180,7 @@ def test_archive_run_and_threads_skips_clusters_when_absent(monkeypatch, tmp_pat
     monkeypatch.setattr(run.db, "archive_selections", lambda j: _ok(calls, "selections"))
     monkeypatch.setattr(run.db, "archive_clusters", lambda j: _ok(calls, "clusters"))
     monkeypatch.setattr(run.db, "archive_run_artifacts", lambda d, models=None: _ok(calls, "artifacts"))
-    monkeypatch.setattr(run, "_process_story_threads", lambda: calls.append("threads"))
+    monkeypatch.setattr(run, "_process_story_threads", lambda: (calls.append("threads"), [])[1])
 
     run._archive_run_and_threads("{}", model=None)
 
@@ -195,7 +195,7 @@ def test_archival_failure_alerts_but_does_not_block(monkeypatch, tmp_path):
     monkeypatch.setattr(run, "CLAUDE_INPUT_DIR", tmp_path)
     monkeypatch.setattr(run.db, "archive_selections", lambda j: False)  # write failed
     monkeypatch.setattr(run.db, "archive_run_artifacts", lambda d, models=None: True)
-    monkeypatch.setattr(run, "_process_story_threads", lambda: None)
+    monkeypatch.setattr(run, "_process_story_threads", list)
     monkeypatch.setattr(run.db, "should_alert", lambda: True)
     monkeypatch.setattr(run.db, "current_run_id", lambda: 229)
     alerted = {}

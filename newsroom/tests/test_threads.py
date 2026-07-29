@@ -41,7 +41,7 @@ def conn(tmp_path):
     c.close()
 
 
-def anchor_linker(active, labels):
+def anchor_linker(active, labels, health=None):
     """Deterministic stand-in for the Haiku linker: continue a thread when today's label
     shares its leading keyword with the thread's label, else NEW. Lets tests drive
     continuation/separation without an LLM."""
@@ -54,6 +54,14 @@ def anchor_linker(active, labels):
         match = next((t.thread_id for t in active if key(t.label) == key(lab)), None)
         out.append(match)
     return out
+
+
+def _failing_linker(active, labels, health=None):
+    """Stands in for link_threads' own failure path: it swallows the error and returns all-None,
+    so the caller sees a result indistinguishable from a genuinely all-new day."""
+    if health is not None:
+        health["ok"] = False
+    return [None] * len(labels)
 
 
 # --- migration -------------------------------------------------------------
@@ -648,7 +656,7 @@ def test_resolve_threads_does_not_collapse_two_stories_into_one_thread(conn):
         [{"story": "Iran talks continue"}, {"story": "Iran strikes begin"}],
         run_id=2,
         store=store,
-        linker=lambda active, labels: [tid, tid],
+        linker=lambda active, labels, **k: [tid, tid],
     )
     assert out[0].thread_id == tid and out[0].is_new is False
     assert out[1].is_new is True and out[1].thread_id != tid
@@ -978,3 +986,134 @@ def test_clean_questions_tolerates_malformed_cited_ids(cited):
 
 def test_clean_questions_drops_blank_and_non_string_entries():
     assert threads.clean_questions(["Real question?", "", None, 7], ["A1"]) == ["Real question?"]
+
+
+# --- link trace ------------------------------------------------------------
+#
+# The linker is the pipeline's least observable step: it returns a bare list[int | None] that
+# nothing persists. The trace exists to make a WRONG link findable after the fact, which needs
+# the linker's INPUTS (which threads were on offer, and what each was about) -- recording only
+# the decision leaves a mis-link byte-identical to a correct one.
+
+
+def test_trace_records_the_candidates_the_linker_was_offered(conn):
+    """Without the candidate set, a mis-link cannot be diagnosed: you can see that story X got
+    thread 7, but not what thread 7 was about or what else was available."""
+    store = threads.ThreadStore(conn)
+    threads.resolve_threads([{"story": "Iran ceasefire holds"}], run_id=1, store=store, linker=anchor_linker)
+    threads.resolve_threads([{"story": "Gaza truce talks stall"}], run_id=2, store=store, linker=anchor_linker)
+    trace: dict = {}
+    threads.resolve_threads(
+        [{"story": "Iran talks resume in Geneva"}], run_id=3, store=store, linker=anchor_linker, trace=trace
+    )
+    labels = {c["label"] for c in trace["candidates"]}
+    assert labels == {"Iran ceasefire holds", "Gaza truce talks stall"}
+    assert all(isinstance(c["thread_id"], int) for c in trace["candidates"])
+    # the arc, not just the latest label -- the linker judges against the whole arc
+    assert all("recent_labels" in c for c in trace["candidates"])
+
+
+def test_trace_records_one_story_entry_per_story(conn):
+    store = threads.ThreadStore(conn)
+    threads.resolve_threads([{"story": "Iran ceasefire holds"}], run_id=1, store=store, linker=anchor_linker)
+    trace: dict = {}
+    threads.resolve_threads(
+        [{"story": "Iran talks resume", "article_ids": ["A1", "A2"]}, {"story": "EU AI act passes"}],
+        run_id=2,
+        store=store,
+        linker=anchor_linker,
+        trace=trace,
+    )
+    assert [s["label"] for s in trace["stories"]] == ["Iran talks resume", "EU AI act passes"]
+    assert trace["stories"][0]["article_ids"] == ["A1", "A2"]
+    assert trace["stories"][0]["outcome"] == "continued"
+    assert trace["stories"][1]["outcome"] == "new"
+
+
+def test_trace_separates_a_broken_linker_from_a_genuinely_all_new_day(conn):
+    """Both produce an all-new run. Run 244 was the first kind and looked like the second, which
+    is the ambiguity that made total continuity loss invisible."""
+    store = threads.ThreadStore(conn)
+    threads.resolve_threads([{"story": "Iran ceasefire holds"}], run_id=1, store=store, linker=anchor_linker)
+
+    broken: dict = {}
+    threads.resolve_threads(
+        [{"story": "Iran talks resume"}], run_id=2, store=store, linker=_failing_linker, trace=broken
+    )
+    healthy: dict = {}
+    threads.resolve_threads([{"story": "EU AI act passes"}], run_id=3, store=store, linker=anchor_linker, trace=healthy)
+
+    assert [s["outcome"] for s in broken["stories"]] == ["new"]
+    assert [s["outcome"] for s in healthy["stories"]] == ["new"]
+    assert broken["linker_ok"] is False  # the discriminator
+    assert healthy["linker_ok"] is True
+
+
+def test_trace_names_why_a_proposed_link_was_refused(conn):
+    """Two stories claiming the SAME thread: the second silently became a new thread with no
+    record that a continuation had been proposed and dropped."""
+    store = threads.ThreadStore(conn)
+    tid = threads.resolve_threads([{"story": "Iran ceasefire holds"}], run_id=1, store=store, linker=anchor_linker)[
+        0
+    ].thread_id
+    trace: dict = {}
+    out = threads.resolve_threads(
+        [{"story": "Iran talks resume"}, {"story": "Iran sanctions relief"}],
+        run_id=2,
+        store=store,
+        linker=lambda a, labs, **k: [tid] * len(labs),
+        trace=trace,
+    )
+    assert out[0].is_new is False and out[1].is_new is True
+    assert trace["stories"][1]["proposed_thread"] == tid
+    assert trace["stories"][1]["refused"] == "already_claimed"
+    assert trace["stories"][1]["outcome"] == "new"
+
+
+def test_resolve_threads_warns_when_a_claimed_thread_forces_a_new_one(conn, caplog):
+    """A dropped continuation is reader-visible (a week-old story renders 'day 1')."""
+    store = threads.ThreadStore(conn)
+    tid = threads.resolve_threads([{"story": "Iran ceasefire holds"}], run_id=1, store=store, linker=anchor_linker)[
+        0
+    ].thread_id
+    with caplog.at_level(logging.WARNING):
+        threads.resolve_threads(
+            [{"story": "Iran talks resume"}, {"story": "Iran sanctions relief"}],
+            run_id=2,
+            store=store,
+            linker=lambda a, labs, **k: [tid] * len(labs),
+        )
+    assert "already claimed" in caplog.text.lower()
+
+
+def test_resolve_threads_without_a_trace_behaves_identically(conn):
+    """The trace is an optional out-parameter; omitting it must change nothing."""
+    store = threads.ThreadStore(conn)
+    out = threads.resolve_threads([{"story": "Iran ceasefire holds"}], run_id=1, store=store, linker=anchor_linker)
+    assert len(out) == 1 and out[0].is_new is True
+
+
+def test_link_threads_reports_health_on_the_failure_path(monkeypatch):
+    """link_threads swallows its own errors and returns all-None; health is how that reaches
+    the trace instead of dying at the list[int | None] boundary."""
+    active = [threads.ActiveThread(thread_id=1, label="Iran ceasefire", recent_labels=["Iran ceasefire"])]
+    monkeypatch.setattr(threads, "_parse_links", lambda text: [])
+    fake = type(sys)("claude_cli")
+    fake.run_sync = lambda *a, **k: "not json at all"
+    monkeypatch.setitem(sys.modules, "claude_cli", fake)
+
+    health: dict = {}
+    assert threads.link_threads(active, ["Iran talks resume"], health=health) == [None]
+    assert health["ok"] is False
+
+
+def test_link_threads_reports_health_on_the_happy_path(monkeypatch):
+    active = [threads.ActiveThread(thread_id=1, label="Iran ceasefire", recent_labels=["Iran ceasefire"])]
+    fake = type(sys)("claude_cli")
+    fake.run_sync = lambda *a, **k: '{"links": [{"story": 0, "thread": 1}]}'
+    monkeypatch.setitem(sys.modules, "claude_cli", fake)
+
+    health: dict = {}
+    assert threads.link_threads(active, ["Iran talks resume"], health=health) == [1]
+    assert health["ok"] is True
+    assert health["proposed"] == 1 and health["validated"] == 1

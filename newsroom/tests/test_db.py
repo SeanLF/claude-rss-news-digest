@@ -404,3 +404,39 @@ def test_broadcast_recipients_zero_when_unknown(fresh_db, tmp_path):
     date = _save_digest(tmp_path)
     db.record_broadcast(date, "bc_1", "created")  # never recorded a count
     assert db.broadcast_recipients(date) == 0
+
+
+# --- single-artifact recording ---------------------------------------------
+#
+# archive_run_artifacts() runs at run.py:146, BEFORE resolve_threads() at :188, so anything
+# the thread path produces cannot ride the file-based trace archival -- it would be written
+# after the archive had already been taken. record_run_artifact is the seam for a trace
+# produced later in the run.
+
+
+def test_record_run_artifact_persists_one_row(fresh_db):
+    assert db.record_run_artifact("thread_links.json", '{"a": 1}') is True
+    with sqlite3.connect(fresh_db) as conn:
+        rows = conn.execute(
+            "SELECT artifact_name, content FROM run_artifacts WHERE artifact_name = 'thread_links.json'"
+        ).fetchall()
+    assert rows == [("thread_links.json", '{"a": 1}')]
+
+
+def test_record_run_artifact_noop_when_not_recording(tmp_path):
+    """A --dry-run must not write a trace row: recording=False means no run_id to FK against."""
+    db._state = db._State()
+    db_path = tmp_path / "test.db"
+    db.init(db_path, MIGRATIONS_DIR)
+    db.start_run(recording=False, broadcasting=False, alerting=False)
+    assert db.record_run_artifact("thread_links.json", "{}") is True
+    with sqlite3.connect(db_path) as conn:
+        assert conn.execute("SELECT COUNT(*) FROM run_artifacts").fetchone()[0] == 0
+
+
+def test_record_run_artifact_fails_soft_on_db_error(fresh_db, monkeypatch, caplog):
+    """Trace archival must never kill a digest -- same contract as archive_run_artifacts."""
+    monkeypatch.setattr(db, "_connect", lambda *a, **k: (_ for _ in ()).throw(sqlite3.OperationalError("locked")))
+    with caplog.at_level("ERROR"):
+        assert db.record_run_artifact("thread_links.json", "{}") is False
+    assert "thread_links.json" in caplog.text

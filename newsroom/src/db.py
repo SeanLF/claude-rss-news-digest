@@ -698,6 +698,29 @@ def archive_run_artifacts(claude_input_dir: Path, models: dict[str, str] | None 
     return True
 
 
+def record_run_artifact(name: str, content: str) -> bool:
+    """Archive ONE trace artifact produced mid-run, outside the file sweep.
+
+    ``archive_run_artifacts`` takes its snapshot of claude_input/ before the thread path runs
+    (run.py:146 vs :188), so a trace produced later cannot ride it -- written as a file it
+    would simply never be picked up, and the gap would look exactly like a working feature.
+    This is the seam for those: one row, same table, same fail-soft contract.
+    """
+    if not _state.recording or _state.run_id is None:
+        return True
+    try:
+        with _connect(_db_path()) as conn:
+            conn.execute(
+                "INSERT INTO run_artifacts (run_id, artifact_name, content) VALUES (?, ?, ?)",
+                (_state.run_id, name, content),
+            )
+    except Exception as e:
+        # Broad by design: a trace row must never crash a digest (see archive_run_artifacts).
+        logger.error("Error recording run artifact %s: %s", name, e)
+        return False
+    return True
+
+
 def get_run_artifacts(run_id: int) -> dict[str, str]:
     """Return a run's archived trace as {artifact_name: content} for reproduction."""
     if not _state.db_path or not _state.db_path.exists():

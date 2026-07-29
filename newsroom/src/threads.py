@@ -293,12 +293,25 @@ def _parse_links(text: str) -> list[dict]:
     return []
 
 
-def link_threads(active: list[ActiveThread], today_labels: list[str], *, model: str = HAIKU_MODEL) -> list[int | None]:
+def link_threads(
+    active: list[ActiveThread],
+    today_labels: list[str],
+    *,
+    model: str = HAIKU_MODEL,
+    health: dict | None = None,
+) -> list[int | None]:
     """Map each of today's story labels to an active thread_id (continuation) or None (new).
 
     One cheap Haiku call. Returns all-None (no threading this run) on any LLM/parse failure so
     the digest proceeds and recovers next run -- thread identity must never crash the pipeline.
+
+    `health`, when given, is filled with whether the call worked and how many proposals survived
+    validation. Those facts die at the ``list[int | None]`` boundary otherwise: a crashed linker
+    and a genuinely all-new day both return all-None, which is precisely why run 244's total
+    continuity loss was invisible until a human noticed every story saying "day 1".
     """
+    if health is not None:
+        health.update({"ok": True, "proposed": 0, "validated": 0})
     if not active or not today_labels:
         return [None] * len(today_labels)
 
@@ -325,6 +338,8 @@ def link_threads(active: list[ActiveThread], today_labels: list[str], *, model: 
         links = _parse_links(text)
     except Exception:  # never let thread-linking break the digest
         logger.warning("thread linker failed; treating all stories as new threads", exc_info=True)
+        if health is not None:
+            health["ok"] = False
         return [None] * len(today_labels)
 
     if not links:
@@ -336,6 +351,8 @@ def link_threads(active: list[ActiveThread], today_labels: list[str], *, model: 
             len(today_labels),
             text[:300],
         )
+        if health is not None:
+            health["ok"] = False
         return [None] * len(today_labels)
 
     out: list[int | None] = [None] * len(today_labels)
@@ -364,6 +381,8 @@ def link_threads(active: list[ActiveThread], today_labels: list[str], *, model: 
             len(active),
             proposed[0],
         )
+    if health is not None:
+        health.update({"proposed": len(proposed), "validated": linked})
     return out
 
 
@@ -688,28 +707,88 @@ def resolve_threads(
     *,
     dormant_after: int = 3,
     linker=None,
+    trace: dict | None = None,
 ) -> list[ThreadAssignment]:
     """Assign each selected story to a thread (continuing or new) and persist identity.
 
     `stories` is a list of `{"story": label, ...}` for the SELECTED stories this run. The linker
     is injectable (resolved at call time, so it stays overridable) so tests can supply a
-    deterministic fake (no LLM in CI).
+    deterministic fake (no LLM in CI). An injected linker is called as
+    ``linker(active, labels, health=<dict>)`` and must accept that keyword -- it is how a fake
+    reports the failure path it is standing in for.
+
+    `trace`, when given, is filled with the linker's INPUTS as well as its decisions: the
+    candidate threads it was offered (id + arc), whether the call itself was healthy, and per
+    story what was proposed and what became of it. The linker is the pipeline's least
+    observable step -- it returns a bare ``list[int | None]`` that nothing persists -- so after
+    the fact a wrong link and a genuinely new story are the same row in ``thread_installments``.
+
+    The candidates are the load-bearing half. Recording only the decision ("story 3 continued
+    thread 7") is not auditable: it reads identically whether thread 7 was the right thread or
+    a different story entirely, which is the shape the 2026-07-28 sweep could not measure. With
+    the arc of every candidate alongside, a wrong link is legible. ``decay_threads`` also
+    overwrites thread status in place and ``touch_thread`` overwrites the label, so the
+    candidate set as it existed at decision time cannot be reconstructed later from the DB.
+
+    Recorded by the caller (run.py), because this module stays free of ``db``.
     """
-    if linker is None:
-        linker = link_threads
     store.decay_threads(run_id, dormant_after)
     active = store.active_threads(before_run_id=run_id, dormant_after=dormant_after)
     active_by_id = {t.thread_id: t for t in active}
 
     labels = [st.get("story", "") for st in stories]
-    mapping = linker(active, labels)
+    health: dict = {}
+    mapping = (link_threads if linker is None else linker)(active, labels, health=health)
+    if trace is not None:
+        trace.update(
+            {
+                "linker_ok": health.get("ok", True),
+                "proposed": health.get("proposed"),
+                "validated": health.get("validated"),
+                "candidates": [
+                    {"thread_id": t.thread_id, "label": t.label, "recent_labels": list(t.recent_labels or [])}
+                    for t in active
+                ],
+                "stories": [],
+            }
+        )
 
     assignments: list[ThreadAssignment] = []
     claimed: set[int] = set()  # one thread continues at most once per run
     for i, label in enumerate(labels):
         article_ids = list(stories[i].get("article_ids", []))
         tid = mapping[i] if i < len(mapping) else None
-        if tid is not None and tid in active_by_id and tid not in claimed:
+        # Why a proposal was refused, not just that the story ended up new. "already_claimed"
+        # is a DROPPED continuation: a week-old story renders "day 1" to the reader, and it
+        # used to happen silently.
+        refused = None
+        if tid is not None:
+            if tid not in active_by_id:
+                # Unreachable via link_threads, which drops ids outside `valid_ids` before
+                # returning -- kept as a guard for any other injected linker, NOT as the
+                # hallucinated-id detector. A hallucinated id arrives here as None and is
+                # counted in `proposed` vs `validated` above instead.
+                refused = "unknown_thread"
+            elif tid in claimed:
+                refused = "already_claimed"
+                logger.warning(
+                    "thread %s was already claimed this run; story %r starts a new thread instead "
+                    "(one thread continues at most once per run)",
+                    tid,
+                    label[:80],
+                )
+        if trace is not None:
+            trace["stories"].append(
+                {
+                    "story_index": i,
+                    "label": label,
+                    "article_ids": article_ids,
+                    "proposed_thread": tid,
+                    "refused": refused,
+                    "outcome": "continued" if tid is not None and refused is None else "new",
+                }
+            )
+        if tid is not None and refused is None:
             claimed.add(tid)
             store.touch_thread(tid, label, run_id)
             store.record_installment(tid, run_id, label, is_new=False)

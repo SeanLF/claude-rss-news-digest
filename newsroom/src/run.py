@@ -145,7 +145,7 @@ def _archive_run_and_threads(selections_json: str, *, model: str | None) -> None
         failed.append("clusters")
     if not db.archive_run_artifacts(CLAUDE_INPUT_DIR, models={"select": model or DEFAULT_MODEL}):
         failed.append("run_artifacts")
-    _process_story_threads()
+    failed.extend(_process_story_threads())
 
     if failed:
         logger.warning("Archival degraded this run (delivered anyway): %s", ", ".join(failed))
@@ -156,7 +156,7 @@ def _archive_run_and_threads(selections_json: str, *, model: str | None) -> None
                 logger.error("Failed to send archival alert (non-fatal)", exc_info=True)
 
 
-def _process_story_threads() -> None:
+def _process_story_threads() -> list[str]:
     """Sub-projects A+B: identity + threaded synthesis for this run's selected stories.
 
     A: link each selected story to a continuing thread (or start a new one) via the Haiku
@@ -166,13 +166,18 @@ def _process_story_threads() -> None:
 
     Gated on THREADS_ENABLED and DB recording. Best-effort: never crashes the digest -- the
     thread layer is additive (off until reader-visible in sub-project C).
+
+    Returns the names of any archival steps that failed, for the caller's degraded-run alert.
     """
     run_id = db.current_run_id()
     if not THREADS_ENABLED or not db.is_recording() or run_id is None:
-        return
+        return []
 
+    import json
+
+    failed: list[str] = []
+    link_trace: dict = {}
     try:
-        import json
         import sqlite3
 
         import thread_synthesis
@@ -185,7 +190,9 @@ def _process_story_threads() -> None:
         conn = sqlite3.connect(DB_PATH)
         try:
             store = threads.ThreadStore(conn)
-            assignments = threads.resolve_threads(stories, run_id, store, dormant_after=THREAD_DORMANT_AFTER)
+            assignments = threads.resolve_threads(
+                stories, run_id, store, dormant_after=THREAD_DORMANT_AFTER, trace=link_trace
+            )
             installments, audit_failures = thread_synthesis.synthesize_threads(
                 assignments,
                 _load_run_articles(),
@@ -219,6 +226,16 @@ def _process_story_threads() -> None:
             send_thread_audit_alert(audit_failures, run_id)
     except Exception:
         logger.warning("Thread processing failed (non-fatal)", exc_info=True)
+    finally:
+        # In a finally, and recorded rather than written as a file, for two separate reasons.
+        # resolve_threads COMMITS thread identity as it goes, so a later failure (a Sonnet
+        # timeout in synthesis, an OSError on the writes above) leaves the threads written and
+        # the explanation lost -- and a degraded run is exactly the one worth auditing. And
+        # archive_run_artifacts already swept claude_input/ before this function ran, so a file
+        # written here would never reach run_artifacts at all.
+        if link_trace and not db.record_run_artifact("thread_links.json", json.dumps(link_trace, indent=2)):
+            failed.append("thread_links")
+    return failed
 
 
 def _require_recording_to_broadcast(*, skip_email: bool, skip_record: bool, force: bool) -> None:
