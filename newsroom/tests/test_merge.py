@@ -1162,3 +1162,112 @@ class TestWriteFieldIdLeakIsObservedNotEdited:
             assemble_selections(tmp_path)
 
         assert not any("no_internal_article_ids" in r.getMessage() for r in caplog.records)
+
+
+class TestClusterAttributionUsesPlurality:
+    """cluster_id is the join key for thread context, and it was assigned by whichever source
+    happened to be listed first.
+
+    Run 247, verified against the archived artifacts: the must_know story "Netanyahu and
+    Zelensky meet Trump separately..." cited 18 articles -- 16 in cluster 62, 2 in cluster 16 --
+    and first-source handed it to the 2-article minority. A should_know story also resolved to
+    16, so both were flagged as sharing a cluster_id and BOTH silently lost their thread delta.
+
+    Plurality sends the must_know story to 62 where 16 of its 18 sources live, which both fixes
+    the attribution and dissolves the collision.
+    """
+
+    @staticmethod
+    def _clusters(mapping):
+        return {"clusters": [{"story": story, "article_ids": ids} for story, ids in mapping]}
+
+    def test_majority_cluster_wins_over_the_first_listed_source(self, tmp_path):
+        item = _article("h")
+        # Two sources in the small cluster, three in the big one; the small one is listed first.
+        item["sources"] = [{"article_id": a} for a in ("A30", "A32", "A79", "A82", "A177")]
+        _write(
+            tmp_path,
+            _draft(must_know=[item]),
+            _coherence({"headline": "h", "pass": True}),
+            clusters=self._clusters(
+                [("small cluster", ["A18", "A30", "A32"]), ("big cluster", ["A79", "A82", "A177"])]
+            ),
+        )
+
+        assembled = json.loads(assemble_selections(tmp_path).read_text())
+
+        assert assembled["must_know"][0]["cluster_id"] == "big cluster"
+
+    def test_two_stories_drawing_on_one_cluster_no_longer_collide(self, tmp_path):
+        # The run-247 shape: both stories touch the small cluster, but only one belongs to it.
+        mostly_big = _article("mostly big")
+        mostly_big["sources"] = [{"article_id": a} for a in ("A30", "A32", "A79", "A82", "A177")]
+        truly_small = _article("truly small")
+        truly_small["sources"] = [{"article_id": a} for a in ("A18", "A30")]
+        _write(
+            tmp_path,
+            _draft(must_know=[mostly_big, truly_small]),
+            _coherence({"headline": "mostly big", "pass": True}, {"headline": "truly small", "pass": True}),
+            clusters=self._clusters(
+                [("small cluster", ["A18", "A30", "A32"]), ("big cluster", ["A79", "A82", "A177"])]
+            ),
+        )
+
+        assembled = json.loads(assemble_selections(tmp_path).read_text())
+
+        ids = [a["cluster_id"] for a in assembled["must_know"]]
+        assert len(set(ids)) == 2, f"both stories still share a cluster_id: {ids}"
+
+    def test_a_tie_keeps_the_earliest_cited_cluster(self, tmp_path):
+        # Ties are real (run 247's should_know split 2-2). Any rule is fine; a non-deterministic
+        # one is not, since cluster_id is a join key. Asserted as a VALUE, not by looping in one
+        # process -- an in-process loop cannot vary and so cannot detect non-determinism.
+        item = _article("h")
+        item["sources"] = [{"article_id": a} for a in ("A18", "A30", "A71", "A677")]
+        _write(
+            tmp_path,
+            _draft(must_know=[item]),
+            _coherence({"headline": "h", "pass": True}),
+            clusters=self._clusters([("first cluster", ["A18", "A30"]), ("second cluster", ["A71", "A677"])]),
+        )
+
+        assembled = json.loads(assemble_selections(tmp_path).read_text())
+
+        assert assembled["must_know"][0]["cluster_id"] == "first cluster"
+
+    def test_unmapped_sources_still_leave_cluster_id_absent(self, tmp_path):
+        item = _article("h")
+        item["sources"] = [{"article_id": "A999"}]
+        _write(
+            tmp_path,
+            _draft(must_know=[item]),
+            _coherence({"headline": "h", "pass": True}),
+            clusters=self._clusters([("some cluster", ["A1", "A2"])]),
+        )
+
+        assembled = json.loads(assemble_selections(tmp_path).read_text())
+
+        assert "cluster_id" not in assembled["must_know"][0]
+
+    def test_repeated_citations_do_not_out_vote_distinct_articles(self):
+        # sources is an evidence-citation list (write.md tells WRITE to ADD any article that
+        # supports a specific), so the same article can be cited repeatedly. Counting those as
+        # separate votes lets one article outvote three. _item_article_ids treats sources as a
+        # set twenty lines up in this module; the vote must agree.
+        from merge import _attach_cluster_id
+
+        item: dict = {}
+        cluster_map = {"A1": "own", "A2": "own", "A3": "own", "A9": "other"}
+        sources = [{"article_id": a} for a in ("A1", "A2", "A3", "A9", "A9", "A9", "A9")]
+        _attach_cluster_id(item, sources, cluster_map)
+
+        assert item["cluster_id"] == "own"
+
+    def test_non_string_article_id_does_not_abort_the_run(self):
+        # An unhashable article_id would raise out of assemble_selections and lose the digest.
+        from merge import _attach_cluster_id
+
+        item: dict = {}
+        _attach_cluster_id(item, [{"article_id": ["A30"]}, {"article_id": "A1"}], {"A1": "own"})
+
+        assert item["cluster_id"] == "own"

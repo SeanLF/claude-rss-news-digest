@@ -10,6 +10,7 @@ import json
 import logging
 import re
 import unicodedata
+from collections import Counter
 from pathlib import Path
 
 import config
@@ -268,17 +269,45 @@ def _load_cluster_map(claude_input_dir: Path) -> dict[str, str]:
 def _attach_cluster_id(item: dict, sources: list[dict], cluster_map: dict[str, str]) -> None:
     """Attach the cluster story label to a draft item from its source article_ids.
 
-    Uses the first source whose article_id maps to a cluster. No-op when the map
-    is empty or none of the article_ids are known.
+    Assigns the cluster holding the MOST of the item's DISTINCT sources, not the
+    first one that happens to map. WRITE draws a story from wherever the evidence
+    is, so its first-listed source is not evidence of where the story belongs: in
+    run 247 the must_know Netanyahu/Zelensky story cited 18 articles -- 16 in one
+    cluster, 2 in another -- and first-source handed it to the 2-article minority,
+    pointing it at a thread created that same run instead of one it could have
+    continued. Replaying that run's real draft: one story gains thread context,
+    one label of 16 changes.
+
+    The two stories digest._shared_cluster_ids flagged that run lost NOTHING to
+    the flag -- the shared label belonged to a thread new in run 247, and
+    attach_thread_context filters new threads out of its lookup anyway. The
+    collision was a co-symptom of the mis-attribution, not the harm. Do not go
+    after that guard on the strength of this.
+
+    DISTINCT sources, because ``sources`` is an evidence-citation list (write.md
+    tells WRITE to ADD any article supporting a specific), so one article can be
+    cited repeatedly and would otherwise outvote several distinct ones.
+    ``_item_article_ids`` treats sources as a set for the same reason.
+
+    KNOWN LIMIT: a citation count measures where the verifiable facts are, not
+    where the story belongs, so this is biased toward large generic clusters. A
+    story about a small specific cluster that cites a big one for context can be
+    pulled to the big one, and two such stories could then collide where
+    first-source would not have. Constructed, not observed. Identical to
+    first-source whenever the sources agree, which is the normal case.
+
+    Ties keep the earliest-cited cluster. ``max`` returns the first maximal item
+    and Counter iterates in insertion order (a language guarantee since 3.7), so
+    this is stable across processes -- which matters, since cluster_id is a join
+    key. No-op when the map is empty or no article_id is known.
     """
     if not cluster_map:
         return
-    for src in sources:
-        aid = src.get("article_id")
-        story = cluster_map.get(aid) if isinstance(aid, str) else None
-        if story:
-            item["cluster_id"] = story
-            return
+    # Order-preserving dedupe, so the tie-break still reads in source order.
+    seen = dict.fromkeys(aid for src in sources if isinstance(aid := src.get("article_id"), str))
+    stories = [story for aid in seen if (story := cluster_map.get(aid))]
+    if stories:
+        item["cluster_id"] = Counter(stories).most_common(1)[0][0]
 
 
 def _load_not_covered_blurb(claude_input_dir: Path) -> str | None:
