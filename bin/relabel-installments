@@ -1,0 +1,42 @@
+#!/bin/bash
+# Backfill thread labels that were harvested from the wrong cluster.
+#
+# A one-off repair, not part of the pipeline. Labels used to come from SELECT's `cluster_index`,
+# a 0-based position into a several-hundred-element array that a model counts by eye. It is wrong
+# ~16% of the time, so 110 of 668 archived installments are published on /thread/{id} under a
+# label describing a different story from the SAME run. `b114c6a` fixed it forward by deriving
+# the label from the entry's `article_ids`; this applies that derivation to what already shipped.
+#
+# Corrects only installments that STARTED a thread. Where the linker CONTINUED a thread it matched
+# on the wrong label, so the installment is in the wrong thread as well as under the wrong name --
+# relabelling alone would splice an unrelated story into an existing arc. Those are printed under
+# REFUSED and left alone; detaching them is a separate decision.
+#
+# Usage:
+#   bin/relabel-installments            # dry run, prints the plan
+#   bin/relabel-installments --apply    # snapshots the DB, then commits
+#
+# Safe by default: no --apply means no writes. Idempotent -- a re-run finds nothing to do.
+# A run whose installment count does not match its selected-entry count is skipped whole, because
+# the correction is positional and guessing would relabel by coincidence.
+#
+# Production -- on the server, AFTER deploy, against the live volume:
+#   docker run --rm --env-file /opt/news-digest/.env -v news-digest-data:/app/data \
+#     <registry>/digest-newsroom:latest .venv/bin/python src/relabel_installments.py
+#   (add --apply once the plan reads correctly)
+#
+# Published issues are NOT rewritten. `digests` holds immutable HTML blobs and stays exactly as
+# sent; this reconciles story identity on the archive and for the linker going forward.
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
+
+# If not in Docker, run via docker compose (mirrors bin/repair-threads and bin/migrate)
+if [[ -z "${IN_DOCKER:-}" ]]; then
+  cd "$PROJECT_DIR"
+  exec docker compose run --rm digest-newsroom .venv/bin/python src/relabel_installments.py "$@"
+fi
+
+exec .venv/bin/python src/relabel_installments.py "$@"
