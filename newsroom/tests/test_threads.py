@@ -939,3 +939,42 @@ def test_selected_labels_keeps_the_entrys_own_article_ids():
     out = threads.selected_labels(clusters, selected)
 
     assert out[0]["article_ids"] == ["A5", "A6"]
+
+
+# --- new_questions is reader-facing too, and unguarded ---
+# The ledger on /thread/{id} renders thread_questions verbatim (HTML-escaped, nothing else).
+# Prod carries 4 open questions with article ids in them, 3 of them BARE -- e.g. "How is the
+# U.S. 'pressure architecture' described in A12 ...". Questions have no `sources` of their own,
+# but they are raised alongside an installment whose facts do, so that installment's cited ids
+# are the same ground truth _clean_fact uses, one scope up.
+
+
+def test_clean_questions_drops_one_citing_the_installments_own_sources():
+    cited = ["A12", "A456"]
+    qs = [
+        "How is the 'pressure architecture' described in A12 reshaping the region?",
+        "Will the ceasefire hold through winter?",
+    ]
+    assert threads.clean_questions(qs, cited) == ["Will the ceasefire hold through winter?"]
+
+
+def test_clean_questions_strips_a_delimited_citation_rather_than_dropping():
+    cited = ["A456"]
+    qs = ["Is the dynamic identified by analysts (A456) deliberate?"]
+    assert threads.clean_questions(qs, cited) == ["Is the dynamic identified by analysts deliberate?"]
+
+
+def test_clean_questions_keeps_an_a_designator_the_installment_does_not_cite():
+    cited = ["A404"]
+    qs = ["Will the A19 chip ship on time?"]
+    assert threads.clean_questions(qs, cited) == ["Will the A19 chip ship on time?"]
+
+
+@pytest.mark.parametrize("cited", ["A12", None, 5, [None, ""]], ids=["scalar", "none", "int", "blanks"])
+def test_clean_questions_tolerates_malformed_cited_ids(cited):
+    qs = ["Will the plan A vote pass in 3 days?"]
+    assert threads.clean_questions(qs, cited) == qs
+
+
+def test_clean_questions_drops_blank_and_non_string_entries():
+    assert threads.clean_questions(["Real question?", "", None, 7], ["A1"]) == ["Real question?"]

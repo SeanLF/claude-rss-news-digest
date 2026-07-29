@@ -105,21 +105,57 @@ def _clean_fact(fact: dict) -> str:
     same stored row. Ids are trimmed for the same reason -- a padded ``"A238 "`` matches under
     Python's ``\\b`` but not under Rust's boundary check."""
     raw = fact.get("fact") if isinstance(fact, dict) else None
+    return _scrub_prose(raw, fact.get("sources") if isinstance(fact, dict) else None, kind="fact")
+
+
+def _cited(sources) -> list[str]:
+    """Trimmed, non-blank article ids from a model-authored sources list.
+
+    Container type is checked as strictly as the element type: a scalar "A3" would iterate as
+    ['A', '3'] and match a lone capital or bare digit in any clean prose.
+    """
+    return [t for s in sources if isinstance(s, str) and (t := s.strip())] if isinstance(sources, list) else []
+
+
+def _scrub_prose(raw, sources, *, kind: str) -> str:
+    """Reader-facing prose with delimited ids stripped, or "" if it must be dropped.
+
+    One rule for every reader-facing string the synthesis writes. Delimited citations come out
+    in place -- removing "(A456)" leaves readable text. A BARE id can only be detected, never
+    stripped ("described in A12" would become "described in"), and never by pattern, since no
+    regex separates "A12" from "the A19 chip". The cited ids are that ground truth.
+    """
     text = _tidy(strip_article_ids(raw)) if isinstance(raw, str) else ""
     if not text:
         return ""
-    sources = fact.get("sources")
-    cited = [t for s in sources if isinstance(s, str) and (t := s.strip())] if isinstance(sources, list) else []
-    leaked = [s for s in cited if re.search(rf"\b{re.escape(s)}\b", text)]
+    leaked = [s for s in _cited(sources) if re.search(rf"\b{re.escape(s)}\b", text)]
     if leaked:
         logger.warning(
-            "thread fact cites %s inline in its own prose -- skipping it (see thread_synthesis "
-            "EVOLVE_SYSTEM: ids belong in `sources`, never in `fact`): %r",
+            "thread %s cites %s inline in its own prose -- dropping it (see thread_synthesis "
+            "EVOLVE_SYSTEM: ids belong in `sources`, never in reader-facing text): %r",
+            kind,
             ", ".join(leaked),
             text[:120],
         )
         return ""
     return text
+
+
+def clean_questions(questions, cited) -> list[str]:
+    """Open-question text fit to render, given the ids ITS OWN RUN cited.
+
+    thread_questions rows render verbatim in the ledger on /thread/{id} -- HTML-escaped and
+    nothing else -- and unlike a fact a question carries no ``sources``. Its installment's
+    cited ids are the ground truth, the same rule ``_clean_fact`` uses one scope up.
+
+    Scope is ONE RUN, never a thread's history. Article ids are per-run labels reassigned every
+    run -- A12 was a Messi story in run 240 and a Refugee Convention story in run 247 -- so
+    unioning them across installments accumulates an unrelated slice of the A1..A650 space
+    rather than the thread's evidence. Measured, that reaches a 58% false-positive rate on a
+    33-installment thread, dropping "How many died on the A7 highway?" from a French wildfire
+    thread. One run's ids are the only set that means anything.
+    """
+    return [t for q in questions or [] if isinstance(q, str) and (t := _scrub_prose(q, cited, kind="question"))]
 
 
 def delta_from_facts(facts: list[dict], *, top_n: int = 3) -> str:

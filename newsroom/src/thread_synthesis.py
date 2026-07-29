@@ -25,6 +25,7 @@ import json
 import logging
 import re
 
+import threads
 from config import DEFAULT_MODEL
 from usage import usage_row_from_sdk
 
@@ -241,11 +242,17 @@ def apply_installment(store, assignment, installment: dict, supported: list[bool
     store the verified installment. Returns the verified installment (unsupported facts removed)."""
     whats_new = installment.get("whats_new", []) or []
     kept = [f for f, ok in zip(whats_new, supported, strict=False) if ok]
-    verified = {**installment, "whats_new": kept}
+    # PRE-audit citations, persisted with the installment. This is the grounding scope for the
+    # run's open questions, and it has to be pre-audit: the audit drops unsupported facts and
+    # takes their sources with them, so a question referencing a dropped fact would otherwise
+    # be ungrounded (prod thread 6 asks about A12, whose fact did not survive). Run-scoped by
+    # construction -- article ids are per-run labels, meaningless outside their own run.
+    cited_ids = sorted({s for f in whats_new if isinstance(f, dict) for s in threads._cited(f.get("sources"))})
+    verified = {**installment, "whats_new": kept, "cited_ids": cited_ids}
 
     tid = assignment.thread_id
     open_now = set(assignment.open_questions)
-    new_questions = [q for q in (installment.get("new_questions", []) or []) if q]
+    new_questions = installment.get("new_questions", []) or []
 
     # One atomic unit: never leave questions resolved while the installment row is left
     # content-less (a partial write the next run would read as truth).
@@ -254,6 +261,17 @@ def apply_installment(store, assignment, installment: dict, supported: list[bool
             question = r.get("question", "")
             if question in open_now:  # only resolve questions we actually carried (avoid drift)
                 store.resolve_question(tid, question, run_id, r.get("how", ""))
+        # Questions are stored UNCHANGED and suppressed at render time instead. Dropping one
+        # here is permanent: it never reaches the thread's carried OPEN QUESTIONS memory and can
+        # never be resolved, so a false positive silently erases a real question forever. The
+        # renderer's suppression is terminal and covers already-stored rows, so the write path
+        # only has to make the leak visible.
+        if new_questions and threads.clean_questions(new_questions, cited_ids) != new_questions:
+            logger.warning(
+                "thread %s: a new question cites an article id inline; it will be suppressed in "
+                "the public ledger (see thread_synthesis EVOLVE_SYSTEM)",
+                tid,
+            )
         if new_questions:
             store.add_questions(tid, new_questions, run_id)
         store.set_installment_content(tid, run_id, json.dumps(verified))

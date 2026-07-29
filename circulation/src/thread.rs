@@ -166,19 +166,30 @@ fn fetch_open_questions(
     conn: &Connection,
     thread_id: i64,
 ) -> Result<Vec<String>, (StatusCode, String)> {
-    // Partial clone without the questions table: no ledger, not a 503.
+    // Joined to the installment that RAISED the question, because article ids are per-run
+    // labels -- A12 was a Messi story in run 240 and a Refugee Convention story in run 247 --
+    // so a wider scope is not a bigger evidence set, it is an unrelated slice of the label
+    // space. Unioning a thread's installments measured a 58% false-positive rate on a
+    // 33-installment thread, dropping "How many died on the A7 highway?" from a wildfire
+    // thread. One run's ids are the only set that means anything.
+    //
+    // Read-time and terminal, so rows already stored are covered with no migration, and the
+    // write path can keep a flagged question in the thread's memory instead of deleting it.
+    // Mirror of Python's threads.clean_questions.
     let Some(mut stmt) = prepare_or_degrade(
         conn,
-        "SELECT question FROM thread_questions
-             WHERE thread_id = ?1 AND status = 'open'
-             ORDER BY raised_run_id DESC, id DESC LIMIT ?2",
+        "SELECT q.question, ti.content FROM thread_questions q
+             LEFT JOIN thread_installments ti
+                    ON ti.thread_id = q.thread_id AND ti.run_id = q.raised_run_id
+             WHERE q.thread_id = ?1 AND q.status = 'open'
+             ORDER BY q.raised_run_id DESC, q.id DESC",
     )?
     else {
         return Ok(Vec::new());
     };
     let qs = stmt
-        .query_map(rusqlite::params![thread_id, LEDGER_MAX as i64], |row| {
-            row.get::<_, String>(0)
+        .query_map(rusqlite::params![thread_id], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?))
         })
         .map_err(|e| {
             (
@@ -187,8 +198,61 @@ fn fetch_open_questions(
             )
         })?
         .filter_map(|r| log_row_error(r, "thread_questions"))
+        .filter_map(|(question, content)| {
+            clean_question(&question, &cited_article_ids(content.as_deref()))
+        })
+        // Capped AFTER scrubbing, so a suppressed question promotes the next rather than
+        // shortening the ledger.
+        .take(LEDGER_MAX)
         .collect();
     Ok(qs)
+}
+
+/// The article ids one installment cited, for grounding that run's questions.
+///
+/// Prefers the persisted `cited_ids` (written PRE-audit, so it still names the sources of facts
+/// the faithfulness audit dropped). Falls back to the surviving facts' own sources for rows
+/// written before that field existed -- incomplete for exactly the dropped-fact case, which is
+/// why the field was added. Mirror of Python's `_store_installment`.
+fn cited_article_ids(content: Option<&str>) -> std::collections::HashSet<String> {
+    let Some(parsed) = content.and_then(|c| serde_json::from_str::<serde_json::Value>(c).ok())
+    else {
+        return Default::default();
+    };
+    let listed = parsed
+        .get("cited_ids")
+        .and_then(|v| v.as_array())
+        .map(|ids| ids.iter().filter_map(|v| v.as_str()).collect::<Vec<_>>());
+    let ids: Vec<&str> = listed.unwrap_or_else(|| {
+        parsed
+            .get("whats_new")
+            .and_then(|w| w.as_array())
+            .map(|facts| {
+                facts
+                    .iter()
+                    .filter_map(|f| f.get("sources").and_then(|s| s.as_array()))
+                    .flatten()
+                    .filter_map(|v| v.as_str())
+                    .collect()
+            })
+            .unwrap_or_default()
+    });
+    ids.into_iter()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+        .collect()
+}
+
+/// One open question's rendered text, or `None` when it cites an id its own run cited.
+/// Mirror of Python's `threads.clean_questions` -- keep in sync.
+fn clean_question(question: &str, cited: &std::collections::HashSet<String>) -> Option<String> {
+    let text = strip_article_ids(question);
+    if text.is_empty() {
+        return None;
+    }
+    let cites_run = cited.iter().any(|id| contains_word(&text, id));
+    (!cites_run).then_some(text)
 }
 
 /// Fetch all threads for the `/threads` index, active first, most-recently-updated first within
@@ -645,6 +709,86 @@ mod tests {
         // --- bare self-citations (2026-07-12) ---
         // Parity with test_threads.py: a bare id is detected via the fact's own `sources`,
         // never by pattern, so a real A-designator survives.
+
+        // --- open questions: grounded on every id the THREAD has cited ---
+        // A question has no `sources` of its own. Installment scope is too narrow: the audit
+        // drops unsupported facts and takes their sources with them, while a question about
+        // one survives (prod thread 6, "A12").
+
+        fn cited(ids: &[&str]) -> std::collections::HashSet<String> {
+            ids.iter().map(|s| s.to_string()).collect()
+        }
+
+        #[test]
+        fn question_citing_an_id_the_thread_cited_is_dropped() {
+            assert_eq!(
+                super::super::clean_question(
+                    "How is the pressure architecture described in A12 reshaping the region?",
+                    &cited(&["A12", "A22"])
+                ),
+                None
+            );
+        }
+
+        #[test]
+        fn question_with_a_delimited_citation_is_stripped_not_dropped() {
+            assert_eq!(
+                super::super::clean_question(
+                    "Is the dynamic identified by analysts (A456) deliberate?",
+                    &cited(&["A456"])
+                ),
+                Some("Is the dynamic identified by analysts deliberate?".to_string())
+            );
+        }
+
+        #[test]
+        fn question_keeps_a_designator_the_thread_never_cited() {
+            assert_eq!(
+                super::super::clean_question("Will the A19 chip ship on time?", &cited(&["A404"])),
+                Some("Will the A19 chip ship on time?".to_string())
+            );
+        }
+
+        #[test]
+        fn question_on_a_thread_with_no_citations_is_still_rendered() {
+            assert_eq!(
+                super::super::clean_question("Will the ceasefire hold?", &cited(&[])),
+                Some("Will the ceasefire hold?".to_string())
+            );
+        }
+
+        #[test]
+        fn cited_ids_prefer_the_persisted_pre_audit_list() {
+            // The surviving fact cites only A22, but the run also cited A12 in a fact the audit
+            // dropped -- which is exactly the question the persisted list exists to ground.
+            let content = serde_json::json!({
+                "whats_new": [{"fact": "x", "sources": ["A22"]}],
+                "cited_ids": ["A12", " A22 "],
+            })
+            .to_string();
+            assert_eq!(
+                super::super::cited_article_ids(Some(&content)),
+                cited(&["A12", "A22"])
+            );
+        }
+
+        #[test]
+        fn cited_ids_fall_back_to_fact_sources_for_rows_written_before_the_field() {
+            let content =
+                serde_json::json!({"whats_new": [{"fact": "x", "sources": ["A22", "A99"]}]})
+                    .to_string();
+            assert_eq!(
+                super::super::cited_article_ids(Some(&content)),
+                cited(&["A22", "A99"])
+            );
+        }
+
+        #[test]
+        fn cited_ids_tolerate_missing_and_malformed_content() {
+            assert!(super::super::cited_article_ids(None).is_empty());
+            assert!(super::super::cited_article_ids(Some("{not json")).is_empty());
+            assert!(super::super::cited_article_ids(Some("{}")).is_empty());
+        }
 
         #[test]
         fn drops_fact_that_cites_its_own_source_inline_and_promotes_the_next() {
