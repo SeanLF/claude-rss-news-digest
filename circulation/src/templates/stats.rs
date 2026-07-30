@@ -252,7 +252,7 @@ fn concentration_section(m: &StatsMetrics, never: &[String], days: u32) -> Strin
     };
     format!(
         r#"<section>
-  <div class="sec-h"><h2>Concentration &amp; coverage</h2><span class="ct">{total} stories · {days} days</span></div>
+  <div class="sec-h"><h2>Concentration &amp; coverage</h2><span class="ct">{total} source picks · {days} days</span></div>
   <div class="stats">{tiles}</div>
   <div class="shares">{shares}</div>
   {drill}
@@ -313,13 +313,23 @@ fn cost_section(data: &StatsData) -> String {
     } else {
         0.0
     };
-    let per_story = if c.kept_total > 0 {
+    // Two different questions, so two tiles. Cost / shipped story is what a reader pays for what
+    // they actually get (~16 stories a run); cost / article ingested is the operational rate over
+    // everything curation reads (~550 a run). They differ by ~35x, so one number labelled "story"
+    // cannot honestly stand for both -- and until this was split the page showed the ingest rate
+    // under the reader-facing label.
+    let per_shipped_story = if c.shipped_total > 0 {
+        c.cost_total / c.shipped_total as f64
+    } else {
+        0.0
+    };
+    let per_article_in = if c.kept_total > 0 {
         c.cost_total / c.kept_total as f64
     } else {
         0.0
     };
     let tiles = format!(
-        "{}{}{}",
+        "{}{}{}{}",
         tile(
             &format!("${per_run:.2}"),
             "",
@@ -333,10 +343,16 @@ fn cost_section(data: &StatsData) -> String {
             &format!("{} recipients", c.recipients_latest)
         ),
         tile(
-            &format!("${per_story:.3}"),
+            &format!("${per_shipped_story:.3}"),
             "",
-            "Cost / story",
-            "kept per run"
+            "Cost / shipped story",
+            &format!("{} stories readers saw", c.shipped_total)
+        ),
+        tile(
+            &format!("${per_article_in:.4}"),
+            "",
+            "Cost / article ingested",
+            &format!("{} read by curation", c.kept_total)
         ),
     );
     let mut rows = String::new();
@@ -557,6 +573,7 @@ mod tests {
                 runs: 30,
                 cost_total: 79.10,
                 kept_total: 9000,
+                shipped_total: 470,
                 recipients_latest: 47,
             },
         }
@@ -619,5 +636,48 @@ mod tests {
         let html = render_stats(&params(&data, &m));
         // cost/run = 79.10 / 30 = 2.64 (2dp)
         assert!(html.contains("$2.64"));
+    }
+
+    /// Each cost tile's VALUE must be bound to its own label. The page previously divided by
+    /// `kept_total` (articles into curation) and labelled the result "Cost / story", publishing a
+    /// number ~35x too low on the one page whose premise is transparency. Asserting the exact
+    /// value+label pair is what makes that swap impossible to reintroduce quietly.
+    #[test]
+    fn per_story_cost_uses_shipped_stories_not_ingested_articles() {
+        let data = sample_data();
+        let m = crate::stats::compute_metrics(&data);
+        let html = render_stats(&params(&data, &m));
+
+        // 79.10 / 470 shipped stories = 0.168
+        assert!(
+            html.contains(
+                r#"<span class="v ">$0.168</span><span class="l">Cost / shipped story</span>"#
+            ),
+            "cost per shipped story must divide by shipped_total"
+        );
+        // 79.10 / 9000 ingested = 0.0088 -- kept as its own tile, honestly labelled.
+        assert!(
+            html.contains(
+                r#"<span class="v ">$0.0088</span><span class="l">Cost / article ingested</span>"#
+            ),
+            "cost per ingested article must divide by kept_total"
+        );
+        // The old wording is gone: no tile may claim "story" while metering ingestion.
+        assert!(!html.contains(r#"<span class="l">Cost / story</span>"#));
+        // Denominator counts are shown next to each rate so a reader can redo the division.
+        assert!(html.contains("470 stories readers saw"));
+        assert!(html.contains("9000 read by curation"));
+    }
+
+    /// A window with cost but no shipped rows must render $0.000, not divide by zero.
+    #[test]
+    fn zero_shipped_stories_does_not_produce_nan() {
+        let mut data = sample_data();
+        data.cost.shipped_total = 0;
+        data.cost.kept_total = 0;
+        let m = crate::stats::compute_metrics(&data);
+        let html = render_stats(&params(&data, &m));
+        assert!(!html.contains("NaN") && !html.contains("inf"));
+        assert!(html.contains(r#"<span class="l">Cost / shipped story</span>"#));
     }
 }

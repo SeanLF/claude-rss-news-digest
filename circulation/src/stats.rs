@@ -55,7 +55,12 @@ pub struct DedupStats {
 pub struct CostSummary {
     pub runs: i64,
     pub cost_total: f64,
+    /// Articles that survived fetch + dedup and went INTO curation (~550/run). The operational
+    /// denominator, not the reader-facing one — a reader never sees most of these.
     pub kept_total: i64,
+    /// Stories actually shipped to readers (~16/run). `shown_narratives` holds one row per
+    /// SOURCE per story, so the story count is DISTINCT (run_id, headline), not row count.
+    pub shipped_total: i64,
     /// Recipients on the most recent run (the current subscriber count) — the cost/subscriber base.
     pub recipients_latest: i64,
 }
@@ -255,6 +260,10 @@ pub fn fetch_stats_data(db_path: &str, days: u32) -> Result<StatsData, (StatusCo
     // Period cost aggregate. Subqueries (not a join) so SUM(articles_kept) isn't multiplied by the
     // per-run `run_usage` row count. `?1` is reused across all windows. recipients = the latest run's
     // emailed count (current subscriber base), independent of the window.
+    //
+    // shipped_total counts DISTINCT (run_id, headline): `shown_narratives` stores one row per SOURCE
+    // per story (~7 rows per story), so COUNT(*) would overstate the story count several-fold. Same
+    // headline on two days is two shipped stories, hence run_id in the key.
     let cost: CostSummary = conn
         .query_row(
             "SELECT
@@ -265,6 +274,9 @@ pub fn fetch_stats_data(db_path: &str, days: u32) -> Result<StatsData, (StatusCo
                (SELECT COALESCE(SUM(ru.api_cost_usd),0.0) FROM run_usage ru
                   JOIN digest_runs dr ON dr.id = ru.run_id
                   WHERE dr.completed_at IS NOT NULL AND dr.run_at >= datetime('now','-'||?1||' days')),
+               (SELECT COUNT(*) FROM (SELECT DISTINCT sn.run_id, sn.headline
+                  FROM shown_narratives sn JOIN digest_runs dr ON dr.id = sn.run_id
+                  WHERE dr.completed_at IS NOT NULL AND dr.run_at >= datetime('now','-'||?1||' days'))),
                (SELECT COALESCE(articles_emailed,0) FROM digest_runs
                   WHERE completed_at IS NOT NULL ORDER BY run_at DESC LIMIT 1)",
             [days],
@@ -273,7 +285,8 @@ pub fn fetch_stats_data(db_path: &str, days: u32) -> Result<StatsData, (StatusCo
                     runs: row.get(0)?,
                     kept_total: row.get(1)?,
                     cost_total: row.get(2)?,
-                    recipients_latest: row.get(3).unwrap_or(0),
+                    shipped_total: row.get(3)?,
+                    recipients_latest: row.get(4).unwrap_or(0),
                 })
             },
         )
@@ -313,6 +326,9 @@ pub struct StatsMetrics {
     pub factuality_high_pct: i64, // % of shipped from high/very-high factuality sources
     pub buckets_sourced: i64, // populated spectrum buckets (of 7; only l/c/r can populate)
     // Concentration (over ALL shipped sources)
+    /// `shown_narratives` rows in the window = one per SOURCE per story (~7x the story count),
+    /// which is the right denominator for source shares but is NOT a story count. Cost per story
+    /// uses `CostSummary::shipped_total`.
     pub total_shipped: i64,
     pub hhi: f64,                      // Σ share² (0..1); low = well spread
     pub effective_n: f64,              // 1 / HHI
@@ -758,7 +774,7 @@ mod tests {
         let conn = Connection::open(&path).unwrap();
         conn.execute_batch(
             "CREATE TABLE source_health (source_id TEXT NOT NULL, success INTEGER NOT NULL, recorded_at DATETIME);
-             CREATE TABLE shown_narratives (headline TEXT, tier TEXT, source_id TEXT, shown_at DATETIME);
+             CREATE TABLE shown_narratives (headline TEXT, tier TEXT, source_id TEXT, shown_at DATETIME, run_id INTEGER);
              CREATE TABLE digest_runs (id INTEGER PRIMARY KEY, run_at DATETIME, articles_kept INTEGER, articles_emailed INTEGER, completed_at DATETIME);
              CREATE TABLE run_usage (run_id INTEGER, api_cost_usd REAL);
              CREATE TABLE dedup_log (similarity REAL, logged_at DATETIME);",
@@ -850,6 +866,57 @@ mod tests {
 
         // Never-selected: in source_health window but absent from shown_narratives window.
         assert_eq!(data.never_selected, vec!["dead_feed".to_string()]);
+    }
+
+    /// The cost aggregate is the page's public unit-economics claim, and `query_row` here is
+    /// `unwrap_or_default()` — a broken SELECT would show zeroes rather than fail. This pins every
+    /// field, and above all that `shipped_total` counts STORIES (distinct headline per run), not
+    /// `shown_narratives` rows (one per source per story) and not `articles_kept` (the ~35x-larger
+    /// ingest count the page used to divide by while calling the result "Cost / story").
+    #[test]
+    fn cost_aggregate_counts_shipped_stories_not_source_rows_or_ingested_articles() {
+        let path = seed_db(
+            "INSERT INTO digest_runs (id, run_at, articles_kept, articles_emailed, completed_at) VALUES
+                (1, datetime('now','-2 days'), 500, 9,  datetime('now','-2 days')),
+                (2, datetime('now','-1 days'), 300, 11, datetime('now','-1 days')),
+                (3, datetime('now'),           700, 0,  NULL),                   -- running: excluded
+                (4, datetime('now','-40 days'), 900, 5, datetime('now','-40 days')); -- out of window
+
+             INSERT INTO run_usage (run_id, api_cost_usd) VALUES
+                (1, 1.0), (1, 0.5),
+                (2, 2.0),
+                (3, 9.0),                                    -- incomplete run: excluded
+                (4, 99.0);                                   -- out of window: excluded
+
+             -- Run 1 ships 2 stories from 4 sources; run 2 ships 1 story, re-running run 1's
+             -- headline (a second shipped story on a second day, not a duplicate to collapse).
+             INSERT INTO shown_narratives (headline, tier, source_id, shown_at, run_id) VALUES
+                ('story A', 'must_know',   'bbc',     datetime('now','-2 days'), 1),
+                ('story A', 'must_know',   'reuters', datetime('now','-2 days'), 1),
+                ('story A', 'must_know',   'ap',      datetime('now','-2 days'), 1),
+                ('story B', 'should_know', 'bbc',     datetime('now','-2 days'), 1),
+                ('story A', 'must_know',   'bbc',     datetime('now','-1 days'), 2),
+                ('story C', 'must_know',   'ap',      datetime('now','-1 days'), 3),  -- incomplete run
+                ('story D', 'must_know',   'ap',      datetime('now','-40 days'), 4); -- out of window",
+        );
+
+        let data = fetch_stats_data(&path, 30).unwrap();
+        std::fs::remove_file(&path).ok();
+        let c = &data.cost;
+
+        assert_eq!(c.runs, 2); // completed and in-window only
+        assert!((c.cost_total - 3.5).abs() < 1e-9); // 1.0 + 0.5 + 2.0
+        assert_eq!(c.kept_total, 800); // 500 + 300 -- articles INTO curation
+        assert_eq!(c.shipped_total, 3); // (1,'story A'), (1,'story B'), (2,'story A')
+        assert_eq!(c.recipients_latest, 11); // latest completed run's emailed count
+
+        // The three denominators must stay distinct; collapsing any pair is the original defect.
+        assert_ne!(c.shipped_total, 5); // 5 = in-window shown_narratives ROWS (per source, not per story)
+        assert_ne!(c.shipped_total, c.kept_total);
+        assert!(
+            (c.cost_total / c.shipped_total as f64) > 10.0 * (c.cost_total / c.kept_total as f64),
+            "cost per shipped story must be far above cost per ingested article"
+        );
     }
 
     #[test]

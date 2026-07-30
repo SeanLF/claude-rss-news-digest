@@ -1,11 +1,12 @@
 -- QUESTION: What does one run, one shipped story, and one subscriber-digest actually
 --   cost, and is that cost trending?
--- WHY: This is the unit-economics line for a project that runs daily and forever. The
---   /stats page already shows a cost/story figure, but it divides total cost by
---   `articles_kept` (~550 per run) -- that is cost per ARTICLE INGESTED, not per story
---   the reader sees (~16 per run). The two differ by ~35x. This query reports the
---   reader-facing denominator, which is the one that matters when deciding whether a
---   model or stage change is affordable.
+-- WHY: This is the unit-economics line for a project that runs daily and forever. Cost
+--   per ARTICLE INGESTED (`articles_kept`, ~550 a run) and cost per story the reader
+--   sees (~16 a run) differ by ~35x, so the denominator has to be stated, not assumed --
+--   /stats published the ingest rate under a "Cost / story" label until 2026-07-30 and
+--   now shows both. This query is the per-run series behind that page's window average,
+--   and the reader-facing figure is the one that decides whether a model or stage change
+--   is affordable.
 -- CAVEAT: `api_cost_usd` is the SDK's API-equivalent cost, not an invoice -- if the
 --   pipeline runs under a subscription the real marginal cost is zero. Cost is
 --   attributed to the run that recorded it; the thread-synthesis rows are recorded in
