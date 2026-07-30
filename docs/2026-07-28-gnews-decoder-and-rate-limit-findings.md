@@ -30,8 +30,8 @@ Two consequences worth keeping:
 
 ### The published library already fixes it
 
-Measured 2026-07-28, same tokens, same order, one container, three arms
-(`scratch/gnews-rate-lab/compare/run`):
+Measured 2026-07-28, same tokens, same order, one container, three arms (with a comparison script
+since removed; the harness now lives in the decoder repo, see the note at the end):
 
 | arm | result |
 |---|---|
@@ -47,7 +47,8 @@ would mean carrying a VCS dependency for benefits production does not yet use.
 ## Google's throttling, measured
 
 Method: a container per VPN exit, all in one wall-clock window, live tokens from an RSS search,
-tunnel egress verified against the host address. Harness in `scratch/gnews-rate-lab/`.
+tunnel egress verified against the host address. Harness now in the decoder repo, at
+`probes/runner/` — see the note at the end.
 
 ### It is a per-IP budget, not a rate limit
 
@@ -211,7 +212,7 @@ Nothing below has been committed, pushed or deployed. No production behaviour ch
 | `newsroom/src/gnews.py` | on the library adapter, against **PyPI**, not the fork | decide: stay on PyPI 0.1.7 (measured working), or pin the fork |
 | `not_covered_blurb` cap 300 -> 500 | done, tested, green | commit |
 | Hetzner budget | measured >400 and finite; the probe SPENT it and prod 429d immediately after | recheck before relying on it; do not re-run v6ceiling against prod |
-| `scratch/gnews-rate-lab/` | working harness | keep as-is; gitignored, holds VPN credentials |
+| ~~`scratch/gnews-rate-lab/`~~ | moved 2026-07-29 | harness is in the decoder repo at `probes/runner/`; credentials only, in `~/.gnews-lab` |
 
 The upstream approach is deliberately **one branch, proposed privately by email**, rather than
 a small security PR first. The maintainer merges without discussing (four external PRs merged,
@@ -232,5 +233,11 @@ Three times in one session the thing under test was not the code that shipped:
 Each produced confident, wrong numbers that looked like results. That is the transferable
 lesson, more than any measurement here.
 
-See also `docs/lessons/` for the lessons extracted from this, and
-`scratch/gnews-rate-lab/README.md` for how to re-run any of the measurements.
+See also `docs/lessons/` for the lessons extracted from this.
+
+**The harness moved on 2026-07-29.** It was never really news-digest's: it measures the decoder, and
+it started here only because this is where the investigation did. It now lives in the decoder repo
+as `probes/runner/`, with [gluetun](https://github.com/qdm12/gluetun) holding the tunnel instead of
+per-server `.ovpn` files and a hand-rolled openvpn bring-up. To re-run any measurement here, see
+`docs/probe-harness.md` in `~/Developer/google-news-url-decoder`. Credentials and result rows stay
+outside any repo, in `~/.gnews-lab`.
