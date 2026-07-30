@@ -67,15 +67,15 @@ def decoder(monkeypatch):
     substituting it in sys.modules is the seam. Pass the result dict the decode should produce,
     or a callable that stands in for the whole decode.
 
-    This stubs the sans-I/O surface `_fetch` actually uses -- `drive`, `decode_flow`,
-    `RequestsTransport`, `TransportError` -- rather than the `gnewsdecoder` shortcut, because
-    `_fetch` drives the flow itself in order to pass a timeout the shortcut does not accept.
+    Stubs `decode`, which is all `_fetch` uses now. It used to drive `decode_flow` through
+    `drive` with a hand-wrapped transport, purely to pass a timeout the shortcut did not accept;
+    the library takes `timeout=` directly, so the stub shrank with the call site.
 
     A stub cannot notice the real library changing shape under it: that is what
     `test_live_canary_resolves_a_fresh_gnews_url` is for.
     """
 
-    def install(result, *, transport_error=None):
+    def install(result):
         module = types.ModuleType("googlenewsdecoder")
 
         class TransportError(Exception):
@@ -84,30 +84,18 @@ def decoder(monkeypatch):
                 self.status = status
 
         module.TransportError = TransportError
-        module.RequestsTransport = lambda *a, **k: lambda request, **kw: ""
-        module.decode_flow = lambda url, *a, **k: url  # opaque handle; drive() below defines it
+        module.default_transport = lambda: lambda request, **kw: ""
 
-        def drive(flow, transport, **kwargs):
-            # `flow` is the URL, per decode_flow above. Exercise the transport wrapper the way
-            # the real drive() does, so _raise_on_429 is under test rather than bypassed.
-            if transport_error is not None:
-                transport(_Req(), **kwargs)
-            return result(flow) if callable(result) else result
+        # The timeout is asserted, not ignored: it reaching the library is the whole reason
+        # `_fetch` stopped driving the flow itself, so a stub that swallowed it would hide the
+        # regression. The transport is asserted too, because `_fetch` wraps it to watch for a
+        # refusal and passing it is what makes that work.
+        def decode(url, *, timeout=None, transport=None, **kwargs):
+            assert timeout is not None, "_fetch must pass a timeout through to decode()"
+            assert transport is not None, "_fetch must pass its refusal-watching transport"
+            return result(url) if callable(result) else result
 
-        module.drive = drive
-
-        class _Req:
-            method, url, headers, body = "GET", "https://news.google.com/articles/T", {}, None
-
-        if transport_error is not None:
-            code = transport_error
-
-            def failing(*a, **k):
-                raise TransportError(f"HTTP {code}", status=code)
-
-            module.RequestsTransport = lambda *a, **k: failing
-
-        module.gnewsdecoder = result if callable(result) else (lambda *a, **k: result)
+        module.decode = decode
         monkeypatch.setitem(sys.modules, "googlenewsdecoder", module)
 
     return install
@@ -145,12 +133,68 @@ class TestResolveBestEffort:
         ["HTTP Error 429: Too Many Requests", "429 Client Error", "Too Many Requests for url"],
         ids=["http-429", "client-429", "prose"],
     )
-    def test_429_raises_rate_limited_so_caller_can_stop(self, decoder, message):
-        # The library reports no typed error, so the back-off can only key off the message. If
-        # this stops matching, a throttled run hammers Google instead of standing down.
+    def test_a_429_only_in_the_message_does_not_back_off(self, decoder, message):
+        """Deliberate, and the reason is that this cannot happen against the pinned library.
+
+        Back-off used to be a substring match because a refusal reached us as prose. The library
+        now sets `http_status` on every failure that carried one, so a message mentioning 429
+        without the field would mean the library broke its contract -- and matching prose to
+        cover that would be an unreachable branch nobody could test. The tripwire for a bump
+        that regressed it is `test_the_library_still_reports_a_refusal_as_http_status`, which
+        runs against the real library rather than this stub.
+        """
         decoder({"status": False, "message": message})
+        assert gnews.resolve(_GN_URL) is None
+
+    def test_the_library_still_reports_a_refusal_as_http_status(self):
+        """The contract the back-off rests on, checked against the REAL library, no stub.
+
+        Fails if a future pin stops putting the status on the result dict, which is the only way
+        the typed check above could silently stop protecting a throttled run. No network: the
+        transport raises without being called out.
+        """
+        from googlenewsdecoder import TransportError, decode
+
+        def refuse(request, *, timeout=None, proxy=None):
+            raise TransportError("HTTP 429", status=429)
+
+        result = decode(_GN_URL, transport=refuse)
+        assert result["status"] is False
+        assert result.get("http_status") == 429, result
+
+    @pytest.mark.parametrize("second", ["recovers", "fails with another status"])
+    def test_a_429_on_any_attempt_backs_off_even_if_a_later_one_does_not(self, monkeypatch, second):
+        """The case the result dict cannot express, and why `_fetch` still wraps a transport.
+
+        A decode tries two candidate article pages. A 429 on the first that the second recovers
+        from leaves no trace in the result: the flow reports the LAST failure, and nothing at all
+        when it ultimately succeeds. Both orderings were measured arriving with no 429 in the dict.
+        Watching every attempt is what catches them, so this drives the REAL library.
+        """
+        import googlenewsdecoder
+        from googlenewsdecoder import TransportError
+
+        calls = {"n": 0}
+
+        def refusing_then(request, **kwargs):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                raise TransportError("HTTP 429", status=429)
+            if second == "recovers":
+                # Parseable enough to get past the signature scrape. Whether the decode ultimately
+                # succeeds is beside the point: the refusal already happened.
+                return '<div data-n-a-sg="SIG" data-n-a-ts="1700"></div>'
+            raise TransportError("HTTP 503", status=503)
+
+        monkeypatch.setattr(googlenewsdecoder, "default_transport", lambda: refusing_then)
+        gnews._cache.clear()
         with pytest.raises(gnews.GnewsRateLimited):
-            gnews.resolve(_GN_URL)
+            gnews._fetch(_GN_URL, timeout=5, delay=0)
+        assert calls["n"] >= 2, "the second candidate should still have been attempted"
+
+    def test_a_non_429_status_does_not_back_off(self, decoder):
+        decoder({"status": False, "message": "request error in decode_url", "http_status": 503})
+        assert gnews.resolve(_GN_URL) is None
 
     def test_other_failures_do_not_raise_rate_limited(self, decoder):
         decoder({"status": False, "message": "500 whoops"})

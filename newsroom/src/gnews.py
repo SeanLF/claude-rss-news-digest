@@ -77,85 +77,78 @@ def reset_resolution_stats() -> None:
         _attempted = _succeeded = 0
 
 
-def _raise_on_429(inner):
-    """Wrap a transport so an HTTP 429 becomes GnewsRateLimited instead of a message string.
-
-    A transport is just a callable, so back-off is ordinary decoration. Intercepting here rather
-    than downstream keeps the status typed: by the time the flow has turned a TransportError into
-    a result dict, the only thing left to match on is prose.
-    """
-
-    def transport(request, **kwargs):
-        from googlenewsdecoder import TransportError
-
-        try:
-            return inner(request, **kwargs)
-        except TransportError as e:
-            if e.status == 429:
-                raise GnewsRateLimited() from e
-            raise
-
-    return transport
-
-
 def _fetch(url: str, timeout: int, delay: float) -> str | None:
     """Decode one Google-News URL via googlenewsdecoder. Returns the publisher URL, or None on
     any failure; raises GnewsRateLimited on a 429 so the caller can stop the batch.
 
-    The 429 is detected from ``TransportError.status``, not from message text. The flow turns a
-    TransportError into ``{"status": False, "message": ...}``, which would leave us matching on a
-    string; intercepting at the transport keeps the HTTP status typed. Losing the back-off would
-    let a throttled run keep hammering Google and deepen the block.
+    A 429 on ANY attempt backs the run off, including one a later candidate page recovered from,
+    which the result dict cannot report. Losing that would let a throttled run keep hammering
+    Google and deepen the block.
     """
     global _attempted, _succeeded
     with _cache_lock:
         _attempted += 1
     label = (_extract_art_id(url) or url)[:16]  # log the opaque token, never a reader-facing URL
     try:
-        # Driven through the library's sans-I/O seam rather than its `gnewsdecoder` shortcut,
-        # for one reason: `gnewsdecoder` takes no timeout and hardcodes 15s inside. We used to
-        # wrap it in socket.setdefaulttimeout(), which did NOTHING -- requests calls
-        # sock.settimeout() explicitly whenever a timeout is passed, so the process-global
-        # default is never consulted. GNEWS_RESOLVE_TIMEOUT_S was a dead knob: setting it to 60
-        # during an incident still gave you 15. Passing it to `drive` makes it real.
+        # `decode` rather than driving `decode_flow` ourselves: the library takes `timeout=` now,
+        # which was the only reason we ever went below it (GNEWS_RESOLVE_TIMEOUT_S was a dead knob
+        # against the hardcoded 15s). It also gets us the library's shared pooled transport rather
+        # than one built per call, which was a TLS handshake per decode.
         #
-        # (That also removes a latent race: the old context manager saved and restored a
-        # process-global, so two concurrent entries could leak a permanent 15s default.)
-        from googlenewsdecoder import RequestsTransport, decode_flow, drive
+        # We still supply a transport, for one thing the result dict cannot express. A decode tries
+        # two candidate article pages, so a 429 on the first that the second recovers from is a
+        # refusal we never hear about: the flow reports the LAST failure, and reports nothing at all
+        # when it ultimately succeeds. Measured -- 429-then-success and 429-then-503 both arrive
+        # with no 429 in the result. The address has begun refusing either way and the run must
+        # stand down, so the refusal is observed where every attempt passes.
+        #
+        # Observed rather than raised: `decode` wraps everything in a fail-open handler, so an
+        # exception of ours from inside a transport comes back as a bare failure dict. The
+        # `stop_on_429` pattern in the library's docs works at the `drive` layer, below that
+        # handler, and this is the same idea one layer up.
+        from googlenewsdecoder import TransportError, decode, default_transport
 
-        result = drive(decode_flow(url), _raise_on_429(RequestsTransport()), timeout=timeout)
+        refused = False
+        inner = default_transport()
+
+        def watch(request, **kwargs):
+            nonlocal refused
+            try:
+                return inner(request, **kwargs)
+            except TransportError as e:
+                if e.status == 429:
+                    refused = True
+                raise
+
+        result = decode(url, transport=watch, timeout=timeout)
         if delay:
-            time.sleep(delay)  # serial pacing, unchanged; `drive` does not sleep for us
+            time.sleep(delay)  # serial pacing, unchanged; `decode` only sleeps for `interval=`
+
+        if refused:
+            raise GnewsRateLimited()
+
+        if result.get("status"):
+            resolved = result["decoded_url"]
+            # Checked at the boundary where a string becomes a link a reader clicks, not because
+            # the library is doubted -- `protocol.parse_decoded` ends with this same test. A
+            # broken link in a published digest is worth one `startswith` at the trust boundary.
+            if resolved.startswith("http"):
+                with _cache_lock:
+                    _succeeded += 1
+                return resolved
+            logger.info("gnews: decoder reported success with no usable url for %s", label)
+            return None
+
+        logger.info("gnews: resolve failed for %s: %s", label, str(result.get("message"))[:120])
+        return None
     except GnewsRateLimited:
-        raise  # must outrun the blanket handler below; the caller stops the batch on it
-    except Exception as e:  # best-effort; never propagate a resolution failure
+        raise  # the caller stops the batch on this; it must outrun the handler below
+    except Exception as e:
+        # Fail-open, and structural rather than case-by-case: the result handling sits inside the
+        # try, so a library that broke its documented shape degrades to a logged None instead of
+        # throwing an AttributeError past resolve() and abandoning the remaining links.
         logger.info("gnews: resolve failed for %s: %s: %s", label, type(e).__name__, e)
         return None
-
-    # Everything below is fail-open by contract, so shape-check before reading: a library that
-    # returned something other than its documented result dict must degrade to None, not raise an
-    # AttributeError past resolve() and abandon the remaining links.
-    if not isinstance(result, dict):
-        logger.info("gnews: decoder returned %s, not a result dict, for %s", type(result).__name__, label)
-        return None
-
-    if result.get("status"):
-        resolved = result.get("decoded_url")
-        if isinstance(resolved, str) and resolved.startswith("http"):
-            with _cache_lock:
-                _succeeded += 1
-            return resolved
-        logger.info("gnews: decoder reported success with no usable url for %s", label)
-        return None
-
-    message = str(result.get("message") or result.get("error") or "unknown")
-    # Belt and braces. `_raise_on_429` catches the throttle by status, which is the reliable
-    # path; this stays because a transport we did not wrap -- a caller-supplied one, or a future
-    # default that reports 429 some other way -- would otherwise silently lose the back-off.
-    if "429" in message or "too many requests" in message.lower():
-        raise GnewsRateLimited()
-    logger.info("gnews: resolve failed for %s: %s", label, message[:120])
-    return None
 
 
 def resolve(url: str, *, timeout: int = 15, delay: float = 0.0) -> str | None:

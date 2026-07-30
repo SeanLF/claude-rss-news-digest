@@ -25,12 +25,16 @@ dependencies = [
     # correctness dependency. It buys hardening: bounded decompression, tag-keyed batch mapping,
     # UTF-8 payloads, and a varint length that does not truncate URLs over 128 bytes.
     #
-    # NOT a drop-in swap back to PyPI any more. gnews.py drives the flow directly
-    # (`drive`/`decode_flow`/`RequestsTransport`/`TransportError`) to pass a timeout the
-    # `gnewsdecoder` shortcut does not accept, and 0.1.7 has none of those names. Reverting to
-    # PyPI means restoring the `gnewsdecoder(url, interval=...)` call site and accepting a
-    # hardcoded 15s timeout again.
-    "googlenewsdecoder @ https://github.com/SeanLF/google-news-url-decoder/archive/e7f0f29fafece8b9398e1bc68fa05d1224fa9ead.tar.gz",
+    # NOT a drop-in swap back to PyPI. gnews.py calls `decode(url, timeout=...)` and reads
+    # `http_status` off a failed result; 0.1.7 has neither, so reverting means restoring the
+    # `gnewsdecoder(url, interval=...)` call site, accepting a hardcoded 15s timeout, and losing
+    # the 429 signal that stops a throttled batch.
+    #
+    # This pin also carries a per-decode saving: the locale rides on the article URL so Google no
+    # longer answers with a redirect, and the smaller `/rss/articles` page is tried first. Two round
+    # trips instead of three when that smaller page parses, three when it does not; the page itself
+    # is about 29% fewer bytes on the wire.
+    "googlenewsdecoder @ https://github.com/SeanLF/google-news-url-decoder/archive/4860ab58e633c08d86fded1af69ae249ab6de2cb.tar.gz",
 ]
 
 [project.optional-dependencies]
