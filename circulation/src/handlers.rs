@@ -10,7 +10,7 @@ use axum::{
 use axum_client_ip::RightmostXForwardedFor;
 use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD as B64;
-use hmac::{Hmac, Mac};
+use hmac::{Hmac, KeyInit, Mac};
 use rusqlite::{Connection, OpenFlags};
 use serde::{Deserialize, Serialize};
 use sha2::Sha256;
@@ -2135,6 +2135,23 @@ mod hardening_tests {
         let token = make_token(secret, "reader@gmail.com", 2_000);
         assert_eq!(
             verify_token(secret, &token, 1_000),
+            Some("reader@gmail.com".to_string())
+        );
+    }
+
+    #[test]
+    fn token_wire_format_is_pinned_to_a_known_vector() {
+        // Every other token test round-trips make_token against verify_token, so a change
+        // in the signature bytes would pass all of them while silently invalidating every
+        // confirmation link already sitting in someone's inbox. This vector was computed
+        // OUTSIDE this crate (Python hmac/hashlib over the same payload) so it stays a real
+        // check on the crypto stack rather than a snapshot of whatever it currently emits.
+        // If a hmac/sha2/base64 bump breaks this, unconfirmed signups break with it.
+        let secret = b"top-secret-key";
+        let expected = "cmVhZGVyQGdtYWlsLmNvbQoyMDAw.DqdrQT-AEjKtDOxD8rXgJ1hhhVIbS30RaZOrb4hWvko";
+        assert_eq!(make_token(secret, "reader@gmail.com", 2_000), expected);
+        assert_eq!(
+            verify_token(secret, expected, 1_000),
             Some("reader@gmail.com".to_string())
         );
     }
