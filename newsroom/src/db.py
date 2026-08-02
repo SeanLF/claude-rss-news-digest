@@ -683,6 +683,11 @@ _TRACE_ARTIFACTS = (
     # and WRITE were shown against, and claude_input/ is rmtree'd next run.
     "recent_digest_headlines.txt",
     "yesterday_headlines.txt",
+    # Python-fetched full text for SELECTED stories. WRITE, COHERENCE and REPAIR all
+    # read it, so an archived run replayed without it hands those stages a thinner
+    # evidence base than prod had -- a repair fixture rebuilt from such a trace would
+    # be judged against sources the repairer never actually saw.
+    "article_fulltext.json",
 )
 
 

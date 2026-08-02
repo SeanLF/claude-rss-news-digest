@@ -10,6 +10,7 @@ two-model behaviour is validated later in Docker; there is no model call here.
 
 import asyncio
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -136,6 +137,33 @@ class TestRepairPhase:
         # The recheck draft carries the PATCHED story, not the original.
         recheck_draft = json.loads((tmp_path / "recheck_draft.json").read_text())
         assert recheck_draft["must_know"][0]["headline"] == "bad, corrected"
+
+    def test_logged_event_carries_run_id_and_timestamp(self, tmp_path, monkeypatch):
+        # repair_log.jsonl is an APPEND-ONLY corpus spanning every run, but the events
+        # carried no run or time field -- so reviewing week 1 in prod, 3 of 6 events
+        # could not be attributed to a run at all once the rotated digest.log aged out.
+        # Without these the log cannot be joined to digest_runs, sliced by date, or
+        # used to compute a per-run repair rate.
+        # The log lands in claude_input's PARENT, so this test nests claude_input one
+        # level down -- otherwise it reads a log every other test in this class has
+        # also appended to (they all share pytest's tmp_path.parent).
+        claude_input = tmp_path / "claude_input"
+        claude_input.mkdir()
+        _write_inputs(claude_input, failed_fields=("headline",))
+        fake = _FakeAgent(
+            claude_input,
+            repaired={"results": [{"article_ids": ["A2"], "headline": "bad, corrected", "action": "corrected"}]},
+            recheck={"results": [{"headline": "bad, corrected", "article_ids": ["A2"], "pass": True}]},
+        )
+        monkeypatch.setattr(orchestrate.claude_cli, "run_agent", fake)
+        monkeypatch.setattr(orchestrate.db, "current_run_id", lambda: 4242)
+
+        _run(claude_input)
+
+        event = json.loads((tmp_path / "repair_log.jsonl").read_text().splitlines()[0])
+        assert event["run_id"] == 4242
+        # ISO-8601 UTC, sortable as a plain string.
+        assert re.fullmatch(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?\+00:00", event["ts"]), event["ts"]
 
     def test_recheck_failure_drops(self, tmp_path, monkeypatch):
         _write_inputs(tmp_path, failed_fields=("headline",))

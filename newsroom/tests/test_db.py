@@ -170,6 +170,20 @@ def test_archive_run_artifacts_includes_article_csvs(fresh_db, tmp_path):
     assert "A summary" in arts["articles_1.csv"]
 
 
+def test_archive_run_artifacts_includes_article_fulltext(fresh_db, tmp_path):
+    # repair.md and coherence.md both read article_fulltext.json, so a fixture rebuilt
+    # from the archive WITHOUT it hands the agents fewer sources than prod had -- the
+    # repair would be judged against a thinner evidence base than the one it ran on.
+    # Archiving it is what makes multi-day repair fixtures harness-faithful.
+    d = tmp_path / "claude_input"
+    d.mkdir()
+    (d / "article_fulltext.json").write_text('{"A1": "The full body text of article one."}')
+    db.archive_run_artifacts(d)
+    arts = db.get_run_artifacts(db._state.run_id)
+    assert "article_fulltext.json" in arts
+    assert "full body text" in arts["article_fulltext.json"]
+
+
 def test_archive_run_artifacts_stores_models(fresh_db, tmp_path):
     d = _write_claude_input(tmp_path)
     db.archive_run_artifacts(d, models={"select": "claude-sonnet-4-6"})

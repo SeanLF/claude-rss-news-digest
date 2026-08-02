@@ -42,6 +42,7 @@ from typing import Any, cast
 import claude_cli
 import cluster_extractjoin
 import config
+import db
 import fulltext
 import gnews
 import repair
@@ -579,6 +580,11 @@ def _log_repair_events(claude_input_dir: Path, requests: dict, applied: dict, re
             repair.append_repair_log(
                 log_path,
                 {
+                    # The log spans every run, so each event has to say which one it came
+                    # from -- otherwise the only way to date an entry is the rotated
+                    # digest.log, which ages out within days.
+                    "run_id": db.current_run_id(),
+                    "ts": datetime.datetime.now(datetime.UTC).isoformat(),
                     "article_ids": sorted(ids),
                     "failed_fields": failed_fields,
                     "reason": req.get("reason"),
