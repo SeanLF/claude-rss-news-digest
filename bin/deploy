@@ -24,16 +24,11 @@ TAILSCALE_TIMEOUT=30
 TAILSCALE_MARKER="/tmp/.tailscale-started-by-news-digest-deploy"
 DOCKER_CHECK_TIMEOUT=5
 
-# Service names, defined ONCE. Every consumer below -- the builds, the SBOM target choice, the
-# terraform vars -- must agree on these. When they were spelled out separately, renaming a service
-# in one place left verify_provenance globbing the new files and reporting green while
-# apply_terraform read the old names, got empty strings, and silently deployed :latest.
+# Builds, SBOM target choice and terraform vars all key off these; spelling one out separately
+# desyncs the others silently.
 SERVICE_CIRCULATION="digest-circulation"
 SERVICE_NEWSROOM="digest-newsroom"
 
-# SBOMs are regenerable from the image, so they are gitignored rather than committed. DIGEST_DIR
-# is a scratch dir holding each pushed digest, written by the parallel build subshells and read by
-# verify_provenance, run_migrations, apply_terraform and tag_deployment.
 SBOM_DIR="sbom"
 DIGEST_DIR=""
 
@@ -283,10 +278,8 @@ tag_deployment() {
   log_step "Tagging deployment as $tag..."
   dry_run_skip "git tag $tag && git push origin $tag" && return 0
 
-  # Annotated, carrying the digests. Nothing else keeps them: DIGEST_DIR is a mktemp cleaned by the
-  # EXIT trap, terraform state stores only a script hash, and the GitHub deployment records the
-  # commit alone. Without this, naming a rollback target means asking the registry what a mutable
-  # tag points at now -- the exact re-resolution capture_digest refuses to do.
+  # The only durable record of the digests -- DIGEST_DIR is a mktemp and terraform state keeps
+  # only a script hash. Drop it and a rollback target can only be named by re-resolving a tag.
   local msg="deploy $SHA"
   local -a digests=("$DIGEST_DIR"/*.digest)
   local file
@@ -312,9 +305,8 @@ $(basename "$file" .digest) $(cat "$file")"
 build_and_push_image() {
   local name="$1" context="$2" dockerfile="$3" extra_args="$4" scan="$5"
   local tag="$REGISTRY/$name:latest"
-  # Keeps a deployed image addressable once `:latest` moves and GC is free to prune untagged
-  # manifests. Protects the last build of each commit only -- builds are not reproducible, so
-  # rebuilding a commit re-points this tag and orphans the earlier manifest.
+  # Keeps a deployed image addressable once `:latest` moves and GC can prune untagged manifests.
+  # Last build of each commit only: rebuilds are not reproducible and re-point the tag.
   local sha_tag="$REGISTRY/$name:${SHA:0:7}"
 
   log_step "Building $name..."
@@ -344,11 +336,7 @@ build_and_push_image() {
   generate_sbom "$name" "$dockerfile" "$scan"
 }
 
-# The immutable identity of what we just pushed. Terraform pulls THIS, not `:latest`, so the
-# thing that boots is provably the thing this run built -- `:latest` is a moving pointer and a
-# concurrent push between build and apply would otherwise ship a different image under the same
-# name. Written to a file because builds run in parallel subshells; a plain variable would not
-# survive back to the caller.
+# Written to a file, not a variable: builds run in parallel subshells.
 capture_digest() {
   local name="$1" push_log="$2"
 
@@ -367,32 +355,22 @@ capture_digest() {
   log_success "$name pinned at ${digest:0:19}..."
 }
 
-# CycloneDX SBOM feeding `still_active --sbom=`.
-#
-# The scan target differs per service, and swapping them yields a confident SBOM describing
-# software that was never shipped:
-#   circulation -> source. Cargo.lock is what gets compiled; the image only has apk packages once
-#     the cargo graph vanishes into a static binary.
-#   newsroom -> the pushed image. A source scan reads newsroom/uv.lock, which the Dockerfile never
-#     copies and never installs from (see the note atop constraints-prod.txt).
-#
-# OS-package CVEs stay Trivy's job (docs/standards/docker.md §3). Report-only: add
-# `--fail-if-critical` once a few runs establish the baseline is clean.
+# CycloneDX SBOM feeding `still_active --sbom=`. Swapping a service's scan target yields a
+# confident SBOM of software that was never shipped:
+#   circulation -> source; the image holds only apk once the cargo graph is a static binary.
+#   newsroom -> image; a source scan reads uv.lock, which the Dockerfile never installs from.
+# Report-only.
 generate_sbom() {
   local name="$1" dockerfile="$2" scan="$3"
   dry_run_skip "syft SBOM for $name" && return 0
 
-  # A machine that never had syft produces clean-looking deploys with zero SBOMs, forever. That is
-  # the whole feature silently absent, so it is an error, not an info.
   command -v syft &>/dev/null || { log_error "syft not installed -- NO SBOM generated for $name"; return 0; }
 
   mkdir -p "$SBOM_DIR" # past dry_run_skip above, so --dry-run leaves no directory in the repo
   local out="$SBOM_DIR/$name-${SHA:0:7}.cdx.json" target
   local -a syft_args=(--source-name "$name")
 
-  # No default. A new service must choose at its call site, where whoever adds it has the Dockerfile
-  # in hand: defaulting either way is how you get a confident SBOM describing software you never
-  # shipped, which is the exact bug this per-service split exists to prevent.
+  # No default: a new service must choose at its call site rather than inherit the wrong scan.
   if [ "$scan" != "image" ] && [ "$scan" != "source" ]; then
     log_error "$name: scan target must be 'image' or 'source', got '${scan:-empty}' -- NO SBOM generated"
     return 0
@@ -403,9 +381,7 @@ generate_sbom() {
     # metadata.component.version, and the commit is already in the filename.
     target="$REGISTRY/$name@$(cat "$DIGEST_DIR/$name.digest")"
   else
-    # --exclude is insurance, not a live fix: circulation/target/ holds no manifest today, so the
-    # component count is identical with and without it. It stops a future build layout from
-    # dragging compiled residue in. Note this is still a working-tree scan either way.
+    # --exclude is insurance against a future build layout; no effect on the count today.
     target="dir:$(dirname "$dockerfile")"
     syft_args+=(--source-version "$SHA" --exclude './target/**')
   fi
@@ -458,14 +434,9 @@ build_and_push() {
   log_success "Images built and pushed"
 }
 
-# Gate, before anything irreversible. Narrow on purpose: it inspects images this run just built
-# with --build-arg OCI_REVISION, so the only regression it catches is a Dockerfile that stops
-# threading the ARG into the LABEL. It earns its place on position and coverage -- it is the only
-# check that sees newsroom, and it runs before run_migrations mutates digest.db. What closes the
-# registry-swap risk is pinning to @sha256:, not this.
-#
-# Inspects the LOCAL image store, which holds only because `docker push` implies the image is
-# local; a move to `buildx --push` would silently make every service report "missing".
+# Must stay ahead of run_migrations: it is the only check covering newsroom, and after that point
+# digest.db is already mutated. Catches a Dockerfile that stops threading the ARG into the LABEL.
+# Reads the LOCAL store, so moving to `buildx --push` would make every service report "missing".
 verify_provenance() {
   dry_run_skip "verify image provenance" && return 0
 
