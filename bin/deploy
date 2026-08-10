@@ -393,12 +393,15 @@ generate_sbom() {
 
   # Negative control: syft exiting 0 is not evidence of a usable file. A truncated or empty write
   # would otherwise log green and hand still_active a file it chokes on.
-  if [ ! -s "$out" ] || ! jq -e '.components | length > 0' "$out" >/dev/null 2>&1; then
+  # Count PACKAGES (purl-bearing), not components: syft also catalogues individual files, which
+  # for the newsroom image is 2208 of 2371 entries. An SBOM of nothing but file entries would pass
+  # a bare `.components | length > 0` while carrying no dependency graph to audit.
+  if [ ! -s "$out" ] || ! jq -e '[.components[] | select(.purl)] | length > 0' "$out" >/dev/null 2>&1; then
     log_error "SBOM for $name is empty or unparseable at $out -- treat as NOT generated"
     return 0
   fi
 
-  log_success "SBOM: $out ($(jq '.components|length' "$out") components; audit: still_active --sbom=$out)"
+  log_success "SBOM: $out ($(jq '[.components[] | select(.purl)] | length' "$out") packages; audit: still_active --sbom=$out)"
 }
 
 build_and_push() {
