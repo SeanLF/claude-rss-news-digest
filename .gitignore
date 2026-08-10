@@ -28,3 +28,6 @@ __pycache__/
 uv.lock
 digest-cloud.db
 scratch/
+
+# CycloneDX SBOMs emitted by bin/deploy; regenerable from the pushed image digest.
+/sbom/

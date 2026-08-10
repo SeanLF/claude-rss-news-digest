@@ -46,6 +46,13 @@ RUN addgroup -g 1001 app && adduser -u 1001 -G app -D -H app
 
 COPY --from=builder /app/target/release/digest-circulation /usr/local/bin/
 
+# OCI revision lives HERE, not with the other org.opencontainers.image.* labels at the top of this
+# stage: its value changes every commit, and an ARG invalidates the build cache for every layer
+# after it. Declared up there, each deploy would redo the adduser layer and the binary copy.
+# Full 40-char SHA per the OCI spec.
+ARG OCI_REVISION=""
+LABEL org.opencontainers.image.revision="${OCI_REVISION}"
+
 EXPOSE 8080
 
 USER app:app

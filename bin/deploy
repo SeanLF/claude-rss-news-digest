@@ -24,6 +24,19 @@ TAILSCALE_TIMEOUT=30
 TAILSCALE_MARKER="/tmp/.tailscale-started-by-news-digest-deploy"
 DOCKER_CHECK_TIMEOUT=5
 
+# Service names, defined ONCE. Every consumer below -- the builds, the SBOM target choice, the
+# terraform vars -- must agree on these. When they were spelled out separately, renaming a service
+# in one place left verify_provenance globbing the new files and reporting green while
+# apply_terraform read the old names, got empty strings, and silently deployed :latest.
+SERVICE_CIRCULATION="digest-circulation"
+SERVICE_NEWSROOM="digest-newsroom"
+
+# SBOMs are regenerable from the image, so they are gitignored rather than committed. DIGEST_DIR
+# is a scratch dir holding each pushed digest, written by the parallel build subshells and read by
+# verify_provenance, run_migrations, apply_terraform and tag_deployment.
+SBOM_DIR="sbom"
+DIGEST_DIR=""
+
 # ============================================
 # Parse arguments
 # ============================================
@@ -107,6 +120,8 @@ derive_config() {
   GITHUB_REPO=$(git remote get-url origin 2>/dev/null | sed -E 's#.*github\.com[:/](.*)\.git$#\1#')
   SHA=$(git rev-parse HEAD)
   BRANCH=$(git rev-parse --abbrev-ref HEAD)
+
+  DIGEST_DIR=$(mktemp -d)
 
   log_info "Repository: $GITHUB_REPO"
   log_info "Branch: $BRANCH"
@@ -268,7 +283,24 @@ tag_deployment() {
   log_step "Tagging deployment as $tag..."
   dry_run_skip "git tag $tag && git push origin $tag" && return 0
 
-  git tag "$tag" "$SHA"
+  # Annotated, carrying the digests. Nothing else keeps them: DIGEST_DIR is a mktemp cleaned by the
+  # EXIT trap, terraform state stores only a script hash, and the GitHub deployment records the
+  # commit alone. Without this, naming a rollback target means asking the registry what a mutable
+  # tag points at now -- the exact re-resolution capture_digest refuses to do.
+  local msg="deploy $SHA"
+  local -a digests=("$DIGEST_DIR"/*.digest)
+  local file
+  if [ -e "${digests[0]}" ]; then
+    for file in "${digests[@]}"; do
+      msg="$msg
+$(basename "$file" .digest) $(cat "$file")"
+    done
+  else
+    msg="$msg
+(no images built this run -- deployed whatever :latest pointed at)"
+  fi
+
+  git tag -a "$tag" -m "$msg" "$SHA"
   git push origin "$tag" --quiet
   log_success "Tagged: $tag"
 }
@@ -278,22 +310,119 @@ tag_deployment() {
 # ============================================
 
 build_and_push_image() {
-  local name="$1" context="$2" dockerfile="$3" extra_args="$4"
+  local name="$1" context="$2" dockerfile="$3" extra_args="$4" scan="$5"
   local tag="$REGISTRY/$name:latest"
+  # Keeps a deployed image addressable once `:latest` moves and GC is free to prune untagged
+  # manifests. Protects the last build of each commit only -- builds are not reproducible, so
+  # rebuilding a commit re-points this tag and orphans the earlier manifest.
+  local sha_tag="$REGISTRY/$name:${SHA:0:7}"
 
   log_step "Building $name..."
   if [ -n "$dockerfile" ]; then
     # shellcheck disable=SC2086
     run_or_skip "docker buildx build $name" \
-      run_quiet docker buildx build --platform linux/amd64 $extra_args -t "$tag" -f "$dockerfile" "$context"
+      run_quiet docker buildx build --platform linux/amd64 $extra_args \
+        --build-arg OCI_REVISION="$SHA" -t "$tag" -t "$sha_tag" -f "$dockerfile" "$context"
   else
     run_or_skip "docker buildx build $name" \
-      run_quiet docker buildx build --platform linux/amd64 -t "$tag" "$context"
+      run_quiet docker buildx build --platform linux/amd64 \
+        --build-arg OCI_REVISION="$SHA" -t "$tag" -t "$sha_tag" "$context"
   fi
 
   log_step "Pushing $name..."
-  run_or_skip "docker push $name" \
-    run_quiet docker push "$tag"
+  if ! dry_run_skip "docker push $name"; then
+    local push_log="$DIGEST_DIR/$name.push.log"
+    if ! docker push "$tag" >"$push_log" 2>&1; then
+      log_error "push failed for $name"
+      tail -20 "$push_log" >&2
+      return 1
+    fi
+    run_quiet docker push "$sha_tag"
+    capture_digest "$name" "$push_log"
+  fi
+
+  generate_sbom "$name" "$dockerfile" "$scan"
+}
+
+# The immutable identity of what we just pushed. Terraform pulls THIS, not `:latest`, so the
+# thing that boots is provably the thing this run built -- `:latest` is a moving pointer and a
+# concurrent push between build and apply would otherwise ship a different image under the same
+# name. Written to a file because builds run in parallel subshells; a plain variable would not
+# survive back to the caller.
+capture_digest() {
+  local name="$1" push_log="$2"
+
+  # From THIS push's own output, not by re-resolving `:latest` afterwards -- asking the registry
+  # what the tag points at now reintroduces the moving-pointer race the pinning exists to remove.
+  local digest
+  digest=$(grep -oE 'digest: sha256:[0-9a-f]{64}' "$push_log" | head -1 | sed 's/^digest: //')
+
+  if [ -z "$digest" ]; then
+    log_error "could not read pushed digest for $name from push output -- refusing to continue unpinned"
+    return 1
+  fi
+
+  # The .digest suffix keeps $name.push.log out of the glob that other steps iterate.
+  echo "$digest" > "$DIGEST_DIR/$name.digest"
+  log_success "$name pinned at ${digest:0:19}..."
+}
+
+# CycloneDX SBOM feeding `still_active --sbom=`.
+#
+# The scan target differs per service, and swapping them yields a confident SBOM describing
+# software that was never shipped:
+#   circulation -> source. Cargo.lock is what gets compiled; the image only has apk packages once
+#     the cargo graph vanishes into a static binary.
+#   newsroom -> the pushed image. A source scan reads newsroom/uv.lock, which the Dockerfile never
+#     copies and never installs from (see the note atop constraints-prod.txt).
+#
+# OS-package CVEs stay Trivy's job (docs/standards/docker.md §3). Report-only: add
+# `--fail-if-critical` once a few runs establish the baseline is clean.
+generate_sbom() {
+  local name="$1" dockerfile="$2" scan="$3"
+  dry_run_skip "syft SBOM for $name" && return 0
+
+  # A machine that never had syft produces clean-looking deploys with zero SBOMs, forever. That is
+  # the whole feature silently absent, so it is an error, not an info.
+  command -v syft &>/dev/null || { log_error "syft not installed -- NO SBOM generated for $name"; return 0; }
+
+  mkdir -p "$SBOM_DIR" # past dry_run_skip above, so --dry-run leaves no directory in the repo
+  local out="$SBOM_DIR/$name-${SHA:0:7}.cdx.json" target
+  local -a syft_args=(--source-name "$name")
+
+  # No default. A new service must choose at its call site, where whoever adds it has the Dockerfile
+  # in hand: defaulting either way is how you get a confident SBOM describing software you never
+  # shipped, which is the exact bug this per-service split exists to prevent.
+  if [ "$scan" != "image" ] && [ "$scan" != "source" ]; then
+    log_error "$name: scan target must be 'image' or 'source', got '${scan:-empty}' -- NO SBOM generated"
+    return 0
+  fi
+
+  if [ "$scan" = "image" ]; then
+    # No --source-version: for an image scan syft records the image digest in
+    # metadata.component.version, and the commit is already in the filename.
+    target="$REGISTRY/$name@$(cat "$DIGEST_DIR/$name.digest")"
+  else
+    # --exclude is insurance, not a live fix: circulation/target/ holds no manifest today, so the
+    # component count is identical with and without it. It stops a future build layout from
+    # dragging compiled residue in. Note this is still a working-tree scan either way.
+    target="dir:$(dirname "$dockerfile")"
+    syft_args+=(--source-version "$SHA" --exclude './target/**')
+  fi
+
+  if ! run_quiet syft "$target" "${syft_args[@]}" -o cyclonedx-json="$out"; then
+    log_error "SBOM generation failed for $name (non-fatal)"
+    return 0
+  fi
+
+  # Negative control: syft exiting 0 is not evidence of a usable file. A truncated or empty write
+  # would otherwise log green and hand still_active a file it chokes on.
+  if [ ! -s "$out" ] || ! jq -e '.components | length > 0' "$out" >/dev/null 2>&1; then
+    log_error "SBOM for $name is empty or unparseable at $out -- treat as NOT generated"
+    return 0
+  fi
+
+  log_success "SBOM: $out ($(jq '.components|length' "$out") components; audit: still_active --sbom=$out)"
 }
 
 build_and_push() {
@@ -310,10 +439,10 @@ build_and_push() {
   # Build both images in parallel
   log_step "Building images (parallel)..."
 
-  build_and_push_image "digest-circulation" "." "circulation/Dockerfile" &
+  build_and_push_image "$SERVICE_CIRCULATION" "." "circulation/Dockerfile" "" source &
   local circ_pid=$!
 
-  build_and_push_image "digest-newsroom" "." "newsroom/Dockerfile" "--build-arg GIT_SHA=${SHA:0:7}" &
+  build_and_push_image "$SERVICE_NEWSROOM" "." "newsroom/Dockerfile" "--build-arg GIT_SHA=${SHA:0:7}" image &
   local news_pid=$!
 
   local circ_failed=false news_failed=false
@@ -327,6 +456,39 @@ build_and_push() {
   fi
 
   log_success "Images built and pushed"
+}
+
+# Gate, before anything irreversible. Narrow on purpose: it inspects images this run just built
+# with --build-arg OCI_REVISION, so the only regression it catches is a Dockerfile that stops
+# threading the ARG into the LABEL. It earns its place on position and coverage -- it is the only
+# check that sees newsroom, and it runs before run_migrations mutates digest.db. What closes the
+# registry-swap risk is pinning to @sha256:, not this.
+#
+# Inspects the LOCAL image store, which holds only because `docker push` implies the image is
+# local; a move to `buildx --push` would silently make every service report "missing".
+verify_provenance() {
+  dry_run_skip "verify image provenance" && return 0
+
+  local -a digests=("$DIGEST_DIR"/*.digest)
+  if [ ! -e "${digests[0]}" ]; then
+    log_error "nothing pinned this run -- every service deploys the mutable :latest tag"
+    return 0
+  fi
+
+  local file name got failed=false
+  for file in "${digests[@]}"; do
+    name=$(basename "$file" .digest)
+    got=$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' \
+      "$REGISTRY/$name:${SHA:0:7}" 2>/dev/null || echo "")
+    if [ "$got" = "$SHA" ]; then
+      log_success "$name provenance verified (${SHA:0:7})"
+    else
+      log_error "$name revision label is '${got:-missing}', expected $SHA"
+      failed=true
+    fi
+  done
+
+  [ "$failed" = false ] || { log_error "refusing to deploy before anything irreversible runs"; return 1; }
 }
 
 # Snapshot digest.db (and the other volumes) to the Mac BEFORE migrations
@@ -355,14 +517,25 @@ backup_data() {
 run_migrations() {
   log_step "Running database migrations..."
 
-  local docker_cmd="docker run --rm -v news-digest-data:/app/data -e IN_DOCKER=1 $REGISTRY/digest-newsroom:latest ./bin/migrate"
+  # Same pinned image terraform will run. Migrating with `:latest` would leave a window where the
+  # schema is written by a different build than the one that then boots against it -- the pinning
+  # is worthless if the step that mutates the database opts out of it.
+  local newsroom_digest image_ref
+  newsroom_digest=$(cat "$DIGEST_DIR/$SERVICE_NEWSROOM.digest" 2>/dev/null || echo "")
+  image_ref="${newsroom_digest:+$REGISTRY/$SERVICE_NEWSROOM@$newsroom_digest}"
+  if [ -z "$image_ref" ]; then
+    image_ref="$REGISTRY/$SERVICE_NEWSROOM:latest"
+    log_error "migrating with the UNPINNED :latest tag -- this step mutates digest.db"
+  fi
+
+  local docker_cmd="docker run --rm -v news-digest-data:/app/data -e IN_DOCKER=1 $image_ref ./bin/migrate"
 
   if dry_run_skip "$docker_cmd"; then
     return 0
   fi
 
   # Pull latest image first
-  run_quiet "$SCRIPT_DIR/ssh" "docker pull $REGISTRY/digest-newsroom:latest"
+  run_quiet "$SCRIPT_DIR/ssh" "docker pull $image_ref"
 
   # Check for pending migrations
   local status
@@ -394,6 +567,10 @@ TF_TARGETS=(
   -target=null_resource.news_digest_v6_network
   -target=null_resource.news_digest_service
   -target=null_resource.news_digest_timer
+  # Added with digest pinning: this unit embeds local.news_digest_image, so its script hash now
+  # changes on every deploy. Left untargeted it would keep running whatever image it was last
+  # written with -- eventually a digest that registry GC has pruned.
+  -target=null_resource.news_digest_health_check
   -target=null_resource.news_digest_alert
   -target=null_resource.news_digest_deadman
   -target=null_resource.digest_server
@@ -403,11 +580,19 @@ apply_terraform() {
   log_step "Applying Terraform..."
   dry_run_skip "$INFRA_DIR/bin/tf apply" && return 0
 
+  # Empty when --skip-build ran (nothing was pushed this time); terraform falls back to :latest,
+  # which is the pre-existing behaviour rather than a hard failure on a build-less apply.
+  local newsroom_digest circulation_digest
+  newsroom_digest=$(cat "$DIGEST_DIR/$SERVICE_NEWSROOM.digest" 2>/dev/null || echo "")
+  circulation_digest=$(cat "$DIGEST_DIR/$SERVICE_CIRCULATION.digest" 2>/dev/null || echo "")
+
   local plan_output plan_exit
   set +e
   plan_output=$("$INFRA_DIR/bin/tf" plan \
     "${TF_TARGETS[@]}" \
     -var="news_digest_deploy_sha=$SHA" \
+    -var="news_digest_newsroom_digest=$newsroom_digest" \
+    -var="news_digest_circulation_digest=$circulation_digest" \
     -detailed-exitcode \
     -out=/tmp/news-digest-tfplan \
     -compact-warnings \
@@ -454,6 +639,8 @@ cleanup() {
 
   [[ $DEPLOYMENT_SUCCEEDED == false ]] && \
     update_deployment_status "failure" "Deployment failed (exit $exit_code)"
+
+  [[ -n $DIGEST_DIR && -d $DIGEST_DIR ]] && rm -rf "$DIGEST_DIR"
 
   if [[ -f $TAILSCALE_MARKER ]]; then
     log_info "Closing Tailscale (started by this deploy)..."
@@ -506,6 +693,7 @@ main() {
   fi
 
   build_and_push
+  verify_provenance || exit 1
   backup_data
   # Migrations BEFORE terraform: circulation fail-closes at boot on missing
   # required tables (REQUIRED_TABLES), and terraform restarts it. Migrating

@@ -65,6 +65,13 @@ COPY --from=builder --chown=appuser:appuser /app/.venv /app/.venv
 ARG GIT_SHA
 ENV GIT_SHA=${GIT_SHA}
 
+# OCI revision lives HERE, not with the other org.opencontainers.image.* labels at the top of this
+# stage: its value changes every commit, and an ARG invalidates the build cache for every layer
+# after it. Declared up there, each deploy would re-run the apt install and re-copy the ~500MB venv.
+# Full 40-char SHA per the OCI spec; GIT_SHA above stays short because db.py records it per run.
+ARG OCI_REVISION=""
+LABEL org.opencontainers.image.revision="${OCI_REVISION}"
+
 # Application code + shared resources (owned by appuser directly, no recursive chown).
 COPY --chown=appuser:appuser newsroom/src/ ./src/
 COPY --chown=appuser:appuser newsroom/sources.json ./
