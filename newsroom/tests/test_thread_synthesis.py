@@ -234,6 +234,164 @@ def test_audit_whats_new_maps_each_claim_to_its_verdict(monkeypatch):
     assert ts.audit_whats_new(wn, ARTS) == [True, False]
 
 
+def test_audit_whats_new_reasks_once_when_the_first_reply_is_short(monkeypatch):
+    # Run 271's real failure: 6 claims, one verdict back ("got ids [1]"). The reply is malformed,
+    # not the endpoint -- so re-ask once before spending the fail-open. Sampling makes the second
+    # draw independent, which is the whole reason a single re-ask is worth a call.
+    replies = iter(
+        [
+            '{"verdicts": [{"id": 1, "supported": true}]}',
+            '{"verdicts": [{"id": 1, "supported": true}, {"id": 2, "supported": false}]}',
+        ]
+    )
+    prompts = []
+
+    def fake(user, *a, **k):
+        prompts.append(user)
+        return next(replies)
+
+    monkeypatch.setattr(ts, "_run_sonnet", fake)
+    wn = [{"fact": "a", "sources": ["A1"]}, {"fact": "b", "sources": ["A1"]}]
+    assert ts.audit_whats_new(wn, ARTS) == [True, False]
+    assert len(prompts) == 2
+    # The re-ask has to SAY what went wrong, or it is just a second identical roll of the dice.
+    assert prompts[1].startswith(prompts[0])
+    assert "EXACTLY 2 verdicts" in prompts[1]
+    assert "ids [1]" in prompts[1]
+
+
+def test_audit_whats_new_reasks_once_when_the_first_reply_is_not_json(monkeypatch):
+    # Same class of failure, different shape: prose instead of an object. _parse_json raises
+    # ValueError, which must be re-asked rather than spent as a fail-open.
+    replies = iter(["I could not evaluate these claims.", '{"verdicts": [{"id": 1, "supported": false}]}'])
+    monkeypatch.setattr(ts, "_run_sonnet", lambda *a, **k: next(replies))
+    assert ts.audit_whats_new([{"fact": "a", "sources": ["A1"]}], ARTS) == [False]
+
+
+def test_audit_whats_new_raises_after_the_reask_also_misaligns(monkeypatch):
+    # The re-ask is ONE extra call, not a loop: a persistently-broken auditor must still reach the
+    # caller's fail-open + count + alert, and must not sit in a retry spiral inside a daily run.
+    calls = []
+
+    def fake(*a, **k):
+        calls.append(1)
+        return '{"verdicts": [{"id": 1, "supported": true}]}'
+
+    monkeypatch.setattr(ts, "_run_sonnet", fake)
+    wn = [{"fact": "a", "sources": ["A1"]}, {"fact": "b", "sources": ["A1"]}]
+    with pytest.raises(ValueError):
+        ts.audit_whats_new(wn, ARTS)
+    assert len(calls) == 2
+
+
+def test_audit_whats_new_rejects_a_reply_that_has_the_shape_but_no_judgment(monkeypatch):
+    """The quiet failure the re-ask could otherwise MANUFACTURE.
+
+    _AUDIT_REASK presses for a verdict COUNT, and every constraint in it is about shape. A model
+    that is not tracking the claims can satisfy that exactly -- right ids, no `supported` -- and a
+    default of True would then return "all facts supported" with audit_failures at 0. That is
+    strictly worse than run 271, which at least alerted. A verdict with no boolean is not a
+    judgment, so it must reach the raise.
+    """
+    monkeypatch.setattr(ts, "_run_sonnet", lambda *a, **k: '{"verdicts": [{"id": 1}, {"id": 2}]}')
+    wn = [{"fact": "a", "sources": ["A1"]}, {"fact": "b", "sources": ["A1"]}]
+    with pytest.raises(ValueError):
+        ts.audit_whats_new(wn, ARTS)
+
+
+def test_audit_whats_new_does_not_read_a_string_verdict_as_supported(monkeypatch):
+    # bool("false") is True, so coercion inverted an auditor that had done its job and shipped the
+    # fact it rejected. An unreadable verdict now reads as unsupported, so the fact drops.
+    monkeypatch.setattr(ts, "_run_sonnet", lambda *a, **k: '{"verdicts": [{"id": 1, "supported": "false"}]}')
+    assert ts.audit_whats_new([{"fact": "a", "sources": ["A1"]}], ARTS) == [False]
+
+
+def test_audit_whats_new_rejects_duplicate_and_out_of_range_ids(monkeypatch):
+    # Two verdicts for claim 1 means claim 2 was never judged, even though every id present is
+    # valid -- and dict() would collapse the pair, discarding one real verdict without a word.
+    monkeypatch.setattr(
+        ts,
+        "_run_sonnet",
+        lambda *a, **k: '{"verdicts": [{"id": 1, "supported": false}, {"id": 1, "supported": true}]}',
+    )
+    wn = [{"fact": "a", "sources": ["A1"]}, {"fact": "b", "sources": ["A1"]}]
+    with pytest.raises(ValueError):
+        ts.audit_whats_new(wn, ARTS)
+
+
+def test_audit_whats_new_survives_a_verdicts_list_of_junk(monkeypatch):
+    # `{"verdicts": {"1": true}}` and a stray bare string used to raise AttributeError BEFORE the
+    # re-ask, skipping the retry the docstring promises. Malformed shapes belong on the re-ask path.
+    replies = iter(
+        [
+            '{"verdicts": {"1": true}}',  # an object, not a list
+            '{"verdicts": [{"id": 1, "supported": true}, "junk"]}',  # a bare string among the verdicts
+        ]
+    )
+    calls = []
+
+    def fake(*a, **k):
+        calls.append(1)
+        return next(replies)
+
+    monkeypatch.setattr(ts, "_run_sonnet", fake)
+    wn = [{"fact": "a", "sources": ["A1"]}, {"fact": "b", "sources": ["A1"]}]
+    with pytest.raises(ValueError):
+        ts.audit_whats_new(wn, ARTS)
+    assert len(calls) == 2
+
+
+def test_audit_whats_new_treats_every_stray_element_the_same_way(monkeypatch):
+    # One rule, no carve-outs. An earlier draft accepted a bare string beside a complete verdict
+    # set while rejecting a duplicate id -- acceptance turned on whether the STRAY happened to
+    # parse, not on whether the claims were covered.
+    monkeypatch.setattr(ts, "_run_sonnet", lambda *a, **k: '{"verdicts": [{"id": 1, "supported": false}, "junk"]}')
+    with pytest.raises(ValueError):
+        ts.audit_whats_new([{"fact": "a", "sources": ["A1"]}], ARTS)
+
+
+def test_audit_whats_new_takes_the_models_own_correction_from_a_two_object_reply(monkeypatch):
+    """The measured run-271 shape, and the reason a re-ask alone was aimed at the wrong term.
+
+    Replaying that run's real audit prompts, 3 of 36 replies contained more than one JSON object:
+    the model wrote a malformed answer, noticed, and rewrote it. `_parse_json` reads only the
+    first, so the correct answer sitting in the same reply was thrown away and the audit was
+    charged a fail-open -- or, with a re-ask, a second billed call it did not need.
+    """
+    reply = (
+        '{"verdicts": [{"id": 1, "supported": false}, {"id": 1, "supported": true}, '
+        '{"id": 2, "supported": true}]}\n\n'
+        "I need to redo this properly with one verdict per claim (1-2):\n\n"
+        '{"verdicts": [{"id": 1, "supported": true}, {"id": 2, "supported": false}]}'
+    )
+    calls = []
+
+    def fake(*a, **k):
+        calls.append(1)
+        return reply
+
+    monkeypatch.setattr(ts, "_run_sonnet", fake)
+    wn = [{"fact": "a", "sources": ["A1"]}, {"fact": "b", "sources": ["A1"]}]
+    assert ts.audit_whats_new(wn, ARTS) == [True, False]
+    assert len(calls) == 1  # no re-ask: the answer was already in the reply
+
+
+def test_audit_whats_new_reads_an_unreadable_supported_as_not_supported(monkeypatch):
+    """`0` and `null` must keep DROPPING the fact.
+
+    Before this hardening `bool(0)` and `bool(None)` were False, so an unreadable verdict dropped
+    its fact -- the safe direction. Rejecting the whole reply instead would fail open and SHIP the
+    fact the auditor was trying to reject, which is the opposite of what this audit is for.
+    """
+    monkeypatch.setattr(
+        ts,
+        "_run_sonnet",
+        lambda *a, **k: '{"verdicts": [{"id": 1, "supported": 0}, {"id": 2, "supported": null}]}',
+    )
+    wn = [{"fact": "a", "sources": ["A1"]}, {"fact": "b", "sources": ["A1"]}]
+    assert ts.audit_whats_new(wn, ARTS) == [False, False]
+
+
 def test_audit_whats_new_raises_when_verdicts_miss_a_claim(monkeypatch):
     # A malformed audit (0-indexed ids here) leaves the last claim with no explicit verdict. It must
     # RAISE -- so synthesize_threads counts it + fails open LOUDLY -- rather than silently defaulting

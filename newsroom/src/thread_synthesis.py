@@ -77,12 +77,135 @@ Output ONLY JSON: {"whats_new": [{"fact": "...", "sources": ["A1"]}], "resolved"
 SUMMARY_CHARS = 400  # how much of each article summary to feed the synthesis/audit prompts
 
 AUDIT_SYSTEM = """You are a strict fact-checker. You are given CLAIMS, each with the FULL TEXT of the source article(s) it cites. For each claim decide if it is SUPPORTED by its cited source text ALONE (the specific -- number/name/date/quote -- must actually appear or be directly entailed). If the cited text does not support it, mark supported=false.
-Output ONLY JSON: {"verdicts": [{"id": 1, "supported": true/false, "issue": "short reason if false"}]}"""
+Return ONE verdict per claim: N claims means N verdicts, ids 1..N, none omitted or merged.
+Output ONLY JSON: {"verdicts": [{"id": 1, "supported": true}, {"id": 2, "supported": false, "issue": "short reason"}]}"""
+
+# Appended for the second attempt. Worded impersonally on purpose: _run_sonnet starts a FRESH
+# query() with no resume, so the model reading this never saw the reply being described. The
+# "one JSON object" line is not filler -- a model that notices its own mistake tends to emit the
+# bad object, some prose, then a corrected one, which is the very shape that made run 271 look
+# like a one-verdict answer.
+_AUDIT_REASK = """
+
+IMPORTANT: an earlier attempt at these exact claims came back unusable ({problem}). Return EXACTLY {n} verdicts, ids 1 through {n}, one per CLAIM above, each carrying "supported": true or false. Output ONE JSON object and nothing else -- no prose, no second attempt inside the same reply."""
 
 
 def _parse_json(text: str) -> dict:
     """Parse the first complete JSON object, ignoring any trailing prose the model emits."""
     return json.JSONDecoder().raw_decode(text[text.index("{") :])[0]
+
+
+def _json_objects(text: str) -> list[dict]:
+    """Every top-level JSON object in the reply, in order.
+
+    A model that catches its own mistake mid-reply writes the bad object, a line of prose, then a
+    corrected one. Replaying run 271's real audit prompts, 3 of 36 replies did exactly that -- and
+    on the six-claim thread the FIRST object was the malformed one and the second was right. Taking
+    only the first (`_parse_json`) picks the wrong object precisely when it matters, so the audit
+    reads them all and keeps whichever actually answers the claims.
+    """
+    decoder = json.JSONDecoder()
+    objects: list[dict] = []
+    i = 0
+    while (i := text.find("{", i)) >= 0:
+        try:
+            obj, end = decoder.raw_decode(text[i:])
+        except ValueError:
+            i += 1  # a brace inside prose, not the start of an object
+            continue
+        if isinstance(obj, dict):
+            objects.append(obj)
+        i += end
+    return objects
+
+
+def _verdict_pairs(verdicts) -> tuple[list[tuple], int]:
+    """((id, supported) per verdict, count whose `supported` could not be read as a boolean).
+
+    Three cases, and the difference between the last two is the whole point:
+
+    * `supported` is a boolean, or an unambiguous spelling of one (``1``/``0``, ``"true"``,
+      ``"no"``) -- the judgment, read for what it plainly says.
+    * `supported` is PRESENT but says nothing readable (``null``, ``"maybe"``) -- the auditor
+      judged and we cannot recover the answer. The safe reading is NOT supported, so the fact
+      drops. Never `bool(value)`: ``bool("false")`` is True, which used to ship the very fact
+      the auditor had rejected.
+    * `supported` is ABSENT -- nothing was judged, so this is not a verdict at all. Leaving it out
+      makes the claim read as unanswered, which is what keeps a shape-only reply LOUD instead of
+      resolving to a clean "everything supported" with no failure recorded.
+
+    Pairs rather than a dict so the caller can still see a duplicate id; ``dict()`` would collapse
+    one auditor verdict onto another and pick a winner silently.
+    """
+    if not isinstance(verdicts, list):
+        return [], 0
+    pairs, unreadable = [], 0
+    for v in verdicts:
+        if not isinstance(v, dict) or "id" not in v or "supported" not in v:
+            continue
+        supported = _read_supported(v["supported"])
+        if supported is None:
+            supported = False
+            unreadable += 1
+        pairs.append((v["id"], supported))
+    return pairs, unreadable
+
+
+# Unambiguous spellings of a verdict. Observed reality is that the auditor returns real JSON
+# booleans (286/286 verdicts across a 48-call replay of run 271), so this is belt-and-braces --
+# but the alternative to reading `1` and `"true"` is dropping a fact the auditor supported.
+_TRUTHY = {"true", "yes", "y", "1"}
+_FALSY = {"false", "no", "n", "0"}
+
+
+def _read_supported(value) -> bool | None:
+    """The verdict a value plainly states, or None when it states nothing readable."""
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, int) and value in (0, 1):
+        return bool(value)
+    if isinstance(value, str):
+        token = value.strip().lower()
+        if token in _TRUTHY:
+            return True
+        if token in _FALSY:
+            return False
+    return None
+
+
+def _answer_for(obj: dict, n: int, claim_ids) -> tuple[dict, int] | None:
+    """({id: supported}, unreadable count) if this object answers the claim list, else None.
+
+    "Answers" is deliberately one rule with no carve-outs: the `verdicts` array must hold exactly
+    n elements, each a verdict, with ids exactly 1..n. Anything the claim list does not account
+    for -- a duplicate id, an out-of-range id, a bare string sitting among the verdicts -- means
+    the auditor was not tracking the claims, and it is not this function's business to guess which
+    stray elements are harmless. An earlier draft tolerated junk beside a complete set, which made
+    acceptance depend on whether the STRAY happened to parse rather than on whether the claims
+    were covered: a duplicate id was rejected while a bare string was waved through.
+    """
+    raw = obj.get("verdicts", [])
+    if not isinstance(raw, list) or len(raw) != n:
+        return None
+    pairs, unreadable = _verdict_pairs(raw)
+    supported_by_id = dict(pairs)
+    if len(pairs) != n or set(supported_by_id) != set(claim_ids):
+        return None
+    return supported_by_id, unreadable
+
+
+def _describe_mismatch(obj: dict, n: int, claim_ids) -> str:
+    """Why an object failed `_answer_for`, in the words the alert and the re-ask will carry."""
+    raw = obj.get("verdicts", [])
+    if not isinstance(raw, list):
+        return f"`verdicts` was {type(raw).__name__}, not a list of {n}"
+    pairs, _ = _verdict_pairs(raw)
+    supported_by_id = dict(pairs)
+    missing = [i for i in claim_ids if i not in supported_by_id]
+    return (
+        f"verdicts missing/misaligned for claim(s) {missing or 'none'} "
+        f"({len(raw)} element(s), {len(pairs)} usable, ids {sorted(supported_by_id, key=str)})"
+    )
 
 
 def _bundle(article_ids: list[str], arts: dict) -> str:
@@ -173,6 +296,11 @@ def _run_sonnet(user: str, system: str, *, model: str, subagent: str, usage_rows
     )
     if not result.ok:
         raise RuntimeError(f"claude failed: {result.error_summary()}")
+    if usage_rows is not None and not result.usage:
+        # claude_cli normalizes a missing SDK usage payload to {}, which is falsy -- so the call
+        # happened, was billed, and would leave no run_usage row. Say so, or the stage quietly
+        # under-reports its own spend.
+        logger.warning("%s call returned no usage payload; its cost is missing from run_usage", subagent)
     if usage_rows is not None and result.usage:
         usage_rows.append(
             usage_row_from_sdk(
@@ -209,7 +337,20 @@ def audit_whats_new(
     """Fact-check each whats_new fact against its cited TODAY source(s). Returns a supported flag
     per fact (same order). RAISES on LLM/parse failure -- the caller (synthesize_threads) owns the
     fail-open decision AND counts the failure, so a persistently-broken audit is recorded as a
-    health signal rather than silently keeping facts unchecked forever."""
+    health signal rather than silently keeping facts unchecked forever.
+
+    An unusable REPLY (no JSON, or verdicts that don't answer the claim list) buys one re-ask
+    first -- a malformed answer, not a broken endpoint, so spending the fail-open on the first bad
+    draw throws away the audit for a whole thread. Whether a second draw is likelier to land is
+    NOT measured; what the re-ask actually adds is a sharper instruction, since it names the
+    required count and forbids the self-correcting two-object reply. Exactly one re-ask: a
+    persistently-broken auditor must still reach the caller's count-and-alert, and a daily run is
+    no place for a retry spiral. Transport failures are NOT re-asked -- those raise out of
+    _run_sonnet and the caller fails open as before.
+
+    Addressable failure rate, measured on prod: 4 in the 36 runs since the alignment check landed
+    (`701e7f9`, deployed 2026-07-17), about 1.8% of the 220 audit calls in that window. Run 215's
+    older failure predates the check and was some other path, so it is not in this denominator."""
     if not whats_new:
         return []
     claims = []
@@ -220,20 +361,30 @@ def audit_whats_new(
             if s in arts
         )
         claims.append(f"CLAIM {i}: {f.get('fact', '')}\nCITED SOURCE(S):\n{srcs or '  (none cited)'}")
-    text = _run_sonnet("\n\n".join(claims), AUDIT_SYSTEM, model=model, subagent="thread_audit", usage_rows=usage_rows)
-    verdicts = _parse_json(text).get("verdicts", [])
-    supported_by_id = {v.get("id"): v.get("supported", True) for v in verdicts}
-    # Require an EXPLICIT verdict for every claim 1..N. A malformed audit (0-indexed, string, or
-    # duplicate ids) otherwise leaves some claim absent from the map and silently defaults it to
-    # supported -- passing an unaudited fact into the reader-facing delta. Raise instead: the caller
-    # counts it as an audit_failure and fails open LOUDLY, which is this audit's documented contract.
-    claim_ids = range(1, len(whats_new) + 1)
-    missing = [i for i in claim_ids if i not in supported_by_id]
-    if missing:
-        raise ValueError(
-            f"audit verdicts missing/misaligned for claim(s) {missing} (got ids {sorted(supported_by_id, key=str)})"
-        )
-    return [bool(supported_by_id[i]) for i in claim_ids]
+    user = "\n\n".join(claims)
+    n = len(whats_new)
+    claim_ids = range(1, n + 1)
+    problem = ""
+    for attempt in (1, 2):
+        prompt = user if attempt == 1 else user + _AUDIT_REASK.format(problem=problem, n=n)
+        text = _run_sonnet(prompt, AUDIT_SYSTEM, model=model, subagent="thread_audit", usage_rows=usage_rows)
+        objects = _json_objects(text)
+        if not objects:
+            problem = f"no JSON object in the reply, which began {text[:60]!r}"
+        else:
+            # LAST match wins: when a reply carries two objects the later one is the model's
+            # correction of the earlier, and that is the answer it meant to give.
+            usable = [answer for obj in objects if (answer := _answer_for(obj, n, claim_ids))]
+            if usable:
+                supported_by_id, unreadable = usable[-1]
+                if unreadable:
+                    # The audit DID cover every claim, so this is not an audit_failure -- but a
+                    # verdict we had to read as "unsupported" silently drops a fact, so say it.
+                    logger.warning("thread audit returned %d verdict(s) with an unreadable `supported`", unreadable)
+                return [supported_by_id[i] for i in claim_ids]
+            problem = _describe_mismatch(objects[-1], n, claim_ids)
+        logger.warning("thread audit reply unusable on attempt %d/2: %s", attempt, problem)
+    raise ValueError(f"audit {problem}")
 
 
 def apply_installment(store, assignment, installment: dict, supported: list[bool], run_id: int) -> dict:
