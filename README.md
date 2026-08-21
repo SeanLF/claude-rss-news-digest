@@ -1,6 +1,6 @@
 # News Digest
 
-A transparent, self-hostable AI news desk you run yourself. Every morning it reads 38 feeds across five continents, clusters the day's stories, decides what matters, writes a bias-labelled briefing, fact-checks its own work, and emails it -- no human edits any issue. Clone it and run your own for a few dollars a day, or read the [live instance](https://news-digest.seanfloyd.dev).
+A transparent, self-hostable AI news desk you run yourself. Every morning it reads 37 feeds across five continents, clusters the day's stories, decides what matters, writes a bias-labelled briefing, fact-checks its own work, and emails it -- no human edits any issue. Clone it and run your own for a few dollars a day, or read the [live instance](https://news-digest.seanfloyd.dev).
 
 Every choice it makes is inspectable: real [subscriber and cost numbers](https://news-digest.seanfloyd.dev/stats), every source [labelled by political bias and factuality](https://news-digest.seanfloyd.dev/sources), and the code that does it all right here.
 
@@ -97,7 +97,7 @@ docker compose up -d digest-circulation
 
 ## Sources
 
-38 feeds from 31 outlets across five continents, spanning the political spectrum. Bias, factual reporting and credibility are taken from [Media Bias/Fact Check](https://mediabiasfactcheck.com), read per outlet so each rating traces to one published assessment; 26 of 38 feeds rate High or Very High for factual reporting, the rest Mostly Factual or Mixed. Every source is shown with its bias and factuality on the live [sources page](https://news-digest.seanfloyd.dev/sources). See [`newsroom/sources.json`](newsroom/sources.json) for the full list.
+37 feeds from 30 outlets across five continents, spanning the political spectrum. Bias, factual reporting and credibility are taken from [Media Bias/Fact Check](https://mediabiasfactcheck.com), read per outlet so each rating traces to one published assessment; 26 of 37 feeds rate High or Very High for factual reporting, 10 Mostly Factual or Mixed, and one (Hacker News) is unrated. Every source is shown with its bias and factuality on the live [sources page](https://news-digest.seanfloyd.dev/sources). See [`newsroom/sources.json`](newsroom/sources.json) for the full list.
 
 ## Cost
 

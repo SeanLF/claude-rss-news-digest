@@ -11,7 +11,7 @@ and publishes the error rate.
 
 ## Longer description
 
-news-digest reads 35 RSS feeds across five continents each morning, clusters the
+news-digest reads 37 RSS feeds across five continents each morning, clusters the
 day's stories, decides what matters, writes a bias-labelled briefing, verifies
 every claim against its source articles, repairs the ones that fail, and emails
 the result. No human writes, edits, or approves any issue. It runs on a single

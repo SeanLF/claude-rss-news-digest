@@ -52,7 +52,14 @@ pub struct Page {
 }
 
 /// source_id -> bias bucket ('l' | 'c' | 'r'). Unknown/absent ids are simply not in the map.
-fn bias_map() -> HashMap<String, char> {
+///
+/// Includes sources parked with `"active": false`, unlike the `/sources` page. A 2026-06 issue
+/// really was assembled from The Hindu; dropping the id here would silently restate that issue's
+/// bias bar as if it never had been. Measured on the real archive: deleting that one row moves the
+/// lean-left share on 150 of 150 issues that used it, median 2pp, max 7pp. Note the query below
+/// GROUPs BY (run_id, source_id), so the unit is one source per RUN -- 150 runs, not the 1,516
+/// underlying `shown_narratives` rows.
+pub(crate) fn bias_map() -> HashMap<String, char> {
     #[derive(Deserialize)]
     struct RawSource {
         id: String,

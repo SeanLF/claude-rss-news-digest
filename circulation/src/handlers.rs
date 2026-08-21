@@ -998,12 +998,21 @@ fn website_from_rss(rss_url: &str, name: &str) -> String {
     }
 }
 
-/// Sources page -- lists all news sources with bias and factuality ratings.
+/// Sources page -- lists the news sources with bias and factuality ratings.
 /// Source data is embedded at compile time from newsroom/sources.json.
+///
+/// Lists the sources that feed TODAY'S digest, so an entry parked with `"active": false` (a
+/// publisher blocking our fetches, say) is left out: claiming a source we no longer read would be
+/// the page's one job done wrong. `archive::bias_map` deliberately does the opposite and keeps
+/// parked ids, because a past issue really was built from them.
 pub async fn sources(
     State(state): State<Arc<AppState>>,
 ) -> Result<Html<String>, (StatusCode, &'static str)> {
     static SOURCES_JSON: &str = include_str!("../sources.json");
+
+    fn is_active() -> bool {
+        true
+    }
 
     #[derive(Deserialize)]
     struct RawSource {
@@ -1013,10 +1022,13 @@ pub async fn sources(
         bias: String,
         factuality: String,
         perspective: String,
+        #[serde(default = "is_active")]
+        active: bool,
     }
 
     let raw: Vec<RawSource> = serde_json::from_str(SOURCES_JSON)
         .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Bad sources data"))?;
+    let raw: Vec<RawSource> = raw.into_iter().filter(|s| s.active).collect();
 
     use std::collections::HashMap;
 
@@ -1570,6 +1582,43 @@ mod feed_tests {
                     .all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '-'),
                 "{} -> {site}",
                 row.name
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn sources_page_omits_a_parked_source_that_the_archive_still_counts() {
+        // The readers of sources.json disagree ON PURPOSE. /sources answers "what do you read
+        // now", so a parked source must not appear. archive::bias_map answers "what was this issue
+        // built from", so the same id must still resolve there -- the_hindu coloured 150 archived
+        // issues across runs 56-225, and losing it would restate every one of them. stats.rs needs
+        // both answers at once; see `parked_sources_leave_the_catalog_but_stay_in_the_history`.
+        #[derive(Deserialize)]
+        struct Row {
+            id: String,
+            name: String,
+            #[serde(default)]
+            active: Option<bool>,
+        }
+        let rows: Vec<Row> = serde_json::from_str(include_str!("../sources.json")).unwrap();
+        let parked: Vec<&Row> = rows.iter().filter(|r| r.active == Some(false)).collect();
+        assert!(
+            !parked.is_empty(),
+            "no parked source in sources.json -- this test is guarding nothing; delete it or park one"
+        );
+
+        let state = state_with_digests(&[("2026-06-12", "story")]);
+        let html = sources(State(state)).await.expect("sources page renders").0;
+        for row in &parked {
+            assert!(
+                !html.contains(&row.name),
+                "{} is parked but still listed on /sources",
+                row.name
+            );
+            assert!(
+                crate::archive::bias_map().contains_key(&row.id),
+                "{} is parked and the archive can no longer attribute its bias",
+                row.id
             );
         }
     }

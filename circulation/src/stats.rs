@@ -333,9 +333,11 @@ pub struct StatsMetrics {
     pub hhi: f64,                      // Σ share² (0..1); low = well spread
     pub effective_n: f64,              // 1 / HHI
     pub top_sources: Vec<SourceShare>, // top 5 by count
-    // Coverage
-    pub sources_used: i64,  // distinct catalog sources shipped in the window
-    pub catalog_total: i64, // |sources.json|
+    // Coverage. BOTH sides are the ACTIVE catalogue: a parked source can still appear in a
+    // window that reaches back before it was parked, and counting it in the numerator against an
+    // active-only denominator puts coverage_pct over 100.
+    pub sources_used: i64, // distinct ACTIVE catalog sources shipped in the window
+    pub catalog_total: i64, // active entries in sources.json (parked ones excluded)
     pub coverage_pct: i64,
     // Geographic (source-origin regions, from sources.json `region`)
     pub regions: Vec<(String, i64)>, // (region, shipped count) sorted desc
@@ -343,17 +345,35 @@ pub struct StatsMetrics {
     pub geo_effective: f64,          // effective region count = 1/geo_hhi
 }
 
+/// One catalogue row as `/stats` needs it.
+///
+/// `active` is the split this module cannot do without: the SHIPPED figures describe history and
+/// must count a parked source, because it really did ship those rows, while the CATALOG figures
+/// describe the shelf we read today and must not. Both are computed here from one map.
+struct SourceMeta {
+    bucket: char,
+    factuality: String,
+    name: String,
+    region: String,
+    active: bool,
+}
+
 /// id -> display name, from the compiled-in `sources.json` (for the source-health table).
+/// Includes PARKED sources: this names historical rows, which parked ids still appear in.
 pub fn source_names() -> HashMap<String, String> {
     sources_meta()
         .into_iter()
-        .map(|(id, (_, _, name, _))| (id, name))
+        .map(|(id, m)| (id, m.name))
         .collect()
 }
 
 /// id -> (bias bucket 'l'|'c'|'r', factuality, display name, origin `region`), from `sources.json`.
 /// `region` is an explicit per-source field in sources.json (source-origin vantage, not story location).
-fn sources_meta() -> HashMap<String, (char, String, String, String)> {
+fn sources_meta() -> HashMap<String, SourceMeta> {
+    fn default_active() -> bool {
+        true
+    }
+
     #[derive(serde::Deserialize, Default)]
     struct Raw {
         id: String,
@@ -362,6 +382,8 @@ fn sources_meta() -> HashMap<String, (char, String, String, String)> {
         factuality: String,
         #[serde(default)]
         region: String,
+        #[serde(default = "default_active")]
+        active: bool,
     }
     let raw: Vec<Raw> = serde_json::from_str(include_str!("../sources.json")).unwrap_or_default();
     raw.into_iter()
@@ -376,7 +398,16 @@ fn sources_meta() -> HashMap<String, (char, String, String, String)> {
             } else {
                 s.region
             };
-            (s.id, (bucket, s.factuality, s.name, region))
+            (
+                s.id,
+                SourceMeta {
+                    bucket,
+                    factuality: s.factuality,
+                    name: s.name,
+                    region,
+                    active: s.active,
+                },
+            )
         })
         .collect()
 }
@@ -451,7 +482,16 @@ pub fn compute_metrics(data: &StatsData) -> StatsMetrics {
     let mut fact_known = 0i64;
     let mut region_counts: HashMap<String, i64> = HashMap::new();
     for (id, &count) in &per_source {
-        if let Some((bucket, factuality, _, region)) = meta.get(*id) {
+        // Parked sources are NOT skipped here: this describes what the digest SHIPPED, and a
+        // source parked today really did ship these rows. Only the catalog-side figures below
+        // ask what we read now.
+        if let Some(SourceMeta {
+            bucket,
+            factuality,
+            region,
+            ..
+        }) = meta.get(*id)
+        {
             match bucket {
                 'l' => shipped_lcr[0] += count,
                 'c' => shipped_lcr[1] += count,
@@ -480,10 +520,16 @@ pub fn compute_metrics(data: &StatsData) -> StatsMetrics {
         0.0
     };
 
-    // Catalog bias distribution (the full sources.json shelf).
+    // Catalog bias distribution -- the shelf we read TODAY, so parked sources are excluded. The
+    // shipped side above deliberately keeps them, so for as long as a parked source sits inside
+    // the window `jsd` compares against a slightly different shelf than shipped it. That
+    // self-heals as the window rolls past the parking date.
+    // Counting them would put a feed that can never be fetched again into the denominator of
+    // `coverage_pct`, pinning it below 100 forever and pre-spending the one number that would
+    // otherwise say "a source stopped shipping".
     let mut catalog_lcr = [0i64; 3];
-    for (bucket, _, _, _) in meta.values() {
-        match bucket {
+    for m in meta.values().filter(|m| m.active) {
+        match m.bucket {
             'l' => catalog_lcr[0] += 1,
             'c' => catalog_lcr[1] += 1,
             _ => catalog_lcr[2] += 1,
@@ -513,7 +559,7 @@ pub fn compute_metrics(data: &StatsData) -> StatsMetrics {
         .map(|(id, count)| SourceShare {
             name: meta
                 .get(*id)
-                .map(|(_, _, name, _)| name.clone())
+                .map(|m| m.name.clone())
                 .unwrap_or_else(|| (*id).to_string()),
             share_pct: if total_shipped > 0 {
                 *count as f64 / total_shipped as f64 * 100.0
@@ -528,12 +574,15 @@ pub fn compute_metrics(data: &StatsData) -> StatsMetrics {
         })
         .collect();
 
-    // Coverage: distinct catalog sources shipped vs the full catalog.
+    // Coverage: distinct ACTIVE catalog sources shipped vs the active catalog. The `active`
+    // filter is not decoration -- the 90-day window still reaches rows from before a source was
+    // parked, and `contains_key` alone would count 38 against a catalog of 37, rendering
+    // "38 / 37 Sources used - 103% catalog coverage".
     let sources_used = per_source
         .keys()
-        .filter(|id| meta.contains_key(**id))
+        .filter(|id| meta.get(**id).is_some_and(|m| m.active))
         .count() as i64;
-    let catalog_total = meta.len() as i64;
+    let catalog_total = meta.values().filter(|m| m.active).count() as i64;
 
     StatsMetrics {
         shipped_pct: pct3(shipped_lcr),
@@ -565,6 +614,65 @@ pub fn compute_metrics(data: &StatsData) -> StatsMetrics {
 #[cfg(test)]
 mod metrics_tests {
     use super::*;
+
+    #[test]
+    fn parked_sources_leave_the_catalog_but_stay_in_the_history() {
+        // The two halves of /stats read the same file for opposite reasons. `catalog_total` and
+        // `catalog_pct` describe the shelf we read TODAY -- counting a parked feed there pins
+        // `coverage_pct` below 100 forever and quietly spends the signal that would say a source
+        // stopped shipping. `source_names` and the shipped figures describe history, where a
+        // parked id still appears, so they must keep it.
+        let meta = sources_meta();
+        let parked: Vec<&String> = meta
+            .iter()
+            .filter(|(_, m)| !m.active)
+            .map(|(id, _)| id)
+            .collect();
+        assert!(
+            !parked.is_empty(),
+            "no parked source in sources.json -- this test is guarding nothing"
+        );
+        for id in &parked {
+            assert!(
+                source_names().contains_key(*id),
+                "{id} is parked and the source-health table can no longer name it"
+            );
+        }
+        let active = meta.values().filter(|m| m.active).count() as i64;
+        assert_eq!(
+            compute_metrics(&data_with(vec![])).catalog_total,
+            active,
+            "catalog_total must count the feeds we still read, not the parked ones"
+        );
+    }
+
+    #[test]
+    fn coverage_cannot_exceed_100_when_the_window_predates_the_parking() {
+        // The 90-day window still reaches rows a source shipped BEFORE it was parked. Counting
+        // those into a numerator while the denominator is active-only rendered "38 / 37 Sources
+        // used, 103% catalog coverage" -- and only at days=90, which is why a spot check at the
+        // default window missed it. Feed one shipped row for EVERY catalogue id, parked included.
+        let usage: Vec<SourceUsage> = sources_meta()
+            .keys()
+            .map(|id| SourceUsage {
+                source_id: id.clone(),
+                tier: "must_know".to_string(),
+                count: 1,
+            })
+            .collect();
+        let m = compute_metrics(&data_with(usage));
+        assert!(
+            m.sources_used <= m.catalog_total,
+            "sources_used {} exceeds catalog_total {}",
+            m.sources_used,
+            m.catalog_total
+        );
+        assert!(
+            m.coverage_pct <= 100,
+            "coverage_pct {} exceeds 100",
+            m.coverage_pct
+        );
+    }
 
     #[test]
     fn jsd_is_zero_for_identical_and_one_for_disjoint() {

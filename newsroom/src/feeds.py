@@ -31,12 +31,19 @@ class FetchResult:
     health_records: list[tuple[str, bool, str | None, int, int]] = field(default_factory=list)
 
 
-def load_sources(sources_file: Path) -> list[dict]:
-    """Load and validate RSS sources from JSON file."""
+def load_catalogue(sources_file: Path) -> list[dict]:
+    """Load and validate EVERY source, parked ones included.
+
+    For the tools that ask about the catalogue rather than about today's fetch -- `--validate`
+    above all. A parked source is parked because a publisher started refusing us, and the only
+    way anyone finds out that stopped being true is a probe that still tries it. Filtering it out
+    of the validator too would make the park a one-way door.
+    """
     with open(sources_file) as f:
         sources = json.load(f)
 
-    # Validate schema
+    # Validate schema. Every entry is validated, active or not: an inactive source is still a
+    # source, and one that rots while parked would come back broken on the day it is revived.
     required_keys = {"id", "name", "url", "bias", "factuality", "perspective"}
     for i, source in enumerate(sources):
         missing = required_keys - set(source.keys())
@@ -49,8 +56,41 @@ def load_sources(sources_file: Path) -> list[dict]:
             raise ValueError(
                 f"sources.json[{i}] invalid id '{source['id']}': must be lowercase alphanumeric/underscore only"
             )
+        # An explicit type check, not a truthiness test: `"active": "false"` is a non-empty
+        # string, so a quoted boolean -- the likeliest typo here -- would read as ACTIVE and
+        # take the inactive_reason guard down with it. (Rust's serde rejects it outright, so
+        # accepting it in Python would also split the two readers of this file.)
+        if "active" in source and not isinstance(source["active"], bool):
+            raise ValueError(f"sources.json[{i}] '{source['id']}' has a non-boolean 'active': {source['active']!r}")
+        if not source.get("active", True) and not source.get("inactive_reason"):
+            raise ValueError(f"sources.json[{i}] '{source['id']}' is inactive but gives no inactive_reason")
 
     return sources
+
+
+def is_parked(source: dict) -> bool:
+    """True when this entry is in the catalogue but must not be fetched."""
+    return not source.get("active", True)
+
+
+def load_sources(sources_file: Path) -> list[dict]:
+    """The sources to FETCH: the catalogue minus anything parked.
+
+    An entry may set ``"active": false`` to stay in the catalogue without being fetched. That is
+    for a source we have lost rather than dropped -- a publisher blocking our ASN, say. Deleting
+    the entry would be simpler but it is what circulation reads to attribute a PAST issue's bias
+    bar, so removing a source we used for 150 runs silently rewrites that history. Keeping the row
+    and skipping the fetch preserves the record, stops the retries, and stops the daily
+    "persistently failing source" alert from crying wolf about a decision we already made.
+
+    A parked entry must say WHY in ``inactive_reason``, or the next reader inherits a dead source
+    with no way to judge whether it is worth reviving. Use :func:`load_catalogue` for tools that
+    need the parked rows too.
+    """
+    sources = load_catalogue(sources_file)
+    for s in filter(is_parked, sources):
+        logger.info("[%s] parked, not fetched: %s", s["id"], s["inactive_reason"])
+    return [s for s in sources if not is_parked(s)]
 
 
 def parse_date(date_str: str | None) -> datetime | None:

@@ -55,7 +55,7 @@ from digest import (
     resolve_article_ids,
     write_digest,
 )
-from feeds import collect_fetched_articles, fetch_feeds, load_sources
+from feeds import collect_fetched_articles, fetch_feeds, load_catalogue, load_sources
 from feeds_cli import validate_feeds_cli
 from healthcheck import ping as healthcheck_ping
 from merge import assemble_selections
@@ -598,7 +598,9 @@ Examples:
 
     # Validate mode
     if args.validate:
-        sources = load_sources(SOURCES_FILE)
+        # The catalogue, not the fetch set: --validate is the probe that would tell us a parked
+        # source became reachable again.
+        sources = load_catalogue(SOURCES_FILE)
         return validate_feeds_cli(sources, DB_PATH, MIGRATIONS_DIR, json_output=args.json)
 
     # Health check mode
@@ -720,7 +722,16 @@ Examples:
         db.archive_articles(collect_fetched_articles(FETCHED_DIR))
 
         if db.should_alert():
-            persistently_failing = db.get_failing_sources(min_consecutive=HEALTH_ALERT_THRESHOLD)
+            # A parked source's failures are history we chose to stop making, so they must not
+            # keep raising an alert whose advice ("consider removing them from sources.json") is
+            # the action already taken. db.get_failing_sources reads health rows and knows nothing
+            # about the catalogue, so the filter belongs here, where `sources` is the fetch set.
+            fetched_ids = {s["id"] for s in sources}
+            persistently_failing = [
+                (sid, count)
+                for sid, count in db.get_failing_sources(min_consecutive=HEALTH_ALERT_THRESHOLD)
+                if sid in fetched_ids
+            ]
             if persistently_failing:
                 failed_this_run = sum(1 for _, success, *_ in fetch_result.health_records if not success)
                 try:

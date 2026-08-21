@@ -8,7 +8,7 @@ from datetime import datetime
 from pathlib import Path
 
 import db
-from feeds import fetch_source, load_sources, parse_date
+from feeds import fetch_source, is_parked, load_catalogue, parse_date
 
 
 def validate_single_feed(source: dict) -> dict:
@@ -84,23 +84,34 @@ def validate_feeds_cli(
         print(f"\n{'=' * 60}")
         print("RSS Feed Validation")
         print(f"{'=' * 60}")
-        print(f"Testing {len(sources)} sources...\n")
+        parked_n = sum(1 for s in sources if is_parked(s))
+        parked_note = f" ({parked_n} parked, probed but not counted)" if parked_n else ""
+        print(f"Testing {len(sources)} sources{parked_note}...\n")
 
-    results = [validate_single_feed(source) for source in sources]
+    # Parked sources ARE probed here. This is the only command that would ever notice a
+    # publisher's block being lifted; skipping them would make parking a one-way door.
+    results = [validate_single_feed(source) | {"parked": is_parked(source)} for source in sources]
     if not json_output:
         for result in results:
             print_feed_result(result)
 
-    failed_count = sum(1 for r in results if r["error"])
-    total_articles = sum(r["article_count"] for r in results)
+    # Counters and the exit code describe the feeds the digest actually reads. A parked source's
+    # 403 is the expected result of a decision already taken, so folding it in here would leave
+    # the validator permanently red and list the same source under both "Parked" and "Failed".
+    live = [r for r in results if not r["parked"]]
+    failed_count = sum(1 for r in live if r["error"])
+    total_articles = sum(r["article_count"] for r in live)
 
     db.init(db_path, migrations_dir)
     persistently_failing = db.get_failing_sources(min_consecutive=3)
 
     if json_output:
         output = {
-            "total_sources": len(sources),
-            "successful": len(sources) - failed_count,
+            "total_sources": len(live),
+            "successful": len(live) - failed_count,
+            "parked": [
+                {"id": r["id"], "error": r["error"], "articles": r["article_count"]} for r in results if r["parked"]
+            ],
             "failed": failed_count,
             "total_articles": total_articles,
             "sources": results,
@@ -111,14 +122,21 @@ def validate_feeds_cli(
         print(f"{'=' * 60}")
         print("Summary")
         print(f"{'=' * 60}")
-        print(f"Total sources: {len(sources)}")
-        print(f"Successful: {len(sources) - failed_count}")
+        print(f"Total sources: {len(live)}")
+        print(f"Successful: {len(live) - failed_count}")
         print(f"Failed: {failed_count}")
         print(f"Total articles: {total_articles}")
 
+        parked = [r for r in results if r["parked"]]
+        if parked:
+            print("\nParked (not fetched by the digest; probed here so a lifted block shows up):")
+            for r in parked:
+                verdict = r["error"] or f"OK, {r['article_count']} articles -- consider un-parking"
+                print(f"  - {r['name']} ({r['id']}): {verdict}")
+
         if failed_count > 0:
             print("\nFailed sources:")
-            for r in results:
+            for r in live:
                 if r["error"]:
                     print(f"  - {r['name']} ({r['id']}): {r['error']}")
 
@@ -138,6 +156,6 @@ if __name__ == "__main__":
 
     from config import DB_PATH, MIGRATIONS_DIR, SOURCES_FILE
 
-    sources = load_sources(SOURCES_FILE)
+    sources = load_catalogue(SOURCES_FILE)
     json_output = "--json" in sys.argv
     sys.exit(validate_feeds_cli(sources, DB_PATH, MIGRATIONS_DIR, json_output))

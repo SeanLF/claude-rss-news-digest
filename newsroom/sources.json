@@ -337,7 +337,9 @@
     "factuality": "mostly-factual",
     "credibility": "high",
     "perspective": "indian",
-    "region": "Asia-Pacific"
+    "region": "Asia-Pacific",
+    "active": false,
+    "inactive_reason": "Cloudflare blocks the Hetzner ASN: 403 from prod on both IPv4 and IPv6 with any User-Agent including none, 200 from a residential IP. Their robots.txt does not disallow /feeder/, so this is bot-scoring collateral, not stated policy. Dead since run 226 (2026-07-08). Re-enable if an allowlist request lands."
   },
   {
     "id": "the_verge",
