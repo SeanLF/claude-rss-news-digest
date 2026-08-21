@@ -217,21 +217,6 @@ fn page_not_found(state: &AppState) -> Response {
     render_404(state, "Page not found", "There's nothing at this address.")
 }
 
-/// Reject a non-date path segment with the generic 404. Used by the digest handler
-/// and the legacy `/{date}` redirects, which all take an untrusted `{date}` segment
-/// (`/issues/about`, `/about`) that isn't a real issue.
-// The Err carries a full rendered 404 page (like the handlers that call this), so it
-// is intentionally large; boxing it just to satisfy the lint would break the `?`
-// ergonomics these callers rely on.
-#[allow(clippy::result_large_err)]
-fn require_valid_date(date: &str, state: &AppState) -> Result<(), Response> {
-    if is_valid_date(date) {
-        Ok(())
-    } else {
-        Err(page_not_found(state))
-    }
-}
-
 /// Router fallback for any unmatched path — the friendly 404 (generic variant).
 pub async fn not_found(State(state): State<Arc<AppState>>) -> Response {
     page_not_found(&state)
@@ -1391,17 +1376,16 @@ pub async fn today_translate(
 pub async fn legacy_digest_redirect(
     Path(date): Path<String>,
     State(state): State<Arc<AppState>>,
-) -> Result<Redirect, Response> {
+) -> Response {
     // Preserve a `.md` suffix so legacy `/2026-07-03.md` links reach the Markdown route.
     let (bare, suffix) = match date.strip_suffix(".md") {
         Some(d) => (d, ".md"),
         None => (date.as_str(), ""),
     };
-    require_valid_date(bare, &state)?;
-    Ok(Redirect::permanent(&format!(
-        "{}/{bare}{suffix}",
-        routes::ISSUES
-    )))
+    if !is_valid_date(bare) {
+        return page_not_found(&state);
+    }
+    Redirect::permanent(&format!("{}/{bare}{suffix}", routes::ISSUES)).into_response()
 }
 
 /// Permanent redirect from the legacy `/{date}/translate` to `/issues/{date}/translate`,
@@ -1410,18 +1394,17 @@ pub async fn legacy_translate_redirect(
     Path(date): Path<String>,
     State(state): State<Arc<AppState>>,
     Query(query): Query<crate::translate::TranslateQuery>,
-) -> Result<Redirect, Response> {
-    require_valid_date(&date, &state)?;
+) -> Response {
+    if !is_valid_date(&date) {
+        return page_not_found(&state);
+    }
     let suffix = query
         .lang
         .as_deref()
         .and_then(crate::translate::valid_query_lang)
         .map(|l| format!("?lang={l}"))
         .unwrap_or_default();
-    Ok(Redirect::permanent(&format!(
-        "{}/{date}/translate{suffix}",
-        routes::ISSUES
-    )))
+    Redirect::permanent(&format!("{}/{date}/translate{suffix}", routes::ISSUES)).into_response()
 }
 
 #[cfg(test)]
@@ -1984,10 +1967,7 @@ mod feed_tests {
     #[tokio::test]
     async fn legacy_digest_redirect_permanently_moves_bare_date_to_issues() {
         let state = state_with_digests(&[("2026-06-12", "story")]);
-        let resp = legacy_digest_redirect(Path("2026-06-12".to_string()), State(state))
-            .await
-            .expect("valid date should redirect")
-            .into_response();
+        let resp = legacy_digest_redirect(Path("2026-06-12".to_string()), State(state)).await;
 
         assert_eq!(resp.status(), StatusCode::PERMANENT_REDIRECT);
         assert_eq!(
@@ -1999,11 +1979,23 @@ mod feed_tests {
     #[tokio::test]
     async fn legacy_digest_redirect_404s_a_non_date_segment() {
         let state = state_with_digests(&[("2026-06-12", "story")]);
-        let resp = legacy_digest_redirect(Path("about".to_string()), State(state))
-            .await
-            .expect_err("a non-date segment is not a moved permalink")
-            .into_response();
+        // A non-date segment is not a moved permalink -> friendly 404, never a redirect.
+        let resp = legacy_digest_redirect(Path("about".to_string()), State(state)).await;
         assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn legacy_digest_redirect_keeps_the_md_suffix_out_of_the_date_check() {
+        // The date is validated on the STRIPPED segment and the suffix re-appended in the target.
+        // Validate the raw segment instead and every legacy `/2026-07-03.md` link 404s.
+        let state = state_with_digests(&[("2026-06-12", "story")]);
+        let resp = legacy_digest_redirect(Path("2026-06-12.md".to_string()), State(state)).await;
+
+        assert_eq!(resp.status(), StatusCode::PERMANENT_REDIRECT);
+        assert_eq!(
+            resp.headers().get("location").unwrap(),
+            "/issues/2026-06-12.md"
+        );
     }
 
     #[tokio::test]
@@ -2015,9 +2007,7 @@ mod feed_tests {
         };
         let resp =
             legacy_translate_redirect(Path("2026-06-12".to_string()), State(state), Query(query))
-                .await
-                .expect("valid date should redirect")
-                .into_response();
+                .await;
 
         assert_eq!(resp.status(), StatusCode::PERMANENT_REDIRECT);
         assert_eq!(

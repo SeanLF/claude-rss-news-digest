@@ -10,7 +10,7 @@
 # newsroom/tests/test_sdk_pin.py ties this pin to the SDK version the in-repo SDK
 # workarounds (#378 teardown timeout, _thinking_for thinking-400) were validated against,
 # so bumping the pin forces re-verifying them.
-claude-agent-sdk==0.2.134
+claude-agent-sdk==0.2.143
 
 # Scientific stack (used by cluster_extractjoin's TF-IDF/agglomerative join). These are
 # COMPILED wheels, and the runtime base is a compiler-less python:3.14-slim -- so a future
@@ -28,4 +28,4 @@ scikit-learn==1.9.0
 # both keeps the prod build wheel-installable and reproducible -- verified empirically by
 # building newsroom/Dockerfile on this exact pin (cp314 manylinux wheels, no source build).
 trafilatura==2.2.0
-lxml==6.1.1
+lxml==6.1.2
