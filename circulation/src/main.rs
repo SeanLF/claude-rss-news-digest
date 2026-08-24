@@ -30,6 +30,7 @@ pub mod routes {
     pub const FEED: &str = "/feed.xml";
     pub const THREAD: &str = "/thread";
     pub const THREADS: &str = "/threads";
+    pub const THREADS_MORE: &str = "/threads/more";
     pub const SEARCH: &str = "/search";
     pub const FEEDBACK: &str = "/feedback";
     pub const TODAY: &str = "/today";
@@ -243,6 +244,9 @@ async fn main() {
         .route(&font_url, get(assets::font))
         .route("/archive", get(archive::archive_fragment))
         .route(routes::THREADS, get(thread::threads_index))
+        // Load-more fragment for the "Earlier" list; the index itself also takes the cursor, so
+        // this is an enhancement rather than the only way to page.
+        .route(routes::THREADS_MORE, get(thread::threads_fragment))
         .route(
             &format!("{}/{{id}}", routes::THREAD),
             get(thread::thread_page),

@@ -24,4 +24,6 @@ pub use not_found::{NotFoundParams, render_not_found};
 pub use search::{SearchParams, render_search};
 pub use sources::{Source, SourcesParams, render_sources};
 pub use stats::{StatsParams, render_stats};
-pub use thread::{ThreadParams, ThreadsIndexParams, render_thread, render_threads_index};
+pub use thread::{
+    ThreadParams, ThreadsIndexParams, render_thread, render_threads_fragment, render_threads_index,
+};

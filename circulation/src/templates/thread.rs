@@ -5,17 +5,19 @@
 use super::chrome;
 use super::digest::og_image_tags;
 use crate::routes;
-use crate::thread::{ThreadDetail, ThreadSummary};
+use crate::thread::{ThreadDetail, ThreadIndexPage, ThreadSummary};
 use crate::util::{escape_html, format_day_month_year};
 
 // ───────────────────────── shared status vocabulary ─────────────────────────
 
 /// Thread status -> (marker/label CSS class, display label). `active` is the only "live" state;
-/// `dormant` (and anything unrecognised) is the hollow muted state; `closed` is shape-coded closed.
+/// `dormant` -- and anything unrecognised -- is the hollow muted state. There is deliberately no
+/// `closed` arm: nothing in the pipeline ever writes that status (`decay_threads` is the only
+/// writer of `threads.status` and only ever writes 'dormant'), so the branch and its CSS were
+/// rendering a state that cannot occur.
 fn status_parts(status: &str) -> (&'static str, &'static str) {
     match status {
         "active" => ("on", "Ongoing"),
-        "closed" => ("closed", "Closed"),
         _ => ("dorm", "Dormant"),
     }
 }
@@ -37,10 +39,18 @@ pub struct ThreadsIndexParams<'a> {
     pub font_url: &'a str,
     pub topbar_html: &'a str,
     pub footer_html: &'a str,
-    pub threads: &'a [ThreadSummary],
+    pub page: &'a ThreadIndexPage,
+    /// True on a `?before=` page. Such a page is reached without JS or from a shared link, so the
+    /// only route back to the newest threads would otherwise be the footer, below thirty rows.
+    /// The archive's `?before=` branch carries the same affordance.
+    pub deep: bool,
 }
 
 const THREADS_CSS: &str = r#"
+.loadmore{text-align:center; margin:32px 0 0; display:flex; flex-direction:column; align-items:center; gap:10px;}
+.loadmore-status{font-family:var(--mono); font-size:12px; color:var(--muted); margin:0; min-height:1em;}
+.loadmore.is-error .loadmore-status{color:var(--accent-ink);}
+.loadmore-end{font-family:var(--mono); font-size:12px; color:var(--muted); margin:0;}
 section{margin-top:40px;}
 .sec-h{display:flex; align-items:baseline; gap:12px; border-bottom:1px solid var(--ink); padding-bottom:8px;}
 .sec-h h2{font-family:var(--sans); font-weight:700; font-size:11px; letter-spacing:.16em; text-transform:uppercase; color:var(--ink); margin:0;}
@@ -55,13 +65,12 @@ ul.threads li a:focus-visible{outline:2px solid var(--accent); outline-offset:-2
 .mk{width:9px; height:9px; margin-top:7px;}
 .mk.on{background:var(--accent); border-radius:999px;}
 .mk.dorm{border:1.5px solid var(--muted); border-radius:999px; background:transparent;}
-.mk.closed{border:1.5px solid var(--line-strong); border-radius:1px; background:transparent;}
 .tl .lbl{font-family:var(--serif); font-size:18px; font-weight:600; color:var(--ink); line-height:1.3; letter-spacing:-.006em; display:block; text-wrap:pretty;}
 ul.threads li a:hover .lbl{color:var(--accent-ink);}
 .tl .last{font-family:var(--serif); font-size:14px; color:var(--muted); margin-top:3px; display:block; line-height:1.45; text-wrap:pretty;}
 .meta{text-align:right; white-space:nowrap; display:flex; flex-direction:column; gap:4px; align-items:flex-end;}
 .meta .st{font-family:var(--mono); font-size:10px; letter-spacing:.07em; text-transform:uppercase;}
-.meta .st.on{color:var(--accent-ink);} .meta .st.dorm, .meta .st.closed{color:var(--muted);}
+.meta .st.on{color:var(--accent-ink);} .meta .st.dorm{color:var(--muted);}
 .meta .upd{font-family:var(--mono); font-size:11px; color:var(--muted); font-variant-numeric:tabular-nums;}
 .empty{font-family:var(--serif); font-size:18px; color:var(--muted); margin-top:28px;}
 @media (max-width:560px){
@@ -88,30 +97,130 @@ fn thread_row(t: &ThreadSummary) -> String {
     )
 }
 
-fn thread_section(threads: &[&ThreadSummary], label: &str) -> String {
+/// One section. `total` is the FULL count for the heading, which for a paged section is larger
+/// than the rows rendered -- saying "30 threads" above a paged list of 607 would be a lie.
+fn thread_section(threads: &[ThreadSummary], label: &str, total: i64, id: &str) -> String {
     if threads.is_empty() {
         return String::new();
     }
-    let rows: String = threads.iter().map(|t| thread_row(t)).collect();
-    let n = threads.len();
-    let noun = if n == 1 { "thread" } else { "threads" };
+    let rows: String = threads.iter().map(thread_row).collect();
+    let noun = if total == 1 { "thread" } else { "threads" };
     format!(
-        r#"<section><div class="sec-h"><h2>{label}</h2><span class="ct">{n} {noun}</span></div><ul class="threads">{rows}</ul></section>"#
+        r#"<section><div class="sec-h"><h2>{label}</h2><span class="ct">{total} {noun}</span></div><ul class="threads" id="{id}" data-total="{total}">{rows}</ul></section>"#
     )
 }
 
-pub fn render_threads_index(p: &ThreadsIndexParams) -> String {
-    // Group once by status (input is pre-sorted active-first, so each group keeps its order).
-    let mut ongoing: Vec<&ThreadSummary> = Vec::new();
-    let mut dormant: Vec<&ThreadSummary> = Vec::new();
-    let mut closed: Vec<&ThreadSummary> = Vec::new();
-    for t in p.threads {
-        match status_parts(&t.status).0 {
-            "on" => ongoing.push(t),
-            "closed" => closed.push(t),
-            _ => dormant.push(t),
-        }
+/// Hidden `<li>` carrying the next cursor, stripped by the load-more JS before the rows are
+/// appended. Same technique as the archive fragment: the cursor rides in the markup rather than in
+/// a parallel JSON envelope, so the fragment stays a list the browser can render unaided.
+fn more_sentinel(next: &Option<(String, i64)>) -> String {
+    match next {
+        Some((ts, id)) => format!(
+            r#"<li class="more-sentinel" hidden data-next-before="{ts}" data-next-id="{id}"></li>"#,
+            ts = escape_html(ts),
+        ),
+        None => String::new(),
     }
+}
+
+/// The load-more control. A real `<a href>` so the list pages with JS off -- the href is the same
+/// cursor the fragment endpoint takes, pointed at the full page.
+fn loadmore_region(next: &Option<(String, i64)>) -> String {
+    match next {
+        Some((ts, id)) => format!(
+            r#"<div class="loadmore" id="loadmore"><a class="btn secondary" id="loadMore" rel="next" href="{threads}?before={ts}&amp;before_id={id}">Load older threads</a><p class="loadmore-status" role="status" aria-live="polite"></p></div>"#,
+            threads = routes::THREADS,
+            ts = escape_html(&urlencode(ts)),
+        ),
+        None => String::new(),
+    }
+}
+
+/// Percent-encode a value for a query string. Callers MUST still `escape_html` the result before
+/// it goes in an attribute: percent-encoding and HTML escaping answer different sinks, and this
+/// one deliberately passes everything it does not recognise through untouched -- a tab is a valid
+/// attribute separator, so an unescaped one ends the href and starts a new attribute.
+fn urlencode(s: &str) -> String {
+    // Allowlist, not a blocklist of the characters today's values happen to contain. The previous
+    // version mapped space, colon and plus and passed everything else through -- including a tab,
+    // which is a valid HTML attribute separator.
+    s.bytes()
+        .map(|b| match b {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'.' | b'_' | b'~' => {
+                (b as char).to_string()
+            }
+            _ => format!("%{b:02X}"),
+        })
+        .collect()
+}
+
+/// A `?before=` page is reached without JS or from a shared link, so its only route back to the
+/// newest threads would otherwise be the footer, below thirty rows. The archive's `?before=`
+/// branch carries the same affordance.
+fn back_to_newest(deep: bool) -> String {
+    if !deep {
+        return String::new();
+    }
+    format!(
+        r#"<p style="text-align:center;margin-top:16px"><a href="{}">&uarr; Back to the newest threads</a></p>"#,
+        routes::THREADS
+    )
+}
+
+/// The older-threads rows plus the cursor sentinel, for `GET /threads/more`.
+pub fn render_threads_fragment(page: &ThreadIndexPage) -> String {
+    let rows: String = page.older.iter().map(thread_row).collect();
+    format!("{rows}{}", more_sentinel(&page.next_before))
+}
+
+/// Load-more for the "Earlier" list: append `/threads/more` fragments, read+strip the hidden
+/// `.more-sentinel` for the next cursor, focus the first new row, announce "N of TOTAL". Degrades
+/// to a real `<a href="/threads?before=…">` page load with JS off, so the whole list stays
+/// reachable without scripting and to a crawler. Mirrors the index's load-more; kept separate
+/// because this page has no segment control or date jump to share with it.
+const THREADS_JS: &str = r#"<script>(function(){
+  var ul=document.getElementById('older-threads'); if(!ul) return;
+  var region=document.getElementById('loadmore');
+  var statusNode=region?region.querySelector('.loadmore-status'):null;
+  var total=parseInt(ul.getAttribute('data-total')||'0',10);
+  function rows(){ return ul.querySelectorAll('li').length; }
+  function announce(m){ if(statusNode) statusNode.textContent=m; }
+  function swap(fn){ if(document.startViewTransition){ document.startViewTransition(fn); } else { fn(); } }
+  function parse(html){ var t=document.createElement('ul'); t.innerHTML=html;
+    var s=t.querySelector('.more-sentinel');
+    var next=s?{ts:s.getAttribute('data-next-before'), id:s.getAttribute('data-next-id')}:null;
+    if(s) s.remove();
+    return {frag:t, next:next}; }
+  function href(n){ return '/threads?before='+encodeURIComponent(n.ts)+'&before_id='+encodeURIComponent(n.id); }
+  function setLink(n){ var a=document.getElementById('loadMore'); if(a) a.setAttribute('href', href(n)); }
+  function endState(){ var a=document.getElementById('loadMore'); if(a) a.remove();
+    if(region) region.innerHTML='<p class="loadmore-end" role="status">That’s every thread.</p>'; }
+  function loadMore(a){
+    if(a.getAttribute('aria-disabled')==='true') return; // aria-disabled doesn't block <a> clicks
+    var h=a.getAttribute('href')||''; var qs=h.slice(h.indexOf('?')+1);
+    a.setAttribute('aria-busy','true'); a.setAttribute('aria-disabled','true');
+    if(region) region.classList.remove('is-error');
+    announce('Loading older threads…');
+    fetch('/threads/more?'+qs).then(function(r){ if(!r.ok) throw 0; return r.text(); })
+      .then(function(html){ var pr=parse(html); var first=pr.frag.querySelector('li');
+        // Inside swap(): View Transitions defer the mutation, so counting/focusing outside it
+        // would read the pre-append state.
+        swap(function(){
+          while(pr.frag.firstChild) ul.appendChild(pr.frag.firstChild);
+          a.removeAttribute('aria-busy'); a.removeAttribute('aria-disabled');
+          if(pr.next){ setLink(pr.next); announce('Showing '+rows()+' of '+total+' earlier threads'); }
+          else { endState(); }
+          if(first){ var link=first.querySelector('a'); if(link) link.focus(); }
+        }); })
+      .catch(function(){ a.removeAttribute('aria-busy'); a.removeAttribute('aria-disabled');
+        if(region) region.classList.add('is-error'); announce('Couldn’t load older threads. Tap to retry.'); });
+  }
+  document.addEventListener('click', function(e){ var a=e.target.closest&&e.target.closest('#loadMore'); if(a){ e.preventDefault(); loadMore(a); } });
+})();</script>"#;
+
+pub fn render_threads_index(p: &ThreadsIndexParams) -> String {
+    let page = p.page;
+    let is_empty = page.ongoing.is_empty() && page.older.is_empty();
 
     let head = chrome::page_head(
         p.title,
@@ -128,21 +237,26 @@ pub fn render_threads_index(p: &ThreadsIndexParams) -> String {
         "Threads",
         "Ongoing stories, tracked across days",
         &format!(
-            "<b>{on}</b> ongoing &middot; <b>{dorm}</b> dormant &middot; <b>{closed}</b> closed",
-            on = ongoing.len(),
-            dorm = dormant.len(),
-            closed = closed.len(),
+            "<b>{on}</b> ongoing &middot; <b>{older}</b> earlier",
+            on = page.ongoing.len(),
+            older = page.older_total,
         ),
     );
 
-    let body = if p.threads.is_empty() {
+    let body = if is_empty {
         r#"<p class="empty">No threads yet — evolving stories appear here once the digest starts tracking them across days.</p>"#.to_string()
     } else {
         format!(
-            "{}{}{}",
-            thread_section(&ongoing, "Ongoing"),
-            thread_section(&dormant, "Dormant"),
-            thread_section(&closed, "Closed"),
+            "{ongoing}{older}{more}{back}",
+            ongoing = thread_section(
+                &page.ongoing,
+                "Ongoing",
+                page.ongoing.len() as i64,
+                "ongoing-threads"
+            ),
+            older = thread_section(&page.older, "Earlier", page.older_total, "older-threads"),
+            more = loadmore_region(&page.next_before),
+            back = back_to_newest(p.deep),
         )
     };
 
@@ -159,9 +273,11 @@ pub fn render_threads_index(p: &ThreadsIndexParams) -> String {
     {footer}
 </div></div>
 {toggle_js}
+{threads_js}
 </body>
 </html>"#,
         skip = chrome::SKIP_HTML,
+        threads_js = THREADS_JS,
         topbar = p.topbar_html,
         footer = p.footer_html,
         toggle_js = chrome::TOGGLE_JS,
@@ -189,7 +305,6 @@ const THREAD_CSS: &str = r#"
 .dot{width:9px; height:9px; border-radius:50%; flex:none;}
 .dot.on{background:var(--accent);}
 .dot.dorm{background:none; border:1.5px solid var(--muted);}
-.dot.closed{border-radius:1px; background:none; border:1.5px solid var(--muted);}
 .status{font-family:var(--mono); font-size:11px; letter-spacing:.12em; text-transform:uppercase; font-weight:600; color:var(--accent-ink);}
 .status.off{color:var(--muted);}
 .span{font-family:var(--mono); font-size:11px; letter-spacing:.06em; text-transform:uppercase; color:var(--muted); font-variant-numeric:tabular-nums;}
@@ -374,7 +489,20 @@ mod tests {
         }
     }
 
-    fn idx_params<'a>(threads: &'a [ThreadSummary]) -> ThreadsIndexParams<'a> {
+    /// Split a flat fixture list the way the query does: active is never paged, the rest is.
+    fn idx_page(threads: &[ThreadSummary]) -> ThreadIndexPage {
+        let (ongoing, older): (Vec<_>, Vec<_>) =
+            threads.iter().cloned().partition(|t| t.status == "active");
+        let older_total = older.len() as i64;
+        ThreadIndexPage {
+            ongoing,
+            older,
+            older_total,
+            next_before: None,
+        }
+    }
+
+    fn idx_params<'a>(page: &'a ThreadIndexPage) -> ThreadsIndexParams<'a> {
         ThreadsIndexParams {
             title: "Threads",
             brand_html: "News <em>Digest</em>",
@@ -385,8 +513,43 @@ mod tests {
             font_url: "/assets/fonts/x.woff2",
             topbar_html: "<div class=\"topbar\"></div>",
             footer_html: "<footer></footer>",
-            threads,
+            page,
+            deep: false,
         }
+    }
+
+    #[test]
+    fn a_cursor_cannot_break_out_of_the_load_more_href() {
+        // percent-encoding is not HTML escaping. `urlencode` maps only space, colon and plus, so a
+        // TAB -- a valid attribute separator -- used to close the href and open a new attribute,
+        // landing a live event handler on the anchor. The sink decides the escaping, not the
+        // value's provenance.
+        let page = ThreadIndexPage {
+            ongoing: vec![],
+            older: vec![summary(1, "x", "dormant", 1, "")],
+            older_total: 40,
+            next_before: Some((
+                "2026-06-27 08:00:00\"\tonmouseover=alert(1) x=\"".to_string(),
+                7,
+            )),
+        };
+        let html = render_threads_index(&idx_params(&page));
+        // The breakout signature is a RAW quote closing the href, followed by the handler. Escaped
+        // correctly, the payload stays inside the attribute value, so its text is still present in
+        // the source -- asserting on the text alone would pass even when the tag is broken.
+        assert!(
+            !html.contains("\"\tonmouseover"),
+            "cursor escaped its attribute: {}",
+            html.split("loadMore").nth(1).unwrap_or("")
+        );
+        assert!(
+            !html.contains("2026-06-27 08:00:00"),
+            "the cursor must be percent-encoded, not raw"
+        );
+        assert!(
+            html.contains(r#"id="loadMore""#),
+            "the button should still render"
+        );
     }
 
     #[test]
@@ -395,21 +558,19 @@ mod tests {
             summary(1, "Live story", "active", 12, "latest headline"),
             summary(2, "Quiet story", "dormant", 5, "went quiet"),
         ];
-        let html = render_threads_index(&idx_params(&t));
-        assert!(
-            html.contains("<b>1</b> ongoing &middot; <b>1</b> dormant &middot; <b>0</b> closed")
-        );
+        let html = render_threads_index(&idx_params(&idx_page(&t)));
+        assert!(html.contains("<b>1</b> ongoing &middot; <b>1</b> earlier"));
         assert!(html.contains(r#"<span class="mk on" aria-hidden="true">"#));
         assert!(html.contains(r#"<span class="mk dorm" aria-hidden="true">"#));
         assert!(html.contains(r#"<a href="/thread/1">"#));
         assert!(html.contains("3 Jul 2026 &middot; 12 updates"));
-        // closed section omitted (none)
-        assert!(!html.contains(r#"<span class="mk closed""#));
+        // No "closed" vocabulary anywhere: nothing writes that status, so nothing renders it.
+        assert!(!html.contains("closed"));
     }
 
     #[test]
     fn index_empty_state() {
-        let html = render_threads_index(&idx_params(&[]));
+        let html = render_threads_index(&idx_params(&idx_page(&[])));
         assert!(html.contains(r#"class="empty""#));
         assert!(!html.contains(r#"class="threads""#));
     }

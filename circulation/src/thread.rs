@@ -2,17 +2,20 @@
 //! See `newsroom/src/threads.py` for the pipeline side that writes these rows.
 
 use axum::{
-    extract::{Path, State},
+    extract::{Path, Query, State},
     http::StatusCode,
     response::Html,
 };
 use rusqlite::{Connection, OpenFlags, OptionalExtension};
+use serde::Deserialize;
 use std::sync::Arc;
 
 use crate::AppState;
 use crate::handlers::{brand_html, sub_chrome};
 use crate::routes;
-use crate::templates::{ThreadParams, ThreadsIndexParams, render_thread, render_threads_index};
+use crate::templates::{
+    ThreadParams, ThreadsIndexParams, render_thread, render_threads_fragment, render_threads_index,
+};
 use crate::util::log_row_error;
 
 /// One day's installment in a thread's history.
@@ -31,6 +34,7 @@ pub struct ThreadDetail {
     pub open_questions: Vec<String>,
 }
 
+#[derive(Clone)]
 pub struct ThreadSummary {
     pub id: i64,
     pub label: String,
@@ -257,51 +261,148 @@ fn clean_question(question: &str, cited: &std::collections::HashSet<String>) -> 
 
 /// Fetch all threads for the `/threads` index, active first, most-recently-updated first within
 /// each group.
-pub fn fetch_thread_summaries(db_path: &str) -> Result<Vec<ThreadSummary>, (StatusCode, String)> {
+/// One page of the threads index: every ongoing thread, plus a cursor-paged slice of the rest.
+///
+/// Ongoing threads are the page's whole point ("ongoing threads carry today's digest forward"), so
+/// they are never paged away. Everything else is history and pages like the archive does.
+pub struct ThreadIndexPage {
+    pub ongoing: Vec<ThreadSummary>,
+    pub older: Vec<ThreadSummary>,
+    /// Total non-ongoing threads, for the masthead count -- NOT `older.len()`, which is one page.
+    pub older_total: i64,
+    /// Cursor for the next page: the last row's `(updated_at, id)`, when more remain.
+    pub next_before: Option<(String, i64)>,
+}
+
+/// Rows per page of older threads. Matches `archive::DEFAULT_LIMIT`; the two lists behave alike.
+pub const OLDER_PAGE: i64 = 30;
+const MAX_OLDER_PAGE: i64 = 100;
+
+// COALESCE on the SELECT too, not just the WHERE/ORDER BY: `updated_at` is read into a String, so
+// a NULL fails the row conversion and `log_row_error` drops the thread on the floor -- the same
+// silent disappearance the predicate's COALESCE prevents, one layer down.
+const SUMMARY_COLS: &str = "t.id, t.label, t.status, COALESCE(t.updated_at, '') AS updated_at,
+                    (SELECT COUNT(*) FROM thread_installments ti WHERE ti.thread_id = t.id) AS update_count,
+                    (SELECT ti.content FROM thread_installments ti
+                     WHERE ti.thread_id = t.id ORDER BY ti.run_id DESC LIMIT 1) AS latest_content";
+
+fn to_summary(row: &rusqlite::Row) -> rusqlite::Result<ThreadSummary> {
+    let latest_content: Option<String> = row.get(5)?;
+    Ok(ThreadSummary {
+        id: row.get(0)?,
+        label: row.get(1)?,
+        status: row.get(2)?,
+        updated_at: row.get(3)?,
+        update_count: row.get(4)?,
+        // The latest development, not the headline — the label is usually the same as the
+        // latest cluster_story, so the top whats_new fact gives a distinct "what's new" line.
+        summary: facts_from_content(latest_content.as_deref())
+            .into_iter()
+            .next()
+            .unwrap_or_default(),
+    })
+}
+
+fn query_error<E: std::fmt::Display>(e: E) -> (StatusCode, String) {
+    (
+        StatusCode::INTERNAL_SERVER_ERROR,
+        format!("Query error: {e}"),
+    )
+}
+
+/// The threads index, paginated.
+///
+/// `before` is the previous page's last `(updated_at, id)`. A composite cursor because
+/// `updated_at` is a per-run `datetime('now')` shared by every thread touched in the same run --
+/// paging on it alone would skip or repeat whole runs' worth of rows. SQLite row-value comparison
+/// (`(a, b) < (?, ?)`) expresses the tie-break in one predicate. NOT offset paging: rows shift
+/// position as threads are updated daily, so an offset silently drops and duplicates rows.
+///
+/// COALESCE, not a bare column: `(NULL, id) < (?, ?)` evaluates to NULL rather than true, so a
+/// thread with a NULL `updated_at` would be filtered out of every cursored page while still being
+/// counted by `older_total` -- the reader is promised N, shown N-1, then told that is all of them.
+/// `threads.updated_at` carries no NOT NULL constraint, so only convention keeps it populated.
+///
+/// No index backs this today (`idx_threads_status` cannot serve `status <> 'active'`), so each page
+/// scans and temp-sorts the non-active rows. Fine at this size; do not go hunting for an index that
+/// is not there.
+pub fn fetch_thread_index(
+    db_path: &str,
+    before: Option<(&str, i64)>,
+    limit: i64,
+) -> Result<ThreadIndexPage, (StatusCode, String)> {
+    let limit = limit.clamp(1, MAX_OLDER_PAGE);
     let conn = Connection::open_with_flags(db_path, OpenFlags::SQLITE_OPEN_READ_ONLY)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {e}")))?;
 
     // Stale clone without the thread tables: render an empty threads index, not a 503.
     let Some(mut stmt) = prepare_or_degrade(
         &conn,
-        "SELECT t.id, t.label, t.status, t.updated_at,
-                    (SELECT COUNT(*) FROM thread_installments ti WHERE ti.thread_id = t.id) AS update_count,
-                    (SELECT ti.content FROM thread_installments ti
-                     WHERE ti.thread_id = t.id ORDER BY ti.run_id DESC LIMIT 1) AS latest_content
-             FROM threads t
-             ORDER BY CASE WHEN t.status = 'active' THEN 0 ELSE 1 END, t.updated_at DESC",
+        &format!(
+            "SELECT {SUMMARY_COLS} FROM threads t WHERE t.status = 'active'
+             ORDER BY COALESCE(t.updated_at, '') DESC, t.id DESC"
+        ),
     )?
     else {
-        return Ok(Vec::new());
+        return Ok(ThreadIndexPage {
+            ongoing: Vec::new(),
+            older: Vec::new(),
+            older_total: 0,
+            next_before: None,
+        });
     };
-
-    let summaries = stmt
-        .query_map([], |row| {
-            let latest_content: Option<String> = row.get(5)?;
-            Ok(ThreadSummary {
-                id: row.get(0)?,
-                label: row.get(1)?,
-                status: row.get(2)?,
-                updated_at: row.get(3)?,
-                update_count: row.get(4)?,
-                // The latest development, not the headline — the label is usually the same as the
-                // latest cluster_story, so the top whats_new fact gives a distinct "what's new" line.
-                summary: facts_from_content(latest_content.as_deref())
-                    .into_iter()
-                    .next()
-                    .unwrap_or_default(),
-            })
-        })
-        .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("Query error: {e}"),
-            )
-        })?
+    let ongoing: Vec<ThreadSummary> = stmt
+        .query_map([], to_summary)
+        .map_err(query_error)?
         .filter_map(|r| log_row_error(r, "threads"))
         .collect();
+    drop(stmt);
 
-    Ok(summaries)
+    // limit + 1 to learn whether another page exists without a second COUNT.
+    let mut stmt = conn
+        .prepare(&format!(
+            "SELECT {SUMMARY_COLS} FROM threads t
+             WHERE t.status <> 'active'
+               AND (?1 IS NULL OR (COALESCE(t.updated_at, ''), t.id) < (?1, ?2))
+             ORDER BY COALESCE(t.updated_at, '') DESC, t.id DESC LIMIT ?3"
+        ))
+        .map_err(query_error)?;
+    let (before_ts, before_id) = match before {
+        Some((ts, id)) => (Some(ts), id),
+        None => (None, 0),
+    };
+    let mut older: Vec<ThreadSummary> = stmt
+        .query_map(
+            rusqlite::params![before_ts, before_id, limit + 1],
+            to_summary,
+        )
+        .map_err(query_error)?
+        .filter_map(|r| log_row_error(r, "threads"))
+        .collect();
+    drop(stmt);
+
+    let has_more = older.len() as i64 > limit;
+    older.truncate(limit as usize);
+    let next_before = if has_more {
+        older.last().map(|t| (t.updated_at.clone(), t.id))
+    } else {
+        None
+    };
+
+    let older_total: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM threads WHERE status <> 'active'",
+            [],
+            |r| r.get(0),
+        )
+        .map_err(query_error)?;
+
+    Ok(ThreadIndexPage {
+        ongoing,
+        older,
+        older_total,
+        next_before,
+    })
 }
 
 /// Parse a stored installment's `content` JSON and render its "what's new" delta: the top 3
@@ -509,13 +610,44 @@ pub async fn thread_page(
 }
 
 /// Thread index -- `GET /threads`, active threads first.
+/// Cursor for the older-threads list. Two params, not one opaque blob, so a hand-edited or
+/// shared URL stays readable and `before_id` can be range-checked as an integer.
+#[derive(Deserialize, Default)]
+pub struct ThreadsQuery {
+    pub before: Option<String>,
+    pub before_id: Option<i64>,
+    pub limit: Option<i64>,
+}
+
+/// The cursor is only usable as a PAIR, so half of one is REJECTED rather than quietly treated as
+/// "start from the top" -- that served the newest page again, which on the load-more path appends
+/// rows already on screen. An EMPTY `before` is rejected for the same reason it cannot be honoured:
+/// every real timestamp sorts above `""`, so it rendered a page with no rows, no load-more and no
+/// explanation, under a masthead still promising hundreds. `before_id=abc` already 400s via axum's
+/// own rejection; this makes the neighbouring cases agree with it.
+fn cursor_of(q: &ThreadsQuery) -> Result<Option<(&str, i64)>, (StatusCode, &'static str)> {
+    match (q.before.as_deref(), q.before_id) {
+        (None, None) => Ok(None),
+        (Some(ts), Some(id)) if !ts.is_empty() => Ok(Some((ts, id))),
+        _ => Err((
+            StatusCode::BAD_REQUEST,
+            "before and before_id must be supplied together, and before must not be empty",
+        )),
+    }
+}
+
 pub async fn threads_index(
     State(state): State<Arc<AppState>>,
+    Query(q): Query<ThreadsQuery>,
 ) -> Result<Html<String>, (StatusCode, &'static str)> {
-    let summaries = fetch_thread_summaries(&state.db_path).map_err(|(_, e)| {
-        tracing::error!("thread index fetch failed: {e}");
-        (StatusCode::SERVICE_UNAVAILABLE, "Threads unavailable")
-    })?;
+    let cursor = cursor_of(&q)?;
+    let deep = cursor.is_some();
+    let page = fetch_thread_index(&state.db_path, cursor, q.limit.unwrap_or(OLDER_PAGE)).map_err(
+        |(_, e)| {
+            tracing::error!("thread index fetch failed: {e}");
+            (StatusCode::SERVICE_UNAVAILABLE, "Threads unavailable")
+        },
+    )?;
 
     let (topbar_html, footer_html) = sub_chrome(
         &state,
@@ -536,8 +668,29 @@ pub async fn threads_index(
         font_url: &state.font_url,
         topbar_html: &topbar_html,
         footer_html: &footer_html,
-        threads: &summaries,
+        page: &page,
+        deep,
     })))
+}
+
+/// `GET /threads/more?before=&before_id=` -- the older-threads rows as an HTML fragment, for the
+/// index's load-more. Same `thread_row` the full index uses, so the list has one source of truth;
+/// deliberately not a JSON API, mirroring `archive::archive_fragment`.
+pub async fn threads_fragment(
+    State(state): State<Arc<AppState>>,
+    Query(q): Query<ThreadsQuery>,
+) -> Result<Html<String>, (StatusCode, &'static str)> {
+    // Same posture as threads_index: the operator gets the detail, the stranger gets a generic
+    // message. Returning `format!("Query error: {e}")` was verbose to the wrong audience and
+    // silent to the right one.
+    let cursor = cursor_of(&q)?;
+    let page = fetch_thread_index(&state.db_path, cursor, q.limit.unwrap_or(OLDER_PAGE)).map_err(
+        |(_, e)| {
+            tracing::error!("thread fragment fetch failed: {e}");
+            (StatusCode::SERVICE_UNAVAILABLE, "Threads unavailable")
+        },
+    )?;
+    Ok(Html(render_threads_fragment(&page)))
 }
 
 #[cfg(test)]
@@ -1066,10 +1219,82 @@ mod tests {
                 (2, 'Active story', 'active', '2026-06-25 08:00:00');",
         );
 
-        let summaries = fetch_thread_summaries(&db.path).expect("query ok");
-        assert_eq!(summaries.len(), 2);
-        assert_eq!(summaries[0].label, "Active story");
-        assert_eq!(summaries[1].label, "Dormant story");
+        let page = fetch_thread_index(&db.path, None, OLDER_PAGE).expect("query ok");
+        assert_eq!(page.ongoing.len(), 1);
+        assert_eq!(page.ongoing[0].label, "Active story");
+        assert_eq!(page.older.len(), 1);
+        assert_eq!(page.older[0].label, "Dormant story");
+        assert_eq!(page.older_total, 1);
+        assert!(page.next_before.is_none());
+    }
+
+    #[test]
+    fn a_thread_with_no_updated_at_is_still_reachable() {
+        // `(NULL, id) < (?, ?)` is NULL, not true, so a NULL-timestamp row was filtered out of
+        // every cursored page -- while `older_total` still counted it. The reader was promised N,
+        // shown N-1, and then told by the end state that they had seen all of them. Nothing logged
+        // it, because the row was excluded in SQL and never reached the row handler.
+        let db = TempDb::new();
+        db.seed(
+            "INSERT INTO threads (id, label, status, updated_at) VALUES
+                (1, 'Has a date',  'dormant', '2026-06-29 08:00:00'),
+                (2, 'Also dated',  'dormant', '2026-06-28 08:00:00');
+             INSERT INTO threads (id, label, status, updated_at) VALUES (3, 'No date', 'dormant', NULL);",
+        );
+
+        let mut seen: Vec<i64> = Vec::new();
+        let mut cursor: Option<(String, i64)> = None;
+        for _ in 0..5 {
+            let page =
+                fetch_thread_index(&db.path, cursor.as_ref().map(|(t, i)| (t.as_str(), *i)), 1)
+                    .expect("query ok");
+            assert_eq!(page.older_total, 3);
+            seen.extend(page.older.iter().map(|t| t.id));
+            match page.next_before {
+                Some(c) => cursor = Some(c),
+                None => break,
+            }
+        }
+        seen.sort();
+        assert_eq!(
+            seen,
+            vec![1, 2, 3],
+            "every counted thread must be reachable by paging"
+        );
+    }
+
+    #[test]
+    fn older_threads_page_with_a_composite_cursor_and_never_repeat_a_row() {
+        // Every thread touched in one run shares an `updated_at` to the second, so a cursor on the
+        // timestamp alone would skip or repeat a whole run's worth. The (updated_at, id) row-value
+        // comparison is what makes the page boundary exact -- these five share a timestamp.
+        let db = TempDb::new();
+        db.seed(
+            "INSERT INTO threads (id, label, status, updated_at) VALUES
+                (1, 'D one',   'dormant', '2026-06-29 08:00:00'),
+                (2, 'D two',   'dormant', '2026-06-29 08:00:00'),
+                (3, 'D three', 'dormant', '2026-06-29 08:00:00'),
+                (4, 'D four',  'dormant', '2026-06-29 08:00:00'),
+                (5, 'D five',  'dormant', '2026-06-29 08:00:00');",
+        );
+
+        let mut seen: Vec<i64> = Vec::new();
+        let mut cursor: Option<(String, i64)> = None;
+        for _ in 0..5 {
+            let page = fetch_thread_index(
+                &db.path,
+                cursor.as_ref().map(|(ts, id)| (ts.as_str(), *id)),
+                2,
+            )
+            .expect("query ok");
+            assert_eq!(page.older_total, 5, "total is the full count, not the page");
+            seen.extend(page.older.iter().map(|t| t.id));
+            match page.next_before {
+                Some(c) => cursor = Some(c),
+                None => break,
+            }
+        }
+        assert_eq!(seen, vec![5, 4, 3, 2, 1], "each row exactly once, in order");
     }
 
     #[tokio::test]
@@ -1126,7 +1351,8 @@ mod tests {
         );
         let state = Arc::new(test_state(&db.path));
 
-        let Ok(Html(html)) = threads_index(State(state)).await else {
+        let Ok(Html(html)) = threads_index(State(state), Query(ThreadsQuery::default())).await
+        else {
             panic!("expected 200");
         };
         assert!(html.contains("First story"));

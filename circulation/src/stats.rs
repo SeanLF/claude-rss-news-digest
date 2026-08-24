@@ -294,13 +294,33 @@ pub fn fetch_stats_data(db_path: &str, days: u32) -> Result<StatsData, (StatusCo
 
     Ok(StatsData {
         period_days: days,
-        source_health,
         source_usage,
         recent_runs,
         dedup_stats,
-        never_selected,
+        // Filtered HERE, at the data layer, not in the template: /stats.json is advertised as the
+        // machine-readable twin of the page, and filtering only the HTML made a transparency
+        // surface contradict its own JSON. One parked source, two answers, is worse than either.
+        source_health: drop_parked_health(source_health),
+        never_selected: drop_parked(never_selected),
         cost,
     })
+}
+
+/// A parked source keeps its real fetch failures in the 30-day window. They are true, and they are
+/// a decision already taken -- surfacing them as a live fault is the crying-wolf the digest's health
+/// ALERT was fixed to stop doing. Dropped once, here, so every consumer of `StatsData` agrees.
+fn drop_parked_health(rows: Vec<SourceHealth>) -> Vec<SourceHealth> {
+    let parked = parked_source_ids();
+    rows.into_iter()
+        .filter(|h| !parked.contains(&h.source_id))
+        .collect()
+}
+
+/// Same reasoning for "never selected in N days": a parked source was not selected because it was
+/// not fetched.
+fn drop_parked(ids: Vec<String>) -> Vec<String> {
+    let parked = parked_source_ids();
+    ids.into_iter().filter(|id| !parked.contains(id)).collect()
 }
 
 // ─────────────────────── derived metrics (balance / concentration / coverage) ───────────────────────
@@ -356,6 +376,20 @@ struct SourceMeta {
     name: String,
     region: String,
     active: bool,
+}
+
+/// Ids parked with `"active": false` -- in the catalogue, deliberately not fetched.
+///
+/// The health surfaces are PRESENT tense ("are my feeds working"), so a parked source must not
+/// count toward "N down" or "never used": its failures are a decision already taken, and reporting
+/// them as a live fault is the same crying-wolf the digest's health ALERT was fixed to stop doing.
+/// It self-heals as the 30-day window rolls past the parking date; this makes it immediate.
+pub fn parked_source_ids() -> std::collections::HashSet<String> {
+    sources_meta()
+        .into_iter()
+        .filter(|(_, m)| !m.active)
+        .map(|(id, _)| id)
+        .collect()
 }
 
 /// id -> display name, from the compiled-in `sources.json` (for the source-health table).
@@ -974,6 +1008,44 @@ mod tests {
 
         // Never-selected: in source_health window but absent from shown_narratives window.
         assert_eq!(data.never_selected, vec!["dead_feed".to_string()]);
+    }
+
+    #[test]
+    fn parked_sources_are_dropped_from_the_health_surfaces_at_the_data_layer() {
+        // Filtered in fetch_stats_data, NOT in the template, so /stats and /stats.json cannot
+        // disagree -- the JSON is advertised as the machine-readable twin of the page. Uses the
+        // REAL sources.json, so un-parking a source without revisiting this fails here.
+        let parked: Vec<String> = parked_source_ids().into_iter().collect();
+        assert!(
+            !parked.is_empty(),
+            "no parked source in sources.json -- this test is guarding nothing"
+        );
+        let health: Vec<SourceHealth> = parked
+            .iter()
+            .map(|id| SourceHealth {
+                source_id: id.clone(),
+                total_fetches: 30,
+                successes: 0,
+                success_rate_pct: 0.0,
+            })
+            .collect();
+        assert!(
+            drop_parked_health(health).is_empty(),
+            "a parked source's 30 days of failures still count toward the health rollup"
+        );
+        assert!(
+            drop_parked(parked.clone()).is_empty(),
+            "a parked source still reads as 'never selected'"
+        );
+
+        // And an ordinary source is untouched by the filter.
+        let live = vec![SourceHealth {
+            source_id: "reuters".into(),
+            total_fetches: 30,
+            successes: 30,
+            success_rate_pct: 100.0,
+        }];
+        assert_eq!(drop_parked_health(live).len(), 1);
     }
 
     /// The cost aggregate is the page's public unit-economics claim, and `query_row` here is
