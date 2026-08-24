@@ -1,12 +1,13 @@
 #!/bin/bash
 # Deploy news-digest infrastructure
-# Usage: bin/deploy [--skip-build] [--skip-web-check] [-y|--yes] [--dry-run]
+# Usage: bin/deploy [--skip-build] [--skip-web-check] [--skip-sbom-audit] [-y|--yes] [--dry-run]
 #
 # Builds and pushes Docker images, then applies Terraform
 #
 # Options:
 #   --skip-build  Skip Docker image build/push
 #   --skip-web-check  Skip the a11y/Lighthouse gate on the rendered pages
+#   --skip-sbom-audit Skip the still_active vulnerability gate on the generated SBOMs
 #   -y, --yes     Skip confirmation prompt
 #   --dry-run     Show what would be done without making changes
 #
@@ -38,6 +39,7 @@ DIGEST_DIR=""
 
 SKIP_BUILD=false
 SKIP_WEB_CHECK=false
+SKIP_SBOM_AUDIT=false
 AUTO_APPROVE=false
 DRY_RUN=false
 
@@ -45,6 +47,7 @@ for arg in "$@"; do
   case $arg in
     --skip-build) SKIP_BUILD=true ;;
     --skip-web-check) SKIP_WEB_CHECK=true ;;
+    --skip-sbom-audit) SKIP_SBOM_AUDIT=true ;;
     -y|--yes) AUTO_APPROVE=true ;;
     --dry-run) DRY_RUN=true ;;
   esac
@@ -321,6 +324,13 @@ build_and_push_image() {
         --build-arg OCI_REVISION="$SHA" -t "$tag" -t "$sha_tag" "$context"
   fi
 
+  # SBOM + audit BEFORE the push, deliberately. `docker push "$tag"` advances the MUTABLE
+  # :latest tag, and terraform falls back to :latest whenever no digest is pinned -- which is
+  # exactly what `bin/deploy --skip-build` does. Auditing after the push would mean a BLOCKED
+  # deploy had already parked the vulnerable image where the documented recovery command ships
+  # it. Ordered this way, a failed audit leaves the registry untouched.
+  generate_sbom "$name" "$dockerfile" "$scan" || return 1
+
   log_step "Pushing $name..."
   if ! dry_run_skip "docker push $name"; then
     local push_log="$DIGEST_DIR/$name.push.log"
@@ -332,8 +342,6 @@ build_and_push_image() {
     run_quiet docker push "$sha_tag"
     capture_digest "$name" "$push_log"
   fi
-
-  generate_sbom "$name" "$dockerfile" "$scan"
 }
 
 # Written to a file, not a variable: builds run in parallel subshells.
@@ -364,7 +372,14 @@ generate_sbom() {
   local name="$1" dockerfile="$2" scan="$3"
   dry_run_skip "syft SBOM for $name" && return 0
 
-  command -v syft &>/dev/null || { log_error "syft not installed -- NO SBOM generated for $name"; return 0; }
+  # Blocks, like a missing still_active. Returning 0 here would mean `generate_sbom || return 1`
+  # gates a failed AUDIT but ships an image nobody could audit at all -- the asymmetry is
+  # invisible at the call site and the quieter half is the dangerous one.
+  if ! command -v syft &>/dev/null; then
+    [[ $SKIP_SBOM_AUDIT == true ]] && { log_error "syft not installed -- NO SBOM for $name (proceeding, --skip-sbom-audit)"; return 0; }
+    log_error "syft not installed -- cannot produce an auditable SBOM for $name; install it or pass --skip-sbom-audit"
+    return 1
+  fi
 
   mkdir -p "$SBOM_DIR" # past dry_run_skip above, so --dry-run leaves no directory in the repo
   local out="$SBOM_DIR/$name-${SHA:0:7}.cdx.json" target
@@ -377,9 +392,12 @@ generate_sbom() {
   fi
 
   if [ "$scan" = "image" ]; then
-    # No --source-version: for an image scan syft records the image digest in
-    # metadata.component.version, and the commit is already in the filename.
-    target="$REGISTRY/$name@$(cat "$DIGEST_DIR/$name.digest")"
+    # The LOCAL image for this commit, scanned before it is pushed. Naming the pushed digest
+    # would be more precise about what sits in the registry, but it can only be known after the
+    # push, which is too late to stop it. The push does not transform the image, so these are the
+    # same bytes; --source-version records which commit built them.
+    target="$REGISTRY/$name:${SHA:0:7}"
+    syft_args+=(--source-version "$SHA")
   else
     # --exclude is insurance against a future build layout; no effect on the count today.
     target="dir:$(dirname "$dockerfile")"
@@ -387,8 +405,8 @@ generate_sbom() {
   fi
 
   if ! run_quiet syft "$target" "${syft_args[@]}" -o cyclonedx-json="$out"; then
-    log_error "SBOM generation failed for $name (non-fatal)"
-    return 0
+    log_error "SBOM generation failed for $name -- nothing to audit"
+    return 1
   fi
 
   # Negative control: syft exiting 0 is not evidence of a usable file. A truncated or empty write
@@ -397,11 +415,134 @@ generate_sbom() {
   # for the newsroom image is 2208 of 2371 entries. An SBOM of nothing but file entries would pass
   # a bare `.components | length > 0` while carrying no dependency graph to audit.
   if [ ! -s "$out" ] || ! jq -e '[.components[] | select(.purl)] | length > 0' "$out" >/dev/null 2>&1; then
-    log_error "SBOM for $name is empty or unparseable at $out -- treat as NOT generated"
-    return 0
+    log_error "SBOM for $name is empty or unparseable at $out -- nothing to audit"
+    return 1
   fi
 
-  log_success "SBOM: $out ($(jq '[.components[] | select(.purl)] | length' "$out") packages; audit: still_active --sbom=$out)"
+  log_success "SBOM: $out ($(jq '[.components[] | select(.purl)] | length' "$out") packages)"
+  audit_sbom "$name" "$out"
+}
+
+# The SBOM gate. Generating an SBOM and printing the command that would audit it is not a gate --
+# on 2026-08-22 the shipped newsroom image (built 2026-08-11) was found carrying three HIGH
+# sqlparse CVEs that nothing had ever looked at.
+#
+# --fail-if-vulnerable, NOT --fail-if-critical. "critical" in still_active is about MAINTENANCE
+# activity, not vulnerabilities: against that same image it exited 0 with those three HIGHs in the
+# graph, while exiting 1 on circulation, which has no CVEs at all. Nearly orthogonal flags, and
+# gating on the wrong one reads as coverage while catching nothing.
+#
+# `high`, not `medium`: the newsroom image carries pip with a MEDIUM (CVSS 6.5) that comes from
+# the python:3.14-slim base rather than constraints-prod.txt, so `medium` would block every deploy
+# until upstream ships a newer pip. --fail-if-deprecated rides along because it is free -- same
+# deps.dev response, no extra request -- but it is NOT coverage: deps.dev only populates
+# isDeprecated for npm/go/nuget, and both images are entirely pypi and cargo, so it is measured to
+# catch nothing here today. It is on to cover a future ecosystem, not because it guards this one.
+#
+# THE HARD PART is that still_active reports every caveat on STDERR and none of it in the exit
+# code or the JSON. Read the exit code alone and the quietest possible failure -- the advisory
+# lookup silently returning nothing -- is indistinguishable from a clean bill of health.
+audit_sbom() {
+  local name="$1" out="$2" rc=0
+  local json="$out.audit.json" log="$out.audit.log"
+
+  if [[ $SKIP_SBOM_AUDIT == true ]]; then
+    log_error "SBOM audit SKIPPED for $name (--skip-sbom-audit) -- this image is shipping unaudited"
+    return 0
+  fi
+  if ! command -v still_active &>/dev/null; then
+    log_error "still_active not installed -- cannot audit $name; install it or pass --skip-sbom-audit"
+    return 1
+  fi
+
+  # One invocation: --json and --fail-if-vulnerable coexist, stdout carries the report and the
+  # exit code is still the verdict. Two runs would double the load on free advisory APIs, which is
+  # the very thing that pushes them into the degraded mode handled below. ~25s per SBOM.
+  set +e
+  still_active --sbom="$out" --json --fail-if-vulnerable=high --fail-if-deprecated >"$json" 2>"$log"
+  rc=$?
+  set -e
+
+  # rc 2+ is still_active failing to RUN (bad flag after an upgrade, unparseable SBOM), not a
+  # verdict about the image. Reporting that as "ships a vulnerability" would be a confident false
+  # claim, and the remedy printed on that branch -- turn the gate off -- is the wrong reflex.
+  if [[ $rc -ne 0 && $rc -ne 1 ]]; then
+    log_error "SBOM audit for $name could NOT RUN (still_active exit $rc) -- image is unaudited; see $log"
+    return 1
+  fi
+
+  # THE fail-open, and the reason this is not just `still_active || return 1`.
+  #
+  # The SBOM path has exactly one vulnerability source: deps.dev's `advisoryKeys`. still_active
+  # degrades a missing or unreachable one to an empty list, so the package comes back with dates,
+  # licence and scorecard intact, `status: "ok"`, vulnerability_count 0, and the run exits 0.
+  # Measured 2026-08-24 on an SBOM pinning sqlparse 0.5.5 (three HIGH CVEs): renaming that ONE
+  # field flipped rc 1 -> 0 and "vulnerable" -> "ok". Nothing in the JSON moves.
+  #
+  # `status_counts.unknown` is NOT the signal and was a wrong first guess: it is set from
+  # version_unresolved, i.e. whether deps.dev indexes the pinned VERSION, not whether advisories
+  # were retrieved. It stays 0 through advisory drift, and it goes positive on perfectly healthy
+  # input -- a git-pinned wheel like googlenewsdecoder 404s there -- which would block the deploy
+  # forever while blaming the network. It is reported below as coverage, never as a verdict.
+  #
+  # still_active does detect this, via a live canary on a known-vulnerable pin, and says so on
+  # stderr. That line is the only thing that moves, so it is what the gate reads.
+  if grep -qi "NOT authoritative" "$log"; then
+    log_error "SBOM audit for $name is NOT AUTHORITATIVE -- still_active could not confirm advisories (API drift, outage or rate limit); see $log"
+    return 1
+  fi
+
+  local assessed unassessable unknown dropped total
+  assessed=$(jq -r '.summary.total_assessed // empty' "$json" 2>/dev/null)
+  unassessable=$(jq -r '.summary.unassessable_count // 0' "$json" 2>/dev/null || echo 0)
+  unknown=$(jq -r '.summary.status_counts.unknown // 0' "$json" 2>/dev/null || echo 0)
+
+  # Negative control on the instrument, mirroring the one generate_sbom runs on syft. `jq` over an
+  # EMPTY file exits 0 and prints NOTHING, so a `|| echo 0` fallback never fires -- a truncated
+  # write or a renamed `.summary` would otherwise sail through as "0 assessed, clean".
+  if [[ -z "$assessed" || "$assessed" == "0" ]]; then
+    log_error "SBOM audit for $name produced no assessment ($json empty or unrecognised) -- image is unaudited"
+    return 1
+  fi
+
+  if [[ $rc -eq 1 ]]; then
+    log_error "SBOM audit: $name ships a HIGH+ vulnerability or a deprecated dependency -- see $log"
+    local findings
+    # Only what actually blocks. An unfiltered list prints the MEDIUM pip finding beside the HIGHs
+    # and sends someone chasing an upgrade that lives in the base image and cannot be made. The
+    # cvss>=7.0 clause is load-bearing: half of sqlparse's records are PYSEC twins carrying a real
+    # score with a null label.
+    findings=$(jq -r '.dependencies[]
+           | . as $d
+           | (.vulnerabilities // [])
+           | map(select((.osv_severity // "") == "HIGH" or (.osv_severity // "") == "CRITICAL"
+                        or (.osv_cvss_score // 0) >= 7.0))
+           | select(length > 0)
+           | "  \($d.name) \($d.version_used) -> \($d.latest_version): "
+             + (map(.aliases[0] // .id) | unique | join(", "))' "$json" 2>/dev/null || true)
+    findings+=$(jq -r '.dependencies[] | select(.deprecated) | "  \(.name) is DEPRECATED: \(.deprecation_reason // "no reason given")"' "$json" 2>/dev/null || true)
+    if [[ -n "${findings//[[:space:]]/}" ]]; then
+      printf '%s\n' "$findings"
+    else
+      # still_active fails CLOSED on an advisory carrying neither a severity label nor a score --
+      # "a freshly disclosed CVE often has neither yet" -- and such an advisory matches no filter
+      # above. Printing two red lines and no reason is what sends an operator straight to the
+      # bypass flag, so say where the reason actually is.
+      log_error "  (no HIGH+ advisory could be named: still_active fails closed on an unscored advisory. The reason is in $log)"
+    fi
+    log_error "Fix it, or re-run with --skip-sbom-audit if the vector is unreachable and you have written down why."
+    return 1
+  fi
+
+  # Says what it actually covered, because "156 packages" beside "clean" reads as 156 clean. An
+  # image scan never assesses the Debian half, still_active drops the SBOM graph's ROOT components
+  # (for newsroom that silently omits seven DIRECT Python deps -- claude-agent-sdk, resend,
+  # trafilatura, yoyo-migrations among them), and an unresolved version was not really checked.
+  # This gate catches a CVE in a leaf, not in a top-level pin.
+  total=$(jq '[.components[] | select(.purl)] | length' "$out" 2>/dev/null || echo 0)
+  dropped=$(( total - assessed - unassessable ))
+  [[ $dropped -lt 0 ]] && dropped=0
+  log_success "SBOM audit: $name clean at high+ ($assessed of $total assessed; $unassessable not assessable, $dropped dropped, $unknown version-unresolved)"
 }
 
 build_and_push() {
@@ -429,8 +570,11 @@ build_and_push() {
   wait "$news_pid" || news_failed=true
 
   if [ "$circ_failed" = "true" ] || [ "$news_failed" = "true" ]; then
-    [ "$circ_failed" = "true" ] && log_error "digest-circulation build failed"
-    [ "$news_failed" = "true" ] && log_error "digest-newsroom build failed"
+    # "or its SBOM audit": generate_sbom runs BEFORE the push, so an image that built cleanly
+    # still lands here when it ships a HIGH+ vulnerability -- and it was never pushed. Saying only
+    # "build failed" would send the next reader to the Dockerfile for a dependency problem.
+    [ "$circ_failed" = "true" ] && log_error "digest-circulation build or its SBOM audit failed"
+    [ "$news_failed" = "true" ] && log_error "digest-newsroom build or its SBOM audit failed"
     return 1
   fi
 
@@ -666,7 +810,14 @@ main() {
     [[ ! $REPLY =~ ^[Yy]$ ]] && echo "Aborted." && exit 1
   fi
 
-  build_and_push
+  # Explicit `|| exit 1` rather than leaning on set -e: this is the file's convention for a gate
+  # (see verify_provenance below), and build_and_push now fails for a reason other than a build.
+  build_and_push || exit 1
+  # generate_sbom (inside build_and_push) gates on vulnerabilities BEFORE its own image is pushed,
+  # so a blocked image never reaches the registry. The builds run concurrently, though, so the
+  # OTHER service's :latest may already have moved when one aborts -- a mixed pair that
+  # `--skip-build` would then ship. verify_provenance sits here for the same reason: still ahead of
+  # anything deployed or migrated.
   verify_provenance || exit 1
   backup_data
   # Migrations BEFORE terraform: circulation fail-closes at boot on missing
