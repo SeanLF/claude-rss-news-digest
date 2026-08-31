@@ -125,3 +125,9 @@ def test_failed_fields_schema_example_present():
     describing it -- prompt examples are what models actually pattern-match."""
     body = _spec().body
     assert '"failed_fields"' in body
+
+
+def test_body_carries_the_current_date_token():
+    """coherence.md auto-fails a STALE WORLD-STATE assertion and tells the model to check
+    "the cited articles and today's date" -- so it has to be given the date."""
+    assert orchestrate._CURRENT_DATE_TOKEN in _spec().body
