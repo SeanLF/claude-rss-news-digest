@@ -24,6 +24,7 @@ from claude_cli import StageResult
 
 REPO_ROOT = Path(__file__).parent.parent.parent
 CLUSTER_SPEC = REPO_ROOT / ".claude" / "agents" / "cluster.md"
+COHERENCE_SPEC = REPO_ROOT / ".claude" / "agents" / "coherence.md"
 
 
 def _stage_result(
@@ -117,6 +118,19 @@ class TestParseAgentSpec:
         spec = orchestrate.parse_agent_spec(p)
         assert spec.effort == "medium"
         assert spec.thinking == {"type": "adaptive"}
+
+    def test_coherence_enables_adaptive_thinking(self):
+        """COHERENCE deliberately overrides orchestrate._THINKING, and the repair re-check
+        inherits the override through this spec."""
+        spec = orchestrate.parse_agent_spec(COHERENCE_SPEC)
+        assert spec.thinking == {"type": "adaptive"}
+
+    def test_recheck_spec_inherits_coherence_thinking(self):
+        """The repair re-check reuses the live checker prompt, so it must inherit
+        the same thinking config -- otherwise the two halves of the same check
+        run under different reasoning budgets."""
+        spec = orchestrate.parse_agent_spec(COHERENCE_SPEC)
+        assert orchestrate._recheck_spec(spec).thinking == spec.thinking
 
     def test_no_tuning_keys_default_none(self, tmp_path):
         p = tmp_path / "a.md"
@@ -363,6 +377,34 @@ class TestRunStage:
         )
         assert seen["thinking"] == orchestrate._THINKING == {"type": "disabled"}
         assert seen["effort"] is None
+
+    def test_recorded_config_is_the_config_that_was_sent(self, tmp_path, monkeypatch):
+        """A non-default spec must reach BOTH the SDK call and the usage row. A record site
+        hardcoded to the module default is the drift the columns exist to catch; this fails
+        against it. It cannot detect two identical inline copies -- that is structural, which is
+        why `_resolved_thinking` is the single source."""
+        out = tmp_path / "clusters.json"
+        out.write_text(json.dumps({"clusters": [{"story": "x", "article_ids": ["A1"]}]}))
+        seen = {}
+
+        async def fake_run(*_a, **k):
+            seen.update(k)
+            return _stage_result()
+
+        monkeypatch.setattr(orchestrate.claude_cli, "run_agent", fake_run)
+        spec = _spec()
+        object.__setattr__(spec, "thinking", {"type": "adaptive"})
+        row = _run_stage(
+            spec,
+            label="cluster",
+            output_path=out,
+            validate=_ok_validator,
+            model_override=None,
+            cwd=None,
+            claude_input_dir=tmp_path,
+        )
+        assert seen["thinking"] == {"type": "adaptive"}
+        assert row["thinking"] == "adaptive", "recorded config disagrees with what was sent"
 
     def test_model_override_used(self, tmp_path, monkeypatch):
         out = tmp_path / "clusters.json"

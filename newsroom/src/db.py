@@ -678,6 +678,8 @@ _TRACE_ARTIFACTS = (
     # see -- they were log lines only -- so run_health could not judge a degraded
     # clustering run at all.
     "cluster_health.json",
+    # The deterministic join's INPUT; only its output (clusters.json) was kept before.
+    "cluster_tags.json",
     # Context files handed TO the stages rather than produced by them. Without these
     # the archive shows the headline that shipped but not the prior headlines SELECT
     # and WRITE were shown against, and claude_input/ is rmtree'd next run.
@@ -795,8 +797,9 @@ def record_usage(usage_rows: list[dict]):
             conn.executemany(
                 """INSERT INTO run_usage
                    (run_id, subagent, model, input_tokens, output_tokens,
-                    cache_write_tokens, cache_read_tokens, api_cost_usd, duration_ms)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    cache_write_tokens, cache_read_tokens, api_cost_usd, duration_ms,
+                    thinking, effort)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 [
                     (
                         _state.run_id,
@@ -808,6 +811,8 @@ def record_usage(usage_rows: list[dict]):
                         r["cache_read_tokens"],
                         r["api_cost_usd"],
                         r.get("duration_ms"),
+                        r.get("thinking"),
+                        r.get("effort"),
                     )
                     for r in usage_rows
                 ],

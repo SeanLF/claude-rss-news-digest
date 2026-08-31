@@ -461,6 +461,11 @@ def test_run_sonnet_maps_raw_sdk_usage_to_run_usage_row(monkeypatch):
             "cache_read_tokens": 3,
             "api_cost_usd": 0.01,
             "duration_ms": 1000,
+            # The RESOLVED config: this path sets thinking locally rather than via
+            # AgentSpec, and must still record it.
+            "thinking": "disabled",
+            # Sending no effort is a POLICY ("(sdk default)"), not missing telemetry (NULL).
+            "effort": "(sdk default)",
         }
     ]
 

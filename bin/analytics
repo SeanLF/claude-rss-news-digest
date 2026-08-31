@@ -73,7 +73,10 @@ def _parse_header(sql: str) -> dict[str, str]:
         head, sep, rest = body.partition(":")
         if sep and head in HEADER_FIELDS:
             field = head
-            meta[field] = rest.strip()
+            value = rest.strip()
+            # Repeated fields accumulate: config-drift.sql carries two CAVEATs and
+            # blanked-why-it-matters.sql three, and overwriting kept only the last.
+            meta[field] = f"{meta[field]}\n{value}" if field in meta else value
         elif field and body:
             meta[field] += " " + body
     return meta

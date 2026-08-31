@@ -65,6 +65,36 @@ def test_run_usage_persists_duration_ms(fresh_db):
     assert got["legacy"] is None
 
 
+def test_run_usage_persists_request_config(fresh_db):
+    """run_usage must record HOW a stage was configured, not just which model ran.
+
+    A caller that omits the keys stores NULL ("not recorded"), never a crash and never a
+    fabricated default."""
+    from usage import usage_row_from_sdk
+
+    rows = [
+        usage_row_from_sdk(
+            "coherence",
+            "claude-sonnet-5",
+            {"input_tokens": 10, "output_tokens": 5},
+            0.99,
+            duration_ms=1000,
+            thinking={"type": "adaptive"},
+            effort="high",
+        ),
+        # An older caller with no config keys -> NULL, not a KeyError and not "disabled".
+        usage_row_from_sdk("recap", "claude-haiku-4-5", {"input_tokens": 1, "output_tokens": 1}, 0.01),
+    ]
+    db.record_usage(rows)
+    with sqlite3.connect(fresh_db) as conn:
+        cols = {r[1] for r in conn.execute("PRAGMA table_info(run_usage)")}
+        assert {"thinking", "effort"} <= cols
+        got = {r[0]: (r[1], r[2]) for r in conn.execute("SELECT subagent, thinking, effort FROM run_usage")}
+    assert got["coherence"] == ("adaptive", "high")
+    # usage_row_from_sdk with NO config args at all -> both NULL, "not recorded".
+    assert got["recap"] == (None, None)
+
+
 def test_migration_creates_cluster_runs_table(fresh_db):
     with sqlite3.connect(fresh_db) as conn:
         tables = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}

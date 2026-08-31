@@ -22,8 +22,20 @@ logger = logging.getLogger(__name__)
 # silently.
 _PINNED_MODEL_IDS = ("claude-sonnet-5", "claude-sonnet-4-6", "claude-haiku-4-5")
 
+# Distinguishes "the caller passed nothing" (NULL) from "the caller resolved to None on
+# purpose" ("(sdk default)"). Collapsing the two loses the distinction analytics query on.
+_UNSET = object()
 
-def _usage_row(subagent: str, model: str, usage: dict, api_cost_usd: float, duration_ms: int = 0) -> dict:
+
+def _usage_row(
+    subagent: str,
+    model: str,
+    usage: dict,
+    api_cost_usd: float,
+    duration_ms: int = 0,
+    thinking: object = _UNSET,
+    effort: object = _UNSET,
+) -> dict:
     """Build a ``run_usage`` row from a subagent's token counts and SDK cost.
 
     ``usage`` holds the SDK token counts (keys: input/output/cache_write/
@@ -47,10 +59,54 @@ def _usage_row(subagent: str, model: str, usage: dict, api_cost_usd: float, dura
         "cache_read_tokens": usage["cache_read"],
         "api_cost_usd": api_cost_usd,
         "duration_ms": duration_ms,
+        # The RESOLVED request config, not the frontmatter text -- what actually ran.
+        "thinking": _thinking_label(thinking),
+        "effort": _effort_label(effort),
     }
 
 
-def usage_row_from_sdk(subagent: str, model: str, sdk_usage: dict, api_cost_usd: float, duration_ms: int = 0) -> dict:
+def _effort_label(effort: object) -> str | None:
+    """Same three-state contract as ``_thinking_label``, for the same reason."""
+    if effort is _UNSET:
+        return None
+    if effort is None:
+        return "(sdk default)"
+    return effort if isinstance(effort, str) and effort else None
+
+
+def _thinking_label(thinking: object) -> str | None:
+    """Flatten an SDK ThinkingConfig to the one token worth querying ("adaptive",
+    "disabled", "enabled"), so a GROUP BY on it reads like the `model` column does.
+
+    Three states, deliberately distinct:
+
+    - ``_UNSET`` (the caller said nothing)      -> NULL, "not recorded"
+    - ``None``  (the caller resolved to SEND NO thinking argument, which is a policy:
+      see ``cluster_extractjoin._thinking_for``'s next-gen branch) -> "(sdk default)"
+    - a config                                  -> its ``type``
+
+    A dict without a usable "type" is NULL rather than its repr, so a typo cannot
+    masquerade as a distinct setting.
+    """
+    if thinking is _UNSET:
+        return None
+    if thinking is None:
+        return "(sdk default)"
+    if isinstance(thinking, dict):
+        t = thinking.get("type")
+        return t if isinstance(t, str) and t else None
+    return thinking if isinstance(thinking, str) and thinking else None
+
+
+def usage_row_from_sdk(
+    subagent: str,
+    model: str,
+    sdk_usage: dict,
+    api_cost_usd: float,
+    duration_ms: int = 0,
+    thinking: object = _UNSET,
+    effort: object = _UNSET,
+) -> dict:
     """Build a run_usage row from the RAW SDK ResultMessage.usage (keys input_tokens /
     output_tokens / cache_creation_input_tokens / cache_read_input_tokens). Centralizes the
     SDK->row key mapping so callers (orchestrate stages, thread synthesis) can't drift apart.
@@ -66,4 +122,6 @@ def usage_row_from_sdk(subagent: str, model: str, sdk_usage: dict, api_cost_usd:
         },
         api_cost_usd,
         duration_ms,
+        thinking=thinking,
+        effort=effort,
     )

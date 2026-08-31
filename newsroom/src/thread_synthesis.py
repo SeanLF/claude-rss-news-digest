@@ -26,6 +26,7 @@ import logging
 import re
 
 import threads
+from claude_agent_sdk import ThinkingConfig
 from config import DEFAULT_MODEL
 from usage import usage_row_from_sdk
 
@@ -275,6 +276,11 @@ def expand_neighbourhood(
     return list(seed_ids) + [aid for _, aid in scored[:max_extra]]
 
 
+# Named rather than inlined so the value sent to run_agent and the value recorded in
+# run_usage cannot drift apart.
+_THINKING: ThinkingConfig = {"type": "disabled"}
+
+
 def _run_sonnet(user: str, system: str, *, model: str, subagent: str, usage_rows: list[dict] | None) -> str:
     """Run one Sonnet call via run_agent (so token usage + cost are captured) and return its text.
     When usage_rows is provided, append this call's run_usage row so B's spend shows up in the
@@ -289,7 +295,7 @@ def _run_sonnet(user: str, system: str, *, model: str, subagent: str, usage_rows
                 system_prompt=system,
                 tools=[],
                 idle_timeout=120.0,
-                thinking={"type": "disabled"},
+                thinking=_THINKING,
             ),
             timeout=300,
         )
@@ -304,7 +310,15 @@ def _run_sonnet(user: str, system: str, *, model: str, subagent: str, usage_rows
     if usage_rows is not None and result.usage:
         usage_rows.append(
             usage_row_from_sdk(
-                subagent, model, result.usage, result.total_cost_usd or 0.0, duration_ms=result.duration_ms
+                subagent,
+                model,
+                result.usage,
+                result.total_cost_usd or 0.0,
+                duration_ms=result.duration_ms,
+                # Explicit `effort=None` records a deliberate SDK default; omitting it
+                # would record NULL, which means "not recorded" (see usage._UNSET).
+                thinking=_THINKING,
+                effort=None,
             )
         )
     return result.text
