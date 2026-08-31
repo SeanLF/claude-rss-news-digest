@@ -1,0 +1,524 @@
+{
+  "must_know": [
+    {
+      "headline": "US unveils Iran sanctions package as Pakistan's army chief lands in Tehran",
+      "summary": "Treasury Secretary Scott Bessent announced what the Trump administration called its toughest-ever sanctions on Iran on Monday, threatening countries that provide any 'lifeline' to Tehran. Iran's foreign minister dismissed the measures as a sign of desperation, while Pakistan's army chief Asim Munir arrived in Tehran \u2014 his third such visit this year \u2014 after Trump called him last week to request Islamabad use its influence to bring Iran back to negotiations.",
+      "why_it_matters": "The sanctions' effectiveness turns almost entirely on whether they target China, which accounts for roughly 90 percent of Iran's oil sales according to the US Treasury \u2014 but targeting Chinese buyers risks a blowback that analysts say Washington may not be ready to absorb, creating a bind where the most forceful version of the strategy undermines the US-China relationship and the softest version leaves Iran's main revenue stream intact.",
+      "sources": [
+        {
+          "article_id": "A7"
+        },
+        {
+          "article_id": "A18"
+        },
+        {
+          "article_id": "A27"
+        },
+        {
+          "article_id": "A32"
+        },
+        {
+          "article_id": "A37"
+        },
+        {
+          "article_id": "A108"
+        },
+        {
+          "article_id": "A174"
+        },
+        {
+          "article_id": "A191"
+        },
+        {
+          "article_id": "A212"
+        },
+        {
+          "article_id": "A228"
+        },
+        {
+          "article_id": "A249"
+        },
+        {
+          "article_id": "A282"
+        },
+        {
+          "article_id": "A286"
+        },
+        {
+          "article_id": "A287"
+        },
+        {
+          "article_id": "A300"
+        },
+        {
+          "article_id": "A311"
+        },
+        {
+          "article_id": "A312"
+        },
+        {
+          "article_id": "A313"
+        },
+        {
+          "article_id": "A387"
+        },
+        {
+          "article_id": "A394"
+        },
+        {
+          "article_id": "A413"
+        },
+        {
+          "article_id": "A446"
+        }
+      ],
+      "reporting_varies": [
+        {
+          "source": "Al Jazeera",
+          "angle": "Frames the sanctions as a risky gambit that risks blowback from China, with analysts doubting the measures will match the rhetoric.",
+          "bias": "Skeptical of US leverage; emphasises structural limits of the pressure campaign."
+        },
+        {
+          "source": "Reuters / Straits Times",
+          "angle": "Focuses on Pakistan's mediating role and the diplomatic track, noting Trump personally called Munir ahead of the Tehran visit.",
+          "bias": "Neutral-reportorial; treats mediation as a live track alongside the sanctions."
+        },
+        {
+          "source": "Iran state media / Le Monde",
+          "angle": "Iran's foreign minister calls the sanctions an 'act of war' and an 'admission of defeat', while Iran's rial fell to a record low.",
+          "bias": "Reflects Tehran's defiant framing; notes domestic economic pain without conceding leverage."
+        }
+      ]
+    },
+    {
+      "headline": "Burnham brings SCALP missile blueprints to Kyiv as Coalition of the Willing convenes",
+      "summary": "UK Prime Minister Andy Burnham visited Ukraine on Monday \u2014 his first foreign trip since taking office last month \u2014 and announced Britain would share classified blueprints for components of the SCALP long-range cruise missile, enabling France and Ukraine to set up local assembly lines. European leaders gathered in Kyiv for a Coalition of the Willing meeting to press for more air-defence supplies and additional pressure on Moscow.",
+      "why_it_matters": "Sharing the SCALP blueprints for in-country production is a qualitatively different form of support than supplying finished weapons: it gives Ukraine a manufacturing base that cannot be severed by export decisions or supply-chain disruptions, making the commitment harder for future governments to reverse.",
+      "sources": [
+        {
+          "article_id": "A76"
+        },
+        {
+          "article_id": "A101"
+        },
+        {
+          "article_id": "A224"
+        },
+        {
+          "article_id": "A263"
+        },
+        {
+          "article_id": "A292"
+        },
+        {
+          "article_id": "A378"
+        },
+        {
+          "article_id": "A400"
+        },
+        {
+          "article_id": "A444"
+        },
+        {
+          "article_id": "A465"
+        },
+        {
+          "article_id": "A467"
+        },
+        {
+          "article_id": "A490"
+        }
+      ]
+    },
+    {
+      "headline": "Syria and Israel hold first US-mediated talks in months after airbase strike",
+      "summary": "Syria's Foreign Minister Asaad al-Shaibani met Mossad chief Roman Gofman in Jordan on Sunday under US mediation, the first direct talks between the two sides since Israel's war on Iran froze negotiations earlier this year. The talks focused on halting Israeli strikes on Syrian territory and on preventing Israeli-Turkish tensions from spilling into Syria; Syria insisted on its right to rebuild its military and set Israeli withdrawal as a precondition for any broader agreement.",
+      "why_it_matters": "The talks resumed days after a US envoy called Israel's strike on Syria's Abu al-Duhur airbase an 'unnecessary escalation' \u2014 a rare public rebuke that exposed a gap between Washington and Jerusalem just as the US is trying to broker a Syria-Israel security deal, giving Damascus leverage to hold out for terms Israel has so far refused.",
+      "sources": [
+        {
+          "article_id": "A25"
+        },
+        {
+          "article_id": "A33"
+        },
+        {
+          "article_id": "A34"
+        },
+        {
+          "article_id": "A156"
+        },
+        {
+          "article_id": "A185"
+        },
+        {
+          "article_id": "A227"
+        },
+        {
+          "article_id": "A293"
+        },
+        {
+          "article_id": "A379"
+        },
+        {
+          "article_id": "A382"
+        },
+        {
+          "article_id": "A420"
+        }
+      ]
+    },
+    {
+      "headline": "Ukraine expands drone campaign against Russian retail hubs; three teenagers killed in Krasnodar",
+      "summary": "Ukrainian drones struck four logistics hubs belonging to Ozon, Russia's second-largest online retailer, in southern Russia overnight; separately, drone debris hit a childcare centre in Krasnodar, killing three teenagers and wounding eight others, including seven children. Russia struck the outskirts of Kharkiv, killing three people. A fuel crisis caused by strikes on refineries now reportedly affects at least 30 Russian regions.",
+      "why_it_matters": "Deliberately targeting civilian-facing supply chains like Ozon warehouses is designed to raise the cost of the war for ordinary Russians whose daily economic lives are increasingly disrupted; Putin said on Saturday that Moscow would retaliate against Ukraine's 'most sensitive economic sectors', raising the risk of escalating tit-for-tat strikes on civilian infrastructure on both sides.",
+      "sources": [
+        {
+          "article_id": "A112"
+        },
+        {
+          "article_id": "A117"
+        },
+        {
+          "article_id": "A176"
+        },
+        {
+          "article_id": "A261"
+        },
+        {
+          "article_id": "A301"
+        },
+        {
+          "article_id": "A336"
+        },
+        {
+          "article_id": "A403"
+        },
+        {
+          "article_id": "A409"
+        },
+        {
+          "article_id": "A414"
+        }
+      ]
+    },
+    {
+      "headline": "Landfill collapse kills at least 30 in Guinea's capital Conakry",
+      "summary": "A mound of waste at a major landfill in Conakry collapsed after heavy overnight rain, burying homes and killing at least 30 people, with 74 others injured. Rescue teams including the military used excavators to search for survivors; one woman said her five children died. The government had announced plans to close the site because of the danger it posed less than a week before the disaster.",
+      "why_it_matters": "The government had ordered residents near the site to move and announced its closure before the collapse occurred, meaning the deaths resulted not from an unforeseeable event but from residents staying put and a landfill remaining operational after authorities acknowledged its risk \u2014 pointing to a failure of enforcement rather than a lack of warning.",
+      "sources": [
+        {
+          "article_id": "A49"
+        },
+        {
+          "article_id": "A89"
+        },
+        {
+          "article_id": "A106"
+        },
+        {
+          "article_id": "A306"
+        },
+        {
+          "article_id": "A384"
+        },
+        {
+          "article_id": "A429"
+        },
+        {
+          "article_id": "A494"
+        },
+        {
+          "article_id": "A526"
+        }
+      ]
+    }
+  ],
+  "should_know": [
+    {
+      "headline": "More than 50 coordinated arson and bomb attacks hit southern Thailand",
+      "summary": "Suspected insurgents carried out more than 50 coordinated arson and incendiary attacks across four southern provinces \u2014 Narathiwat, Yala, Pattani and Songkhla \u2014 overnight on Saturday, injuring at least two people and hitting government buildings, shops, telecommunications towers and a rail line. No group claimed responsibility; Deputy Prime Minister Phumtham Wechayachai imposed a curfew in Narathiwat and said intelligence had warned of the attacks nearly two months earlier.",
+      "why_it_matters": "The attacks came as Bangkok was seeking to revive peace talks with the Barisan Revolusi Nasional and just ahead of a planned government visit to the south \u2014 a pattern that mirrors past insurgent tactics of escalating violence to signal continued relevance before or during negotiations.",
+      "sources": [
+        {
+          "article_id": "A2"
+        },
+        {
+          "article_id": "A53"
+        },
+        {
+          "article_id": "A70"
+        },
+        {
+          "article_id": "A264"
+        },
+        {
+          "article_id": "A531"
+        }
+      ]
+    },
+    {
+      "headline": "MBS arrives in Berlin for strategic talks with Macron on Iran, energy and esports",
+      "summary": "Saudi Crown Prince Mohammed bin Salman arrived in Paris on Sunday for a two-day official visit with French President Emmanuel Macron, attending the closing ceremony of the Esports World Cup \u2014 held outside Saudi Arabia for the first time but largely funded by Riyadh \u2014 before a second day of strategic talks expected to cover the Iran war, the Strait of Hormuz and new energy routes to bypass the strait.",
+      "why_it_matters": "Talks on alternative energy routes to bypass the Strait of Hormuz signal that Gulf states and their Western partners are planning around a prolonged disruption rather than treating it as a short-term crisis, which would accelerate infrastructure investments that reduce the strait's strategic leverage and potentially undercut Iran's main coercive tool.",
+      "sources": [
+        {
+          "article_id": "A3"
+        },
+        {
+          "article_id": "A144"
+        },
+        {
+          "article_id": "A147"
+        },
+        {
+          "article_id": "A150"
+        },
+        {
+          "article_id": "A380"
+        },
+        {
+          "article_id": "A396"
+        },
+        {
+          "article_id": "A416"
+        }
+      ]
+    },
+    {
+      "headline": "US and Canada dig in as 50% tariffs take effect and businesses warn of ruin",
+      "summary": "US tariffs of 50 percent on roughly $20 billion worth of Canadian exports took effect after talks collapsed on Friday, with Canada's government promising matching retaliatory levies on US steel, dairy, appliances and electronics from September 8. Business owners on both sides of the border said the tariffs could wipe out significant portions of their sales, with some warning of closures.",
+      "why_it_matters": "Canada sends nearly all of its exports to the United States, meaning sustained and expanded tariffs would hit its economy far harder proportionally than the American economy \u2014 yet Prime Minister Carney's 'no bad deal' strategy requires holding the line publicly even as businesses absorb losses before Canada's September 8 countermeasures even begin.",
+      "sources": [
+        {
+          "article_id": "A16"
+        },
+        {
+          "article_id": "A55"
+        },
+        {
+          "article_id": "A65"
+        },
+        {
+          "article_id": "A103"
+        },
+        {
+          "article_id": "A105"
+        },
+        {
+          "article_id": "A171"
+        },
+        {
+          "article_id": "A173"
+        },
+        {
+          "article_id": "A195"
+        },
+        {
+          "article_id": "A235"
+        },
+        {
+          "article_id": "A386"
+        },
+        {
+          "article_id": "A423"
+        },
+        {
+          "article_id": "A539"
+        },
+        {
+          "article_id": "A541"
+        },
+        {
+          "article_id": "A543"
+        }
+      ]
+    },
+    {
+      "headline": "US cancels South Korea marine drills, citing Iran war strain on forces",
+      "summary": "The United States cancelled a planned division-level amphibious exercise with South Korea, citing force-availability constraints caused by the Iran war \u2014 the latest in a string of reductions to joint drills following Trump's decision to scale back the Ulchi Freedom Shield exercise. Despite Trump's overtures to Kim Jong Un, Pyongyang fired ballistic missiles last week and South Korea's defence ministry said North Korea is continuing preparations for additional troop deployments to Russia.",
+      "why_it_matters": "Washington's diversion of forces \u2014 including the departure of the USS George Washington from the western Pacific \u2014 is eroding a visible deterrent the Biden administration had worked to reinforce, and is eroding the visible deterrent that has underpinned security across the first island chain; Japan, Taiwan and India are each now recalculating how much weight to put on US security commitments at a moment when China's military pressure on each of them is intensifying.",
+      "sources": [
+        {
+          "article_id": "A29"
+        },
+        {
+          "article_id": "A30"
+        },
+        {
+          "article_id": "A75"
+        },
+        {
+          "article_id": "A226"
+        },
+        {
+          "article_id": "A259"
+        },
+        {
+          "article_id": "A265"
+        },
+        {
+          "article_id": "A277"
+        }
+      ]
+    },
+    {
+      "headline": "Shein sets $27bn Hong Kong IPO valuation \u2014 less than a third of its 2022 peak",
+      "summary": "Fast-fashion retailer Shein announced it will offer nearly 280 million shares at between HK$47.60 and HK$49.50 each in a Hong Kong Stock Exchange debut on September 1, targeting a valuation of up to $26.8 billion and aiming to raise up to $1.77 billion. The figure is well below the company's $100 billion valuation in 2022, reflecting a $99 million first-quarter loss, slowing growth after the removal of the US de minimis duty exemption, and disruption from the Iran war.",
+      "why_it_matters": "Shein's Hong Kong listing comes after attempts to list in both the US and London collapsed under regulatory scrutiny, and the valuation has shrunk by more than two-thirds since 2022 \u2014 meaning investors buying in at the IPO are betting the company can recover profitability in a market where the tariff regime that fuelled its growth has been dismantled.",
+      "sources": [
+        {
+          "article_id": "A50"
+        },
+        {
+          "article_id": "A129"
+        },
+        {
+          "article_id": "A218"
+        },
+        {
+          "article_id": "A280"
+        },
+        {
+          "article_id": "A294"
+        },
+        {
+          "article_id": "A332"
+        },
+        {
+          "article_id": "A333"
+        },
+        {
+          "article_id": "A483"
+        },
+        {
+          "article_id": "A517"
+        }
+      ]
+    },
+    {
+      "headline": "Europe's summer heat has killed more than 32,000 people, tracking data shows",
+      "summary": "The EuroMomo mortality platform estimates more than 32,000 excess deaths in Europe between mid-June and mid-August, with national tallies from eight countries \u2014 Germany, France, Spain, Belgium, England, the Netherlands, Austria and Portugal \u2014 reaching roughly 33,000 heat-related deaths. Germany recorded around 14,000 heat deaths to August 9, a record since such estimates began in 2016; Spain logged nearly 4,500; France around 7,300.",
+      "why_it_matters": "Despite the scale of the toll, a survey across six major European nations found that more people favour encouraging air-conditioning adoption over accelerating emissions cuts \u2014 a political dynamic that favours adaptation over prevention and risks locking in infrastructure that increases long-term energy demand even as governments acknowledge the climate driver of the deaths.",
+      "sources": [
+        {
+          "article_id": "A61"
+        },
+        {
+          "article_id": "A166"
+        },
+        {
+          "article_id": "A484"
+        },
+        {
+          "article_id": "A538"
+        }
+      ],
+      "reporting_varies": [
+        {
+          "source": "Clar\u00edn / AFP data compilation",
+          "angle": "Leads with the aggregate EuroMomo figure and breaks down national tallies, treating the deaths as a quantifiable crisis comparable to past heatwave disasters.",
+          "bias": "Data-forward; frames the deaths as a documented emergency requiring policy response."
+        },
+        {
+          "source": "WSJ / The Guardian",
+          "angle": "Focuses on European governments' political reluctance to maintain green commitments, noting that nations that criticised US climate rollbacks are themselves delaying their own targets.",
+          "bias": "Notes the gap between stated climate goals and actual policy \u2014 critical of European governments from different directions."
+        }
+      ]
+    },
+    {
+      "headline": "Chinese humanoid robots beat Usain Bolt's 100m record at Beijing games",
+      "summary": "At the World Humanoid Robot Games in Beijing, a robot from X-Humanoid ran 100 metres in 9.39 seconds, beating the 9.58-second human record set by Usain Bolt in 2009; a robot from the same company cleared 2.88 metres in the standing high jump, surpassing the human record. More than 2,000 humanoid robots from 16 countries competed in the five-day event, held at the National Speed Skating Oval built for the 2022 Winter Olympics.",
+      "why_it_matters": "The records were set the same week as Beijing's World Robot Conference and in the same month the US Federal Communications Commission banned imports of new foreign-made humanoid robots on national-security grounds \u2014 China's showcase of robotics capability is arriving precisely as Washington tries to decouple from Chinese hardware.",
+      "sources": [
+        {
+          "article_id": "A96"
+        },
+        {
+          "article_id": "A114"
+        },
+        {
+          "article_id": "A175"
+        },
+        {
+          "article_id": "A513"
+        }
+      ]
+    },
+    {
+      "headline": "New Zealand government introduces bill to ban social media for under-16s",
+      "summary": "Prime Minister Christopher Luxon announced Monday that his party will introduce legislation banning children under 16 from social media, with fines of up to 10 percent of a platform's global revenue for non-compliance. The bill faces uncertain passage: coalition partner New Zealand First, which holds eight seats, said it would not support it, with leader Winston Peters calling Australia's similar ban \u2014 enacted in December \u2014 a 'colossal failure'.",
+      "why_it_matters": "New Zealand First's refusal to back the bill means Luxon cannot pass it through his own coalition, forcing him to seek support from opposition parties \u2014 a parliamentary arithmetic problem that could water down or kill the legislation even while the government earns credit for proposing it.",
+      "sources": [
+        {
+          "article_id": "A172"
+        },
+        {
+          "article_id": "A246"
+        },
+        {
+          "article_id": "A270"
+        },
+        {
+          "article_id": "A451"
+        }
+      ]
+    },
+    {
+      "headline": "Russian drone guided entirely by AI kills three Ukrainians, officials say",
+      "summary": "Ukrainian officials said a Russian drone that killed three Ukrainians was guided entirely by artificial intelligence, with no human in the control loop. Separately, officials said some Russian AI drones use Nvidia microcomputers, which the company says it does not sell in Russia but which are widely available on resale markets and virtually impossible to track once purchased that way.",
+      "why_it_matters": "Fully autonomous lethal drones operating without human oversight eliminate the time lag that existing countermeasures \u2014 jamming, interception, legal restrictions \u2014 are designed around; once the technology is demonstrated in combat, the barrier to its adoption by any actor possessing similar hardware drops sharply.",
+      "sources": [
+        {
+          "article_id": "A220"
+        },
+        {
+          "article_id": "A225"
+        }
+      ]
+    },
+    {
+      "headline": "Hugging Face exploring sale at $13 billion valuation",
+      "summary": "AI platform Hugging Face is exploring a sale that would value the company at $13 billion, according to Business Insider, with the round led by Sequoia Capital and existing backers Google and Amazon expected to exit their stakes.",
+      "why_it_matters": "Hugging Face hosts the dominant open-source model repository used by researchers and developers worldwide; a sale would place control of that infrastructure in new hands at a moment when open-source AI is the main counterweight to closed commercial models \u2014 raising questions about whether the platform's terms of access would change.",
+      "sources": [
+        {
+          "article_id": "A304"
+        }
+      ]
+    },
+    {
+      "headline": "China postpones Chang'e-7 lunar mission, likely until 2027",
+      "summary": "China's Manned Space Agency announced Sunday that the Chang'e-7 mission \u2014 designed to search for water ice at the Moon's south pole \u2014 cannot launch during its planned window this year, citing a comprehensive safety and reliability assessment. One analysis suggested Typhoon Narra, hovering near the Wenchang launch site in Hainan, likely prevented the window from opening; social media reports indicated the next suitable window may not open until February or March.",
+      "why_it_matters": "After a July launch-pad fire destroyed ground support equipment, the mission plan still requires a 90-day lunar-orbit reconnaissance before landing, meaning a February or March launch would push surface operations well into 2027 \u2014 compressing the timeline for China to confirm and exploit lunar water resources at a moment when competition over the Moon's south pole is intensifying.",
+      "sources": [
+        {
+          "article_id": "A38"
+        },
+        {
+          "article_id": "A164"
+        },
+        {
+          "article_id": "A369"
+        },
+        {
+          "article_id": "A536"
+        }
+      ]
+    },
+    {
+      "headline": "Taiwan floods leave four missing as Typhoon Saudel approaches",
+      "summary": "Heavy rain from a low-pressure system left four people missing in southern and eastern Taiwan and forced school and office closures across six cities and counties. Authorities warned cumulative rainfall could exceed 1.3 metres in Kaohsiung over five days; Typhoon Saudel was tracking toward the island later in the week.",
+      "why_it_matters": "TSMC, which operates advanced chip factories in Tainan and Kaohsiung, said its facilities were running normally \u2014 but the convergence of severe flooding and an approaching typhoon simultaneously stresses the world's most critical semiconductor manufacturing sites at a moment when any disruption would ripple through global supply chains.",
+      "sources": [
+        {
+          "article_id": "A71"
+        },
+        {
+          "article_id": "A297"
+        }
+      ]
+    }
+  ],
+  "preheader": "US unveils Iran sanctions as Pakistan mediates; Burnham brings SCALP blueprints to Kyiv; Canada-US trade war bites businesses."
+}

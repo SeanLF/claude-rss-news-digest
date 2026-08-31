@@ -41,6 +41,23 @@ survive that finding: a planted fabrication is true by CONSTRUCTION, not by a ra
   `python3 docs/proposed/coherence-planted/lang.py`.
 - `pooled.py`, `build_planted*.py` hardcode `scratch/` paths and do NOT run from here as-is; they
   are kept as the record of method, not as runnable scripts.
+- `fixtures/{planted274,planted278,planted278b}/` — the drafts, article CSVs and fulltext the keys
+  index, each with its `labels.json`. Rescued 2026-08-31: the first rescue took the KEYS only, and
+  a key without the corpus it labels cannot be replayed. `planted278b` is the leakage control --
+  same key as `planted278`, built with the key outside the mounted directory.
+
+Run one against the live prompt through the production SDK path:
+
+    docker compose run --rm \
+      -v "$(pwd)/docs/proposed/coherence-planted/fixtures/planted274:/app/eval-fixtures" \
+      -v "$(pwd)/newsroom/src:/app/src" -v "$(pwd)/.claude/agents:/app/.claude/agents" \
+      -e PYTHONPATH=/app/src --entrypoint /app/.venv/bin/python3 \
+      digest-newsroom /app/src/eval_coherence.py --runs 1
+
+Recall on these is SATURATED (planted274 scores 8/8 on the shipped prompt), so they measure
+regression, not improvement. The two known always-miss cases live in the COMMITTED fixture
+`newsroom/tests/fixtures/coherence_faithful` (run 245), which is what `bin/eval-coherence` uses
+by default: idx 0 summary (scope + event-participant) and idx 3 headline ("most" vs "some").
 
 **Recall only.** The 48 `clean_fields` are model-passed, not human-cleared, so the false-positive
 rate computed against them is an upper bound. `planted278_key.json`'s own `_doc` says so. Anything

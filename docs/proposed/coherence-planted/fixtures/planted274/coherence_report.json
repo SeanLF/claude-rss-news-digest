@@ -1,0 +1,116 @@
+{
+  "results": [
+    {
+      "headline": "US unveils Iran sanctions package as Pakistan's army chief lands in Tehran",
+      "article_ids": ["A7","A18","A27","A32","A37","A108","A174","A191","A212","A228","A249","A282","A286","A287","A300","A311","A312","A313","A387","A394","A413","A446"],
+      "pass": true,
+      "reason": "Matches cited sources: Bessent/Treasury 'toughest-ever' sanctions announced Monday (A7), Iran FM dismissing measures as desperation (A37), Munir's third Tehran visit this year (A18), Trump's call requesting mediation (A27), and the 90% China oil-share figure (A7)."
+    },
+    {
+      "headline": "Burnham brings SCALP missile blueprints to Kyiv as Coalition of the Willing convenes",
+      "article_ids": ["A76","A101","A224","A263","A292","A378","A400","A444","A465","A467","A490"],
+      "pass": false,
+      "reason": "summary: claims the Coalition of the Willing meeting was held 'to press for more air-defence supplies and additional pressure on Moscow' -- this specific purpose is not stated in any of this story's cited sources (A76 only covers the SCALP blueprint announcement and Burnham's visit); that phrasing appears in non-cited articles (e.g. A17, A154), which does not count as support.",
+      "failed_fields": ["summary"]
+    },
+    {
+      "headline": "Syria and Israel hold first US-mediated talks in months after airbase strike",
+      "article_ids": ["A25","A33","A34","A156","A185","A227","A293","A379","A382","A420"],
+      "pass": true,
+      "reason": "Matches cited sources: al-Shaibani/Gofman talks in Jordan under US mediation (A25, A33, A34), talks frozen since the Iran war began in February (A25), Barrack's 'unnecessary escalation' comment on the airbase strike (A34), and Syria's stated preconditions (A25, A33)."
+    },
+    {
+      "headline": "Ukraine expands drone campaign against Russian retail hubs; three teenagers killed in Krasnodar",
+      "article_ids": ["A112","A117","A176","A261","A301","A336","A403","A409","A414"],
+      "pass": true,
+      "reason": "Matches cited sources: four Ozon logistics hubs struck (A403, A261), three teenagers killed/eight wounded including seven children per updated toll (A414, A301), three killed near Kharkiv (A336, A176), Putin's Saturday 'most sensitive economic sectors' quote (A176), and the 30-region fuel crisis (A117)."
+    },
+    {
+      "headline": "Landfill collapse kills at least 30 in Guinea's capital Conakry",
+      "article_ids": ["A49","A89","A106","A306","A384","A429","A494","A526"],
+      "pass": false,
+      "reason": "summary: states '74 others injured,' but cited sources consistently give a much lower injury count -- A89 says six seriously injured and 16 lightly injured (22 total), and A49 says 22 injured including six seriously; no cited source supports 74 injured.",
+      "failed_fields": ["summary"]
+    },
+    {
+      "headline": "More than 50 coordinated arson and bomb attacks hit southern Thailand",
+      "article_ids": ["A2","A53","A70","A264","A531"],
+      "pass": false,
+      "reason": "summary: attributes the Narathiwat curfew and the two-months-earlier intelligence warning to 'Deputy Prime Minister Phumtham Wechayachai,' but no cited source names this person -- A70 attributes the intelligence-warning statement to Lt. Gen. Norathip Poinok and names Prime Minister Anutin Charnvirakul in connection with the security response, while A53 attributes the curfew only to unnamed 'authorities.' This is an attribution upgrade to a person not found in the cited sources.",
+      "failed_fields": ["summary"]
+    },
+    {
+      "headline": "MBS arrives in Berlin for strategic talks with Macron on Iran, energy and esports",
+      "article_ids": ["A3","A144","A147","A150","A380","A396","A416"],
+      "pass": false,
+      "reason": "headline: says MBS arrived in 'Berlin,' but the story's own summary and every cited source (A3, A147, A150, A380, A416) place the visit and talks with Macron in Paris, France -- the headline contradicts the summary and misattributes the location.",
+      "failed_fields": ["headline"]
+    },
+    {
+      "headline": "US and Canada dig in as 50% tariffs take effect and businesses warn of ruin",
+      "article_ids": ["A16","A55","A65","A103","A105","A171","A173","A195","A235","A386","A423","A539","A541","A543"],
+      "pass": false,
+      "reason": "why_it_matters: claims Canada 'sends nearly all of its exports to the United States,' but the cited source A55 explicitly states '70% of its exports are to the US' -- a materially stronger and unsupported quantifier that contradicts the cited figure.",
+      "failed_fields": ["why_it_matters"]
+    },
+    {
+      "headline": "US cancels South Korea marine drills, citing Iran war strain on forces",
+      "article_ids": ["A29","A30","A75","A226","A259","A265","A277"],
+      "pass": false,
+      "reason": "why_it_matters: refers to a deterrent 'the Biden administration had worked to reinforce' -- no cited source mentions the Biden administration at all; all cited sources describe only the current Trump administration's actions (drill cancellations, Kim outreach), making this an unsupported and out-of-place claim.",
+      "failed_fields": ["why_it_matters"]
+    },
+    {
+      "headline": "Shein sets $27bn Hong Kong IPO valuation — less than a third of its 2022 peak",
+      "article_ids": ["A50","A129","A218","A280","A294","A332","A333","A483","A517"],
+      "pass": true,
+      "reason": "Matches cited sources: share range and $26.8bn/$1.77bn figures (A50), $100bn 2022 valuation and 'less than a third' math check out, $99m Q1 loss, de minimis exemption removal, and Iran-war disruption to demand/costs (A50)."
+    },
+    {
+      "headline": "Europe's summer heat has killed more than 32,000 people, tracking data shows",
+      "article_ids": ["A61","A166","A484","A538"],
+      "pass": true,
+      "reason": "Matches cited source A61 precisely: >32,000 EuroMomo excess deaths mid-June to mid-August, 33,000 across the same eight named countries, Germany ~14,000 (record since 2016), Spain ~4,500, France ~7,300; the six-nation air-conditioning survey is confirmed by A484."
+    },
+    {
+      "headline": "Chinese humanoid robots beat Usain Bolt's 100m record at Beijing games",
+      "article_ids": ["A96","A114","A175","A513"],
+      "pass": false,
+      "reason": "why_it_matters: claims the FCC robot-import ban happened 'in the same month' as the robot games, but cited source A175 explicitly says the ban was announced 'last month' relative to the games -- a direct contradiction of the cited source's timeline.",
+      "failed_fields": ["why_it_matters"]
+    },
+    {
+      "headline": "New Zealand government introduces bill to ban social media for under-16s",
+      "article_ids": ["A172","A246","A270","A451"],
+      "pass": false,
+      "reason": "summary: states New Zealand First 'holds eight seats,' a specific figure not found in any cited source (A172, A246 report Peters's opposition and the 'colossal failure' quote but do not give a seat count).",
+      "failed_fields": ["summary"]
+    },
+    {
+      "headline": "Russian drone guided entirely by AI kills three Ukrainians, officials say",
+      "article_ids": ["A220","A225"],
+      "pass": true,
+      "reason": "Matches cited sources: A220 confirms the fully AI-guided drone killed three Ukrainians with no human in the loop, and A225 confirms the Nvidia microcomputer sourcing/traceability details."
+    },
+    {
+      "headline": "Hugging Face exploring sale at $13 billion valuation",
+      "article_ids": ["A304"],
+      "pass": false,
+      "reason": "summary: names 'Sequoia Capital' as leading the round and states 'Google and Amazon expected to exit their stakes' -- the only cited source (A304) is a headline-only entry ('Hugging Face exploring sale valuing it at $13 billion, Business Insider says') with no available text supporting the investor names or exit details.",
+      "failed_fields": ["summary"]
+    },
+    {
+      "headline": "China postpones Chang'e-7 lunar mission, likely until 2027",
+      "article_ids": ["A38","A164","A369","A536"],
+      "pass": false,
+      "reason": "why_it_matters: asserts 'a July launch-pad fire destroyed ground support equipment,' but no cited source mentions a launch-pad fire -- A38 mentions an unrelated Long March 7A vehicle lost during ascent two weeks earlier (a different rocket, not a pad fire), and no cited source describes destroyed ground support equipment.",
+      "failed_fields": ["why_it_matters"]
+    },
+    {
+      "headline": "Taiwan floods leave four missing as Typhoon Saudel approaches",
+      "article_ids": ["A71","A297"],
+      "pass": true,
+      "reason": "Matches cited source A71: four missing (three in Hualien, one in Tainan), six cities/counties with closures, 1.3-metre cumulative rainfall warning for Kaohsiung, Typhoon Saudel tracking toward the island, and TSMC's normal operations statement."
+    }
+  ]
+}

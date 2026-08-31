@@ -1,0 +1,179 @@
+{
+  "_doc": "Held-out planted-fabrication ground truth built from archived run 278 (2026-08-28 healthy run). 8 fabrications planted into 8 distinct stories, one field each; each verified absent from or contradicted by that story's OWN cited sources. clean_fields = the 3 fields of 8 entirely UNTOUCHED stories. CAVEAT: 'untouched' means production COHERENCE passed the story and nothing was planted -- it is not a hand-audited clean label, so the false-positive rate on this set is an UPPER BOUND (a flag may be a genuine catch production missed). idx 10 is excluded from both sets: production flagged it on the real run.",
+  "hard_positives": [
+    {
+      "idx": 0,
+      "field": "headline",
+      "type": "EntE-wrong-entity",
+      "claim": "Nepal-Bhutan rescue",
+      "why": "Cited sources say Nepal-Tibet border; 'Bhutan' appears in no cited source, and it contradicts the story's own summary."
+    },
+    {
+      "idx": 2,
+      "field": "summary",
+      "type": "numeric-contradiction",
+      "claim": "at least 12,000 Muslims",
+      "why": "Cited sources state 8,000; 12,000 appears nowhere."
+    },
+    {
+      "idx": 13,
+      "field": "summary",
+      "type": "quantifier-overstatement",
+      "claim": "delay or cancel most data centre projects",
+      "why": "Cited source states 'about 20 percent'; 'most' contradicts the source quantifier."
+    },
+    {
+      "idx": 6,
+      "field": "why_it_matters",
+      "type": "LinkE-fabricated-event",
+      "claim": "and renewed armed clashes in North Kivu have already forced three vaccination sites to suspend work, meaning the two efforts compete for doses",
+      "why": "'North Kivu', 'clashes' and the three suspended sites appear in no cited source."
+    },
+    {
+      "idx": 14,
+      "field": "summary",
+      "type": "attribution-upgrade",
+      "claim": "Governors Michelle Bowman, Christopher Waller and Lisa Cook dissented in favour of a rate hike",
+      "why": "Cited sources say 'three Fed officials'; none of the three names appears in any cited source."
+    },
+    {
+      "idx": 16,
+      "field": "summary",
+      "type": "OutE-padding",
+      "claim": "with 731,000 babies born, a 1.8 percent increase the ministry attributed to a post-pandemic rebound in marriages, according to government data published Friday.",
+      "why": "Sole source is a one-line headline with no fulltext; every figure and the causal attribution are invented."
+    },
+    {
+      "idx": 15,
+      "field": "summary",
+      "type": "OutE-absence",
+      "claim": "finished second to incumbent President Hakainde Hichilema by fewer than 40,000 votes.",
+      "why": "No cited source states any vote margin."
+    },
+    {
+      "idx": 5,
+      "field": "why_it_matters",
+      "type": "stale-world-state",
+      "claim": "that before the war carried roughly one-fifth of world oil supply -- a closure the Biden administration has so far failed to reverse.",
+      "why": "Cited sources describe the Trump administration; 'Biden' appears in no cited source."
+    }
+  ],
+  "borderline": [],
+  "clean_fields": [
+    {
+      "idx": 1,
+      "field": "headline"
+    },
+    {
+      "idx": 1,
+      "field": "summary"
+    },
+    {
+      "idx": 1,
+      "field": "why_it_matters"
+    },
+    {
+      "idx": 3,
+      "field": "headline"
+    },
+    {
+      "idx": 3,
+      "field": "summary"
+    },
+    {
+      "idx": 3,
+      "field": "why_it_matters"
+    },
+    {
+      "idx": 4,
+      "field": "headline"
+    },
+    {
+      "idx": 4,
+      "field": "summary"
+    },
+    {
+      "idx": 4,
+      "field": "why_it_matters"
+    },
+    {
+      "idx": 7,
+      "field": "headline"
+    },
+    {
+      "idx": 7,
+      "field": "summary"
+    },
+    {
+      "idx": 7,
+      "field": "why_it_matters"
+    },
+    {
+      "idx": 8,
+      "field": "headline"
+    },
+    {
+      "idx": 8,
+      "field": "summary"
+    },
+    {
+      "idx": 8,
+      "field": "why_it_matters"
+    },
+    {
+      "idx": 9,
+      "field": "headline"
+    },
+    {
+      "idx": 9,
+      "field": "summary"
+    },
+    {
+      "idx": 9,
+      "field": "why_it_matters"
+    },
+    {
+      "idx": 11,
+      "field": "headline"
+    },
+    {
+      "idx": 11,
+      "field": "summary"
+    },
+    {
+      "idx": 11,
+      "field": "why_it_matters"
+    },
+    {
+      "idx": 12,
+      "field": "headline"
+    },
+    {
+      "idx": 12,
+      "field": "summary"
+    },
+    {
+      "idx": 12,
+      "field": "why_it_matters"
+    }
+  ],
+  "idx_headlines": {
+    "0": "Death toll tops 470 as barrier lake overflow halts Nepal-Bhutan rescue",
+    "1": "Norway's King Harald V dies at 89; son Haakon takes throne",
+    "2": "Ratko Mladi\u0107, convicted of genocide at Srebrenica, dies in Hague prison",
+    "3": "US judge rules Pentagon's blacklisting of Anthropic was illegal",
+    "4": "Trump says Putin will not attack NATO as Pentagon prepares European defence options",
+    "5": "Iran agrees to draw up Hormuz conditions list; US clears strait of mines",
+    "6": "DRC launches Ebola vaccination drive as death toll reaches 2,744",
+    "7": "Syria appoints Kurdish commander Abdi as presidential adviser and allows Kurdish-language schooling",
+    "8": "Russia strikes Kyiv for second straight day; Kherson told to evacuate",
+    "9": "Chinese executives may join Xi's September US visit; trade truce extension seen as near-certain",
+    "10": "Bangladesh journalists jailed since 2024 remain detained as BNP fails to honour press-freedom pledge",
+    "11": "Taiwan parliament passes its own drone plan and backs $7bn boost for domestic builders",
+    "12": "Australia severs ties with two Chinese universities as Pacific rivalry sharpens",
+    "13": "Trump chip tariff plan could cost $90bn in annual GDP and delay one-fifth of US data centre projects, industry warns",
+    "14": "Fed chair Warsh's Jackson Hole debut scrutinised for rate signals as inflation persists above target",
+    "15": "Zambia opposition leader detained on treason charges ahead of president's inauguration",
+    "16": "Japan's births rise for first time in 11 years"
+  }
+}
