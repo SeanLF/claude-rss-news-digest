@@ -107,8 +107,15 @@ FULLTEXT_ENABLED = os.environ.get("FULLTEXT_ENABLED", "true").lower() in ("1", "
 FULLTEXT_PER_STORY = int(os.environ.get("FULLTEXT_PER_STORY", "3"))
 FULLTEXT_MAX_CHARS = int(os.environ.get("FULLTEXT_MAX_CHARS", "4000"))
 FULLTEXT_DEADLINE_S = int(os.environ.get("FULLTEXT_DEADLINE_S", "120"))
+# Grace added on top of FULLTEXT_DEADLINE_S before the parent kills the fetch worker. The
+# deadline bounds the waiter, not the work; this is the bound.
+# docs/lessons/a-deadline-on-the-waiter-does-not-bound-the-worker.md
+FULLTEXT_KILL_GRACE_S = int(os.environ.get("FULLTEXT_KILL_GRACE_S", "30"))
+# Pre-parse cap on a single document, in decoded characters (0 disables). A heuristic that
+# trims the slow tail, NOT a bound -- FULLTEXT_KILL_GRACE_S is the bound.
+FULLTEXT_MAX_DOC_CHARS = int(os.environ.get("FULLTEXT_MAX_DOC_CHARS", "2000000"))
 
-# Repair-not-drop (newsroom/src/repair.py): when COHERENCE fails a headline/summary, regenerate
+# Repair-not-drop (newsroom/src/repair.py): when COHERENCE fails a repairable field, regenerate
 # just that field from the cited sources and re-check it, instead of dropping the whole story.
 # Off by default -- the merge ladder only consumes repair_resolution.json when this is on, so a
 # stale resolution file from a prior run can never silently alter a drop decision. Strictly

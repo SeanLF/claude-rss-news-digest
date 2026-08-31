@@ -65,6 +65,23 @@ def _fulltext_enabled(monkeypatch):
     monkeypatch.setattr(config, "FULLTEXT_PER_STORY", 3)
     monkeypatch.setattr(config, "FULLTEXT_MAX_CHARS", 4000)
     monkeypatch.setattr(config, "FULLTEXT_DEADLINE_S", 120)
+    monkeypatch.setattr(config, "FULLTEXT_KILL_GRACE_S", 30)
+    monkeypatch.setattr(config, "FULLTEXT_MAX_DOC_CHARS", 0)
+
+
+@pytest.fixture(autouse=True)
+def _collect_in_process(monkeypatch):
+    """Run the fetch collector in-process instead of in its worker child.
+
+    A child process re-imports the real trafilatura, which monkeypatching in THIS process
+    cannot reach, so every test below that scripts a per-article outcome would hit the live
+    network. The process bound itself is proved in test_fulltext_isolation.py.
+    """
+
+    def _inline(*args, **kwargs):
+        return fulltext._collect_inline(*args, **kwargs), "completed"
+
+    monkeypatch.setattr(fulltext, "_collect_isolated", _inline)
 
 
 class TestTrafilaturaLoggerDoesNotLeakUrls:

@@ -61,8 +61,10 @@ _AGENTS_DIR = Path(".claude/agents")
 # subagents (thinking off); the Python orchestrator runs them as top-level SDK
 # queries, where Sonnet defaults thinking ON. On the CLUSTER stage that made the
 # model reason over ~460 articles until it tripped the 32k output-token ceiling
-# and the run aborted. Disabling restores the known-good behaviour. Per-stage
-# thinking budgets are a future tuning knob (e.g. the WRITE/SELECT judgment stages).
+# and the run aborted. That stage no longer reaches this default -- orchestrate_selections
+# routes cluster to cluster_extractjoin, which sets its own -- so this now governs only
+# RECAP/SELECT/WRITE, and the incident that justifies it happened elsewhere. coherence
+# overrides it per-stage; repair inherits this default and is the next candidate.
 _THINKING: ThinkingConfig = {"type": "disabled"}
 
 
@@ -340,6 +342,16 @@ _STAGES: tuple[tuple[str, str, str, Callable[[Path], None]], ...] = (
 # --------------------------------------------------------------------------- #
 
 
+def _resolved_thinking(spec: AgentSpec) -> ThinkingConfig:
+    """The thinking config actually sent for `spec`.
+
+    Both the send site and the run_usage record site call this. Two copies of the expression
+    would let the recorded config drift from the sent one, which is the blind spot the column
+    was added to close.
+    """
+    return spec.thinking or _THINKING
+
+
 async def _invoke_agent(
     spec: AgentSpec,
     *,
@@ -367,7 +379,7 @@ async def _invoke_agent(
         tools=tool_list,
         cwd=cwd,
         idle_timeout=idle_timeout,
-        thinking=spec.thinking or _THINKING,
+        thinking=_resolved_thinking(spec),
         effort=spec.effort,
     )
     if not result.ok:
@@ -426,7 +438,15 @@ async def run_stage(
                 continue
             raise RuntimeError(f"{label} stage failed after retry: {e}") from e
 
-        row = usage_row_from_sdk(label, model, result.usage, result.total_cost_usd, duration_ms=result.duration_ms)
+        row = usage_row_from_sdk(
+            label,
+            model,
+            result.usage,
+            result.total_cost_usd,
+            duration_ms=result.duration_ms,
+            thinking=_resolved_thinking(spec),
+            effort=spec.effort,
+        )
         duration = result.duration_ms / 1000
         # Basenames only -- every path shares the same container prefix, which is noise
         # on every line. "NOTHING" rather than a bare "read=" so the case worth catching
@@ -464,8 +484,8 @@ async def _run_fulltext_best_effort(claude_input_dir: Path) -> None:
     already catches everything internally and returns None on any failure; the broad catch here is
     a second, redundant layer (mirrors ``merge.py``'s best-effort instrumentation) so even a bug
     inside fulltext itself -- not just an expected fetch failure -- can never reach this orchestrator.
-    Run via ``asyncio.to_thread`` since it does blocking network I/O (a ThreadPoolExecutor of its
-    own) that would otherwise stall the event loop for up to ``config.FULLTEXT_DEADLINE_S``.
+    Run via ``asyncio.to_thread`` since it blocks on a child process for up to
+    ``config.FULLTEXT_DEADLINE_S`` + ``config.FULLTEXT_KILL_GRACE_S``.
     """
     try:
         path = await asyncio.to_thread(fulltext.fetch_for_selected, claude_input_dir)
@@ -610,7 +630,7 @@ def _log_repair_events(claude_input_dir: Path, requests: dict, applied: dict, re
 async def _run_repair_phase(
     claude_input_dir: Path, *, model_override: str | None, cwd: str | Path | None
 ) -> list[dict[str, Any]]:
-    """Regenerate COHERENCE-flagged headline/summary fields, re-check, and write
+    """Regenerate COHERENCE-flagged repairable fields, re-check, and write
     repair_resolution.json for merge to consume. Returns the phase's usage rows.
 
     Sequence: build requests from the draft + coherence report; if none, no-op.
@@ -636,9 +656,9 @@ async def _run_repair_phase(
     coherence = _load_json(claude_input_dir / "coherence_report.json")
     requests = repair.build_repair_requests(draft, coherence)
     if not requests["requests"]:
-        logger.info("repair: no repairable headline/summary failures this run")
+        logger.info("repair: no repairable coherence failures this run")
         return []
-    logger.info("repair: %d story(ies) with a repairable headline/summary failure", len(requests["requests"]))
+    logger.info("repair: %d story(ies) with a repairable coherence failure", len(requests["requests"]))
     (claude_input_dir / "repair_requests.json").write_text(json.dumps(requests, indent=2))
 
     rows: list[dict[str, Any]] = []
@@ -788,7 +808,7 @@ async def orchestrate_selections(
             )
 
     # Repair-not-drop (conditional, additive): between COHERENCE and merge,
-    # regenerate a flagged headline/summary and re-check it rather than let merge
+    # regenerate a flagged repairable field and re-check it rather than let merge
     # drop the whole story. Off by default; best-effort so it can never abort the
     # run (merge falls back to dropping exactly as today). Skipped on resume-only
     # runs where COHERENCE was reused -- the draft/report are still on disk, so it
