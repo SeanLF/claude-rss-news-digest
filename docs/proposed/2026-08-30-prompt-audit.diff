@@ -1,0 +1,472 @@
+# Prompt audit -- proposed diff (Step 6). NOTHING HERE HAS BEEN APPLIED.
+#
+# Report: scratch/prompt-audit/AUDIT.md
+#
+# One finding per block, each generated against the PRISTINE working tree, so each block
+# applies independently:
+#     git apply -p1 <(sed -n '/^F2:/,/^F3:/p' proposed.diff)   # or just paste the hunk
+# Verified: all nine blocks pass `git apply --check` against the tree as of 2026-08-30.
+#
+# Order matters in one place. F2, F3 and F9 all edit .claude/agents/coherence.md; they touch
+# different sentences and compose, but apply them one at a time and re-run the eval between --
+# F2 and F3 are the only changes here with real downside risk on the intact 0-false-drop record.
+#
+# Recommended order:  F1 (measure) -> F2 (measure) -> F3 (measure) -> F4..F9 (hygiene, any order).
+# F10 is flag-only (no hunk). F11 is an analysis, not an edit. See the report.
+#
+# Included only at high/medium confidence, per Step 6, except F9 which is low-confidence and
+# labelled as such in the report -- it is here because it is cheap to take and cheap to revert.
+
+====================================================================================================
+F1: orchestrate.py + config.py + cluster_extractjoin.py + eval_coherence.py + test_orchestrate.py -- resolve thinking PER MODEL instead of one global 'disabled'
+====================================================================================================
+diff --git a/newsroom/src/cluster_extractjoin.py b/newsroom/src/cluster_extractjoin.py
+index 887ec49..76f601e 100644
+--- a/newsroom/src/cluster_extractjoin.py
++++ b/newsroom/src/cluster_extractjoin.py
+@@ -30,9 +30,10 @@ import time
+ from collections import Counter
+ from functools import partial
+ from pathlib import Path
+-from typing import Any
++from typing import Any, cast
+ 
+ import claude_cli
++import config
+ import usage
+ from claude_agent_sdk import ThinkingConfig
+ from retry import with_retry_async
+@@ -41,23 +42,19 @@ logger = logging.getLogger(__name__)
+ 
+ 
+ def _thinking_for(model: str) -> ThinkingConfig | None:
+-    """Per-model thinking config for the extraction call: ``disabled`` for the 4.x family
+-    (Sonnet 4.6, Haiku 4.5), omitted (SDK default = adaptive) for next-gen models
+-    (Sonnet 5 / Opus 4.8 / Fable 5).
++    """The shared per-model thinking policy (``config.thinking_for``), typed for the SDK.
+ 
+-    Originally a hard-400 workaround: next-gen models used to REJECT ``thinking=disabled``, so a
+-    ``CLUSTER_EXTRACT_MODEL=<next-gen>`` build would 400 every batch into a degenerate partition.
+-    As of claude-agent-sdk 0.2.110 that 400 no longer reproduces (verified live by ``bin/sdk-canary``),
+-    but the split is RETAINED deliberately as CONFIG POLICY, not a 400 dodge: adaptive is the
+-    validated config for next-gen (the S5 extraction sweep; and on WRITE, forcing ``disabled`` on
+-    S5 induced a self-revision rewrite pathology). ``effort`` is likewise left unset -- Haiku 4.5
+-    used to 400 on it (also no longer reproduces on 0.2.110 per ``bin/sdk-canary``), and the
+-    extraction call has no reason to spend on effort -- keeping CLUSTER_EXTRACT_MODEL swappable
+-    across 4.6 / Haiku / next-gen. Re-run ``bin/sdk-canary`` after an SDK bump to re-check both.
++    This split started life as a hard-400 workaround -- next-gen models used to REJECT
++    ``thinking=disabled``, so a ``CLUSTER_EXTRACT_MODEL=<next-gen>`` build would 400 every batch
++    into a degenerate partition. As of claude-agent-sdk 0.2.110 that 400 no longer reproduces
++    (verified live by ``bin/sdk-canary``), and the split is now kept as CONFIG POLICY for every
++    stage rather than a local dodge for this one: see ``config.thinking_for``. ``effort`` stays
++    unset -- Haiku 4.5 used to 400 on it (also no longer reproduces on 0.2.110 per
++    ``bin/sdk-canary``), and the extraction call has no reason to spend on effort -- keeping
++    CLUSTER_EXTRACT_MODEL swappable across 4.6 / Haiku / next-gen. Re-run ``bin/sdk-canary``
++    after an SDK bump to re-check both.
+     """
+-    if model.startswith(("claude-sonnet-4", "claude-haiku-4")):
+-        return {"type": "disabled"}
+-    return None
++    return cast(ThinkingConfig | None, config.thinking_for(model))
+ 
+ 
+ # Reject the whole stage if more than this fraction of articles fall back to title-only tags:
+diff --git a/newsroom/src/config.py b/newsroom/src/config.py
+index c78a76a..10a5dbb 100644
+--- a/newsroom/src/config.py
++++ b/newsroom/src/config.py
+@@ -83,6 +83,29 @@ RECAP_MODEL = os.environ.get("RECAP_MODEL", "claude-haiku-4-5")
+ # Sonnet extraction keeps source-diversity flat vs Haiku's ~10% dip (the A/B); join threshold
+ # 0.80 is the held-out value (the granularity-matching threshold rises with corpus size).
+ CLUSTER_EXTRACT_MODEL = os.environ.get("CLUSTER_EXTRACT_MODEL", "claude-sonnet-4-6")
++
++
++def thinking_for(model: str) -> dict[str, str] | None:
++    """Per-model thinking policy for every model call in the pipeline.
++
++    ``disabled`` for the 4.x family (Sonnet 4.6, Haiku 4.5, Opus 4.7/4.8), where
++    thinking-off was already the default -- so passing it is behaviour-preserving
++    and pins that default against an SDK change. ``None`` (the model's own default,
++    adaptive) for next-gen, where forcing it off is a documented failure mode, not
++    a neutral setting: on Claude Opus 5 a tool call can arrive as plain user-facing
++    text and silently never run, which for a stage whose entire output is one Write
++    call means no output file at all; on Claude Sonnet 5 the model is measurably
++    less willing to reach for tools with thinking off.
++
++    A stage that needs the old behaviour on a next-gen model says so explicitly in
++    its own frontmatter (`thinking: disabled`), so the choice is visible per stage
++    rather than inherited from a global constant. Lives here, in a leaf module, so
++    orchestrate / cluster_extractjoin / threads / thread_synthesis can share one
++    policy without violating the module layering in CLAUDE.md.
++    """
++    if model.startswith(("claude-sonnet-4", "claude-haiku-4", "claude-opus-4")):
++        return {"type": "disabled"}
++    return None
+ CLUSTER_JOIN_THRESHOLD = float(os.environ.get("CLUSTER_JOIN_THRESHOLD", "0.80"))
+ 
+ # Evolving story-thread substrate (sub-project A). Off by default until the feature is
+diff --git a/newsroom/src/eval_coherence.py b/newsroom/src/eval_coherence.py
+index 333de99..7a81ef5 100644
+--- a/newsroom/src/eval_coherence.py
++++ b/newsroom/src/eval_coherence.py
+@@ -27,6 +27,7 @@ import json
+ from pathlib import Path
+ 
+ import claude_cli  # /app/src
++import config  # /app/src
+ 
+ # Default paths inside the container (bin/eval-coherence mounts the fixture dir).
+ AGENT = Path("/app/.claude/agents/coherence.md")
+@@ -34,11 +35,16 @@ FIXTURES = Path("/app/eval-fixtures")
+ REPORT_NAME = "coherence_report.json"
+ 
+ 
+-def load_agent(path: Path) -> tuple[str, str, dict, list[str]]:
++def load_agent(path: Path) -> tuple[str, str, dict | None, list[str], bool]:
+     """Return (model, body, thinking, tools) parsed from a `---`-delimited agent
+     file, mirroring orchestrate.py so the eval matches production faithfully: tools
+-    come from the `tools:` frontmatter, and thinking defaults to disabled (the
+-    orchestrate `_THINKING` default) unless the agent opts into `thinking:`."""
++    come from the `tools:` frontmatter, and thinking falls back to the per-model
++    policy (config.thinking_for) unless the agent opts into `thinking:`.
++
++    Also returns whether `thinking:` was explicit, because --model has to re-resolve
++    the policy against the OVERRIDE rather than the pinned model. Otherwise a sweep
++    measures a next-gen model in a configuration production would never send it --
++    which is how every run in the 2026-08-30 Opus 5 sweep came to run thinking-off."""
+     text = path.read_text(encoding="utf-8")
+     _, frontmatter, body = text.split("---", 2)
+     fields: dict[str, str] = {}
+@@ -51,8 +57,8 @@ def load_agent(path: Path) -> tuple[str, str, dict, list[str]]:
+         raise SystemExit(f"{path}: no model in frontmatter")
+     tools = fields.get("tools", "Read, Write").replace(",", " ").split()
+     thinking_val = fields.get("thinking")
+-    thinking = {"type": thinking_val} if thinking_val else {"type": "disabled"}
+-    return model, body.strip(), thinking, tools
++    thinking = {"type": thinking_val} if thinking_val else config.thinking_for(model)
++    return model, body.strip(), thinking, tools, bool(thinking_val)
+ 
+ 
+ # The prod input path the live agent prompts hardcode; the evals redirect it to the
+@@ -68,9 +74,11 @@ def load_agent_for_eval(
+ 
+     Asserts the marker is present so a prompt whose paths drifted fails HERE with a
+     clear SystemExit rather than silently running against the wrong location."""
+-    model, base_body, thinking, tools = load_agent(agent_path)
++    model, base_body, thinking, tools, thinking_explicit = load_agent(agent_path)
+     if model_override:
+         model = model_override
++        if not thinking_explicit:
++            thinking = config.thinking_for(model)
+     if _PROD_INPUT_MARKER not in base_body:
+         raise SystemExit(
+             f"{agent_path}: expected {_PROD_INPUT_MARKER!r} in body to redirect for the eval; prompt paths drifted"
+diff --git a/newsroom/src/orchestrate.py b/newsroom/src/orchestrate.py
+index 94aee94..8fcb416 100644
+--- a/newsroom/src/orchestrate.py
++++ b/newsroom/src/orchestrate.py
+@@ -57,13 +57,20 @@ _PERMISSION_MODE = "acceptEdits"
+ _PROMPT = "Begin."
+ _AGENTS_DIR = Path(".claude/agents")
+ 
+-# Extended thinking is OFF for every stage. These agents previously ran as Task
+-# subagents (thinking off); the Python orchestrator runs them as top-level SDK
+-# queries, where Sonnet defaults thinking ON. On the CLUSTER stage that made the
+-# model reason over ~460 articles until it tripped the 32k output-token ceiling
+-# and the run aborted. Disabling restores the known-good behaviour. Per-stage
+-# thinking budgets are a future tuning knob (e.g. the WRITE/SELECT judgment stages).
+-_THINKING: ThinkingConfig = {"type": "disabled"}
++# Thinking is resolved PER MODEL (config.thinking_for), not pinned globally.
++#
++# The old global {"type": "disabled"} was added for one incident on one stage: the
++# holistic CLUSTER agent reasoned over ~460 articles, tripped the 32k output-token
++# ceiling, and aborted the run. That stage no longer exists -- CLUSTER routes to
++# cluster_extractjoin's deterministic extract-join and never invokes cluster.md --
++# and the 400-rationale that later justified the pin is obsolete on the current SDK
++# (bin/sdk-canary, docs/2026-07-01-sdk-pinning-canary-finding.md).
++#
++# On the 4.x stages the resolved value is still "disabled", byte-identical to today.
++# It changes only for a stage pinned to a next-gen model (COHERENCE on Sonnet 5, and
++# the repair re-check that reuses its prompt), where forcing thinking off is a
++# documented failure mode rather than the old default. A stage that wants it off
++# there opts in with `thinking: disabled` in its own frontmatter.
+ 
+ 
+ # Runtime-context token substituted into an agent's system prompt at invocation.
+@@ -143,8 +150,8 @@ class AgentSpec:
+     # Optional per-stage SDK tuning, parsed from frontmatter. `effort` is opt-in
+     # (low|medium|high|max) -- omitted means the SDK default. Haiku 4.5 used to
+     # 400 on effort (no longer on SDK 0.2.110 per bin/sdk-canary), so Haiku stages
+-    # still leave it unset. `thinking` overrides the module default (_THINKING,
+-    # disabled); None falls back to that default.
++    # still leave it unset. `thinking` overrides the per-model
++    # default (config.thinking_for); None falls back to that.
+     effort: str | None = None
+     thinking: ThinkingConfig | None = None
+ 
+@@ -183,7 +190,7 @@ def parse_agent_spec(path: Path) -> AgentSpec:
+         raise ValueError(f"{path}: frontmatter missing 'model'")
+ 
+     # Optional tuning keys. `thinking: adaptive` -> {"type": "adaptive"}; absent
+-    # keys stay None (effort omitted = SDK default; thinking None = _THINKING).
++    # keys stay None (effort omitted = SDK default; thinking None = config.thinking_for).
+     effort = fields.get("effort") or None
+     thinking_val = fields.get("thinking")
+     # cast: the frontmatter value is a runtime str, so the {"type": ...} literal
+@@ -367,7 +374,7 @@ async def _invoke_agent(
+         tools=tool_list,
+         cwd=cwd,
+         idle_timeout=idle_timeout,
+-        thinking=spec.thinking or _THINKING,
++        thinking=spec.thinking or config.thinking_for(model),
+         effort=spec.effort,
+     )
+     if not result.ok:
+diff --git a/newsroom/tests/test_orchestrate.py b/newsroom/tests/test_orchestrate.py
+index cda9079..d3b83df 100644
+--- a/newsroom/tests/test_orchestrate.py
++++ b/newsroom/tests/test_orchestrate.py
+@@ -341,8 +341,8 @@ class TestRunStage:
+         assert seen["thinking"] == {"type": "adaptive"}
+ 
+     def test_defaults_to_disabled_thinking_no_effort(self, tmp_path, monkeypatch):
+-        # A spec with no tuning keys must reproduce the proven-good prod behaviour:
+-        # thinking disabled, effort unset (SDK default).
++        # A 4.x spec with no tuning keys must reproduce the proven-good prod
++        # behaviour: thinking disabled, effort unset (SDK default).
+         out = tmp_path / "clusters.json"
+         out.write_text(json.dumps({"clusters": [{"story": "x", "article_ids": ["A1"]}]}))
+         seen = {}
+@@ -361,9 +361,34 @@ class TestRunStage:
+             cwd=None,
+             claude_input_dir=tmp_path,
+         )
+-        assert seen["thinking"] == orchestrate._THINKING == {"type": "disabled"}
++        assert seen["thinking"] == {"type": "disabled"}
+         assert seen["effort"] is None
+ 
++    def test_next_gen_model_gets_the_model_default_thinking(self, tmp_path, monkeypatch):
++        # The counterpart: a stage pinned to (or overridden onto) a next-gen model
++        # must NOT be handed thinking=disabled by default. Forcing it off there is a
++        # documented failure mode -- on Opus 5 a tool call can come back as plain text
++        # and silently never run, and this stage's whole output is one Write call.
++        out = tmp_path / "clusters.json"
++        out.write_text(json.dumps({"clusters": [{"story": "x", "article_ids": ["A1"]}]}))
++        seen = {}
++
++        async def fake_run(*_a, **k):
++            seen.update(k)
++            return _stage_result()
++
++        monkeypatch.setattr(orchestrate.claude_cli, "run_agent", fake_run)
++        _run_stage(
++            _spec(),
++            label="cluster",
++            output_path=out,
++            validate=_ok_validator,
++            model_override="claude-opus-5",
++            cwd=None,
++            claude_input_dir=tmp_path,
++        )
++        assert seen["thinking"] is None
++
+     def test_model_override_used(self, tmp_path, monkeypatch):
+         out = tmp_path / "clusters.json"
+         out.write_text("{}")
+
+====================================================================================================
+F2: coherence.md -- the check enumerates EVERY specific, not 'the single least-supported' one
+====================================================================================================
+diff --git a/.claude/agents/coherence.md b/.claude/agents/coherence.md
+index 9bc4604..dde39d3 100644
+--- a/.claude/agents/coherence.md
++++ b/.claude/agents/coherence.md
+@@ -6,7 +6,7 @@ model: claude-sonnet-5
+ initialPrompt: "Process today's articles. All input/output files are in /app/data/claude_input/."
+ ---
+ 
+-You are a fact-checking editor running a strict, ADVERSARIAL coherence pass. Verify each story's HEADLINE, SUMMARY, and WHY_IT_MATTERS against ONLY its own cited source articles, and actively try to REFUTE the least-supported claim in each field.
++You are a fact-checking editor running a strict, ADVERSARIAL coherence pass. Verify each story's HEADLINE, SUMMARY, and WHY_IT_MATTERS against ONLY its own cited source articles, and actively try to REFUTE every specific claim in each field.
+ 
+ **Instructions:**
+ 1. Use the Read tool to read these files:
+@@ -18,7 +18,7 @@ You are a fact-checking editor running a strict, ADVERSARIAL coherence pass. Ver
+ 
+ **For each field, run all three probes. FAIL the field if any triggers:**
+ 
+-1. **ADVERSARIAL SPECIFIC-REFUTE (including absence).** Find the single least-supported specific (number, date, name, place, quote, statistic, event, duration, quantifier). Actively try to REFUTE that it appears in the cited sources; do not look for a reason to pass it. If you cannot find explicit cited support, it FAILS. Uncertainty about whether a source supports a specific is a FAIL, not a pass. This INCLUDES a specific simply ABSENT across the cited sources -- a tenure length or figure that no cited source states, or a quantifier stronger than the source's (if sources say "some" or "many" and the story says "most", that FAILS; if no source states how long someone was in office and the story gives a duration, that FAILS).
++1. **ADVERSARIAL SPECIFIC-REFUTE (including absence).** List EVERY specific in the field (number, date, name, place, quote, statistic, event, duration, quantifier) and take each one in turn -- do not stop at the first, the worst, or the most obvious. For each specific, actively try to REFUTE that the cited sources state it; do not look for a reason to pass it. If you cannot find explicit cited support, it FAILS. Uncertainty about whether a source supports a specific is a FAIL, not a pass. This INCLUDES a specific simply ABSENT across the cited sources -- a tenure length or figure that no cited source states, or a quantifier stronger than the source's (if sources say "some" or "many" and the story says "most", that FAILS; if no source states how long someone was in office and the story gives a duration, that FAILS).
+ 
+ 2. **RELATION-BINDING.** For every CAUSAL ("X triggered/forced/led to Y"), COMPARATIVE ("X rather than Y"), or ATTRIBUTIVE ("X, per Z") relation, verify the RELATION ITSELF is stated in a cited source -- not merely that X and Y each appear somewhere. A fabricated link between two individually-supported facts FAILS (e.g. sources say attacks were "fueled by rumors" but the story says "armed conflict triggered the attacks"). A direct contradiction of a cited source also FAILS.
+ 
+
+====================================================================================================
+F3: coherence.md -- cover scope / time-window / event-participant binding, and lift entity-binding off the headline
+====================================================================================================
+diff --git a/.claude/agents/coherence.md b/.claude/agents/coherence.md
+index 9bc4604..e4ecef1 100644
+--- a/.claude/agents/coherence.md
++++ b/.claude/agents/coherence.md
+@@ -20,9 +20,9 @@ You are a fact-checking editor running a strict, ADVERSARIAL coherence pass. Ver
+ 
+ 1. **ADVERSARIAL SPECIFIC-REFUTE (including absence).** Find the single least-supported specific (number, date, name, place, quote, statistic, event, duration, quantifier). Actively try to REFUTE that it appears in the cited sources; do not look for a reason to pass it. If you cannot find explicit cited support, it FAILS. Uncertainty about whether a source supports a specific is a FAIL, not a pass. This INCLUDES a specific simply ABSENT across the cited sources -- a tenure length or figure that no cited source states, or a quantifier stronger than the source's (if sources say "some" or "many" and the story says "most", that FAILS; if no source states how long someone was in office and the story gives a duration, that FAILS).
+ 
+-2. **RELATION-BINDING.** For every CAUSAL ("X triggered/forced/led to Y"), COMPARATIVE ("X rather than Y"), or ATTRIBUTIVE ("X, per Z") relation, verify the RELATION ITSELF is stated in a cited source -- not merely that X and Y each appear somewhere. A fabricated link between two individually-supported facts FAILS (e.g. sources say attacks were "fueled by rumors" but the story says "armed conflict triggered the attacks"). A direct contradiction of a cited source also FAILS.
++2. **BINDING.** A specific can appear verbatim in a cited source and still be false where the field puts it. For every binding the field asserts -- what is joined to what -- verify the BINDING ITSELF is stated in a cited source, not merely that each part appears somewhere. This covers CAUSAL ("X triggered/forced/led to Y"), COMPARATIVE ("X rather than Y") and ATTRIBUTIVE ("X, per Z") relations, and equally: SCOPE and TIME-WINDOW (the field says "12 killed since the ceasefire ended" where the cited 12 is the whole war's toll; the field says "banned in France" where the cited ban is Paris's), and EVENT-PARTICIPANT (the field says "Iran struck A and B" where the cited sources put B in a different strike on a different day). A fabricated link between two individually-supported facts FAILS (e.g. sources say attacks were "fueled by rumors" but the story says "armed conflict triggered the attacks"). A direct contradiction of a cited source also FAILS.
+ 
+-3. **HEADLINE ENTITY-BINDING + INTERNAL CONSISTENCY.** Verify every named entity in the HEADLINE is bound to the correct predicate as the cited sources have it, AND that the headline does not contradict this story's own summary. A headline that attributes an event to the wrong country, person, or subject FAILS -- even if the summary states it correctly (e.g. headline "as Iran election looms" when the cited election is Israel's).
++3. **ENTITY-BINDING + HEADLINE/SUMMARY CONSISTENCY.** In EVERY field, verify each named entity is bound to the predicate the cited sources give it. An event attributed to the wrong country, person, or subject FAILS in a summary or a why_it_matters exactly as it does in a headline. Additionally for the HEADLINE: it must not contradict this story's own summary, and it FAILS even when the summary states the fact correctly (e.g. headline "as Iran election looms" when the cited election is Israel's).
+ 
+ **Also FAIL a field (automatic, independent of the probes above):**
+ - an ATTRIBUTION UPGRADE -- the cited articles say "officials" but the field names a specific person or body;
+
+====================================================================================================
+F4: cluster.md -- stop advertising a retired agent as the live CLUSTER stage
+====================================================================================================
+diff --git a/.claude/agents/cluster.md b/.claude/agents/cluster.md
+index 9c3859b..cf85f31 100644
+--- a/.claude/agents/cluster.md
++++ b/.claude/agents/cluster.md
+@@ -1,6 +1,6 @@
+ ---
+ name: cluster
+-description: Groups news articles covering the same story into clusters. Run at the start of the curation pipeline before SELECT.
++description: Reference and rollback definition of the retired holistic CLUSTER agent. NOT the production clustering path -- the pipeline clusters deterministically in newsroom/src/cluster_extractjoin.py and never invokes this prompt.
+ tools: Read, Write
+ model: claude-sonnet-4-6
+ initialPrompt: "Process today's articles. All input/output files are in /app/data/claude_input/."
+@@ -8,6 +8,11 @@ initialPrompt: "Process today's articles. All input/output files are in /app/dat
+ 
+ You are a news clustering agent. Group articles covering the same story.
+ 
++> NOT the production clustering path. Since 2026-07-01 `orchestrate.py` routes the CLUSTER
++> stage to `cluster_extractjoin.run_extractjoin_stage` (per-article extraction plus a
++> deterministic TF-IDF join) and never sends this body to a model. Kept as the documented
++> rollback definition and as the frontmatter fixture for `newsroom/tests/test_orchestrate.py`.
++
+ **Instructions:**
+ 1. Use the Read tool to read `/app/data/claude_input/sources.csv`
+ 2. Use the Read tool to read ALL files matching `/app/data/claude_input/articles_*.csv` (there may be multiple: articles_1.csv, articles_2.csv, etc.)
+
+====================================================================================================
+F5: threads.py + thread_synthesis.py -- three call sites stop hardcoding thinking=disabled on an env-overridable model
+====================================================================================================
+diff --git a/newsroom/src/thread_synthesis.py b/newsroom/src/thread_synthesis.py
+index 8b11627..d5f3d47 100644
+--- a/newsroom/src/thread_synthesis.py
++++ b/newsroom/src/thread_synthesis.py
+@@ -26,6 +26,7 @@ import logging
+ import re
+ 
+ import threads
++import config
+ from config import DEFAULT_MODEL
+ from usage import usage_row_from_sdk
+ 
+@@ -289,7 +290,7 @@ def _run_sonnet(user: str, system: str, *, model: str, subagent: str, usage_rows
+                 system_prompt=system,
+                 tools=[],
+                 idle_timeout=120.0,
+-                thinking={"type": "disabled"},
++                thinking=config.thinking_for(model),
+             ),
+             timeout=300,
+         )
+diff --git a/newsroom/src/threads.py b/newsroom/src/threads.py
+index 51ca603..9b272b8 100644
+--- a/newsroom/src/threads.py
++++ b/newsroom/src/threads.py
+@@ -27,6 +27,7 @@ from contextlib import contextmanager, suppress
+ from dataclasses import dataclass, field
+ from itertools import islice
+ 
++import config
+ from utils import cluster_for_articles, strip_article_ids
+ 
+ logger = logging.getLogger(__name__)
+@@ -333,7 +334,7 @@ def link_threads(
+             tools=[],
+             timeout=300,
+             idle_timeout=180.0,
+-            thinking={"type": "disabled"},
++            thinking=config.thinking_for(model),
+         )
+         links = _parse_links(text)
+     except Exception:  # never let thread-linking break the digest
+
+====================================================================================================
+F6: select.md -- drop the '~23 stories' historical anchor
+====================================================================================================
+diff --git a/.claude/agents/select.md b/.claude/agents/select.md
+index 0734936..4a5fa39 100644
+--- a/.claude/agents/select.md
++++ b/.claude/agents/select.md
+@@ -21,7 +21,7 @@ You are a news editor. Assign tiers to story clusters.
+ 
+ **Tiers (target counts -- hold to these; a tighter digest is the goal):**
+ - `must_know` (target 3-5 stories, hard max 6): Stories you'd be embarrassed not to know. Major geopolitical shifts, significant deaths, major policy changes. Keep this list small and ruthless.
+-- `should_know` (target 8-12 stories, hard max 14): Important but not urgent. Developing situations, notable policy moves, significant tech announcements. This tier was historically bloated (~23 stories); cut hard. If two stories cover the same situation, merge or drop the weaker one. When in doubt, drop the weaker story rather than padding this tier.
++- `should_know` (target 8-12 stories, hard max 14): Important but not urgent. Developing situations, notable policy moves, significant tech announcements. If two stories cover the same situation, merge or drop the weaker one. When in doubt, drop the weaker story rather than padding this tier.
+ 
+ **Interest priorities:**
+ | Priority | Topics |
+
+====================================================================================================
+F7: write.md -- replace two positional trait claims with the scope statement they were reaching for
+====================================================================================================
+diff --git a/.claude/agents/write.md b/.claude/agents/write.md
+index 973f204..b2cf1f7 100644
+--- a/.claude/agents/write.md
++++ b/.claude/agents/write.md
+@@ -60,7 +60,7 @@ Examples of strong why_it_matters lines:
+ - "Washington's India waiver on Russian oil underscores the bind the U.S. faces: its own sanctions architecture conflicts with keeping global energy markets stable during a war it started."
+ - "A governing party finishing third in a safe seat it held for 90 years, squeezed between a resurgent left-wing alternative and a populist right, is a warning about the structural fragility of centrist politics."
+ 
+-**Filler self-check (apply to EVERY why_it_matters before you finalize it):** Draft the line, then strip these significance-verbs from it -- "signals", "marks", "underscores", "highlights", "sets the tone", "represents", "raises the stakes", "positioning", "reshaping", "affects millions". If nothing concrete and new survives the strip -- if the line just relabels the summary's own facts in importance-language -- it is FILLER. Rewrite it with a real new element drawn from the cited articles: a named stake (a date, actor, number, or prior event), a specific mechanism or cause-and-effect chain, a contradiction or irony, or a reframe that recasts the story at a different level. Writing many stories at once makes it easy to settle for an importance-sounding restatement on the lines you write last -- give every why_it_matters the same scrutiny as your first. Example of FILLER to avoid: "The display signals both domestic consolidation and external deterrence messaging" (strip "signals" and only the summary's own facts remain) -> instead name what is new: "Timing the launcher display to the once-in-five-years party congress lets Kim enshrine the Russia deployment as party doctrine rather than a provisional arrangement."
++**Filler self-check (apply to EVERY why_it_matters before you finalize it):** Draft the line, then strip these significance-verbs from it -- "signals", "marks", "underscores", "highlights", "sets the tone", "represents", "raises the stakes", "positioning", "reshaping", "affects millions". If nothing concrete and new survives the strip -- if the line just relabels the summary's own facts in importance-language -- it is FILLER. Rewrite it with a real new element drawn from the cited articles: a named stake (a date, actor, number, or prior event), a specific mechanism or cause-and-effect chain, a contradiction or irony, or a reframe that recasts the story at a different level. Apply this check to every why_it_matters, not only the first few. Example of FILLER to avoid: "The display signals both domestic consolidation and external deterrence messaging" (strip "signals" and only the summary's own facts remain) -> instead name what is new: "Timing the launcher display to the once-in-five-years party congress lets Kim enshrine the Russia deployment as party doctrine rather than a provisional arrangement."
+ 
+ **Reporting varies (must_know only, optional):** Only when sources genuinely frame the story differently. 2-3 perspectives max. Skip if all sources report it the same way.
+ 
+@@ -97,6 +97,6 @@ Examples of strong why_it_matters lines:
+ - Every article_id you reference must exist in the articles CSV files.
+ - Every specific in your headline and summary (numbers, percentages, named people/orgs/places, dates, quoted figures) must be supported by at least one article_id you list in that story's `sources` -- that support may come from that article's CSV summary OR its full text in article_fulltext.json. If a detail comes from a particular article in the cluster, cite THAT article. A reader must be able to verify every claim from the listed sources alone -- do not rely on uncited cluster articles to back a specific.
+ 
+-**Citation self-check (apply to EVERY story before you finalize draft_selections.json):** After writing a story, list every specific in its headline and summary -- each number, percentage, named person/organisation/place, date, and quoted figure. For each specific, point to the exact article_id in THIS story's `sources` that supports it. If a specific is supported only by a cluster article you did not list, ADD that article_id to `sources` now; if no article supports it, REMOVE the specific. A reader must verify every specific from this story's own listed sources alone. Writing many stories at once makes it easy to under-cite the ones you write last -- give every story the same citation scrutiny as your first.
++**Citation self-check (apply to EVERY story before you finalize draft_selections.json):** After writing a story, list every specific in its headline and summary -- each number, percentage, named person/organisation/place, date, and quoted figure. For each specific, point to the exact article_id in THIS story's `sources` that supports it. If a specific is supported only by a cluster article you did not list, ADD that article_id to `sources` now; if no article supports it, REMOVE the specific. A reader must verify every specific from this story's own listed sources alone. Apply this check to every story, not only the first few.
+ 
+ This self-check also covers WHY_IT_MATTERS: list every concrete factual specific in it too -- every number, statistic, date, named prior event, quote, or office-holder stated as fact -- and verify each against THIS story's cited sources exactly as above; add the article_id or REMOVE the specific if unsupported. The analytical content of why_it_matters (the mechanism, contradiction, or consequence itself) needs no citation -- only its concrete factual specifics do.
+
+====================================================================================================
+F8: cluster_extractjoin.py -- drop 'IMMEDIATELY' from the extraction prompt
+====================================================================================================
+diff --git a/newsroom/src/cluster_extractjoin.py b/newsroom/src/cluster_extractjoin.py
+index 887ec49..71e070c 100644
+--- a/newsroom/src/cluster_extractjoin.py
++++ b/newsroom/src/cluster_extractjoin.py
+@@ -84,7 +84,7 @@ EXTRACT_SYSTEM = """You extract clustering metadata from news articles. For EACH
+ 
+ Be specific and consistent: two articles about the SAME story must get the SAME entities and a matching primary_event phrase. Distinguish sub-stories (e.g. "Iran nuclear talks" vs "Iran oil market impact" are different primary_events even though they share entities).
+ 
+-Respond IMMEDIATELY with ONLY a JSON object, no prose, no markdown fence, one item per input article in input order:
++Respond with ONLY a JSON object, no prose, no markdown fence, one item per input article in input order:
+ {"items": [{"article_id": "A1", "entities": ["..."], "keywords": ["..."], "primary_event": "..."}]}"""
+ 
+ _EXTRACT_BATCH = 40
+
+====================================================================================================
+F9: coherence.md -- state the uncertainty-is-a-FAIL rule once instead of three times
+====================================================================================================
+diff --git a/.claude/agents/coherence.md b/.claude/agents/coherence.md
+index 9bc4604..34311fb 100644
+--- a/.claude/agents/coherence.md
++++ b/.claude/agents/coherence.md
+@@ -46,6 +46,6 @@ If HEADLINE, SUMMARY, or WHY_IT_MATTERS fails, the whole story's result is `pass
+ **Rules:**
+ - DO NOT use Bash. Use Read and Write tools only.
+ - Check EVERY story (must_know and should_know). For each story, extract every specific from all three fields and run the three probes on each before writing that story's result.
+-- Be strict: if a specific cannot be verified from the story's CITED article summaries, mark the story as fail -- even if a different, non-cited article would support it. Uncertainty about whether a source supports a specific is a FAIL, not a pass.
++- Be strict: if a specific cannot be verified from the story's CITED article summaries, mark the story as fail -- even if a different, non-cited article would support it.
+ - A specific counts as supported if it appears in the cited article's CSV summary OR that same article's full text in article_fulltext.json (same article, just complete) -- WRITE is allowed to draw facts from full text, so check there before failing a specific.
+-- The only pass-when-unsure case: when something is genuinely analysis/interpretation rather than a factual claim, treat it as analysis (see why_it_matters above). For a concrete specific, uncertainty is a FAIL.
++- The only pass-when-unsure case: when something is genuinely analysis/interpretation rather than a factual claim, treat it as analysis (see why_it_matters above).
+

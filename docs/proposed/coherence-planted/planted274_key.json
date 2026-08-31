@@ -1,0 +1,182 @@
+{
+  "_doc": "Held-out set 3, built from archived run 274. 8 fabrications planted into 8 distinct stories, one field each, every one verified absent from or contradicted by that story's OWN cited sources. clean_fields = the 3 fields of 8 entirely UNTOUCHED stories. CAVEAT (same as set 2): 'untouched' means production COHERENCE passed it and nothing was planted -- NOT a hand-audited clean label. Flags on clean fields must be adjudicated against the sources before being called false positives. idx 11 excluded: production flagged it on the real run.",
+  "hard_positives": [
+    {
+      "idx": 6,
+      "field": "headline",
+      "type": "EntE-wrong-entity",
+      "claim": "MBS arrives in Berlin for strategic talks",
+      "why": "Cited sources place the visit and the Esports World Cup closing ceremony in PARIS; 'Berlin' appears in no cited source, and it contradicts the story's own summary ('arrived in Paris on Sunday')."
+    },
+    {
+      "idx": 7,
+      "field": "why_it_matters",
+      "type": "quantifier-overstatement",
+      "claim": "Canada sends nearly all of its exports to the United States",
+      "why": "A cited source states '70% of its exports are to the US'. 'Nearly all' contradicts the source quantifier."
+    },
+    {
+      "idx": 4,
+      "field": "summary",
+      "type": "numeric-contradiction",
+      "claim": "killing at least 30 people, with 74 others injured",
+      "why": "Cited sources state 22 injured (six seriously, 16 lightly); 74 appears in no cited source."
+    },
+    {
+      "idx": 15,
+      "field": "why_it_matters",
+      "type": "LinkE-fabricated-event",
+      "claim": "After a July launch-pad fire destroyed ground support equipment, the mission plan still requires a 90-day lunar-orbit reconnaissance before landing",
+      "why": "No cited source mentions any fire or launch-pad damage ('fire' and 'launch pad' are absent from the cited set; sources attribute the delay to a safety assessment and Typhoon Narra)."
+    },
+    {
+      "idx": 5,
+      "field": "summary",
+      "type": "attribution-upgrade",
+      "claim": "Deputy Prime Minister Phumtham Wechayachai imposed a curfew in Narathiwat",
+      "why": "Cited sources say 'Authorities imposed an overnight curfew'; the name appears nowhere in the corpus."
+    },
+    {
+      "idx": 14,
+      "field": "summary",
+      "type": "OutE-padding",
+      "claim": "according to Business Insider, with the round led by Sequoia Capital and existing backers Google and Amazon expected to exit their stakes.",
+      "why": "Sole source is a one-line headline with no fulltext; the investors and the exit are invented (none appear in the cited set)."
+    },
+    {
+      "idx": 12,
+      "field": "summary",
+      "type": "OutE-absence",
+      "claim": "coalition partner New Zealand First, which holds eight seats, said it would not support it",
+      "why": "No cited source states New Zealand First's seat count."
+    },
+    {
+      "idx": 8,
+      "field": "why_it_matters",
+      "type": "stale-world-state",
+      "claim": "is eroding a visible deterrent the Biden administration had worked to reinforce, and is eroding the visible deterrent",
+      "why": "Cited sources describe the Trump administration; 'Biden' appears in no cited source."
+    }
+  ],
+  "borderline": [],
+  "clean_fields": [
+    {
+      "idx": 0,
+      "field": "headline"
+    },
+    {
+      "idx": 0,
+      "field": "summary"
+    },
+    {
+      "idx": 0,
+      "field": "why_it_matters"
+    },
+    {
+      "idx": 1,
+      "field": "headline"
+    },
+    {
+      "idx": 1,
+      "field": "summary"
+    },
+    {
+      "idx": 1,
+      "field": "why_it_matters"
+    },
+    {
+      "idx": 2,
+      "field": "headline"
+    },
+    {
+      "idx": 2,
+      "field": "summary"
+    },
+    {
+      "idx": 2,
+      "field": "why_it_matters"
+    },
+    {
+      "idx": 3,
+      "field": "headline"
+    },
+    {
+      "idx": 3,
+      "field": "summary"
+    },
+    {
+      "idx": 3,
+      "field": "why_it_matters"
+    },
+    {
+      "idx": 9,
+      "field": "headline"
+    },
+    {
+      "idx": 9,
+      "field": "summary"
+    },
+    {
+      "idx": 9,
+      "field": "why_it_matters"
+    },
+    {
+      "idx": 10,
+      "field": "headline"
+    },
+    {
+      "idx": 10,
+      "field": "summary"
+    },
+    {
+      "idx": 10,
+      "field": "why_it_matters"
+    },
+    {
+      "idx": 13,
+      "field": "headline"
+    },
+    {
+      "idx": 13,
+      "field": "summary"
+    },
+    {
+      "idx": 13,
+      "field": "why_it_matters"
+    },
+    {
+      "idx": 16,
+      "field": "headline"
+    },
+    {
+      "idx": 16,
+      "field": "summary"
+    },
+    {
+      "idx": 16,
+      "field": "why_it_matters"
+    }
+  ],
+  "excluded_idx": [
+    11
+  ],
+  "idx_headlines": {
+    "0": "US unveils Iran sanctions package as Pakistan's army chief lands in Tehran",
+    "1": "Burnham brings SCALP missile blueprints to Kyiv as Coalition of the Willing convenes",
+    "2": "Syria and Israel hold first US-mediated talks in months after airbase strike",
+    "3": "Ukraine expands drone campaign against Russian retail hubs; three teenagers killed in Krasnodar",
+    "4": "Landfill collapse kills at least 30 in Guinea's capital Conakry",
+    "5": "More than 50 coordinated arson and bomb attacks hit southern Thailand",
+    "6": "MBS arrives in Berlin for strategic talks with Macron on Iran, energy and esports",
+    "7": "US and Canada dig in as 50% tariffs take effect and businesses warn of ruin",
+    "8": "US cancels South Korea marine drills, citing Iran war strain on forces",
+    "9": "Shein sets $27bn Hong Kong IPO valuation \u2014 less than a third of its 2022 peak",
+    "10": "Europe's summer heat has killed more than 32,000 people, tracking data shows",
+    "11": "Chinese humanoid robots beat Usain Bolt's 100m record at Beijing games",
+    "12": "New Zealand government introduces bill to ban social media for under-16s",
+    "13": "Russian drone guided entirely by AI kills three Ukrainians, officials say",
+    "14": "Hugging Face exploring sale at $13 billion valuation",
+    "15": "China postpones Chang'e-7 lunar mission, likely until 2027",
+    "16": "Taiwan floods leave four missing as Typhoon Saudel approaches"
+  }
+}

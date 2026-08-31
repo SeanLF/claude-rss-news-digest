@@ -1,0 +1,54 @@
+Proposed diff for _tag_bag -- NOT APPLIED, and NOT RECOMMENDED on this evidence alone.
+See the session report for why. Two things matter if it is ever applied:
+
+  1. The threshold MUST move with it. 2/1/3 shrinks the tag bag's similarity scale, so at the
+     unchanged 0.80 it simply clusters finer (+29 clusters/run) -- that is a granularity change
+     wearing a weighting's name, and it is NOT what was measured. The measured result is at
+     matched granularity, which needs CLUSTER_JOIN_THRESHOLD ~0.825.
+  2. _TAG_BAG_WEIGHTS must move with it too; the test asserts the pairing.
+
+Measured at matched cluster count over 10 archived runs: junk pairs -2.6pp (9/10 runs),
+passengers -6% (7/10), singleton rate -4.1pp. Extraction-noise band 0.6pp; three-regime spread
+3.0pp; effect falls to -0.6pp median when the metric's primary_event bias is removed.
+
+--- a/newsroom/src/cluster_extractjoin.py
++++ b/newsroom/src/cluster_extractjoin.py
+@@
+-_TAG_BAG_WEIGHTS = {"entities": 3, "keywords": 1, "primary_event": 2}
++_TAG_BAG_WEIGHTS = {"entities": 2, "keywords": 1, "primary_event": 3}
+@@
+ def _tag_bag(tag: dict) -> str:
+-    """Term bag for one article: entities x3 (strongest same-story signal), primary_event x2.
++    """Term bag for one article: primary_event x3 (strongest same-story signal), entities x2.
++
++    The x3/x1/x2 this replaces had entities outweighing primary_event 1.5:1, which inverted the
++    blind-judge ranking in docs/2026-07-02-dedup-poc-findings.md (primary_event AUC 0.923,
++    entity-overlap 0.867). Swept over 10 archived runs at matched granularity, moving to 2/1/3
++    cuts junk pairs 2.6pp (9/10 runs) and groups 4.1pp more articles.
++
++    Entity weight is NOT dropped further, and no field is dropped. Entities are the most
++    REPRODUCIBLE field across two independent extractions of the same articles (token Jaccard
++    0.895 vs primary_event's 0.757); zeroing primary_event while entity weight stays high is
++    catastrophic (3/1/0 +6.3pp, 4/1/0 +9.2pp, 1/0/0 +19.7pp); and EVERY single-field ablation
++    loses cohesive pairs (-3.8% to -40.8%), 0/0/1 (primary_event alone) worst at -21.9%.
++    What the sweep actually localises is the RATIO: entities:primary_event above ~1 is worse,
++    and production's 1.5 is the wrong side of it.
+
+     Returns "" when the article has no usable tags -- the caller then substitutes a per-article
+     unique token so tagless articles stay singletons instead of collapsing into one junk blob
+     (all-identical bags -> cosine distance 0 -> forced merge).
+     """
+     ents = [e.lower() for e in tag.get("entities", [])]
+     kws = [k.lower() for k in tag.get("keywords", [])]
+     pe = str(tag.get("primary_event", "")).lower().strip()
+-    parts = ents * 3 + kws + ([pe] * 2 if pe else [])
++    parts = ents * 2 + kws + ([pe] * 3 if pe else [])
+     return " ".join(p for p in parts if p.strip())
+
+--- a/newsroom/src/config.py
++++ b/newsroom/src/config.py
+@@
+-CLUSTER_JOIN_THRESHOLD = float(os.environ.get("CLUSTER_JOIN_THRESHOLD", "0.80"))
++# Retuned with the 2/1/3 tag-bag weighting: the smaller bag lowers every cosine, so 0.80 would
++# cluster ~29 clusters/run finer. 0.825 restores the granularity 0.80 held under 3/1/2.
++CLUSTER_JOIN_THRESHOLD = float(os.environ.get("CLUSTER_JOIN_THRESHOLD", "0.825"))
