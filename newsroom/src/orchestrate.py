@@ -117,6 +117,17 @@ def _tool_list(spec: AgentSpec) -> list[str]:
 # shows median ~1h, worst observed ~3h; 4h leaves headroom.
 _STAGE_RETRY_BUDGET_S = 14400
 
+# The same budget for the WHOLE run. Without it each of the seven stages took a FRESH
+# 4h, so the pipeline could ask for 28h under a systemd TimeoutStartSec of 5h -- the
+# ceiling sat 23h BELOW the budget it was documented as sitting above, and the kill it
+# produces has no handler, so digest_runs keeps status='running' forever.
+_RUN_RETRY_BUDGET_S = 14400
+
+# Hard cap on ONE stage attempt. with_retry_async's deadline is only consulted after
+# fn() raises, and _IDLE_TIMEOUT_S resets on every streamed event, so a stage that
+# emits tokens steadily and never terminates was bounded by nothing in this process.
+_STAGE_ATTEMPT_TIMEOUT_S = 2700.0
+
 # Per-event idle timeout for the SDK stream (in-process hang detection). A stage
 # that goes silent longer than this raises a retryable RuntimeError, so a hang is
 # caught at the source rather than waited on. This is the primary hang detector;
@@ -399,6 +410,7 @@ async def run_stage(
     model_override: str | None,
     cwd: str | Path | None,
     claude_input_dir: Path,
+    run_deadline: float | None = None,
 ) -> dict[str, Any]:
     """Run one subagent stage with a single retry, returning its usage row.
 
@@ -418,15 +430,18 @@ async def run_stage(
     model = model_override or spec.model
     last_err: Exception | None = None
     # One wall-clock budget shared across BOTH attempts, so the invalid-output
-    # retry cannot silently double the outage-riding budget (4h, not 8h).
+    # retry cannot silently double the outage-riding budget (4h, not 8h) -- and
+    # never past the run's own deadline, which the stages share.
     stage_deadline = time.monotonic() + _STAGE_RETRY_BUDGET_S
+    if run_deadline is not None:
+        stage_deadline = min(stage_deadline, run_deadline)
 
     for attempt in (1, 2):
         output_path.unlink(missing_ok=True)
         try:
             logger.info("[%s started]%s", label.capitalize(), " (retry)" if attempt == 2 else "")
             result = await with_retry_async(
-                lambda: _invoke_agent(spec, model=model, cwd=cwd),
+                lambda: asyncio.wait_for(_invoke_agent(spec, model=model, cwd=cwd), timeout=_STAGE_ATTEMPT_TIMEOUT_S),
                 label=label,
                 deadline=stage_deadline,
             )
@@ -761,6 +776,7 @@ async def orchestrate_selections(
     """
     logger.info("Selecting stories... (model=%s)", model_override or "per-agent default")
     usage_rows: list[dict[str, Any]] = []
+    run_deadline = time.monotonic() + _RUN_RETRY_BUDGET_S
 
     def _record(row: dict[str, Any]) -> None:
         # Emitted as each stage completes, not returned in a batch at the end: a later stage
@@ -800,6 +816,7 @@ async def orchestrate_selections(
                 model_override=model_override,
                 cwd=cwd,
                 claude_input_dir=claude_input_dir,
+                run_deadline=run_deadline,
             )
             _record(row)
         # Fetch full text for the SELECTED stories before WRITE runs (whether SELECT just ran or

@@ -13,9 +13,14 @@ absolute ``deadline`` so several with_retry() calls (e.g. both attempts of a
 stage) share one budget rather than each starting a fresh one.
 
 Long backoff waits are safe to sit in: hang detection is in-process (the SDK
-event-idle timeout in claude_cli), and the only external backstop is a generous
-systemd start-timeout sized above this budget -- so there is no file-activity
+event-idle timeout in claude_cli, plus orchestrate's per-attempt cap), and the only
+external backstop is systemd's TimeoutStartSec -- so there is no file-activity
 watchdog to placate during a legitimate wait.
+
+That backstop only sits above the budget because orchestrate shares ONE
+``_RUN_RETRY_BUDGET_S`` across every stage. Per-stage budgets summed to 28h under a
+5h TimeoutStartSec, and the kill it produces has no handler, so the run row stays
+'running' forever. Keep the run budget below the systemd ceiling.
 """
 
 import asyncio

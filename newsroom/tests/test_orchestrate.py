@@ -13,6 +13,7 @@ in Docker.
 import asyncio
 import json
 import sys
+import time
 from pathlib import Path
 
 import pytest
@@ -957,6 +958,62 @@ class TestFulltextWiring:
 # not just asserted. We inject 529s into the agent invocation and verify the
 # stage recovers (bounded backoff) or fails LOUD (-> run aborts -> alert fires).
 # --------------------------------------------------------------------------- #
+
+
+class TestStageAttemptIsBounded:
+    """with_retry_async's deadline is only consulted after fn() RAISES. A stage that streams
+    events forever never raises, so the 4h budget was never reached and only the container's
+    5h SIGTERM stopped it. This is the audit's strongest argument for a durable executor --
+    closed here in place."""
+
+    def test_an_attempt_that_never_returns_is_cut_off(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(orchestrate, "_STAGE_ATTEMPT_TIMEOUT_S", 0.3)
+
+        async def never_returns(*_a, **_k):
+            await asyncio.sleep(30)
+
+        monkeypatch.setattr(orchestrate.claude_cli, "run_agent", never_returns)
+        started = time.monotonic()
+        with pytest.raises((RuntimeError, TimeoutError, asyncio.TimeoutError)):
+            _run_stage(
+                _spec(),
+                label="cluster",
+                output_path=tmp_path / "clusters.json",
+                validate=_ok_validator,
+                model_override=None,
+                cwd=None,
+                claude_input_dir=tmp_path,
+            )
+        elapsed = time.monotonic() - started
+        assert elapsed < 10, f"attempt was not bounded: {elapsed:.1f}s"
+
+    def test_a_run_deadline_caps_the_stage_budget(self, tmp_path, monkeypatch):
+        """Each stage took a FRESH 4h budget, so seven stages could ask for 28h under a 5h
+        systemd TimeoutStartSec. A run-level deadline has to win when it is sooner."""
+        run_deadline = time.monotonic() + 1.0
+        seen = {}
+
+        async def fake_run(*_a, **_k):
+            raise RuntimeError("overloaded")
+
+        def capture(fn, *, label, deadline):
+            seen["deadline"] = deadline
+            raise RuntimeError("stop")
+
+        monkeypatch.setattr(orchestrate.claude_cli, "run_agent", fake_run)
+        monkeypatch.setattr(orchestrate, "with_retry_async", capture)
+        with pytest.raises((RuntimeError, TimeoutError, asyncio.TimeoutError)):
+            _run_stage(
+                _spec(),
+                label="cluster",
+                output_path=tmp_path / "clusters.json",
+                validate=_ok_validator,
+                model_override=None,
+                cwd=None,
+                claude_input_dir=tmp_path,
+                run_deadline=run_deadline,
+            )
+        assert seen["deadline"] <= run_deadline + 0.01, "the per-stage budget outran the run deadline"
 
 
 class TestUsageSurvivesALaterStageFailing:
