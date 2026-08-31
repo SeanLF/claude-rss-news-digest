@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+from collections.abc import Callable
 
 import config  # referenced at call time so model choices stay env/monkeypatch-overridable
 from claude_agent_sdk import ClaudeSDKError
@@ -13,7 +14,9 @@ from retry import with_retry
 logger = logging.getLogger(__name__)
 
 
-def generate_selections(model: str | None = None, resume: bool = False) -> list[dict]:
+def generate_selections(
+    model: str | None = None, resume: bool = False, on_usage: Callable[[dict], None] | None = None
+) -> list[dict]:
     """Run the fixed curation pipeline; return per-stage usage rows.
 
     Python orchestrates the five subagents directly, in order (CLUSTER, RECAP,
@@ -33,7 +36,11 @@ def generate_selections(model: str | None = None, resume: bool = False) -> list[
     surrounding pipeline (db, feeds, render, email) is genuinely blocking, so the
     async island stays scoped to curation rather than going viral up to run.py.
     """
-    return asyncio.run(orchestrate_selections(claude_input_dir=CLAUDE_INPUT_DIR, model_override=model, resume=resume))
+    return asyncio.run(
+        orchestrate_selections(
+            claude_input_dir=CLAUDE_INPUT_DIR, model_override=model, resume=resume, on_usage=on_usage
+        )
+    )
 
 
 def generate_weekly_recap(title_lines: str) -> str:

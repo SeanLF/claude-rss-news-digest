@@ -959,6 +959,33 @@ class TestFulltextWiring:
 # --------------------------------------------------------------------------- #
 
 
+class TestUsageSurvivesALaterStageFailing:
+    """A stage raising used to discard every earlier stage's usage row, because rows were
+    returned in one batch at the end. The spend was already billed; only the record was lost --
+    and on the --resume that follows, those stages are skipped and contribute nothing, so the
+    cost is recorded nowhere at all."""
+
+    def test_rows_for_completed_stages_are_emitted_before_the_failure(self, tmp_path, monkeypatch):
+        TestOrchestrateSelections()._write_articles(tmp_path)
+        writer = TestOrchestrateSelections()._fake_writer(tmp_path)
+        recorded: list[dict] = []
+
+        async def fake_run(_prompt, *, system_prompt, **k):
+            # cluster/recap/select behave; WRITE explodes after they have all been billed.
+            if "preheader" in system_prompt.lower():  # unique to write.md
+                raise RuntimeError("write stage exploded")
+            return await writer(_prompt, system_prompt=system_prompt, **k)
+
+        monkeypatch.setattr(orchestrate.claude_cli, "run_agent", fake_run)
+        monkeypatch.setattr(orchestrate, "_AGENTS_DIR", REPO_ROOT / ".claude" / "agents")
+
+        with pytest.raises(RuntimeError):
+            _orchestrate(claude_input_dir=tmp_path, on_usage=recorded.append)
+
+        assert [r["subagent"] for r in recorded] == ["cluster", "recap", "select"]
+        assert all("api_cost_usd" in r for r in recorded)
+
+
 class TestChaosTransientOutage:
     def _spec(self):
         return orchestrate.parse_agent_spec(CLUSTER_SPEC)

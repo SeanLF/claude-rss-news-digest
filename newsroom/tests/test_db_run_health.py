@@ -172,6 +172,39 @@ class TestClusterHealthArtifactJoin:
         assert db.get_run_health(db._state.run_id)["batches_lost"] is None
 
 
+class TestCompleteRunArticlesKept:
+    """Run 230 -- the --resume of the failed run 229 -- is recorded as a completed run that
+    emailed 11 people from articles_kept=0, because _render_record_deliver hardcodes 0. The
+    resume tail has no source_health rows of its own to count, so the honest value is NULL
+    ("not measured on this run"), never a fabricated zero. Stats read articles_kept."""
+
+    def test_none_is_stored_as_null_not_zero(self, fresh_db):
+        db.complete_run(articles_kept=None, articles_emailed=11)
+
+        row = (
+            db._connect(db._state.db_path)
+            .execute(
+                "SELECT articles_kept, articles_emailed, status FROM digest_runs WHERE id = ?",
+                (db._state.run_id,),
+            )
+            .fetchone()
+        )
+
+        assert row[0] is None, "a resumed run must not claim it kept 0 articles"
+        assert (row[1], row[2]) == (11, "completed")
+
+    def test_a_real_count_still_round_trips(self, fresh_db):
+        db.complete_run(articles_kept=338, articles_emailed=11)
+
+        row = (
+            db._connect(db._state.db_path)
+            .execute("SELECT articles_kept FROM digest_runs WHERE id = ?", (db._state.run_id,))
+            .fetchone()
+        )
+
+        assert row[0] == 338
+
+
 class TestFulltextAndBlankingArtifactJoin:
     """Same archive->SQL join as TestClusterHealthArtifactJoin, for the two rules added after
     runs 280 and 281. A wrong artifact name, a typo'd JSON path, or omitting either file from

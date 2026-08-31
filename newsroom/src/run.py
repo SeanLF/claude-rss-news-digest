@@ -348,7 +348,7 @@ def _render_record_deliver(
     digest = write_digest(selections, TEMPLATE_FILE)
     replace_placeholders(digest, selections, STYLES_FILE, preheader)
     email_html = render_email(selections)  # MJML email is what gets sent; digest file is the web archive
-    db.start_run(recording=not skip_record, broadcasting=not skip_email, alerting=False)
+    db.start_run(recording=not skip_record, broadcasting=not skip_email, alerting=not skip_record)
     try:
         if usage_rows is not None:
             db.record_usage(usage_rows)
@@ -359,7 +359,13 @@ def _render_record_deliver(
         shown_headlines = read_shown_headlines()
         if shown_headlines:
             db.record_shown_headlines(shown_headlines)
-        db.complete_run(articles_kept=0, articles_emailed=recipients)
+        # NULL, not 0: this tail owns no source_health rows to count, and articles_kept is
+        # what stats read. Run 230, the resume of 229, is on record as emailing 11 people
+        # from 0 kept articles.
+        db.complete_run(articles_kept=None, articles_emailed=recipients)
+        # _alert_on_run_health's only other call site is the full-pipeline success path,
+        # so until now a resumed run shipped with no invariant evaluated at all.
+        _alert_on_run_health()
     except Exception as e:
         db.abort_run(repr(e))
         raise
@@ -654,7 +660,7 @@ Examples:
             shown_headlines = read_shown_headlines()
             if shown_headlines:
                 db.record_shown_headlines(shown_headlines)
-            db.complete_run(articles_kept=0, articles_emailed=recipients)
+            db.complete_run(articles_kept=None, articles_emailed=recipients)
         except Exception as e:
             db.abort_run(repr(e))
             raise
@@ -741,11 +747,16 @@ Examples:
 
         prepare_claude_input(sources, dry_run=args.dry_run, article_limit=args.limit)
         maybe_update_weekly_recap()
-        usage_rows = generate_selections(model=args.model)
-        try:
-            db.record_usage(usage_rows)
-        except Exception:
-            logger.warning("Usage tracking failed (non-fatal)", exc_info=True)
+
+        # Recorded per stage as it completes. Batching at the end meant a stage raising
+        # discarded the spend of every stage that had already run and been billed.
+        def _record_stage_usage(row: dict) -> None:
+            try:
+                db.record_usage([row])
+            except Exception:
+                logger.warning("Usage tracking failed for %s (non-fatal)", row.get("subagent"), exc_info=True)
+
+        usage_rows = generate_selections(model=args.model, on_usage=_record_stage_usage)
         selections_path = assemble_selections(CLAUDE_INPUT_DIR)
         selections = load_selections(selections_path)
         _archive_run_and_threads(selections_path.read_text(), model=args.model)

@@ -736,8 +736,12 @@ async def orchestrate_selections(
     model_override: str | None = None,
     cwd: str | Path | None = None,
     resume: bool = False,
+    on_usage: Callable[[dict[str, Any]], None] | None = None,
 ) -> list[dict[str, Any]]:
     """Run the five curation stages in order; return their usage rows.
+
+    ``on_usage`` is called with each row as its stage completes, so spend already
+    billed survives a later stage raising.
 
     Stages: CLUSTER, RECAP, SELECT, WRITE, COHERENCE. Each verifies its output
     and retries once on failure. Raises RuntimeError if any stage cannot
@@ -758,6 +762,14 @@ async def orchestrate_selections(
     logger.info("Selecting stories... (model=%s)", model_override or "per-agent default")
     usage_rows: list[dict[str, Any]] = []
 
+    def _record(row: dict[str, Any]) -> None:
+        # Emitted as each stage completes, not returned in a batch at the end: a later stage
+        # raising used to discard every earlier stage's row, so a run that failed at WRITE
+        # recorded none of the cluster/recap/select spend it had already been billed for.
+        usage_rows.append(row)
+        if on_usage is not None:
+            on_usage(row)
+
     for label, spec_filename, output_filename, validate in _STAGES:
         if resume and _stage_output_is_valid(claude_input_dir, output_filename, validate):
             logger.info("[%s] resuming: valid output present, skipping", label.capitalize())
@@ -777,7 +789,7 @@ async def orchestrate_selections(
                 threshold=config.CLUSTER_JOIN_THRESHOLD,
             )
             validate(claude_input_dir)
-            usage_rows.append(row)
+            _record(row)
         else:
             spec = parse_agent_spec(_AGENTS_DIR / spec_filename)
             row = await run_stage(
@@ -789,7 +801,7 @@ async def orchestrate_selections(
                 cwd=cwd,
                 claude_input_dir=claude_input_dir,
             )
-            usage_rows.append(row)
+            _record(row)
         # Fetch full text for the SELECTED stories before WRITE runs (whether SELECT just ran or
         # was resumed from a valid prior output), so WRITE/COHERENCE see real article text instead
         # of the ~300-char RSS blurb. Best-effort: guarded by the kill switch here (skip entirely,
@@ -814,7 +826,8 @@ async def orchestrate_selections(
     # runs where COHERENCE was reused -- the draft/report are still on disk, so it
     # runs whenever those inputs exist and the flag is on.
     if config.REPAIR_ENABLED:
-        usage_rows.extend(await _run_repair_phase_best_effort(claude_input_dir, model_override=model_override, cwd=cwd))
+        for row in await _run_repair_phase_best_effort(claude_input_dir, model_override=model_override, cwd=cwd):
+            _record(row)
 
     total = sum(r["api_cost_usd"] for r in usage_rows)
     logger.info("Selection complete: %d stages, $%.4f API-equivalent", len(usage_rows), total)

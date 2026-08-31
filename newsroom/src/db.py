@@ -128,8 +128,12 @@ def start_run(*, recording: bool = True, broadcasting: bool = True, alerting: bo
         return None
 
 
-def complete_run(articles_kept: int, articles_emailed: int = 0):
+def complete_run(articles_kept: int | None, articles_emailed: int = 0):
     """Complete a digest run by updating counts and marking completion time.
+
+    ``articles_kept`` is None on the resume and manual-resend tails: they own no
+    source_health rows to count, and a fabricated 0 is indistinguishable from a
+    real one to the stats that read this column.
 
     ``articles_kept`` is the count of articles kept after dedup/filtering (the
     column was historically misnamed ``articles_fetched``; see migration
