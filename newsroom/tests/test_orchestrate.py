@@ -122,9 +122,10 @@ class TestParseAgentSpec:
 
     def test_coherence_enables_adaptive_thinking(self):
         """COHERENCE deliberately overrides orchestrate._THINKING, and the repair re-check
-        inherits the override through this spec."""
+        inherits the override through this spec. `display` rides on the same config: it is
+        billed identically either way, so omitting it only loses the trace."""
         spec = orchestrate.parse_agent_spec(COHERENCE_SPEC)
-        assert spec.thinking == {"type": "adaptive"}
+        assert spec.thinking == {"type": "adaptive", "display": "summarized"}
 
     def test_recheck_spec_inherits_coherence_thinking(self):
         """The repair re-check reuses the live checker prompt, so it must inherit
@@ -958,6 +959,32 @@ class TestFulltextWiring:
 # not just asserted. We inject 529s into the agent invocation and verify the
 # stage recovers (bounded backoff) or fails LOUD (-> run aborts -> alert fires).
 # --------------------------------------------------------------------------- #
+
+
+class TestThinkingDisplay:
+    """thinking.display defaults to "omitted" on Sonnet 5 (it was "summarized" on 4.6), so
+    turning adaptive on cost the reasoning trace -- ~27k tokens/run leaving no record. display
+    is billed identically either way, so the trace is free to keep."""
+
+    def _spec_file(self, tmp_path, extra):
+        f = tmp_path / "a.md"
+        f.write_text(f"---\nname: a\nmodel: claude-sonnet-5\ntools: Read\n{extra}\n---\nbody\n")
+        return f
+
+    def test_display_is_carried_into_the_thinking_config(self, tmp_path):
+        spec = orchestrate.parse_agent_spec(self._spec_file(tmp_path, "thinking: adaptive\ndisplay: summarized"))
+        assert spec.thinking == {"type": "adaptive", "display": "summarized"}
+
+    def test_display_without_thinking_is_ignored(self, tmp_path):
+        """display is a key ON the thinking config; with no thinking set there is nothing to
+        attach it to, and inventing {"display": ...} alone would 400."""
+        spec = orchestrate.parse_agent_spec(self._spec_file(tmp_path, "display: summarized"))
+        assert spec.thinking is None
+
+    def test_disabled_thinking_never_carries_display(self, tmp_path):
+        """ThinkingConfigDisabled has no optional display key -- sending one is a 400."""
+        spec = orchestrate.parse_agent_spec(self._spec_file(tmp_path, "thinking: disabled\ndisplay: summarized"))
+        assert spec.thinking == {"type": "disabled"}
 
 
 class TestStageAttemptIsBounded:

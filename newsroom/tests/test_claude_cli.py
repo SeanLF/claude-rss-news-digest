@@ -377,6 +377,32 @@ class TestSubscriptionAuthPreserved:
 # ---------------------------------------------------------------------------
 
 
+class TestThinkingIsCaptured:
+    """Setting display: summarized is pointless if the blocks are dropped. claude_cli handled
+    TextBlock and ToolUseBlock only, so the reasoning streamed into nothing."""
+
+    def test_thinking_blocks_reach_the_stage_result(self, monkeypatch):
+        from claude_agent_sdk import ThinkingBlock
+
+        messages = [
+            _assistant(ThinkingBlock(thinking="weighing the claim", signature="sig"), TextBlock(text="done")),
+            _result(subtype="success"),
+        ]
+        monkeypatch.setattr(claude_cli, "query", _fake_query(messages))
+
+        res = _run_agent("Begin.", model="sonnet")
+
+        assert res.thinking == "weighing the claim"
+        assert "done" in res.text
+
+    def test_no_thinking_blocks_is_empty_not_missing(self, monkeypatch):
+        """display defaults to omitted on Sonnet 5, and that means "not sent", never
+        "did not think"."""
+        monkeypatch.setattr(claude_cli, "query", _fake_query([_assistant(TextBlock(text="done")), _result()]))
+
+        assert _run_agent("Begin.", model="sonnet").thinking == ""
+
+
 class TestBuildOptions:
     def test_maps_core_fields(self):
         opts = claude_cli._build_options(

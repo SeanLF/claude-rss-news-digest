@@ -203,6 +203,13 @@ def parse_agent_spec(path: Path) -> AgentSpec:
     # can't be statically narrowed to a ThinkingConfig variant; an invalid value
     # surfaces loudly as a 400 at invocation, not silently.
     thinking = cast(ThinkingConfig, {"type": thinking_val}) if thinking_val else None
+    # `display` is an optional key ON adaptive/enabled, not a config of its own, and
+    # ThinkingConfigDisabled has no such key -- attaching it there is a 400. It is billed
+    # identically either way, so the only thing it changes is whether the reasoning is
+    # recoverable after a miss.
+    display = fields.get("display")
+    if display and thinking is not None and thinking_val != "disabled":
+        thinking = cast(ThinkingConfig, {**thinking, "display": display})
 
     return AgentSpec(
         name=name,
@@ -452,6 +459,11 @@ async def run_stage(
                 logger.warning("%s failed (attempt 1/2), retrying: %s", label, e)
                 continue
             raise RuntimeError(f"{label} stage failed after retry: {e}") from e
+
+        # Summarized reasoning is free (billed either way) but dies with the process unless
+        # it is archived. Absent whenever the stage did not ask for display: summarized.
+        if result.thinking:
+            db.record_run_artifact(f"thinking_{label}.txt", result.thinking)
 
         row = usage_row_from_sdk(
             label,

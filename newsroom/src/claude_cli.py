@@ -38,6 +38,7 @@ from claude_agent_sdk import (
     ClaudeAgentOptions,
     ResultMessage,
     TextBlock,
+    ThinkingBlock,
     ThinkingConfig,
     ToolResultBlock,
     ToolUseBlock,
@@ -76,6 +77,10 @@ class StageResult:
     # the outside -- which is exactly the ambiguity that sat under the measured-null
     # WRITE experiment. Empty is honest for stages that read nothing.
     files_read: tuple[str, ...] = ()
+    # Summarized reasoning, when the stage asked for `display: summarized`. Empty when
+    # display is omitted (the Sonnet 5 default) -- which is not "the model did not think",
+    # only "the thinking was not sent". Billed identically either way.
+    thinking: str = ""
 
     @property
     def ok(self) -> bool:
@@ -232,6 +237,7 @@ async def run_agent(
     )
     text_parts: list[str] = []
     files_read: list[str] = []
+    thinking_parts: list[str] = []
     # tool_use_id -> path, for Reads awaiting their result.
     pending_reads: dict[str, str] = {}
     result: ResultMessage | None = None
@@ -249,6 +255,8 @@ async def run_agent(
                     if isinstance(block, TextBlock):
                         # Collect assistant text as the fallback for ResultMessage.result.
                         text_parts.append(block.text)
+                    elif isinstance(block, ThinkingBlock):
+                        thinking_parts.append(block.thinking)
                     elif isinstance(block, ToolUseBlock) and block.name == "Read":
                         # Only the model ASKING to open a file. Held until its result
                         # arrives below -- see files_read. isinstance guards a malformed
@@ -304,6 +312,7 @@ async def run_agent(
         is_error=bool(result.is_error),
         api_error_status=result.api_error_status,
         files_read=tuple(files_read),
+        thinking="\n".join(thinking_parts),
     )
 
 

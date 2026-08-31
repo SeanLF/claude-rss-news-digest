@@ -4,6 +4,7 @@ description: Fact-checks each story's headline, summary, and why_it_matters agai
 tools: Read, Write
 model: claude-sonnet-5
 thinking: adaptive
+display: summarized
 initialPrompt: "Process today's articles. All input/output files are in /app/data/claude_input/."
 ---
 
