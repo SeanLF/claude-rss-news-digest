@@ -37,9 +37,17 @@ def _healthy(**overrides):
         "title_only_fallback": 0,
         "dropped_continuations": 0,
         "linker_ok": True,
+        "blanked_why": 0,
+        "fulltext_outcome": "completed",
+        "fulltext_tasks": 40,
+        "fulltext_extracted": 31,
     }
     health.update(overrides)
     return health
+
+
+def _codes(health):
+    return " ".join(run_health.violations(health))
 
 
 class TestThreadContinuity:
@@ -73,6 +81,44 @@ class TestThreadContinuity:
 
     def test_healthy_run_reports_nothing(self):
         assert run_health.violations(_healthy()) == []
+
+
+def test_blanked_why_it_matters_fires_on_a_broad_blanking():
+    """Run 280 shipped 6 of 16 stories (38%) with an empty why_it_matters and NOTHING fired:
+    nothing is dropped, the story count is unchanged, so every other invariant reads clean."""
+    assert "BLANKED_WHY_IT_MATTERS" in _codes(_healthy(shipped=16, blanked_why=6))
+
+
+def test_one_blanked_story_is_not_an_alert():
+    """Blanking is the designed fallback. A single story must not page anyone, or the rule
+    trains the reader to ignore it."""
+    assert "BLANKED_WHY_IT_MATTERS" not in _codes(_healthy(shipped=16, blanked_why=1))
+
+
+def test_blanking_rule_cannot_judge_without_the_artifact():
+    """None is 'not recorded' -- a run archived before the field existed, or a failed archive
+    write. Absence of evidence is not a clean run, and it is not an alert either."""
+    assert "BLANKED_WHY_IT_MATTERS" not in _codes(_healthy(blanked_why=None))
+
+
+def test_fulltext_total_loss_fires_when_every_extraction_failed():
+    """Run 281's shape: the step ran, had work, and produced nothing. Fulltext is best-effort
+    so the digest still ships -- which is exactly why nothing else notices."""
+    codes = _codes(_healthy(fulltext_tasks=43, fulltext_extracted=0, fulltext_outcome="killed"))
+    assert "FULLTEXT_TOTAL_LOSS" in codes
+
+
+def test_fulltext_with_no_candidates_is_not_a_loss():
+    """Zero tasks is a legitimate quiet day, not a failure."""
+    assert "FULLTEXT_TOTAL_LOSS" not in _codes(_healthy(fulltext_tasks=0, fulltext_extracted=0))
+
+
+def test_fulltext_disabled_does_not_fire():
+    """FULLTEXT_ENABLED=false is the documented run-281 recovery. A recovery run must not
+    alert on the thing it deliberately switched off."""
+    assert "FULLTEXT_TOTAL_LOSS" not in _codes(
+        _healthy(fulltext_tasks=None, fulltext_extracted=None, fulltext_outcome=None)
+    )
 
 
 class TestMalformedHealth:

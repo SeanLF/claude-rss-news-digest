@@ -63,6 +63,33 @@ _RULES: list[tuple[str, Callable[[dict], bool], str | Callable[[dict], str]]] = 
         ),
     ),
     (
+        "BLANKED_WHY_IT_MATTERS",
+        # Blanking SHIPS: nothing is dropped, the story count is unchanged, and every
+        # other invariant reads clean -- which is why run 280 lost the field on 38% of
+        # its digest and nothing fired. None is "not recorded", not a clean run. The
+        # floor is a rate, not a count, because one blanked story is the designed
+        # fallback working, and a rule that fires on it gets ignored.
+        lambda h: (
+            h.get("blanked_why") is not None and h.get("shipped", 0) > 0 and h["blanked_why"] / h["shipped"] >= 0.25
+        ),
+        lambda h: (
+            f"{h.get('blanked_why')} of {h.get('shipped')} shipped stories "
+            f"({100.0 * h['blanked_why'] / h['shipped']:.0f}%) went out with no why_it_matters"
+        ),
+    ),
+    (
+        "FULLTEXT_TOTAL_LOSS",
+        # Run 281: the step had 43 candidates and returned nothing after hanging 62
+        # minutes. Fulltext is best-effort by design, so the digest shipped and no
+        # other invariant could see it. None means the step did not run (disabled --
+        # the documented run-281 recovery) and must not alert.
+        lambda h: (h.get("fulltext_tasks") or 0) > 0 and (h.get("fulltext_extracted") or 0) == 0,
+        lambda h: (
+            f"fulltext extracted 0 of {h.get('fulltext_tasks')} candidate articles "
+            f"(worker {h.get('fulltext_outcome') or 'unknown'}); stories fell back to CSV summaries"
+        ),
+    ),
+    (
         "NO_ARTIFACTS",
         lambda h: h.get("artifacts", 0) == 0,
         "no intermediate artifacts were archived, so this run cannot be replayed",

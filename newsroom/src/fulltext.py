@@ -333,6 +333,22 @@ def _collect_isolated(
     return results, "completed"
 
 
+def _write_fulltext_health(claude_input_dir: Path, *, tasks: int, extracted: int, outcome: str) -> None:
+    """Record the step's outcome where the DB can see it.
+
+    Artifact absence otherwise conflates disabled, no candidates, every fetch failing, and a
+    worker that died -- and run 281 proved the last of those is invisible to a monitor that
+    only judges runs which finish. Best-effort: observability must never cost the digest.
+    """
+    try:
+        (claude_input_dir / "fulltext_health.json").write_text(
+            json.dumps({"tasks": tasks, "extracted": extracted, "outcome": outcome}, sort_keys=True),
+            encoding="utf-8",
+        )
+    except (OSError, TypeError, ValueError) as e:
+        logger.warning("could not write fulltext_health.json (non-fatal): %s", e)
+
+
 def _fetch_for_selected_inner(claude_input_dir: Path) -> Path | None:
     out_path = claude_input_dir / "article_fulltext.json"
     # Unlink any stale output up front, before any early return below. Without this, a
@@ -379,6 +395,7 @@ def _fetch_for_selected_inner(claude_input_dir: Path) -> Path | None:
 
     if not tasks:
         logger.warning("fulltext: no candidate articles with URLs found, skipping")
+        _write_fulltext_health(claude_input_dir, tasks=0, extracted=0, outcome="no_candidates")
         return None
 
     stage_start = time.monotonic()
@@ -388,6 +405,8 @@ def _fetch_for_selected_inner(claude_input_dir: Path) -> Path | None:
         deadline_s=config.FULLTEXT_DEADLINE_S,
         max_doc_chars=config.FULLTEXT_MAX_DOC_CHARS,
     )
+
+    _write_fulltext_health(out_path.parent, tasks=len(tasks), extracted=len(results), outcome=outcome)
 
     elapsed = time.monotonic() - stage_start
     if not results:

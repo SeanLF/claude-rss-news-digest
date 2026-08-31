@@ -172,6 +172,56 @@ class TestClusterHealthArtifactJoin:
         assert db.get_run_health(db._state.run_id)["batches_lost"] is None
 
 
+class TestFulltextAndBlankingArtifactJoin:
+    """Same archive->SQL join as TestClusterHealthArtifactJoin, for the two rules added after
+    runs 280 and 281. A wrong artifact name, a typo'd JSON path, or omitting either file from
+    _TRACE_ARTIFACTS leaves the rule reading NULL forever with the suite green -- which is
+    precisely how both incidents stayed invisible."""
+
+    def test_a_total_fulltext_loss_survives_the_round_trip_and_fires(self, fresh_db, tmp_path):
+        (tmp_path / "fulltext_health.json").write_text(json.dumps({"tasks": 43, "extracted": 0, "outcome": "killed"}))
+        db.archive_run_artifacts(tmp_path)
+
+        health = db.get_run_health(db._state.run_id)
+
+        assert health["fulltext_tasks"] == 43
+        assert health["fulltext_extracted"] == 0
+        assert health["fulltext_outcome"] == "killed"
+        assert any("FULLTEXT_TOTAL_LOSS" in v for v in run_health.violations(health))
+
+    def test_the_shape_written_by_the_stage_is_the_shape_the_query_reads(self, fresh_db, tmp_path):
+        """Round-trip through the REAL writer, so a key rename in fulltext.py fails here."""
+        import fulltext
+
+        fulltext._write_fulltext_health(tmp_path, tasks=40, extracted=31, outcome="completed")
+        db.archive_run_artifacts(tmp_path)
+
+        health = db.get_run_health(db._state.run_id)
+
+        assert (health["fulltext_tasks"], health["fulltext_extracted"]) == (40, 31)
+        assert health["fulltext_outcome"] == "completed"
+        assert not [v for v in run_health.violations(health) if "FULLTEXT_TOTAL_LOSS" in v]
+
+    def test_blanked_why_it_matters_is_counted_from_the_shipped_artifact(self, fresh_db, tmp_path):
+        (tmp_path / "selections.json").write_text(
+            json.dumps(
+                {
+                    "must_know": [
+                        {"headline": "a", "why_it_matters": ""},
+                        {"headline": "b", "why_it_matters": "   "},
+                        {"headline": "c", "why_it_matters": "real"},
+                    ],
+                    "should_know": [{"headline": "d", "why_it_matters": ""}],
+                }
+            )
+        )
+        db.archive_run_artifacts(tmp_path)
+
+        health = db.get_run_health(db._state.run_id)
+
+        assert health["blanked_why"] == 3
+
+
 class TestDroppedContinuations:
     """dropped_continuations is read straight out of thread_links.json rather than a new column:
     the trace already records each refusal, and json_extract over run_artifacts is the pattern

@@ -505,6 +505,27 @@ def get_run_health(run_id: int) -> dict:
                      FROM run_artifacts
                     WHERE run_id = :r AND artifact_name = 'cluster_health.json'),
                   (SELECT CASE WHEN json_valid(content)
+                               THEN json_extract(content, '$.tasks') END
+                     FROM run_artifacts
+                    WHERE run_id = :r AND artifact_name = 'fulltext_health.json'),
+                  (SELECT CASE WHEN json_valid(content)
+                               THEN json_extract(content, '$.extracted') END
+                     FROM run_artifacts
+                    WHERE run_id = :r AND artifact_name = 'fulltext_health.json'),
+                  (SELECT CASE WHEN json_valid(content)
+                               THEN json_extract(content, '$.outcome') END
+                     FROM run_artifacts
+                    WHERE run_id = :r AND artifact_name = 'fulltext_health.json'),
+                  (SELECT CASE WHEN json_valid(content)
+                                AND json_type(content, '$.must_know') = 'array'
+                               THEN (SELECT COUNT(*) FROM (
+                                 SELECT value FROM json_each(json_extract(content, '$.must_know'))
+                                 UNION ALL
+                                 SELECT value FROM json_each(json_extract(content, '$.should_know'))
+                               ) WHERE TRIM(COALESCE(value ->> '$.why_it_matters', '')) = '') END
+                     FROM run_artifacts
+                    WHERE run_id = :r AND artifact_name = 'selections.json'),
+                  (SELECT CASE WHEN json_valid(content)
                                 AND json_type(content, '$.stories') = 'array'
                                THEN (
                      SELECT CASE WHEN COALESCE(SUM(CASE WHEN type = 'object' THEN 0 ELSE 1 END), 0) > 0
@@ -554,6 +575,14 @@ def get_run_health(run_id: int) -> dict:
         # short final batch means "a batch was lost" can be 1 article, not 40, and
         # the alert should say which.
         "title_only_fallback": row[7],
+        # None when the step did not run at all (FULLTEXT_ENABLED=false, the documented
+        # run-281 recovery). Absence must not read as a clean run OR as a failure.
+        "fulltext_tasks": row[8],
+        "fulltext_extracted": row[9],
+        "fulltext_outcome": row[10],
+        # Counted from the SHIPPED artifact, not merge's own tally: SELECTIONS_SCHEMA permits
+        # an empty why_it_matters, so a WRITE that emits "" never passes the blanking path.
+        "blanked_why": row[11],
         # Read out of the link trace rather than a column of its own: the trace already
         # records every refusal, and a second copy in thread_runs is a second thing to
         # keep in step.
@@ -565,7 +594,7 @@ def get_run_health(run_id: int) -> dict:
         # because `stories: ["already_claimed"]` passes the first two and raises on the
         # third. Any malformation reads as NULL ("cannot judge"); only a well-formed array
         # yields a number.
-        "dropped_continuations": row[8],
+        "dropped_continuations": row[12],
         # Reported, not triggered on. It does not detect anything NO_THREAD_CONTINUATIONS
         # misses, but it is the difference between "nothing continued today" and "the
         # linker call failed", which is the first question asked when that rule fires.
@@ -574,7 +603,7 @@ def get_run_health(run_id: int) -> dict:
         # contract -- a caller writing `is True` would silently never match. Only 1 and 0 are
         # answers; a string or object in that slot is a malformed trace, and bool() would read
         # it as healthy, which fails open in the direction of silence.
-        "linker_ok": True if row[9] == 1 else (False if row[9] == 0 else None),
+        "linker_ok": True if row[13] == 1 else (False if row[13] == 0 else None),
     }
 
 
@@ -680,6 +709,7 @@ _TRACE_ARTIFACTS = (
     "cluster_health.json",
     # The deterministic join's INPUT; only its output (clusters.json) was kept before.
     "cluster_tags.json",
+    "fulltext_health.json",
     # Context files handed TO the stages rather than produced by them. Without these
     # the archive shows the headline that shipped but not the prior headlines SELECT
     # and WRITE were shown against, and claude_input/ is rmtree'd next run.
