@@ -64,9 +64,7 @@ def main() -> None:
     web_base = db.prepare_for_web(raw)
 
     def web_variant(theme: str) -> str:
-        return web_base.replace(
-            '<html lang="en">', f'<html lang="en" data-theme="{theme}">'
-        )
+        return web_base.replace('<html lang="en">', f'<html lang="en" data-theme="{theme}">')
 
     variants = {
         # EMAIL is the real production MJML render (render_email), not derived from the
