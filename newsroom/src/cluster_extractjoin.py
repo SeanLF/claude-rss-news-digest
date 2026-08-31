@@ -152,7 +152,7 @@ def parse_extract_items(text: str) -> list[dict]:
 
 
 def _write_cluster_health(
-    claude_input_dir: Path, *, articles: int, title_only_fallback: int, batches_lost: int
+    claude_input_dir: Path, *, articles: int, title_only_fallback: int, batches_lost: int, tags_archived: bool = False
 ) -> None:
     """Record this stage's degradation counts where an invariant can read them.
 
@@ -168,11 +168,33 @@ def _write_cluster_health(
                     "articles": articles,
                     "title_only_fallback": title_only_fallback,
                     "batches_lost": batches_lost,
+                    "tags_archived": tags_archived,
                 }
             )
         )
     except OSError as e:
         logger.warning("could not write cluster_health.json (non-fatal): %s", e)
+
+
+# `_tag_bag` reads these, so an archived tag set cannot be stamped with weights it was not
+# joined under. The two cannot drift, which is what makes an archived run replayable.
+_TAG_BAG_WEIGHTS = {"entities": 3, "keywords": 1, "primary_event": 2}
+
+
+def _write_cluster_tags(claude_input_dir: Path, tags: dict[str, dict]) -> bool:
+    """Write the extracted tags and the weights they will be joined under.
+
+    Best-effort like `_write_cluster_health`: observability must never cost the digest.
+    """
+    try:
+        (claude_input_dir / "cluster_tags.json").write_text(
+            json.dumps({"tag_bag_weights": _TAG_BAG_WEIGHTS, "tags": tags}, sort_keys=True),
+            encoding="utf-8",
+        )
+        return True
+    except OSError as e:
+        logger.warning("could not write cluster_tags.json (non-fatal): %s", e)
+        return False
 
 
 def coerce_tag(item: dict) -> dict:
@@ -263,7 +285,11 @@ def _tag_bag(tag: dict) -> str:
     ents = [e.lower() for e in tag.get("entities", [])]
     kws = [k.lower() for k in tag.get("keywords", [])]
     pe = str(tag.get("primary_event", "")).lower().strip()
-    parts = ents * 3 + kws + ([pe] * 2 if pe else [])
+    parts = (
+        ents * _TAG_BAG_WEIGHTS["entities"]
+        + kws * _TAG_BAG_WEIGHTS["keywords"]
+        + ([pe] * _TAG_BAG_WEIGHTS["primary_event"] if pe else [])
+    )
     return " ".join(p for p in parts if p.strip())
 
 
@@ -613,11 +639,16 @@ async def run_extractjoin_stage(
         logger.error("extract-join: %d/%d articles title-only fallback (degraded clustering)", len(missing), len(ids))
     # Durable counterpart to that log line. A rotating 100 KB log file is not somewhere an
     # invariant can be evaluated from, which is why every one of these runs shipped unnoticed.
+    # After the title-only fallback fill, so what is archived is exactly what join_tags sees.
+    # The outcome rides in cluster_health because a MISSING cluster_tags.json is ambiguous.
+    tags_archived = _write_cluster_tags(claude_input_dir, tags)
+
     _write_cluster_health(
         claude_input_dir,
         articles=len(ids),
         title_only_fallback=len(missing),
         batches_lost=sum(1 for items, _, _ in results if not items),
+        tags_archived=tags_archived,
     )
 
     clusters = join_tags(ids, tags, threshold=threshold)
@@ -629,4 +660,16 @@ async def run_extractjoin_stage(
 
     # Whole-stage wall clock (batched extraction + deterministic join), for run_usage latency.
     duration_ms = int((time.monotonic() - stage_start) * 1000)
-    return usage.usage_row_from_sdk("cluster", model, _merge_usage(usage_rows), total_cost, duration_ms=duration_ms)
+    # This stage sets thinking per batch via `_thinking_for(model)`; record that resolved
+    # value, not NULL, or a model swap silently changes it with no trace in run_usage.
+    return usage.usage_row_from_sdk(
+        "cluster",
+        model,
+        _merge_usage(usage_rows),
+        total_cost,
+        duration_ms=duration_ms,
+        thinking=_thinking_for(model),
+        # Explicit: `_thinking_for` leaves effort deliberately unset, so record the policy
+        # ("(sdk default)") rather than an absence (NULL).
+        effort=None,
+    )

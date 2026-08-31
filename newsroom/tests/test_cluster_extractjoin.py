@@ -39,6 +39,21 @@ def _all_ids(clusters):
     return sorted(a for c in clusters for a in c["article_ids"])
 
 
+def test_tag_bag_honours_the_archived_weights(monkeypatch):
+    """The archive stamps `_TAG_BAG_WEIGHTS` onto every run. If `_tag_bag` did not read it, a
+    reweight would leave every archived tag set labelled with weights it was not joined under and
+    an offline replay would produce plausible, wrong numbers."""
+    tag = {"entities": ["ent"], "keywords": ["kw"], "primary_event": "pe"}
+    bag = cej._tag_bag(tag).split()
+    w = cej._TAG_BAG_WEIGHTS
+    assert bag.count("ent") == w["entities"]
+    assert bag.count("kw") == w["keywords"]
+    assert bag.count("pe") == w["primary_event"]
+
+    monkeypatch.setitem(cej._TAG_BAG_WEIGHTS, "keywords", 4)
+    assert cej._tag_bag(tag).split().count("kw") == 4
+
+
 def test_join_every_article_appears_exactly_once():
     """The invariant SELECT depends on: a partition, not overlaps or drops."""
     ids = ["A1", "A2", "A3", "A4"]
@@ -834,7 +849,8 @@ def test_stage_records_a_lost_batch_in_cluster_health(tmp_path, monkeypatch):
     asyncio.run(cej.run_extractjoin_stage(tmp_path, model="claude-sonnet-4-6", cwd=None, threshold=0.80))
 
     health = json.loads((tmp_path / "cluster_health.json").read_text())
-    assert health == {"articles": 200, "title_only_fallback": 40, "batches_lost": 1}
+    # tags_archived rides here because a MISSING cluster_tags.json is ambiguous.
+    assert health == {"articles": 200, "title_only_fallback": 40, "batches_lost": 1, "tags_archived": True}
 
 
 def test_stage_records_a_clean_run_as_zero(tmp_path, monkeypatch):
@@ -875,3 +891,39 @@ def test_unwritable_cluster_health_does_not_break_the_stage(tmp_path, monkeypatc
 
     assert (tmp_path / "clusters.json").exists(), "the stage must still produce its real output"
     assert any("cluster_health.json" in r.getMessage() for r in caplog.records)
+
+
+# --- cluster_tags.json: the deterministic join's own INPUT ---
+
+
+def test_stage_archives_the_extracted_tags(tmp_path, monkeypatch):
+    """The extracted tags are `join_tags`'s input, so they must be archived: without them a
+    run cannot be replayed offline and a bad cluster cannot be attributed to extraction or
+    join."""
+    import cluster_extractjoin as cej
+
+    cej._write_cluster_tags(tmp_path, {"A1": {"entities": ["Iran"], "keywords": [], "primary_event": "strike"}})
+
+    got = json.loads((tmp_path / "cluster_tags.json").read_text())
+    assert got["tags"]["A1"]["entities"] == ["Iran"]
+    # The weights are a code constant that moves independently of the data, so a tag set is
+    # only replayable when they are recorded alongside it.
+    assert got["tag_bag_weights"] == {"entities": 3, "keywords": 1, "primary_event": 2}
+
+
+def test_unwritable_cluster_tags_does_not_break_the_stage(tmp_path, caplog):
+    """Same fail-soft contract as cluster_health: observability must never cost a digest."""
+    import cluster_extractjoin as cej
+
+    with caplog.at_level("WARNING"):
+        cej._write_cluster_tags(tmp_path / "does" / "not" / "exist", {"A1": {}})
+
+    assert any("cluster_tags" in r.getMessage() for r in caplog.records)
+
+
+def test_cluster_tags_is_archived_as_a_trace_artifact():
+    """Writing the file is useless if the archiver does not pick it up -- claude_input/ is
+    rmtree'd on the next run, so an un-archived artifact is a file that never existed."""
+    import db
+
+    assert "cluster_tags.json" in db._TRACE_ARTIFACTS
