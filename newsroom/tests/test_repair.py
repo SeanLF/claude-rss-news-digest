@@ -68,20 +68,25 @@ class TestBuildRepairRequests:
 
         assert set(out["requests"][0]["failed_fields"]) == {"headline", "summary"}
 
-    def test_skips_why_it_matters_only_failure(self):
-        # why-only stays on merge.py's existing blank path -- not a repair request.
+    def test_builds_request_for_why_it_matters_only_failure(self):
+        # why_it_matters is repaired like any other field; blanking stays as the
+        # fail-closed fallback when repair does not produce a clean patch.
         draft = _draft(must_know=[_item("H", article_ids=("A1",))])
         coherence = {"results": [_fail("H", ["why_it_matters"], "why: fabricated", ("A1",))]}
 
-        assert repair.build_repair_requests(draft, coherence)["requests"] == []
+        out = repair.build_repair_requests(draft, coherence)
 
-    def test_skips_mixed_headline_and_why(self):
-        # A failure set that includes why_it_matters is NOT a subset of
-        # {headline, summary}; MVP leaves it on the conservative drop path.
+        assert [r["failed_fields"] for r in out["requests"]] == [["why_it_matters"]]
+
+    def test_builds_request_for_mixed_summary_and_why(self):
+        # A mixed set is a clean subset of the repairable fields, so the whole
+        # story is repaired rather than dropped.
         draft = _draft(must_know=[_item("H", article_ids=("A1",))])
         coherence = {"results": [_fail("H", ["summary", "why_it_matters"], "two bad", ("A1",))]}
 
-        assert repair.build_repair_requests(draft, coherence)["requests"] == []
+        out = repair.build_repair_requests(draft, coherence)
+
+        assert set(out["requests"][0]["failed_fields"]) == {"summary", "why_it_matters"}
 
     def test_skips_passing_story(self):
         draft = _draft(must_know=[_item("H", article_ids=("A1",))])
@@ -500,12 +505,10 @@ FIXTURE_DIR = Path(__file__).parent / "fixtures" / "coherence_faithful"
 
 
 class TestRealRun245Fixture:
-    def test_builds_requests_only_for_the_three_whole_story_drops(self):
-        """On run 245 the reframed COHERENCE dropped 3 WHOLE stories over a
-        headline/summary failure (Burnham/summary, Israel-centrifuges/headline,
-        China/summary) and blanked 3 why_it_matters (Zelensky, Philippine, Ebola).
-        Repair must target exactly the 3 whole-story drops and leave the 3
-        why-only failures on merge's existing blank path."""
+    def test_builds_requests_for_every_failure_including_why_only(self):
+        """Real-data check that every coherence failure builds a request: on this fixture
+        3 headline/summary failures (Burnham, Israel-centrifuges, China) and 3 why-only
+        failures (Zelensky, Philippine, Ebola). All 6 are repairable."""
         draft = json.loads((FIXTURE_DIR / "draft_selections.json").read_text())
         # coherence_report.json is gitignored (the eval regenerates it), so read the
         # committed frozen copy -- otherwise this test breaks on a clean checkout.
@@ -514,9 +517,315 @@ class TestRealRun245Fixture:
         reqs = repair.build_repair_requests(draft, coherence)["requests"]
         headlines = {r["fields"]["headline"] for r in reqs}
 
-        assert len(reqs) == 3
+        assert len(reqs) == 6
         assert any("Burnham" in h for h in headlines)
         assert any("centrifuges" in h for h in headlines)
         assert any("China considers tighter export controls" in h for h in headlines)
-        # The why_it_matters-only failures must NOT be repaired.
-        assert not any(kw in h for h in headlines for kw in ("Zelensky", "Ebola", "Philippine"))
+        assert any("Zelensky" in h for h in headlines)
+        assert any("Ebola" in h for h in headlines)
+        assert any("Philippine" in h for h in headlines)
+        why_only = [r for r in reqs if r["failed_fields"] == ["why_it_matters"]]
+        assert len(why_only) == 3
+
+
+class TestMultipleCoherenceFailuresForOneStory:
+    """COHERENCE may return more than one failing result for a story. merge unions their
+    failed_fields and requires the patch to match that union exactly, so a repair request built
+    from only the FIRST match asks for too little: every guard passes, then merge rejects the
+    patch as a field-set mismatch and the story is dropped after a paid call."""
+
+    def test_request_fields_match_what_merge_will_require(self):
+        import merge
+
+        results = [
+            {
+                "headline": "H",
+                "article_ids": ["A1"],
+                "pass": False,
+                "reason": "summary: bad",
+                "failed_fields": ["summary"],
+            },
+            {
+                "headline": "H",
+                "article_ids": ["A1"],
+                "pass": False,
+                "reason": "why: bad",
+                "failed_fields": ["why_it_matters"],
+            },
+        ]
+        draft = {
+            "must_know": [{"headline": "H", "summary": "s", "why_it_matters": "w", "sources": [{"article_id": "A1"}]}]
+        }
+
+        reqs = repair.build_repair_requests(draft, {"results": results})["requests"]
+        assert len(reqs) == 1
+        assert set(reqs[0]["failed_fields"]) == merge._repairable_flagged_fields(results)
+
+    def test_reason_carries_every_matching_failure(self):
+        results = [
+            {
+                "headline": "H",
+                "article_ids": ["A1"],
+                "pass": False,
+                "reason": "summary: bad",
+                "failed_fields": ["summary"],
+            },
+            {
+                "headline": "H",
+                "article_ids": ["A1"],
+                "pass": False,
+                "reason": "why: bad",
+                "failed_fields": ["why_it_matters"],
+            },
+        ]
+        draft = {
+            "must_know": [{"headline": "H", "summary": "s", "why_it_matters": "w", "sources": [{"article_id": "A1"}]}]
+        }
+        reason = repair.build_repair_requests(draft, {"results": results})["requests"][0]["reason"]
+        assert "summary: bad" in reason and "why: bad" in reason
+
+    def test_a_non_string_reason_does_not_kill_the_phase(self):
+        """`reason` is model-generated and validated nowhere -- not by validate_coherence, which
+        checks only `pass` and `failed_fields`. Joining reasons made a list-valued reason a
+        TypeError that _run_repair_phase_best_effort swallows, dropping EVERY repairable story
+        that run. merge already coerces this same field on the blanking path."""
+        results = [
+            {
+                "headline": "H",
+                "article_ids": ["A1"],
+                "pass": False,
+                "reason": ["clause A", "clause B"],
+                "failed_fields": ["summary"],
+            },
+            {"headline": "H", "article_ids": ["A1"], "pass": False, "reason": 7, "failed_fields": ["why_it_matters"]},
+        ]
+        draft = {
+            "must_know": [{"headline": "H", "summary": "s", "why_it_matters": "w", "sources": [{"article_id": "A1"}]}]
+        }
+        req = repair.build_repair_requests(draft, {"results": results})["requests"][0]
+        assert isinstance(req["reason"], str)
+        assert "clause A" in req["reason"]
+
+    def test_one_non_repairable_failure_skips_the_story(self):
+        """merge returns None if ANY matching failure names an unrepairable field. repair must
+        agree, or it pays for a repair merge will refuse."""
+        results = [
+            {
+                "headline": "H",
+                "article_ids": ["A1"],
+                "pass": False,
+                "reason": "summary: bad",
+                "failed_fields": ["summary"],
+            },
+            {"headline": "H", "article_ids": ["A1"], "pass": False, "reason": "??", "failed_fields": ["preheader"]},
+        ]
+        draft = {
+            "must_know": [{"headline": "H", "summary": "s", "why_it_matters": "w", "sources": [{"article_id": "A1"}]}]
+        }
+        assert repair.build_repair_requests(draft, {"results": results})["requests"] == []
+
+
+class TestApplyRepairsSplitAcrossObjects:
+    """The repairer may answer per-FIELD instead of per-STORY, returning
+    ``{article_ids:[A13], headline:...}`` then ``{article_ids:[A13], why_it_matters:...}``
+    for a story flagged on both. A plain last-wins index on frozenset(article_ids)
+    discards the first patch, the guard then sees an incomplete field set, and a story
+    that was fully repaired is dropped."""
+
+    def test_merges_two_objects_for_one_story(self):
+        # Flagged both fields, returned in SEPARATE objects sharing article_ids. Both
+        # were genuinely repaired, so the story must be kept.
+        reqs = {"requests": [_request(["headline", "why_it_matters"], ("A13",))]}
+        rep = {
+            "results": [
+                _repaired(("A13",), action="corrected", headline="Fixed headline"),
+                _repaired(("A13",), action="deleted_unsupported", why_it_matters="Fixed why"),
+            ]
+        }
+
+        entry = repair.apply_repairs(reqs, rep)["applied"][0]
+
+        assert entry["ok"] is True
+        assert entry["patched_fields"] == {
+            "headline": "Fixed headline",
+            "why_it_matters": "Fixed why",
+        }
+
+    def test_order_decides_because_the_last_object_is_the_final_answer(self):
+        """Object order is meaningful, not incidental. A last object that NARROWS to exactly the
+        flagged set is a withdrawal and is honoured; a last object naming an unflagged field is an
+        out-of-scope final answer and drops the story. Matching an earlier object instead would let
+        that out-of-scope answer be ignored -- the smuggling case below."""
+        reqs = {"requests": [_request(["headline"], ("A13",))]}
+        compliant = _repaired(("A13",), action="corrected", headline="Good headline")
+        overreaching = _repaired(("A13",), headline="Good headline", summary="unasked for")
+
+        kept = repair.apply_repairs(reqs, {"results": [overreaching, compliant]})["applied"][0]
+        assert kept["ok"] is True
+        assert kept["patched_fields"] == {"headline": "Good headline"}
+
+        dropped = repair.apply_repairs(reqs, {"results": [compliant, overreaching]})["applied"][0]
+        assert dropped["ok"] is False
+        assert dropped["patched_fields"] == {}
+
+    def test_conflicting_text_for_one_field_is_logged(self, caplog):
+        """Last-wins on a genuine conflict is a silent loss: the discarded text never appears in
+        repair_log.jsonl, so the unmeasured take-last choice cannot be measured after the fact."""
+        reqs = {"requests": [_request(["summary"], ("A13",))]}
+        rep = {
+            "results": [
+                _repaired(("A13",), summary="A full, correct, well-sourced summary."),
+                _repaired(("A13",), summary="tbd"),
+            ]
+        }
+        with caplog.at_level("WARNING"):
+            repair.apply_repairs(reqs, rep)
+        assert any("conflicting" in r.getMessage() for r in caplog.records)
+
+    def test_split_objects_still_guarded_on_each_field(self):
+        # Merging must not weaken the per-field guards: one half empty is still a fail.
+        reqs = {"requests": [_request(["headline", "summary"], ("A13",))]}
+        rep = {
+            "results": [
+                _repaired(("A13",), headline="Fixed headline"),
+                _repaired(("A13",), summary="   "),
+            ]
+        }
+
+        entry = repair.apply_repairs(reqs, rep)["applied"][0]
+
+        assert entry["ok"] is False
+        assert entry["patched_fields"] == {}
+
+    def test_over_repair_then_self_correct_keeps_the_story(self):
+        """A union merge cannot express the model WITHDRAWING a field: it touches an
+        unflagged field, notices, and re-emits with only the flagged one. Unioning keeps
+        the withdrawn field, `set(present) != flagged` rejects, and the story drops. Hence
+        the take-last-exact-match rule ahead of the union.
+        """
+        reqs = {"requests": [_request(["summary"], ("A3",))]}
+        rep = {
+            "results": [
+                _repaired(("A3",), summary="draft", why_it_matters="oops, touched this"),
+                _repaired(("A3",), summary="final summary"),
+            ]
+        }
+
+        entry = repair.apply_repairs(reqs, rep)["applied"][0]
+
+        assert entry["ok"] is True
+        assert entry["patched_fields"] == {"summary": "final summary"}
+
+    def test_restated_same_field_takes_the_later_value(self):
+        # NOT a conflict-drop: a restated field is the model correcting itself, and
+        # dropping would discard the correction in the one stage that exists to save a
+        # story. Still guarded -- the later value has to pass every check on its own.
+        reqs = {"requests": [_request(["headline"], ("A13",))]}
+        rep = {
+            "results": [
+                _repaired(("A13",), headline="Fixed headline with a typoo"),
+                _repaired(("A13",), headline="Fixed headline"),
+            ]
+        }
+
+        entry = repair.apply_repairs(reqs, rep)["applied"][0]
+
+        assert entry["ok"] is True
+        assert entry["patched_fields"] == {"headline": "Fixed headline"}
+
+    def test_restated_field_is_still_guarded(self):
+        # Taking the later value must not weaken the guards: a self-correction INTO an
+        # empty field is still a fail.
+        reqs = {"requests": [_request(["headline"], ("A13",))]}
+        rep = {
+            "results": [
+                _repaired(("A13",), headline="Fixed headline"),
+                _repaired(("A13",), headline="   "),
+            ]
+        }
+
+        entry = repair.apply_repairs(reqs, rep)["applied"][0]
+
+        assert entry["ok"] is False
+        assert entry["patched_fields"] == {}
+
+    def test_split_objects_cannot_smuggle_an_unflagged_field(self):
+        # The "clean fields are untouchable" guard must survive merging: a second
+        # object naming a field that was never flagged still fails the story.
+        reqs = {"requests": [_request(["headline"], ("A13",))]}
+        rep = {
+            "results": [
+                _repaired(("A13",), headline="Fixed headline"),
+                _repaired(("A13",), summary="Sneaky edit"),
+            ]
+        }
+
+        entry = repair.apply_repairs(reqs, rep)["applied"][0]
+
+        assert entry["ok"] is False
+        assert entry["patched_fields"] == {}
+
+    def test_empty_ids_objects_still_not_indexed_when_merging(self):
+        # The empty-key collision guard must not be lost in the merge: two storyless
+        # results must not pool under frozenset() and patch an unrelated story.
+        reqs = {"requests": [_request(["headline"], article_ids=())]}
+        rep = {
+            "results": [
+                _repaired((), headline="Cross-story text"),
+                _repaired((), summary="More cross-story text"),
+            ]
+        }
+
+        entry = repair.apply_repairs(reqs, rep)["applied"][0]
+
+        assert entry["ok"] is False
+        assert entry["patched_fields"] == {}
+
+
+class TestRecheckVerdictSplitAcrossObjects:
+    """A split RE-CHECK verdict must fail closed, not resolve by emission order.
+
+    Last-wins is fail-OPEN for verdicts: a re-checker emitting {pass:false} then
+    {pass:true} would ship text the checker explicitly rejected, and the reverse order
+    would drop it -- the outcome decided by which object came last.
+    """
+
+    def _applied(self):
+        return {
+            "applied": [
+                {
+                    "article_ids": ["A13"],
+                    "ok": True,
+                    "patched_fields": {"why_it_matters": "new"},
+                    "action": "corrected",
+                    "guard": None,
+                }
+            ]
+        }
+
+    @staticmethod
+    def _verdict(passed):
+        v = {"article_ids": ["A13"], "pass": passed}
+        if not passed:
+            v |= {"failed_fields": ["why_it_matters"], "reason": "still bad"}
+        return v
+
+    def test_disagreeing_verdicts_drop_regardless_of_order(self):
+        fail, ok = self._verdict(False), self._verdict(True)
+        for order in ([fail, ok], [ok, fail]):
+            out = repair.build_repair_resolution(self._applied(), {"results": order})
+            assert out["results"][0]["status"] == "recheck_failed", order
+            assert out["results"][0]["recheck_pass"] is not True, order
+
+    def test_agreeing_duplicate_passes_still_pass(self):
+        # Two objects that AGREE are not a contradiction -- a split-but-consistent
+        # verdict must not cost a story that was genuinely re-verified.
+        ok = self._verdict(True)
+        out = repair.build_repair_resolution(self._applied(), {"results": [ok, dict(ok)]})
+        assert out["results"][0]["status"] == "repaired"
+
+    def test_non_dict_verdict_does_not_raise(self):
+        # validate_recheck_report only checks that `results` is a list, so a string
+        # element reaches the indexer. Raising here loses EVERY repair in the run.
+        out = repair.build_repair_resolution(self._applied(), {"results": ["A13 passes"]})
+        assert out["results"][0]["status"] == "recheck_failed"

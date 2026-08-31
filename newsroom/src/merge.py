@@ -19,13 +19,11 @@ from utils import ARTICLE_ID_GROUP, cluster_for_articles, strip_article_ids
 
 logger = logging.getLogger(__name__)
 
-# The only fields repair-not-drop regenerates in the MVP, and the fields merge
-# may patch back onto a kept story. A why_it_matters failure is independently
-# blank-able here (see _why_it_matters_only_failure), not repaired in the MVP; a
-# failure set naming any OTHER field, or mixing in why_it_matters, stays on the
+# The fields repair-not-drop regenerates, and the fields merge may patch back
+# onto a kept story. A failure set naming any OTHER field stays on the
 # whole-story drop path. Single source of truth -- repair.py imports this. A
 # frozenset so it serves both merge's membership test and repair's subset check.
-_REPAIRABLE_FIELDS = frozenset({"headline", "summary"})
+_REPAIRABLE_FIELDS = frozenset({"headline", "summary", "why_it_matters"})
 
 # The not_covered_blurb is reader-facing (rendered in the digest footer), but it
 # originates from SELECT, whose working vocabulary includes internal cluster
@@ -120,10 +118,13 @@ def _why_it_matters_only_failure(result: dict) -> bool:
     these correctly, but a headline-drop-on-any-fail policy was costing up to
     35% of stories on a real archived day even though only one field was ever
     wrong. Any other shape -- failed_fields absent, empty, unparseable (not a
-    list), or naming headline/summary/an unknown field alongside or instead of
+    list), or naming an unknown field alongside or instead of
     why_it_matters -- returns False, so the caller falls back to a full drop.
     Over-dropping is safer than silently keeping an unverified headline or
     summary; only why_it_matters gets the softer treatment.
+
+    Blanking is the FALLBACK, reached only when repair is disabled or did not
+    cleanly cover the flagged fields, so the caller counts and reports it.
     """
     fields = result.get("failed_fields")
     if not isinstance(fields, list) or not all(isinstance(f, str) for f in fields):
@@ -159,10 +160,9 @@ def _repairable_flagged_fields(hit_results) -> set[str] | None:
     or None if the story is not fully repair-eligible.
 
     Returns None (story is NOT a repair candidate -> leave on the blank/drop
-    path) if ANY matching failure has a malformed failed_fields, or names a field
-    outside {headline, summary} (a why_it_matters or unknown-field failure). Only
-    when every matching failure is a clean headline/summary case do we return the
-    union of flagged fields, which the ladder requires the patch to match exactly.
+    path) if ANY matching failure has a malformed failed_fields or names a field
+    outside `_REPAIRABLE_FIELDS`. Otherwise returns the union of flagged fields,
+    which the ladder requires the patch to match exactly.
     """
     flagged: set[str] = set()
     for result in hit_results:
@@ -175,7 +175,9 @@ def _repairable_flagged_fields(hit_results) -> set[str] | None:
     return flagged or None
 
 
-def _load_repair_resolution(claude_input_dir: Path) -> dict[frozenset[str], dict[str, str]]:
+def _load_repair_resolution(
+    claude_input_dir: Path,
+) -> tuple[dict[frozenset[str], dict[str, str]], str]:
     """Load repair-not-drop verdicts, keyed by article_ids, for the KEPT stories.
 
     Returns a map from a story's article_ids to the patched field text merge
@@ -196,18 +198,18 @@ def _load_repair_resolution(claude_input_dir: Path) -> dict[frozenset[str], dict
         the authoritative coherence report, which this loader does not see.
     """
     if not config.REPAIR_ENABLED:
-        return {}
+        return {}, "repair disabled (REPAIR_ENABLED=false)"
     path = claude_input_dir / "repair_resolution.json"
     if not path.exists():
-        return {}
+        return {}, "no repair resolution this run"
     try:
         data = json.loads(path.read_text())
     except (OSError, ValueError) as e:
         logger.warning("repair_resolution.json unreadable (%s) -- ignoring; coherence drops stand", e)
-        return {}
+        return {}, "repair resolution unreadable"
     if not isinstance(data, dict):
         logger.warning("repair_resolution.json is not an object -- ignoring; coherence drops stand")
-        return {}
+        return {}, "repair resolution malformed"
 
     index: dict[frozenset[str], dict[str, str]] = {}
     for res in data.get("results", []):
@@ -221,6 +223,7 @@ def _load_repair_resolution(claude_input_dir: Path) -> dict[frozenset[str], dict
             logger.warning("repair resolution %s is 'repaired' but recheck_pass is not True -- dropping", ids)
             continue
         if not isinstance(patched, dict) or not patched:
+            logger.warning("repair resolution %s is 'repaired' but carries no patched fields -- dropping", ids)
             continue
         # All-or-nothing: any patched field that is not a repairable, non-empty,
         # leak-free string invalidates the whole entry (partial application could
@@ -235,7 +238,9 @@ def _load_repair_resolution(claude_input_dir: Path) -> dict[frozenset[str], dict
             logger.warning("repair resolution %s has an invalid or id-leaking patched field -- dropping", ids)
             continue
         index[frozenset(ids)] = dict(patched)
-    return index
+    if index:
+        return index, f"repair patched {len(index)} other story(ies), not this one"
+    return index, "repair produced no usable patch"
 
 
 def _load_cluster_map(claude_input_dir: Path) -> dict[str, str]:
@@ -518,7 +523,7 @@ def assemble_selections(claude_input_dir: Path) -> Path:
     if not isinstance(coherence, dict):
         raise RuntimeError(f"coherence_report.json must be a JSON object, got {type(coherence).__name__}")
     cluster_map = _load_cluster_map(claude_input_dir)
-    repaired_index = _load_repair_resolution(claude_input_dir)
+    repaired_index, repair_outcome = _load_repair_resolution(claude_input_dir)
 
     results = coherence.get("results", [])
     failed = [r for r in results if _coherence_failed(r)]
@@ -526,6 +531,7 @@ def assemble_selections(claude_input_dir: Path) -> Path:
 
     dropped = []
     rv_scrubbed = rv_dropped = 0
+    blanked = shipped = 0
     for tier in ("must_know", "should_know"):
         kept = []
         for item in draft.get(tier, []):
@@ -583,9 +589,10 @@ def assemble_selections(claude_input_dir: Path) -> Path:
                         # usable why_it_matters-only failure, keep the story and
                         # blank just that field. Any other case (mixed fields,
                         # unparseable, unknown names) is a full drop, as before.
-                        # NOTE: the L1 no_empty_fields grader also flags the
+                        # NOTE: the L1 no_empty_strings grader also flags the
                         # blanked field (non-fatal) -- expected double signal.
                         item["why_it_matters"] = ""
+                        blanked += 1
                         reasons = "; ".join(
                             str(failed[i].get("reason") or "(no reason given by COHERENCE)") for i in hits
                         )
@@ -598,11 +605,25 @@ def assemble_selections(claude_input_dir: Path) -> Path:
                 _attach_cluster_id(item, item.get("sources", []), cluster_map)
                 kept.append(item)
         draft[tier] = kept
+        shipped += len(kept)
 
     if dropped:
         logger.info("Coherence dropped %d headlines:", len(dropped))
         for section, headline in dropped:
             logger.info("  [%s] %s", section, headline)
+
+    # Blanking is the one degradation that ships: nothing is dropped, so no other
+    # health signal fires. "assembled", not "shipped" -- this is emitted before
+    # capped-field enforcement, schema validation and the empty-must_know raise,
+    # any of which can still abort the run.
+    if blanked:
+        logger.warning(
+            "coherence blanked why_it_matters on %d of %d assembled stories (%.0f%%) -- %s",
+            blanked,
+            shipped,
+            100.0 * blanked / shipped,
+            repair_outcome,
+        )
 
     # One aggregate line, so a broad WRITE regression reads as a regression
     # rather than as N scattered warnings that each look like a one-off.

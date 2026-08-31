@@ -8,6 +8,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
+import config
 from merge import assemble_selections
 from schema import NOT_COVERED_BLURB_MAX_LEN, SELECTIONS_SCHEMA, validate_selections
 
@@ -309,6 +310,54 @@ class TestFieldAwareCoherenceDegradation:
         assert any(
             "coherence stripped why_it_matters" in r.getMessage() and "bad" in r.getMessage() for r in caplog.records
         )
+
+    def test_blanking_emits_an_aggregate_rate_line(self, tmp_path, caplog):
+        """Blanking is the one degradation that SHIPS -- nothing is dropped, so no other
+        health signal fires. The rate must be reported as ONE aggregate line, not only as N
+        per-story warnings that each read like a one-off."""
+        draft = _draft(must_know=[_article("good"), _article("bad1"), _article("bad2")])
+        coherence = _coherence(
+            {"headline": "bad1", "pass": False, "reason": "why: unsupported", "failed_fields": ["why_it_matters"]},
+            {"headline": "bad2", "pass": False, "reason": "why: unsupported", "failed_fields": ["why_it_matters"]},
+        )
+        _write(tmp_path, draft, coherence)
+
+        with caplog.at_level("WARNING"):
+            assembled = json.loads(assemble_selections(tmp_path).read_text())
+
+        assert len(assembled["must_know"]) == 3  # nothing dropped -- that is the point
+        aggregate = [r.getMessage() for r in caplog.records if "blanked why_it_matters on" in r.getMessage()]
+        assert len(aggregate) == 1, f"expected exactly one aggregate line, got: {aggregate!r}"
+        assert "2 of 3 assembled stories" in aggregate[0]
+        assert "67%" in aggregate[0]
+
+    def test_aggregate_line_names_why_repair_did_not_cover_it(self, tmp_path, caplog, monkeypatch):
+        """The line is read before the query is. It must not assert a cause it cannot know:
+        REPAIR_ENABLED defaults to false, so "repair produced no usable patch" would send an
+        operator hunting the repairer when repair never ran."""
+        draft = _draft(must_know=[_article("good"), _article("bad1")])
+        coherence = _coherence(
+            {"headline": "bad1", "pass": False, "reason": "why: unsupported", "failed_fields": ["why_it_matters"]},
+        )
+        _write(tmp_path, draft, coherence)
+
+        monkeypatch.setattr(config, "REPAIR_ENABLED", False)
+        with caplog.at_level("WARNING"):
+            assemble_selections(tmp_path)
+        line = next(r.getMessage() for r in caplog.records if "blanked why_it_matters on" in r.getMessage())
+        assert "REPAIR_ENABLED=false" in line
+        assert "no usable patch" not in line
+
+    def test_no_aggregate_line_when_nothing_is_blanked(self, tmp_path, caplog):
+        """The aggregate must not fire on a clean run -- a line that always
+        appears carries no signal."""
+        draft = _draft(must_know=[_article("good")])
+        _write(tmp_path, draft, _coherence())
+
+        with caplog.at_level("WARNING"):
+            assemble_selections(tmp_path)
+
+        assert not any("blanked why_it_matters on" in r.getMessage() for r in caplog.records)
 
     def test_mixed_failed_fields_drops(self, tmp_path):
         draft = _draft(must_know=[_article("good"), _article("bad")])

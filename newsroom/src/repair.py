@@ -1,12 +1,10 @@
-"""Repair-not-drop: regenerate a COHERENCE-failed headline/summary instead of
-dropping the whole story.
+"""Repair-not-drop: regenerate a COHERENCE-failed field instead of dropping the
+whole story.
 
-The shipped COHERENCE reframe (adversarial probes + Sonnet 5) is precise but
-strict, so it drops MORE stories -- and merge.py drops the WHOLE story on a
-headline/summary failure (only a why_it_matters-only failure degrades). On run
-245 that dropped a must_know lead over one unsupported clause. Repair localizes
-the flagged field, regenerates it from the SAME cited sources the checker used,
-re-checks it, and keeps the story only if the re-check passes.
+COHERENCE is precise but strict, and merge.py drops the WHOLE story on a coherence
+failure. Repair localizes the flagged field, regenerates it from the SAME cited
+sources the checker used, re-checks it, and keeps the story only if the re-check
+passes.
 
 This module is the deterministic, model-free core (RARR-shaped: localize ->
 minimal correction -> guard -> re-check). The model calls (the repairer prompt
@@ -32,8 +30,8 @@ from merge import (
 
 logger = logging.getLogger(__name__)
 
-# _REPAIRABLE_FIELDS (imported from merge, the single source of truth) is the set
-# of fields repair regenerates in the MVP; Phase 2 adds why_it_matters repair.
+# _REPAIRABLE_FIELDS (imported from merge, the single source of truth) is the set of
+# fields repair regenerates: headline, summary and why_it_matters.
 _TEXT_FIELDS = ("headline", "summary", "why_it_matters")
 
 
@@ -43,24 +41,97 @@ def _index_by_article_ids(payload: dict) -> dict[frozenset[str], dict]:
     Keying on article_ids (not the headline) is drift-proof: a repair need not
     echo the headline, and the headline may itself be the field being repaired.
     Results whose article_ids is missing or not a list of strings are skipped.
+
+    A duplicate key is a CONTRADICTION, not two halves of an answer: each result is
+    one indivisible pass/fail judgement. Disagreeing verdicts therefore resolve to
+    **no verdict** (the key is dropped) and the caller's missing-verdict path fails
+    closed -- last-wins here would be fail-OPEN, decided by emission order. Agreeing
+    duplicates are kept.
+
+    Field PATCHES are the opposite case: they legitimately arrive split across objects
+    and are merged by ``_merge_repaired_by_article_ids`` below.
     """
     index: dict[frozenset[str], dict] = {}
+    contradicted: set[frozenset[str]] = set()
     for result in payload.get("results", []):
+        # `validate_recheck_report` only asserts that `results` is a list, so a bare
+        # string reaches here. Raising would abort build_repair_resolution and lose
+        # EVERY repair in the run.
+        if not isinstance(result, dict):
+            logger.warning("recheck: skipping non-object result %r", type(result).__name__)
+            continue
         ids = result.get("article_ids")
         # Require a NON-EMPTY id list: two stories with empty sources would both
         # key to frozenset() and collide, letting one story's repaired text
         # attach to another. An empty-ids result is skipped (reads as missing).
-        if isinstance(ids, list) and ids and all(isinstance(i, str) for i in ids):
-            index[frozenset(ids)] = result
+        if not (isinstance(ids, list) and ids and all(isinstance(i, str) for i in ids)):
+            continue
+        key = frozenset(ids)
+        prior = index.get(key)
+        if prior is not None and _coherence_failed(prior) != _coherence_failed(result):
+            logger.warning(
+                "recheck: contradictory verdicts for %s -- dropping the story (no usable verdict)", sorted(key)
+            )
+            contradicted.add(key)
+        index[key] = result
+    for key in contradicted:
+        del index[key]
     return index
+
+
+def _merge_repaired_by_article_ids(
+    payload: dict,
+) -> tuple[dict[frozenset[str], dict], dict[frozenset[str], list[dict]]]:
+    """Index the repairer's output by article_ids, MERGING a story it split across
+    several objects. Returns ``(merged_index, candidates)``.
+
+    ``repair.md`` asks for ONE object per story naming every flagged field; the model
+    sometimes answers per-FIELD instead, and a last-wins index would discard all but the
+    final object and drop a story that was in fact fully repaired.
+
+    Duplicate/overlapping objects resolve by ORDER, not by conflict-drop: the LAST object
+    when its field set already equals what was flagged, the union of all objects otherwise.
+    Take-last weakly dominates conflict-drop -- it loses the story only when the later value
+    is also wrong, and the scoped re-check (fail-closed) catches that and drops anyway.
+
+    Storyless results stay unindexed so they cannot pool under ``frozenset()`` and patch an
+    unrelated story.
+    """
+    index: dict[frozenset[str], dict] = {}
+    candidates: dict[frozenset[str], list[dict]] = {}
+    for result in payload.get("results", []):
+        if not isinstance(result, dict):
+            continue
+        ids = result.get("article_ids")
+        if not (isinstance(ids, list) and ids and all(isinstance(i, str) for i in ids)):
+            continue
+        key = frozenset(ids)
+        candidates.setdefault(key, []).append(result)
+        merged = index.setdefault(key, {"article_ids": sorted(key), "action": None})
+        for field in _TEXT_FIELDS:
+            if field not in result:
+                continue
+            prior = merged.get(field)
+            if prior is not None and prior != result[field]:
+                logger.warning(
+                    "repair: conflicting %s for %s, keeping the last of %d objects",
+                    field,
+                    sorted(key),
+                    len(candidates[key]),
+                )
+            merged[field] = result[field]
+        action = result.get("action")
+        if action and action != merged["action"]:
+            merged["action"] = f"{merged['action']}+{action}" if merged["action"] else action
+    return index, candidates
 
 
 def _usable_repairable_fields(result: dict) -> list[str] | None:
     """The sorted repairable fields named by a FAILED coherence result, or None
-    if the failure is not a clean headline/summary case repair can handle.
+    if the failure is not a clean case repair can handle.
 
     Returns None (leave on the drop path) when failed_fields is absent, empty,
-    not a list of strings, or names anything outside {headline, summary} --
+    not a list of strings, or names anything outside `_REPAIRABLE_FIELDS` --
     including a mix with why_it_matters or an unknown field name. This mirrors
     merge._why_it_matters_only_failure's "over-dropping is safer" stance: only a
     failure set that is a non-empty subset of the repairable fields is repaired.
@@ -94,17 +165,28 @@ def build_repair_requests(draft: dict, coherence: dict) -> dict:
         for item in draft.get(tier, []):
             item_ids = _item_article_ids(item)
             item_norm = _norm_headline(item.get("headline", ""))
-            match = next((r for r in failed if _result_matches(r, item_ids, item_norm)), None)
-            if match is None:
+            # EVERY matching failure, not the first: merge unions their failed_fields and
+            # requires the patch to match that union exactly, so asking for one field of two
+            # buys a repair merge will reject as a mismatch and a story that drops anyway.
+            matches = [r for r in failed if _result_matches(r, item_ids, item_norm)]
+            if not matches:
                 continue
-            fields = _usable_repairable_fields(match)
-            if fields is None:
+            fields: set[str] = set()
+            for match in matches:
+                usable = _usable_repairable_fields(match)
+                if usable is None:
+                    fields = set()
+                    break
+                fields |= set(usable)
+            if not fields:
                 continue
             requests.append(
                 {
                     "article_ids": sorted(item_ids),
-                    "failed_fields": fields,
-                    "reason": match.get("reason", ""),
+                    "failed_fields": sorted(fields),
+                    # str(): `reason` is model-generated and validated nowhere, so a list or
+                    # number here would TypeError and take the whole phase down with it.
+                    "reason": "; ".join(str(r) for m in matches if (r := m.get("reason"))),
                     "fields": {f: item.get(f, "") for f in _TEXT_FIELDS},
                 }
             )
@@ -126,8 +208,13 @@ def apply_repairs(repair_requests: dict, repaired: dict) -> dict:
     and free of internal-id leaks. Any violation yields ok=False with an empty
     patch, so merge.py falls back to today's drop. The self-reported ``action``
     is carried for logging only, never trusted as a guard.
+
+    Field patches for one story may arrive split across several objects and are merged
+    before the guards run (``_merge_repaired_by_article_ids``). The guards apply to the
+    merged field set, so merging only lets through a story whose EVERY flagged field
+    came back clean.
     """
-    index = _index_by_article_ids(repaired)
+    index, candidates = _merge_repaired_by_article_ids(repaired)
 
     applied = []
     for req in repair_requests.get("requests", []):
@@ -135,7 +222,14 @@ def apply_repairs(repair_requests: dict, repaired: dict) -> dict:
         flagged = set(req.get("failed_fields", []))
         entry = {"article_ids": sorted(ids), "ok": False, "patched_fields": {}, "action": None, "guard": None}
 
-        result = index.get(ids)
+        # The LAST object is the model's final answer, and only it is eligible for the
+        # exact-match path: narrowing to exactly `flagged` is a withdrawal (kept), while a
+        # last object naming an unflagged field is out of scope (union, then dropped).
+        # Matching an EARLIER object instead would let an out-of-scope final answer be
+        # ignored, which is the smuggling case.
+        seen = candidates.get(ids, [])
+        last = seen[-1] if seen else None
+        result = last if last is not None and {f for f in _TEXT_FIELDS if f in last} == flagged else index.get(ids)
         if result is None:
             entry["guard"] = "missing from repaired output"
             applied.append(entry)
