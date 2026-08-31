@@ -14,7 +14,7 @@ reviewed step that forces re-checking them (``feedback_canary_dep_workarounds``)
     0.2.110 that 400 no longer reproduces (``bin/sdk-canary``), but the split is retained
     as config policy (adaptive is the validated next-gen config), not a 400 dodge.
 
-  Re-verified live on 0.2.143 (``bin/sdk-canary``): thinking-disabled is still ACCEPTED on
+  Re-verified live on 0.2.148 (``bin/sdk-canary``): thinking-disabled is still ACCEPTED on
   next-gen and Haiku 4.5 still accepts ``effort`` -- i.e. both 400-rationales remain obsolete
   and neither workaround regressed. Both stay as config policy; the canary reports them as
   changed premises every run because it probes the ORIGINAL 400 behaviour, which is expected
@@ -35,7 +35,7 @@ CONSTRAINTS = NEWSROOM / "constraints-prod.txt"
 
 # The SDK version the in-repo SDK workarounds (see module docstring) were last
 # verified against. MUST equal the prod pin; bump both together, after re-verifying.
-_WORKAROUNDS_VALIDATED_THROUGH = "0.2.143"
+_WORKAROUNDS_VALIDATED_THROUGH = "0.2.148"
 
 
 def _pinned_version() -> str:
