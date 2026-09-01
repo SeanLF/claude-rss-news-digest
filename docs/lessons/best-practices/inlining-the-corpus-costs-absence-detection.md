@@ -14,6 +14,14 @@ tags: [cost, coherence, cache, single-turn, absence, eval, ab-test]
 
 # The 73.7% plumbing figure is real. "Therefore inline it" does not follow.
 
+> **Unit correction (2026-09-01).** Every dollar figure here is API-EQUIVALENT. This pipeline runs
+> on a subscription — `migrations/20260316000000_add_run_usage.sql` records "actual cost is $0 on
+> subscription". Read the dollars as a proxy for quota and treat TOKENS as the real unit; API
+> pricing discounts cache reads ~50x against output, so the same COHERENCE call is **127:1
+> cache_read:output in tokens** where the dollars read 0.67:1. The rejection below rests on
+> QUALITY, not on the saving, so it is unaffected — if anything it is cleaner, since the upside
+> being traded away was never money.
+
 Context plumbing is **73.7% of this pipeline's bill** (runs 274-280: cache write $19.95 + cache
 read $6.24 of $35.29, reconciled to +0.8%). COHERENCE re-reads its ~82k-token corpus roughly 48
 times per run on a fresh input of **41.7 tokens** -- everything arrives through the Read-tool loop
