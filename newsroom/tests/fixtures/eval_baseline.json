@@ -16,7 +16,8 @@
     "preheader_length": true,
     "story_counts_in_range": false,
     "sources_nonempty": true,
-    "dedup_vs_recent": true
+    "dedup_vs_recent": true,
+    "no_internal_article_ids": true
   },
   "l1_selections_fixture": {
     "schema_valid": false,
@@ -28,7 +29,8 @@
     "preheader_length": true,
     "story_counts_in_range": true,
     "sources_nonempty": true,
-    "dedup_vs_recent": true
+    "dedup_vs_recent": true,
+    "no_internal_article_ids": true
   },
   "l2_judge_agreement": {
     "labeled_cases": 386,
