@@ -961,6 +961,75 @@ class TestFulltextWiring:
 # --------------------------------------------------------------------------- #
 
 
+class TestSingleTurnCoherenceBody:
+    """COHERENCE re-reads its ~82k-char corpus ~48x per run through the Read-tool loop; its
+    fresh input is 41.7 tokens because everything arrives as cache. cluster_extractjoin does
+    the same class of work single-turn at cache_read=785. Converting means the ONLY thing that
+    may differ between the two deliveries is I/O -- the checking rules must survive byte for
+    byte, or a cost measurement silently becomes a quality measurement."""
+
+    def test_every_probe_survives_the_rewrite_byte_for_byte(self):
+        multi = orchestrate.parse_agent_spec(COHERENCE_SPEC).body
+        single = orchestrate.build_single_turn_body(multi)
+
+        probe_start = multi.index("**For each field, run all three probes")
+        probe_end = multi.index("**Output schema")
+        assert multi[probe_start:probe_end] in single, (
+            "the checking rules changed; this is no longer a delivery-only change"
+        )
+
+    def test_tool_instructions_are_gone(self):
+        single = orchestrate.build_single_turn_body(orchestrate.parse_agent_spec(COHERENCE_SPEC).body)
+        assert "Read tool" not in single
+        assert "Write tool" not in single
+
+    def test_the_system_prompt_stays_under_the_single_argv_limit(self):
+        """The SDK ships system_prompt as ONE argv entry and Linux caps a single argument at
+        MAX_ARG_STRLEN (128 KiB). Putting the ~289 KB corpus here fails as `[Errno 7] Argument
+        list too long` before the model is reached -- measured, not theorised. The corpus goes
+        in the user message, which is streamed over stdin."""
+        single = orchestrate.build_single_turn_body(orchestrate.parse_agent_spec(COHERENCE_SPEC).body)
+        assert len(single.encode()) < 131072
+
+    def test_corpus_carries_every_input_the_multi_turn_agent_reads(self, tmp_path):
+        (tmp_path / "draft_selections.json").write_text('{"must_know": [{"headline": "H"}]}')
+        (tmp_path / "articles_1.csv").write_text("article_id,title\nA1,First\n")
+        (tmp_path / "articles_2.csv").write_text("article_id,title\nA2,Second\n")
+        (tmp_path / "article_fulltext.json").write_text('{"A1": {"text": "body text"}}')
+
+        corpus = orchestrate.build_coherence_corpus(tmp_path)
+
+        assert '"must_know"' in corpus
+        assert "A1,First" in corpus and "A2,Second" in corpus
+        assert "body text" in corpus
+
+    def test_missing_optional_fulltext_is_not_fatal(self, tmp_path):
+        """article_fulltext.json is best-effort in production; the multi-turn prompt says
+        'skip if not found', so the corpus must tolerate its absence."""
+        (tmp_path / "draft_selections.json").write_text('{"must_know": []}')
+        (tmp_path / "articles_1.csv").write_text("article_id,title\nA1,First\n")
+
+        corpus = orchestrate.build_coherence_corpus(tmp_path)
+
+        assert "A1,First" in corpus
+
+
+class TestParseCoherenceReport:
+    def test_plain_object(self):
+        assert orchestrate.parse_coherence_report('{"results": []}') == {"results": []}
+
+    def test_fenced_with_preamble(self):
+        text = 'Here is the report:\n```json\n{"results": [{"pass": true}]}\n```'
+        assert orchestrate.parse_coherence_report(text)["results"] == [{"pass": True}]
+
+    def test_unparseable_is_none_not_partial(self):
+        """None must fail the stage. A partial report is worse than none: merge treats a story
+        with no coherence entry as KEEP UNCHECKED."""
+        assert orchestrate.parse_coherence_report("no json here") is None
+        assert orchestrate.parse_coherence_report('{"results": "not a list"}') is None
+        assert orchestrate.parse_coherence_report('{"truncated": ') is None
+
+
 class TestThinkingDisplay:
     """thinking.display defaults to "omitted" on Sonnet 5 (it was "summarized" on 4.6), so
     turning adaptive on cost the reasoning trace -- ~27k tokens/run leaving no record. display

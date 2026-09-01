@@ -27,6 +27,7 @@ import json
 from pathlib import Path
 
 import claude_cli  # /app/src
+import orchestrate
 
 # Default paths inside the container (bin/eval-coherence mounts the fixture dir).
 AGENT = Path("/app/.claude/agents/coherence.md")
@@ -162,6 +163,42 @@ def score(report_path: Path, labels: dict) -> dict:
     }
 
 
+async def run_single_turn_to_file(out_path: Path, model: str, body: str, thinking: dict, fixtures: Path) -> None:
+    """Single-turn variant: corpus inlined, no tools, Python writes the report.
+
+    Imports the production builders from orchestrate rather than re-implementing them, so this
+    measures the shipped path. The multi-turn arm above mirrors orchestrate instead, which is a
+    liability -- a mirror can agree with itself while both drift from production.
+    """
+    if out_path.exists():
+        out_path.unlink()
+    corpus = orchestrate.build_coherence_corpus(fixtures)
+    res = await claude_cli.run_agent(
+        corpus,
+        model=model,
+        system_prompt=orchestrate.build_single_turn_body(body),
+        permission_mode="acceptEdits",
+        allowed_tools="",
+        tools=[],
+        cwd="/app",
+        idle_timeout=180.0,
+        thinking=thinking,
+        max_turns=1,
+    )
+    if not res.ok:
+        raise RuntimeError(f"coherence single-turn run failed: {res.error_summary()}")
+    report = orchestrate.parse_coherence_report(res.text)
+    if report is None:
+        raise RuntimeError("coherence single-turn run returned no parseable report")
+    out_path.write_text(json.dumps(report), encoding="utf-8")
+    cw = res.usage.get("cache_creation_input_tokens", 0)
+    cr = res.usage.get("cache_read_input_tokens", 0)
+    print(
+        f"  [single-turn] input={res.usage.get('input_tokens', 0)} cache_write={cw} "
+        f"cache_read={cr} output={res.usage.get('output_tokens', 0)} cost=${res.total_cost_usd:.4f}"
+    )
+
+
 async def run_agent_to_file(
     label: str, out_path: Path, model: str, body: str, thinking: dict, tools: list[str]
 ) -> None:
@@ -192,6 +229,7 @@ def main() -> int:
     ap.add_argument("--agent", default=str(AGENT))
     ap.add_argument("--fixtures", default=str(FIXTURES))
     ap.add_argument("--runs", type=int, default=2)
+    ap.add_argument("--single-turn", action="store_true", help="inline the corpus, tools=[], parse result.text")
     ap.add_argument("--model", default=None, help="override coherence.md's frontmatter model")
     args = ap.parse_args()
 
@@ -208,7 +246,10 @@ def main() -> int:
 
     scores = []
     for i in range(runs):
-        asyncio.run(run_agent_to_file("coherence", fixtures / REPORT_NAME, model, body, thinking, tools))
+        if args.single_turn:
+            asyncio.run(run_single_turn_to_file(fixtures / REPORT_NAME, model, body, thinking, fixtures))
+        else:
+            asyncio.run(run_agent_to_file("coherence", fixtures / REPORT_NAME, model, body, thinking, tools))
         s = score(fixtures / REPORT_NAME, labels)
         scores.append(s)
         print(

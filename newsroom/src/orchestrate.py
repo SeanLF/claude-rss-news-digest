@@ -32,6 +32,7 @@ from __future__ import annotations
 
 import asyncio
 import datetime
+import json
 import logging
 import time
 from collections.abc import Callable
@@ -358,6 +359,70 @@ _STAGES: tuple[tuple[str, str, str, Callable[[Path], None]], ...] = (
 # --------------------------------------------------------------------------- #
 # Stage runner.
 # --------------------------------------------------------------------------- #
+
+
+# The corpus travels as the USER MESSAGE, never in the system prompt. The SDK ships
+# system_prompt as a single argv entry, and Linux caps one argument at MAX_ARG_STRLEN
+# (128 KiB); this corpus is ~289 KB, which fails as `[Errno 7] Argument list too long`
+# before the model is ever reached. The prompt is streamed over stdin and has no such cap.
+_SINGLE_TURN_IO = """**Your input arrives in the next message, inline. There are no files to open and no tools available.**
+
+**Reply with the JSON object and nothing else** -- no preamble, no code fence, no commentary.
+
+"""
+
+
+def build_coherence_corpus(claude_input_dir: Path) -> str:
+    """Inline everything the multi-turn agent opens with the Read tool.
+
+    Same set, same order as `coherence.md`'s instruction list: the draft, every articles_*.csv,
+    and article_fulltext.json when it exists (best-effort in production, so its absence is normal).
+    """
+    parts: list[str] = []
+    draft = claude_input_dir / "draft_selections.json"
+    parts.append(f"## draft_selections.json\n\n{draft.read_text(encoding='utf-8')}")
+    for csv_path in sorted(claude_input_dir.glob("articles_*.csv")):
+        parts.append(f"## {csv_path.name}\n\n{csv_path.read_text(encoding='utf-8')}")
+    fulltext = claude_input_dir / "article_fulltext.json"
+    if fulltext.exists():
+        parts.append(f"## article_fulltext.json\n\n{fulltext.read_text(encoding='utf-8')}")
+    return "\n\n".join(parts)
+
+
+def build_single_turn_body(body: str) -> str:
+    """Swap `coherence.md`'s tool-based I/O for an inlined corpus, leaving the probes untouched.
+
+    Derived from the shipped prompt rather than duplicated, so the two deliveries cannot drift
+    on the rules -- a test asserts the probe block survives byte for byte. Without that, a cost
+    measurement quietly becomes a quality measurement.
+    """
+    start = body.index("**Instructions:**")
+    end = body.index("**For each field, run all three probes")
+    out = body[:start] + _SINGLE_TURN_IO + body[end:]
+    out = out.replace(
+        "3. Use the Write tool to write the result to `/app/data/claude_input/coherence_report.json`\n", ""
+    )
+    return out.replace("- DO NOT use Bash. Use Read and Write tools only.\n", "")
+
+
+def parse_coherence_report(text: str) -> dict | None:
+    """Pull the report object out of a single-turn reply, tolerant of fences and preamble.
+
+    Same shape as `cluster_extractjoin.parse_extract_items`, which has carried the only
+    non-file-handoff stage in this pipeline. None means unparseable -- the caller fails the
+    stage rather than writing a partial report, because a missing entry reads downstream as
+    "keep unchecked".
+    """
+    start, end = text.find("{"), text.rfind("}")
+    if not (0 <= start < end):
+        return None
+    try:
+        obj = json.loads(text[start : end + 1])
+    except ValueError:
+        return None
+    if isinstance(obj, dict) and isinstance(obj.get("results"), list):
+        return obj
+    return None
 
 
 def _resolved_thinking(spec: AgentSpec) -> ThinkingConfig:
