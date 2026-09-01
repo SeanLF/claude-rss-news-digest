@@ -9,6 +9,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 import config
+from eval_graders import GraderLimits
 from merge import assemble_selections
 from schema import NOT_COVERED_BLURB_MAX_LEN, SELECTIONS_SCHEMA, validate_selections
 
@@ -544,8 +545,9 @@ class TestNonFatalGraderHook:
     failures are logged but must never abort assembly."""
 
     def test_grader_failure_logs_warning_but_does_not_raise(self, tmp_path, caplog):
-        # 90-word summary blows the 80-word cap -> summary_length check fails.
-        long_summary = "word " * 90
+        # Derived from the cap, not restated: hardcoding a word count silently stops
+        # exercising the boundary the moment the cap moves.
+        long_summary = "word " * (GraderLimits().summary_max_words + 10)
         item = _article("h")
         item["summary"] = long_summary.strip()
         draft = _draft(must_know=[item])

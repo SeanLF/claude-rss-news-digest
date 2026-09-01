@@ -21,6 +21,7 @@ from jsonschema import Draft7Validator
 # instruction to match this cap would just move the overshoot up and put us back to truncating.
 # Keep the prompt asking for short and the cap sized for what actually arrives; if the measured
 # distribution climbs toward 500, fix the prompt rather than the cap.
+PREHEADER_MAX_CHARS = 157
 NOT_COVERED_BLURB_MAX_LEN = 500
 
 SOURCE_SCHEMA = {
@@ -69,7 +70,7 @@ SELECTIONS_SCHEMA = {
         # This maxLength is the single source of truth for the cap --
         # merge._enforce_capped_string_fields reads it and word-boundary-truncates
         # anything beyond it before validation, for this and every capped field.
-        "preheader": {"type": "string", "maxLength": 157},
+        "preheader": {"type": "string", "maxLength": PREHEADER_MAX_CHARS},
         # Optional SELECT-stage garnish (what was deliberately filtered and why),
         # copied through by merge.assemble_selections. Absent when SELECT's
         # selected.json has no usable field -- see _load_not_covered_blurb.

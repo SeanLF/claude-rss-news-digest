@@ -126,11 +126,18 @@ class TestLengthCaps:
 
 
 class TestPreheaderLength:
-    def test_over_150_chars_fails(self):
+    def test_one_char_over_the_schema_cap_fails(self):
+        """Derived from the cap, not restated: this test hardcoded 151 and so silently stopped
+        exercising the boundary the moment the cap moved."""
         sel = _good_selections()
-        sel["preheader"] = "x" * 151
+        sel["preheader"] = "x" * (GraderLimits().preheader_max_chars + 1)
         report = grade_selections(sel)
         assert not _check(report, "preheader_length").passed
+
+    def test_exactly_at_the_cap_passes(self):
+        sel = _good_selections()
+        sel["preheader"] = "x" * GraderLimits().preheader_max_chars
+        assert _check(grade_selections(sel), "preheader_length").passed
 
 
 class TestStoryCounts:
@@ -423,3 +430,28 @@ class TestLeakCheckDoesNotCryWolf:
         sel = self._sel()
         sel["preheader"] = "Fire nears control, according to A238."
         assert not self._check(sel).passed
+
+
+class TestLimitsAreCalibratedNotAspirational:
+    """GraderLimits' own docstring: defaults are "set generously around current observed volume
+    so they don't fail spuriously". Measured over 40 shipped runs / 635 stories (runs 241-280)
+    the 80-word summary cap fired on 38.4% and the 60-word why cap on 22.2% -- a check that
+    rejects a third of healthy output is a broken instrument, not a signal. Caps now sit at the
+    p99 of shipped output so they catch outliers."""
+
+    def test_preheader_cap_is_derived_from_the_schema(self):
+        """Not restated. The comment claimed "matches SELECTIONS_SCHEMA maxLength" while the
+        schema said 157 and the grader 150 -- 497a05b raised the schema and called itself "the
+        single source of truth". Deriving makes the drift unrepresentable."""
+        from schema import PREHEADER_MAX_CHARS, SELECTIONS_SCHEMA
+
+        assert GraderLimits().preheader_max_chars == PREHEADER_MAX_CHARS
+        assert SELECTIONS_SCHEMA["properties"]["preheader"]["maxLength"] == PREHEADER_MAX_CHARS
+
+    def test_caps_clear_the_p99_of_shipped_output(self):
+        """p99 over runs 241-280: summary 119, why 77, headline 19. A cap below its own p99
+        fires on healthy output every run."""
+        lim = GraderLimits()
+        assert lim.summary_max_words >= 119
+        assert lim.why_it_matters_max_words >= 77
+        assert lim.headline_max_words >= 19

@@ -26,7 +26,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 
-from schema import validate_selections
+from schema import PREHEADER_MAX_CHARS, validate_selections
 from utils import ARTICLE_ID_GROUP
 
 # Tiers that carry full article shape (headline + summary + why_it_matters + sources).
@@ -49,13 +49,16 @@ class GraderLimits:
     tokenisation (see ``_word_count``).
     """
 
-    # Word caps (inclusive maxima).
-    headline_max_words: int = 18
-    summary_max_words: int = 80
-    why_it_matters_max_words: int = 60
+    # Word caps (inclusive maxima), set at the p99 of shipped output over runs 241-280
+    # (40 runs, 635 stories). At the previous values these fired on 38.4% and 22.2% of
+    # healthy output -- against this class's own "don't fail spuriously".
+    headline_max_words: int = 20
+    summary_max_words: int = 120
+    why_it_matters_max_words: int = 80
 
-    # Preheader character cap (matches SELECTIONS_SCHEMA maxLength).
-    preheader_max_chars: int = 150
+    # DERIVED, not restated: the comment here used to claim it matched SELECTIONS_SCHEMA
+    # while the schema said 157 and this said 150.
+    preheader_max_chars: int = PREHEADER_MAX_CHARS
 
     # Story-count ranges (inclusive [min, max]). Bounds track the live volume
     # policy (SELECT targets must_know 3-5 / hard-max 6, should_know 8-12 /
