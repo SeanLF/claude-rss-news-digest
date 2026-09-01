@@ -933,8 +933,18 @@ async def run_write_phase(
             )
         )
         draft["preheader"] = read_preheader(claude_input_dir)
-    except (RuntimeError, ValueError) as e:
-        logger.warning("preheader stage failed (%s) -- merge will fill it from the top headline", e)
+    except Exception as e:
+        # Broad by design, and NOT (RuntimeError, ValueError): run_stage bounds an attempt
+        # with asyncio.wait_for, whose expiry is a bare TimeoutError that neither
+        # with_retry_async nor run_stage's own handler catches (TestStageAttemptIsBounded
+        # pins that it escapes). A hung preheader call would then abort the whole curation
+        # run -- the exact outcome "nothing about the preheader may abort a digest" forbids.
+        # asyncio.CancelledError is a BaseException, so real cancellation still propagates.
+        logger.warning(
+            "preheader stage failed (%s: %s) -- merge will fill it from the first headline",
+            type(e).__name__,
+            e,
+        )
         draft["preheader"] = ""
 
     draft_path.write_text(json.dumps(draft, indent=2), encoding="utf-8")

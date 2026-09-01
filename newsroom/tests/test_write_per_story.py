@@ -404,6 +404,46 @@ class TestPreheader:
         # The branches were still paid for, and still reach run_usage.
         assert [r["subagent"] for r in rows] == ["write"]
 
+    @pytest.mark.parametrize(
+        "boom",
+        [TimeoutError("attempt timed out"), OSError("disk gone"), KeyError("shape")],
+        ids=["timeout", "oserror", "keyerror"],
+    )
+    def test_no_preheader_failure_can_abort_the_run(self, tmp_path, monkeypatch, boom):
+        """ "Nothing about the preheader may abort a delivered digest" has to hold for the
+        exception types too. run_stage bounds an attempt with asyncio.wait_for, whose expiry
+        is a bare TimeoutError that neither with_retry_async nor run_stage's own handler
+        catches -- so a handler listing (RuntimeError, ValueError) would let a hung preheader
+        call take the whole curation run down."""
+        _seed(tmp_path, n_must=2, n_should=0)
+
+        class Boom(_Fake):
+            async def __call__(self, prompt, *, system_prompt, **k):
+                if "news writer" not in system_prompt and "preheader" in system_prompt.lower():
+                    raise boom
+                return await super().__call__(prompt, system_prompt=system_prompt, **k)
+
+        rows = _run_write(tmp_path, Boom(tmp_path), monkeypatch)
+
+        draft = json.loads((tmp_path / "draft_selections.json").read_text())
+        assert draft["preheader"] == ""
+        assert len(draft["must_know"]) == 2
+        assert [r["subagent"] for r in rows] == ["write"]
+
+    def test_a_cancelled_run_is_not_swallowed_by_the_preheader_handler(self, tmp_path, monkeypatch):
+        """The broad catch must not turn a real cancellation into a shipped digest.
+        CancelledError is a BaseException, so it has to propagate."""
+        _seed(tmp_path, n_must=1, n_should=0)
+
+        class Cancel(_Fake):
+            async def __call__(self, prompt, *, system_prompt, **k):
+                if "news writer" not in system_prompt and "preheader" in system_prompt.lower():
+                    raise asyncio.CancelledError
+                return await super().__call__(prompt, system_prompt=system_prompt, **k)
+
+        with pytest.raises(asyncio.CancelledError):
+            _run_write(tmp_path, Cancel(tmp_path), monkeypatch)
+
     def test_a_preamble_before_the_sentence_is_stripped_end_to_end(self, tmp_path, monkeypatch):
         """Plain text goes straight into a reader-facing field, so "Here is the preheader:"
         would ship verbatim. Clean it rather than fail the digest."""
