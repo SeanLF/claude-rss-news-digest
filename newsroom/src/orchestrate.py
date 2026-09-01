@@ -612,7 +612,15 @@ async def _run_fulltext_best_effort(claude_input_dir: Path) -> None:
 
 _RECHECK_DRAFT_NAME = "recheck_draft.json"
 _RECHECK_REPORT_NAME = "recheck_report.json"
-_REPAIR_LOG_NAME = "repair_log.jsonl"
+_REPAIR_LOG_NAME = repair.REPAIR_LOG_NAME
+_REPAIR_HEALTH_NAME = "repair_health.json"
+
+
+class RepairSpecError(RuntimeError):
+    """The repair path is unusable because its PROMPTS are wrong -- coherence.md missing,
+    or drifted off the filenames the scoped re-check re-points. Distinct from every other
+    repair failure: it is deterministic, it recurs every run until a human edits a file,
+    and it silently disables repair entirely."""
 
 
 def _require_results_array(path: Path) -> None:
@@ -677,11 +685,52 @@ def _recheck_spec(coherence_spec: AgentSpec) -> AgentSpec:
     body = coherence_spec.body
     for marker in ("draft_selections.json", "coherence_report.json"):
         if marker not in body:
-            raise ValueError(f"coherence.md: expected {marker!r} to re-point for the repair re-check; prompt drifted")
+            raise RepairSpecError(
+                f"coherence.md: expected {marker!r} to re-point for the repair re-check; prompt drifted"
+            )
     body = body.replace("draft_selections.json", _RECHECK_DRAFT_NAME).replace(
         "coherence_report.json", _RECHECK_REPORT_NAME
     )
     return replace(coherence_spec, body=body)
+
+
+def _load_repair_spec(filename: str) -> AgentSpec:
+    """Parse one of the repair path's prompts, translating ANY failure into RepairSpecError.
+
+    Broad on purpose: the whole point of the class is that a prompt this path cannot read is
+    never confused with a repair that found nothing, and a parse failure this code did not
+    anticipate is exactly the case that would otherwise go back to being silent."""
+    try:
+        return parse_agent_spec(_AGENTS_DIR / filename)
+    except Exception as e:
+        raise RepairSpecError(f"{filename} could not be parsed ({type(e).__name__}: {e})") from e
+
+
+def _clear_repair_health(claude_input_dir: Path) -> None:
+    """Drop a previous attempt's fault file. Called unconditionally, NOT from inside the
+    phase: same-day --resume reuses claude_input, so a fault left by a run made before repair
+    was switched off would otherwise be archived again and alert on a run that never ran it.
+
+    Never raises: one call site sits outside every try, and a filesystem mutation added for
+    observability must not be the thing that kills a delivery."""
+    try:
+        (claude_input_dir / _REPAIR_HEALTH_NAME).unlink(missing_ok=True)
+    except OSError as e:
+        logger.warning("repair: could not clear %s (non-fatal): %s", _REPAIR_HEALTH_NAME, e)
+
+
+def _write_repair_health(claude_input_dir: Path, *, outcome: str, detail: str) -> None:
+    """Record a repair-phase fault where the post-run invariants can see it.
+
+    The alert path judges a finished run off run_artifacts (see db._TRACE_ARTIFACTS), and
+    this file is archived with the rest -- on the resume path too, where no run row exists
+    yet when the phase runs. A log line alone reaches nobody."""
+    try:
+        (claude_input_dir / _REPAIR_HEALTH_NAME).write_text(
+            json.dumps({"outcome": outcome, "detail": detail}, sort_keys=True), encoding="utf-8"
+        )
+    except (OSError, TypeError, ValueError) as e:
+        logger.warning("repair: could not write %s (non-fatal): %s", _REPAIR_HEALTH_NAME, e)
 
 
 def _log_repair_events(claude_input_dir: Path, requests: dict, applied: dict, resolution: dict) -> None:
@@ -709,6 +758,9 @@ def _log_repair_events(claude_input_dir: Path, requests: dict, applied: dict, re
                     # from -- otherwise the only way to date an entry is the rotated
                     # digest.log, which ages out within days.
                     "run_id": db.current_run_id(),
+                    # Which process wrote it. On --resume the run id does not exist yet, and
+                    # this is what lets run.py claim ITS OWN events afterwards by identity.
+                    "proc": repair.PROCESS_TOKEN,
                     "ts": datetime.datetime.now(datetime.UTC).isoformat(),
                     "article_ids": sorted(ids),
                     "failed_fields": failed_fields,
@@ -756,6 +808,14 @@ async def _run_repair_phase(
     # `repaired` verdict would otherwise survive a phase that fails THIS run and
     # let merge keep a story this run never confirmed.
     (claude_input_dir / "repair_resolution.json").unlink(missing_ok=True)
+    _clear_repair_health(claude_input_dir)
+
+    # Both prompts, before anything is spent and before the no-op early return: a prompt that
+    # cannot drive the re-check makes every repair unconfirmable, so paying the repairer first
+    # buys a patch nothing can validate. It is also the only way either fault surfaces on a
+    # run with no repairable failures.
+    repair_spec = _load_repair_spec("repair.md")
+    recheck_spec = _recheck_spec(_load_repair_spec("coherence.md"))
 
     draft = _load_json(claude_input_dir / "draft_selections.json")
     coherence = _load_json(claude_input_dir / "coherence_report.json")
@@ -767,7 +827,6 @@ async def _run_repair_phase(
     (claude_input_dir / "repair_requests.json").write_text(json.dumps(requests, indent=2))
 
     rows: list[dict[str, Any]] = []
-    repair_spec = parse_agent_spec(_AGENTS_DIR / "repair.md")
     rows.append(
         await run_stage(
             repair_spec,
@@ -788,7 +847,6 @@ async def _run_repair_phase(
         (claude_input_dir / _RECHECK_DRAFT_NAME).write_text(
             json.dumps(_build_recheck_draft(draft, ok_entries), indent=2)
         )
-        recheck_spec = _recheck_spec(parse_agent_spec(_AGENTS_DIR / "coherence.md"))
         try:
             rows.append(
                 await run_stage(
@@ -822,6 +880,13 @@ async def _run_repair_phase_best_effort(
     repair existed. Mirrors _run_fulltext_best_effort's additive stance."""
     try:
         return await _run_repair_phase(claude_input_dir, model_override=model_override, cwd=cwd)
+    except RepairSpecError as e:
+        # NOT the same as a repair that found nothing, and not the same as a model call that
+        # failed: this disables the repair path outright, on every run, until a file is
+        # edited. ERROR plus a fault artifact the run-health alert reads.
+        logger.error("repair: DISABLED by a prompt/config error -- no repair can run: %s", e, exc_info=True)
+        _write_repair_health(claude_input_dir, outcome="spec_error", detail=str(e))
+        return []
     except Exception as e:  # broad by design: repair is additive and must never break the run
         # Emit the same "kept" token the success-path counter uses, so run-log
         # monitoring sees a repair-stage regression as "0 kept" rather than only a
@@ -938,6 +1003,7 @@ async def orchestrate_selections(
     # run (merge falls back to dropping exactly as today). Skipped on resume-only
     # runs where COHERENCE was reused -- the draft/report are still on disk, so it
     # runs whenever those inputs exist and the flag is on.
+    _clear_repair_health(claude_input_dir)
     if config.REPAIR_ENABLED:
         for row in await _run_repair_phase_best_effort(claude_input_dir, model_override=model_override, cwd=cwd):
             _record(row)

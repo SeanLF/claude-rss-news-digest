@@ -15,6 +15,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 import db
+import repair
 import run_health
 from broadcast import (
     ACCEPTED_BROADCAST_STATES,
@@ -131,6 +132,30 @@ def _alert_on_run_health() -> None:
         # monitor that failed to run is an outage in the monitor, and it is the
         # one failure no alert can report.
         logger.error("run-health check FAILED to run for run %s (non-fatal)", run_id, exc_info=True)
+
+
+def _attribute_repair_log() -> None:
+    """Write this run's id onto the repair events logged before the run row existed.
+
+    --resume runs the whole repair phase inside generate_selections, which is ahead of
+    start_run, so those events reached the corpus with run_id null on exactly the runs a
+    reviewer most wants to trace. Best-effort: the corpus is analytics, never the digest.
+    """
+    run_id = db.current_run_id()
+    if run_id is None:
+        return
+    try:
+        claimed = repair.backfill_run_id(DATA_DIR / repair.REPAIR_LOG_NAME, run_id)
+    except Exception:
+        # Deliberately broad, and the reason is the ordering: this is the FIRST statement in
+        # _render_record_deliver's try, so anything escaping here aborts a resume before the
+        # digest is saved or sent -- a trace write killing the recovery it was meant to
+        # document. A torn multi-byte append (a killed run, then --resume) raises
+        # UnicodeDecodeError, which is not an OSError.
+        logger.error("Could not attribute repair log events to run %s (non-fatal)", run_id, exc_info=True)
+        return
+    if claimed:
+        logger.info("Attributed %d repair log event(s) logged before run %d started", claimed, run_id)
 
 
 def _archive_run_and_threads(selections_json: str, *, model: str | None) -> None:
@@ -350,6 +375,7 @@ def _render_record_deliver(
     email_html = render_email(selections)  # MJML email is what gets sent; digest file is the web archive
     db.start_run(recording=not skip_record, broadcasting=not skip_email, alerting=not skip_record)
     try:
+        _attribute_repair_log()
         if usage_rows is not None:
             db.record_usage(usage_rows)
         if archive:
@@ -750,11 +776,11 @@ Examples:
 
         # Recorded per stage as it completes. Batching at the end meant a stage raising
         # discarded the spend of every stage that had already run and been billed.
+        # No wrapper try: record_usage is total, and it COUNTS what it loses. A second
+        # catch here could only re-hide a loss the counter has already made alertable,
+        # while logging a warning that can no longer fire.
         def _record_stage_usage(row: dict) -> None:
-            try:
-                db.record_usage([row])
-            except Exception:
-                logger.warning("Usage tracking failed for %s (non-fatal)", row.get("subagent"), exc_info=True)
+            db.record_usage([row])
 
         usage_rows = generate_selections(model=args.model, on_usage=_record_stage_usage)
         selections_path = assemble_selections(CLAUDE_INPUT_DIR)

@@ -17,6 +17,8 @@ never ship something worse.
 
 import json
 import logging
+import os
+import uuid
 from pathlib import Path
 
 from merge import (
@@ -29,6 +31,15 @@ from merge import (
 )
 
 logger = logging.getLogger(__name__)
+
+# The accruing repair corpus, under the data dir. Named here rather than in orchestrate so
+# the writer and any later reader cannot drift onto two filenames.
+REPAIR_LOG_NAME = "repair_log.jsonl"
+
+# Stamped on every event so backfill_run_id can claim THIS process's unattributed events by
+# identity. A timestamp window would also match a concurrent process's events, and stamping
+# someone else's event with this run's id turns an honest null into a false fact.
+PROCESS_TOKEN = uuid.uuid4().hex
 
 # _REPAIRABLE_FIELDS (imported from merge, the single source of truth) is the set of
 # fields repair regenerates: headline, summary and why_it_matters.
@@ -297,6 +308,89 @@ def build_repair_resolution(applied: dict, recheck: dict) -> dict:
     return {"results": results}
 
 
+def backfill_run_id(path: Path, run_id: int) -> int:
+    """Stamp ``run_id`` onto the events THIS process logged before the run row existed;
+    return how many were claimed.
+
+    On ``--resume`` the repair phase runs inside generate_selections, ahead of
+    db.start_run, so ``db.current_run_id()`` is None at write time and the corpus loses
+    attribution on exactly the recovered runs. The id genuinely does not exist yet, so it
+    is written back once it does.
+
+    An event is claimed only if it carries no run id AND this process's PROCESS_TOKEN, so
+    an earlier attempt that never reached start_run keeps its null and no other process's
+    event is ever claimed. Unparseable lines are left byte-for-byte: the corpus is the
+    eval's ground truth, and a rewrite that drops or reflows what it cannot read is worse
+    than the missing attribution it is fixing. Errors are the caller's to swallow -- see
+    run._attribute_repair_log.
+
+    This turns an append-only file into read-modify-write, and NOTHING upstream serializes
+    that: ``db.has_completed_run_today`` blocks a duplicate COMPLETED run, not a --resume
+    started while another run is still executing. So the file is re-stat'd before the swap
+    and the rewrite is ABANDONED if it grew -- a missing run_id is recoverable, a dropped
+    event is not.
+    """
+    if not path.exists():
+        return 0
+    size_before = path.stat().st_size
+    raw = path.read_text(encoding="utf-8", errors="surrogateescape")
+    # split("\n"), never splitlines(): splitlines() also breaks on \x0b, \x1c, \u2028 and
+    # friends, so a junk line containing one would be REFLOWED into two -- corrupting exactly
+    # the lines this function promises to leave alone.
+    lines = raw.split("\n")
+    ends_with_newline = bool(lines) and lines[-1] == ""
+    if ends_with_newline:
+        lines.pop()
+
+    out: list[str] = []
+    claimed = 0
+    for line in lines:
+        try:
+            parsed = json.loads(line)
+        except ValueError:
+            parsed = None
+        if isinstance(parsed, dict) and parsed.get("run_id") is None and parsed.get("proc") == PROCESS_TOKEN:
+            parsed["run_id"] = run_id
+            out.append(json.dumps(parsed))
+            claimed += 1
+        else:
+            out.append(line)
+    if not claimed:
+        return 0
+
+    text = "\n".join(out) + ("\n" if ends_with_newline else "")
+    # Per-process, not a fixed ".tmp": two concurrent backfills would otherwise share one
+    # temp file, and P1 could rename P2's half-written copy over the corpus -- the size
+    # guard below watches the CORPUS, so it would never see that.
+    tmp = path.with_name(f"{path.name}.{PROCESS_TOKEN}.tmp")
+    with tmp.open("w", encoding="utf-8", errors="surrogateescape") as fh:
+        fh.write(text)
+        fh.flush()
+        # The swap is atomic; the CONTENT is not durable without this, and a rename that
+        # survives a crash over content that does not would lose the whole corpus, where an
+        # append could only ever lose its own tail.
+        os.fsync(fh.fileno())
+    if path.stat().st_size != size_before:
+        tmp.unlink(missing_ok=True)
+        logger.warning("repair log grew while being attributed to run %s; leaving it unchanged", run_id)
+        return 0
+    # replace() takes the tmp file's mode, not the corpus's; on the shared data volume that
+    # would quietly re-permission a file other tooling reads.
+    tmp.chmod(path.stat().st_mode)
+    tmp.replace(path)
+    return claimed
+
+
+def _last_byte(path: Path) -> bytes:
+    """The file's final byte, or b"" if it is empty/unreadable."""
+    try:
+        with path.open("rb") as fh:
+            fh.seek(-1, os.SEEK_END)
+            return fh.read(1)
+    except OSError:
+        return b""
+
+
 def append_repair_log(path: Path, event: dict) -> None:
     """Append one repair event as a JSON line to the accruing repair corpus.
 
@@ -306,4 +400,9 @@ def append_repair_log(path: Path, event: dict) -> None:
     (and parents) on first write."""
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("a", encoding="utf-8") as fh:
+        # A process killed mid-append leaves a line with no terminator, and appending
+        # straight onto it would splice THIS event into that wreckage -- one unparseable
+        # line instead of one damaged and one good. Reads one byte, not the corpus.
+        if fh.tell() and _last_byte(path) != b"\n":
+            fh.write("\n")
         fh.write(json.dumps(event) + "\n")

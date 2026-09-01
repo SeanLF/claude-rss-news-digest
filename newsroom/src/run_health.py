@@ -43,6 +43,19 @@ _RULES: list[tuple[str, Callable[[dict], bool], str | Callable[[dict], str]]] = 
         "no subagent stage recorded usage, so the curation phase left no trace",
     ),
     (
+        "USAGE_ROWS_LOST",
+        # NO_USAGE_RECORDED above catches a run that recorded NOTHING. This catches the
+        # partial case it cannot see: record_usage is fail-soft and executemany is
+        # all-or-nothing, so one failing call (a malformed row, a migration entry mismarked
+        # as applied) loses that batch while the other calls keep the stage count nonzero.
+        # Absence of the key is caught by REQUIRED_KEYS, not read here as a clean run.
+        lambda h: (h.get("usage_rows_dropped") or 0) > 0,
+        lambda h: (
+            f"{h.get('usage_rows_dropped')} usage row(s) failed to persist; this run's "
+            f"per-stage cost/config picture is incomplete"
+        ),
+    ),
+    (
         "DEGRADED_CLUSTERING",
         # Triggered by a WHOLESALE batch loss, not by the fallback count. Measured
         # over 42 archived runs, the fallback count is BIMODAL: 21 runs at 0, 13 at
@@ -90,6 +103,22 @@ _RULES: list[tuple[str, Callable[[dict], bool], str | Callable[[dict], str]]] = 
         ),
     ),
     (
+        "REPAIR_SPEC_ERROR",
+        # The repair phase is best-effort and swallows every failure, so a drifted or
+        # missing coherence.md silently disables the whole repair path and reads exactly
+        # like a run with nothing to repair. Fires only on a PROMPT/CONFIG fault, never on
+        # a repair the model failed to produce -- ordinary flakiness must not train the
+        # reader to ignore this.
+        lambda h: h.get("repair_outcome") == "spec_error",
+        # "would drop", not "dropped": the fault is detected at phase entry, so it also fires
+        # on a run that had nothing flagged, where nothing dropped at all. The detail names
+        # WHICH prompt broke -- otherwise that answer lives only in a log that rotates.
+        lambda h: (
+            "the repair path was disabled by a prompt/config error, so any coherence-flagged "
+            f"story would drop: {h.get('repair_detail') or 'no detail recorded'}"
+        ),
+    ),
+    (
         "NO_ARTIFACTS",
         lambda h: h.get("artifacts", 0) == 0,
         "no intermediate artifacts were archived, so this run cannot be replayed",
@@ -133,6 +162,14 @@ REQUIRED_KEYS = frozenset(
         "threads_available",
         "threads_enabled",
         "batches_lost",
+        # Counted in process state by record_usage; absent means the caller built the dict
+        # by hand and the partial-loss rule was never evaluated.
+        "usage_rows_dropped",
+        # None (no fault recorded) for all but a broken repair config; the rule matches on
+        # the fault string, so a missing key would silently never fire.
+        "repair_outcome",
+        # Not a trigger; the message quotes it.
+        "repair_detail",
         # Not a trigger, but the alert message quotes it -- a message that says
         # "None articles" is its own small lie.
         "title_only_fallback",

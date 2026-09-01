@@ -331,3 +331,86 @@ class TestDroppedContinuations:
         run_id = db.current_run_id()
         self._artifact(fresh_db, run_id, json.dumps({"stories": []}))
         assert db.get_run_health(run_id)["dropped_continuations"] == 0
+
+
+class TestPartialUsageLoss:
+    """A run that recorded SOME of its stages.
+
+    ``record_usage`` catches sqlite3.Error, logs one line and returns, and
+    ``executemany`` is all-or-nothing -- so one failing call loses that whole batch.
+    NO_USAGE_RECORDED only sees a run with ZERO stages, so the partial case (the
+    documented one: a local DB missing migration 20260830210000) leaves
+    ``config-drift.sql`` rendering a per-stage picture with a stage silently absent.
+    """
+
+    @staticmethod
+    def _row(subagent):
+        from usage import usage_row_from_sdk
+
+        return usage_row_from_sdk(
+            subagent, "claude-sonnet-4-6", {"input_tokens": 10, "output_tokens": 5}, 0.01, duration_ms=1
+        )
+
+    @staticmethod
+    def _unmigrate(db_path):
+        with sqlite3.connect(db_path) as conn:
+            conn.execute("ALTER TABLE run_usage DROP COLUMN thinking")
+            conn.execute("ALTER TABLE run_usage DROP COLUMN effort")
+
+    def test_a_lost_batch_is_visible_to_the_invariants(self, fresh_db):
+        run_id = db.current_run_id()
+        db.record_usage([self._row("cluster")])
+        self._unmigrate(fresh_db)
+        assert db.record_usage([self._row("write"), self._row("coherence")]) == 0
+
+        health = db.get_run_health(run_id)
+        found = run_health.violations(health)
+
+        # The run still has a stage, so the total-loss rule cannot fire -- that is the gap.
+        assert health["stages"] == 1
+        assert not any(v.startswith("NO_USAGE_RECORDED") for v in found), found
+        lost = [v for v in found if v.startswith("USAGE_ROWS_LOST")]
+        assert lost, found
+        assert "2" in lost[0], lost[0]
+
+    def test_a_run_that_wrote_every_row_is_clean(self, fresh_db):
+        run_id = db.current_run_id()
+        db.record_usage([self._row("cluster"), self._row("write")])
+
+        assert db.get_run_health(run_id)["usage_rows_dropped"] == 0
+        assert not any(v.startswith("USAGE_ROWS_LOST") for v in run_health.violations(db.get_run_health(run_id)))
+
+    def test_the_count_is_per_run_not_per_process(self, fresh_db):
+        # The dropped count is process state, so a second run in the same process must not
+        # inherit the first run's losses (--resume and the manual tails both start a run).
+        self._unmigrate(fresh_db)
+        db.record_usage([self._row("write")])
+        second = db.start_run(recording=True, broadcasting=False, alerting=False)
+
+        assert db.get_run_health(second)["usage_rows_dropped"] == 0
+
+
+class TestRepairFaultArtifactJoin:
+    """Same archive->SQL join, for the repair phase's prompt/config fault. The phase is
+    best-effort by design, so its failures reach nobody unless they ride this path."""
+
+    def test_a_spec_fault_survives_the_round_trip_and_fires(self, fresh_db, tmp_path):
+        """Round-trip through the REAL writer, so a key rename in orchestrate.py fails here."""
+        import orchestrate
+
+        orchestrate._write_repair_health(tmp_path, outcome="spec_error", detail="coherence.md: prompt drifted")
+        db.archive_run_artifacts(tmp_path)
+
+        health = db.get_run_health(db.current_run_id())
+
+        assert health["repair_outcome"] == "spec_error"
+        assert health["repair_detail"] == "coherence.md: prompt drifted"
+        assert any("coherence.md" in v for v in run_health.violations(health))
+
+    def test_a_run_with_no_fault_file_reads_as_nothing_to_report(self, fresh_db, tmp_path):
+        db.archive_run_artifacts(tmp_path)
+
+        health = db.get_run_health(db.current_run_id())
+
+        assert health["repair_outcome"] is None
+        assert not [v for v in run_health.violations(health) if "REPAIR_SPEC_ERROR" in v]

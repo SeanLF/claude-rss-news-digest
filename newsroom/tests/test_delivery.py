@@ -225,3 +225,76 @@ def test_helper_adds_no_error_swallow(monkeypatch, tmp_path):
         run._archive_run_and_threads("{}", model=None)
 
     assert not threads_ran  # propagated before threads -- helper adds no swallow
+
+
+def test_a_resumed_run_attributes_the_repair_events_it_logged_before_it_started(monkeypatch, tmp_path):
+    """--resume runs the whole repair phase inside generate_selections, which happens BEFORE
+    _render_record_deliver calls db.start_run -- so every event reached repair_log.jsonl with
+    run_id null, and the corpus lost attribution on exactly the recovered runs.
+
+    The id cannot be known at write time (the row does not exist), so the tail writes it back
+    for the events this process logged. An earlier attempt's unattributed events are not this
+    run's to claim."""
+    import json
+    from datetime import UTC, datetime
+
+    import db
+    import repair
+
+    db._state = db._State()
+    db.init(tmp_path / "test.db", Path(__file__).parent.parent.parent / "migrations")
+    monkeypatch.setattr(run, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(run, "resolve_article_ids", lambda s: s)
+    monkeypatch.setattr(run, "extract_preheader", lambda _s: "p")
+    monkeypatch.setattr(run, "write_digest", lambda _s, _t: tmp_path / "digest.html")
+    monkeypatch.setattr(run, "replace_placeholders", lambda *_a: None)
+    monkeypatch.setattr(run, "render_email", lambda _s: "<html></html>")
+    monkeypatch.setattr(run.db, "save_digest", lambda *_a, **_k: True)
+    monkeypatch.setattr(run, "read_shown_headlines", list)
+    monkeypatch.setattr(run, "cleanup_shown_headlines", lambda: None)
+    monkeypatch.setattr(run, "_alert_on_run_health", lambda: None)
+
+    log = tmp_path / repair.REPAIR_LOG_NAME
+    ts = datetime.now(UTC).isoformat()
+    other = {"run_id": None, "ts": ts, "proc": "another-process", "article_ids": ["A9"]}
+    mine = {"run_id": None, "ts": ts, "proc": repair.PROCESS_TOKEN, "article_ids": ["A1"]}
+    repair.append_repair_log(log, other)
+    repair.append_repair_log(log, mine)
+
+    run._render_record_deliver({"must_know": []}, skip_record=False, skip_email=True)
+
+    events = [json.loads(line) for line in log.read_text().splitlines()]
+    assert [e["article_ids"] for e in events] == [["A9"], ["A1"]]
+    assert events[0]["run_id"] is None, "another process's events are not this run's to claim"
+    assert events[1]["run_id"] == db.current_run_id()
+
+
+def test_a_broken_repair_corpus_never_costs_the_recovery_it_documents(monkeypatch, tmp_path):
+    """The attribution is the FIRST statement in the resume tail's try, ahead of save_digest
+    and the send. A corpus this process cannot read (a torn multi-byte append left by the
+    killed run being resumed) must not abort the recovery -- it is analytics, never the
+    digest."""
+    import db
+    import repair
+
+    db._state = db._State()
+    db.init(tmp_path / "test.db", Path(__file__).parent.parent.parent / "migrations")
+    monkeypatch.setattr(run, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(run, "resolve_article_ids", lambda s: s)
+    monkeypatch.setattr(run, "extract_preheader", lambda _s: "p")
+    monkeypatch.setattr(run, "write_digest", lambda _s, _t: tmp_path / "digest.html")
+    monkeypatch.setattr(run, "replace_placeholders", lambda *_a: None)
+    monkeypatch.setattr(run, "render_email", lambda _s: "<html></html>")
+    saved = []
+    monkeypatch.setattr(run.db, "save_digest", lambda *_a, **_k: saved.append(1) or True)
+    monkeypatch.setattr(run, "read_shown_headlines", list)
+    monkeypatch.setattr(run, "cleanup_shown_headlines", lambda: None)
+    monkeypatch.setattr(run, "_alert_on_run_health", lambda: None)
+
+    def unreadable(*_a, **_k):
+        raise UnicodeDecodeError("utf-8", b"caf\xc3", 3, 4, "invalid continuation byte")
+
+    monkeypatch.setattr(repair, "backfill_run_id", unreadable)
+
+    assert run._render_record_deliver({"must_know": []}, skip_record=False, skip_email=True) == 0
+    assert saved, "the digest was never saved -- a trace write aborted the recovery"

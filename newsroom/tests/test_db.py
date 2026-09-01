@@ -95,6 +95,47 @@ def test_run_usage_persists_request_config(fresh_db):
     assert got["recap"] == (None, None)
 
 
+def _usage_row(subagent):
+    from usage import usage_row_from_sdk
+
+    return usage_row_from_sdk(
+        subagent, "claude-sonnet-4-6", {"input_tokens": 10, "output_tokens": 5}, 0.01, duration_ms=1
+    )
+
+
+def _unmigrate_run_usage(db_path):
+    """A run_usage table the INSERT's column list does not match -- the shape a yoyo entry
+    mismarked as applied leaves behind. (A merely PENDING migration is not reachable on a
+    run path: db.init applies them.)"""
+    with sqlite3.connect(db_path) as conn:
+        cols = {r[1] for r in conn.execute("PRAGMA table_info(run_usage)")}
+        assert {"thinking", "effort"} <= cols, "fixture no longer reproduces the pre-migration shape"
+        conn.execute("ALTER TABLE run_usage DROP COLUMN thinking")
+        conn.execute("ALTER TABLE run_usage DROP COLUMN effort")
+
+
+def test_record_usage_reports_how_many_rows_it_wrote(fresh_db):
+    """The caller has no other way to tell a written batch from a lost one: executemany is
+    all-or-nothing and the failure path only logs."""
+    assert db.record_usage([_usage_row("cluster"), _usage_row("write")]) == 2
+
+
+def test_record_usage_reports_zero_when_the_whole_batch_is_lost(fresh_db):
+    _unmigrate_run_usage(fresh_db)
+
+    assert db.record_usage([_usage_row("write")]) == 0
+
+
+def test_a_malformed_row_is_counted_as_lost_not_raised(fresh_db):
+    """The parameter tuples are built inside the executemany call, so a row missing a key
+    raises KeyError -- not a sqlite3.Error. Under the narrow handler that both escaped (on
+    the resume tail, aborting a delivered run) and left the loss uncounted."""
+    lost = db.record_usage([{"subagent": "write"}])
+
+    assert lost == 0
+    assert db._state.usage_rows_dropped == 1
+
+
 def test_migration_creates_cluster_runs_table(fresh_db):
     with sqlite3.connect(fresh_db) as conn:
         tables = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}

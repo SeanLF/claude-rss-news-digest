@@ -11,6 +11,7 @@ deterministic and TDD-covered, including every fail-closed fallback to a drop.
 
 import json
 import sys
+from datetime import UTC, datetime
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
@@ -292,6 +293,141 @@ class TestAppendRepairLog:
 
         assert log.exists()
         assert json.loads(log.read_text().strip())["ok"] is True
+
+
+class TestBackfillRunId:
+    """On --resume the repair phase runs BEFORE db.start_run, so every event it logs
+    carries run_id null -- the corpus loses attribution on exactly the recovered runs.
+    The run id does not exist yet at write time, so it is written back once it does."""
+
+    @staticmethod
+    def _event(log, *, run_id, ids, proc=repair.PROCESS_TOKEN):
+        event = {"run_id": run_id, "ts": datetime.now(UTC).isoformat(), "article_ids": ids}
+        if proc is not None:
+            event["proc"] = proc
+        repair.append_repair_log(log, event)
+
+    def test_claims_this_process_s_unattributed_events_only(self, tmp_path):
+        log = tmp_path / "repair_log.jsonl"
+        # Another process's unattributed event: a null is an honest unknown, and stamping
+        # this run's id onto it would be a false fact in the eval's ground truth.
+        self._event(log, run_id=None, ids=["A9"], proc="another-process")
+        # An event from before this field existed: unclaimable, and not this run's to guess.
+        self._event(log, run_id=None, ids=["A8"], proc=None)
+        # Written by THIS process, before the run row existed.
+        self._event(log, run_id=None, ids=["A1"])
+        # Already attributed -- never re-stamped.
+        self._event(log, run_id=7, ids=["A2"])
+
+        assert repair.backfill_run_id(log, 42) == 1
+
+        got = [json.loads(line) for line in log.read_text().splitlines()]
+        assert [e["run_id"] for e in got] == [None, None, 42, 7]
+        assert [e["article_ids"] for e in got] == [["A9"], ["A8"], ["A1"], ["A2"]]
+
+    def test_a_log_with_nothing_to_claim_is_left_byte_for_byte(self, tmp_path):
+        log = tmp_path / "repair_log.jsonl"
+        self._event(log, run_id=7, ids=["A2"])
+        before = log.read_bytes()
+
+        assert repair.backfill_run_id(log, 42) == 0
+        assert log.read_bytes() == before
+
+    def test_a_malformed_line_is_preserved_not_dropped(self, tmp_path):
+        # The corpus is the eval's ground truth; a rewrite that silently drops a line it
+        # cannot parse is worse than the missing attribution it is fixing.
+        log = tmp_path / "repair_log.jsonl"
+        log.write_text('{"run_id": null, "ts": "not a date"}\nnot json at all\n')
+        self._event(log, run_id=None, ids=["A1"])
+
+        assert repair.backfill_run_id(log, 42) == 1
+
+        lines = log.read_text().splitlines()
+        assert lines[0] == '{"run_id": null, "ts": "not a date"}'
+        assert lines[1] == "not json at all"
+        assert json.loads(lines[2])["run_id"] == 42
+
+    def test_an_exotic_separator_inside_a_junk_line_is_not_reflowed(self, tmp_path):
+        # splitlines() also breaks on \x0b/\x1c/\u2028; using it would turn ONE unreadable
+        # line into two, corrupting exactly the lines this promises to leave alone.
+        log = tmp_path / "repair_log.jsonl"
+        log.write_bytes(b"garbage\x0bmore garbage\n")
+        self._event(log, run_id=None, ids=["A1"])
+
+        assert repair.backfill_run_id(log, 42) == 1
+
+        lines = log.read_bytes().split(b"\n")
+        assert lines[0] == b"garbage\x0bmore garbage"
+        assert json.loads(lines[1])["run_id"] == 42
+
+    def test_an_event_appended_after_a_torn_line_stays_readable(self, tmp_path):
+        # A killed run leaves a line with no terminator. Appending straight onto it would
+        # splice this run's event into that wreckage: one unparseable line, and the event
+        # both unattributed and unreadable.
+        log = tmp_path / "repair_log.jsonl"
+        log.write_bytes(b'{"run_id": 7, "partial": ')
+        self._event(log, run_id=None, ids=["A1"])
+
+        assert repair.backfill_run_id(log, 42) == 1
+
+        lines = log.read_bytes().split(b"\n")
+        assert lines[0] == b'{"run_id": 7, "partial": '
+        assert json.loads(lines[1])["run_id"] == 42
+
+    def test_a_corpus_that_grew_mid_rewrite_is_left_alone(self, tmp_path, monkeypatch):
+        # The rewrite is not append-safe and nothing upstream serializes runs. A missing
+        # run_id is recoverable; an event dropped by a clobbering rewrite is not.
+        log = tmp_path / "repair_log.jsonl"
+        self._event(log, run_id=None, ids=["A1"])
+        real_open = repair.Path.open
+        written: list = []
+
+        def append_then_open(self, *a, **k):
+            if "w" in str(a[:1]) + str(k.get("mode", "")):
+                written.append(self)
+                TestBackfillRunId._event(log, run_id=7, ids=["CONCURRENT"])
+            return real_open(self, *a, **k)
+
+        monkeypatch.setattr(repair.Path, "open", append_then_open)
+
+        assert repair.backfill_run_id(log, 42) == 0
+
+        # The scratch file is per-process. A fixed ".tmp" would be shared by concurrent
+        # backfills, and the size guard watches the CORPUS -- so one process could rename
+        # another's half-written copy over it and never notice.
+        assert written and repair.PROCESS_TOKEN in written[0].name, written
+
+        events = [json.loads(line) for line in log.read_text().splitlines()]
+        assert [e["article_ids"] for e in events] == [["A1"], ["CONCURRENT"]]
+        assert not list(tmp_path.glob("repair_log.jsonl*.tmp"))
+
+    def test_a_non_utf8_corpus_neither_raises_nor_is_corrupted(self, tmp_path):
+        # This writer emits ASCII, but the corpus is a plain file on a shared volume that
+        # a hand edit or another tool can leave invalid. read_text would raise
+        # UnicodeDecodeError -- a ValueError, not an OSError -- from the FIRST statement of
+        # the resume tail's try, aborting a run whose whole job is recovery.
+        log = tmp_path / "repair_log.jsonl"
+        log.write_bytes(b'{"run_id": null, "reason": "caf\xc3"}\n')
+        self._event(log, run_id=None, ids=["A1"])
+
+        assert repair.backfill_run_id(log, 42) == 1
+
+        lines = log.read_bytes().splitlines()
+        assert lines[0] == b'{"run_id": null, "reason": "caf\xc3"}'
+        assert json.loads(lines[1])["run_id"] == 42
+
+    def test_the_corpus_keeps_its_permissions(self, tmp_path):
+        # replace() takes the tmp file's mode; the corpus lives on a shared data volume.
+        log = tmp_path / "repair_log.jsonl"
+        self._event(log, run_id=None, ids=["A1"])
+        log.chmod(0o640)
+
+        repair.backfill_run_id(log, 42)
+
+        assert log.stat().st_mode & 0o777 == 0o640
+
+    def test_no_log_is_not_an_error(self, tmp_path):
+        assert repair.backfill_run_id(tmp_path / "absent.jsonl", 42) == 0
 
 
 # --- merge.py ladder branch: consuming repair_resolution.json -----------------

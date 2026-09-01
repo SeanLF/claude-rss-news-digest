@@ -41,6 +41,9 @@ def _healthy(**overrides):
         "fulltext_outcome": "completed",
         "fulltext_tasks": 40,
         "fulltext_extracted": 31,
+        "usage_rows_dropped": 0,
+        "repair_outcome": None,
+        "repair_detail": None,
     }
     health.update(overrides)
     return health
@@ -241,3 +244,49 @@ class TestHealthFixtureOverrides:
         TypeError on exactly the four keys the outage rules trigger on."""
         for key in ("shipped", "stages", "artifacts", "threads_available"):
             assert _health(**{key: 0})[key] == 0
+
+
+class TestUsageRowsLost:
+    """record_usage is fail-soft and executemany is all-or-nothing, so one failing call
+    loses that whole batch behind a single ERROR line. NO_USAGE_RECORDED only sees a run
+    with zero stages; a run that lost SOME of them reads clean everywhere else."""
+
+    def test_a_lost_batch_fires_even_though_other_stages_recorded(self):
+        found = run_health.violations(_healthy(stages=7, usage_rows_dropped=2))
+
+        assert any(v.startswith("USAGE_ROWS_LOST") for v in found), found
+        assert not any(v.startswith("NO_USAGE_RECORDED") for v in found), found
+
+    def test_a_run_that_lost_nothing_is_silent(self):
+        assert not any(v.startswith("USAGE_ROWS_LOST") for v in run_health.violations(_healthy()))
+
+    def test_unknown_is_not_a_violation(self):
+        # None is "not recorded" (a health dict built before this key existed), not a loss.
+        assert not any(
+            v.startswith("USAGE_ROWS_LOST") for v in run_health.violations(_healthy(usage_rows_dropped=None))
+        )
+
+
+class TestRepairSpecError:
+    """The repair phase is best-effort: every failure inside it was one WARNING that read
+    the same whether the repairer flaked or coherence.md had drifted off the filenames the
+    scoped re-check needs. The second disables repair on every run until a human edits a
+    file."""
+
+    def test_a_spec_fault_is_a_violation_naming_the_prompt(self):
+        # The operator gets the alert, not the log: "a prompt/config error" with no file
+        # name sends them to a digest.log that rotates within days.
+        found = run_health.violations(
+            _healthy(repair_outcome="spec_error", repair_detail="coherence.md: prompt drifted")
+        )
+
+        assert any(v.startswith("REPAIR_SPEC_ERROR") for v in found), found
+        assert any("coherence.md" in v for v in found), found
+
+    def test_a_fault_with_no_detail_still_reads_as_a_sentence(self):
+        found = run_health.violations(_healthy(repair_outcome="spec_error"))
+
+        assert any("no detail recorded" in v for v in found), found
+
+    def test_no_fault_recorded_is_silent(self):
+        assert not [v for v in run_health.violations(_healthy()) if v.startswith("REPAIR_SPEC_ERROR")]

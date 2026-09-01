@@ -20,6 +20,7 @@ class _State:
     recording: bool = False
     broadcasting: bool = False
     alerting: bool = False
+    usage_rows_dropped: int = 0
 
 
 _state = _State()
@@ -108,6 +109,7 @@ def start_run(*, recording: bool = True, broadcasting: bool = True, alerting: bo
     _state.recording = recording
     _state.broadcasting = broadcasting
     _state.alerting = alerting
+    _state.usage_rows_dropped = 0
 
     if not recording:
         return None
@@ -544,7 +546,15 @@ def get_run_health(run_id: int) -> dict:
                   (SELECT CASE WHEN json_valid(content)
                                THEN json_extract(content, '$.linker_ok') END
                      FROM run_artifacts
-                    WHERE run_id = :r AND artifact_name = 'thread_links.json')
+                    WHERE run_id = :r AND artifact_name = 'thread_links.json'),
+                  (SELECT CASE WHEN json_valid(content)
+                               THEN json_extract(content, '$.outcome') END
+                     FROM run_artifacts
+                    WHERE run_id = :r AND artifact_name = 'repair_health.json'),
+                  (SELECT CASE WHEN json_valid(content)
+                               THEN json_extract(content, '$.detail') END
+                     FROM run_artifacts
+                    WHERE run_id = :r AND artifact_name = 'repair_health.json')
                 """,
                 {"r": run_id},
             ).fetchone()
@@ -561,6 +571,9 @@ def get_run_health(run_id: int) -> dict:
         "thread_continuations": row[4],
         "threads_available": row[5],
         "broadcasting": _state.broadcasting,
+        # Process state, not a DB count: rows that never reached the table cannot be
+        # counted from it, and the run they were lost from is the one being judged.
+        "usage_rows_dropped": _state.usage_rows_dropped,
         # Config, not DB state: with the thread layer switched off no installments
         # are written at all, and the live threads that remain would otherwise make
         # the continuity rule fire on every run forever.
@@ -608,6 +621,13 @@ def get_run_health(run_id: int) -> dict:
         # answers; a string or object in that slot is a malformed trace, and bool() would read
         # it as healthy, which fails open in the direction of silence.
         "linker_ok": True if row[13] == 1 else (False if row[13] == 0 else None),
+        # None means the repair phase recorded no fault (the usual case -- the artifact is
+        # written only when it hits one), NOT that the phase ran cleanly: it is also None
+        # when repair is switched off.
+        "repair_outcome": row[14],
+        # Quoted by the alert, not triggered on. Without it the operator is told "a
+        # prompt/config error" and has to find which file in a log that rotates within days.
+        "repair_detail": row[15],
     }
 
 
@@ -714,6 +734,10 @@ _TRACE_ARTIFACTS = (
     # The deterministic join's INPUT; only its output (clusters.json) was kept before.
     "cluster_tags.json",
     "fulltext_health.json",
+    # Written only when the repair phase hit a prompt/config fault. The phase is
+    # best-effort and swallows everything, so this file is the only way its faults
+    # reach the post-run invariants.
+    "repair_health.json",
     # Context files handed TO the stages rather than produced by them. Without these
     # the archive shows the headline that shipped but not the prior headlines SELECT
     # and WRITE were shown against, and claude_input/ is rmtree'd next run.
@@ -815,17 +839,25 @@ def get_run_artifacts(run_id: int) -> dict[str, str]:
         return {}
 
 
-def record_usage(usage_rows: list[dict]):
-    """Record per-subagent token usage for the current run.
+def record_usage(usage_rows: list[dict]) -> int:
+    """Record per-subagent token usage for the current run; return rows written.
 
     Each dict has: subagent, model, input_tokens, output_tokens,
     cache_write_tokens, cache_read_tokens, api_cost_usd, and (optionally)
     duration_ms (per-stage wall-clock latency; NULL if the row omits it).
+
+    Fail-soft, as every trace write here is -- but a lost batch is COUNTED into
+    ``_state.usage_rows_dropped``, which ``get_run_health`` reports and the
+    USAGE_ROWS_LOST invariant fires on. ``executemany`` is all-or-nothing and
+    run.py records usage from several call sites (per stage, the thread phase,
+    the resume tail), so one failing call loses that batch while the others keep
+    the run's stage count nonzero -- invisible to NO_USAGE_RECORDED, which only
+    sees a run with no stages at all.
     """
     if not _state.recording or _state.run_id is None:
-        return
+        return 0
     if not usage_rows:
-        return
+        return 0
     try:
         with _connect(_db_path()) as conn:
             conn.executemany(
@@ -852,8 +884,18 @@ def record_usage(usage_rows: list[dict]):
                 ],
             )
         logger.info("Recorded %d usage rows for run %d", len(usage_rows), _state.run_id)
-    except sqlite3.Error as e:
-        logger.error("DB error recording usage: %s", e)
+        return len(usage_rows)
+    except Exception as e:
+        # Broad like archive_run_artifacts, and for the same reason: a trace write must never
+        # crash a digest, and on the resume tail this call is inside the try that aborts the
+        # run. A malformed row raises KeyError while the parameter tuples are built, which is
+        # not a sqlite3.Error -- so the narrow handler both let it kill a delivery and left
+        # the loss uncounted, which is the very hole this counter exists to close. That, a
+        # yoyo entry mismarked as applied, and a full disk are the reachable triggers; a
+        # pending migration is NOT one, since db.init applies them on every run path.
+        _state.usage_rows_dropped += len(usage_rows)
+        logger.error("Error recording usage (%d row(s) lost): %s", len(usage_rows), e)
+        return 0
 
 
 def prepare_for_web(html_str: str) -> str:
