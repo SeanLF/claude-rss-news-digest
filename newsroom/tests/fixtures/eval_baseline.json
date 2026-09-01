@@ -1,11 +1,18 @@
 {
   "_meta": {
-    "description": "Known-good eval-floor baseline for the regression gate (bin/eval-regression). L1 = code-assertion graders; L2 = COHERENCE judge agreement vs independent labels. Generated offline from coherence_golden.json + the prod_baseline_selections fixture; no model calls. Regenerate with bin/eval-regression --update after an intended change.",
+    "description": "Known-good eval-floor baseline for the regression gate (bin/eval-regression). L1 = code-assertion graders; L2 = the golden set's recorded COHERENCE verdicts vs the blind labels. Generated offline from coherence_golden.json + the prod_baseline_selections fixture; no model calls. Regenerate with bin/eval-regression --update after an intended change.",
     "golden_fixture": "newsroom/tests/fixtures/coherence_golden.json",
     "selections_fixture": "newsroom/tests/fixtures/prod_baseline_selections.json",
-    "gate": "fail if any L1 check flips PASS->FAIL, L2 fail-precision drops, or L2 leak_count rises.",
-    "leak_count_note": "leak_count=0 CERTIFIED 2026-06-15: the full golden set was re-judged with the fixed cited-sources-only COHERENCE prompt; both original leaks (Gemini 3.5 Flash, Boeing -4%) now correctly fail. 10 judge-vs-label flips were adjudicated by an adversarial 3-lens audit (4 label errors corrected, 6 single-sample judge-noise cases confirmed against the historical judge). See coherence_golden.json _meta.certification. Known limitation: single-sample COHERENCE runs show ~1% leak/over-drop on subtle misattribution headlines -- a GEPA target, not a defect of the fix."
+    "gate": "fail if any L1 check flips PASS->FAIL, the L1 checks grade fewer golden headlines, L2 agreement_rate or fail_precision drops, L2 leak_count or unresolved_sources_passed rises, or any of l1_golden_stories / total_cases / blind_labeled_cases / unresolved_sources shrinks. The population sizes are gated because the counts above them are absolute and the checks below them can pass vacuously: empty the population and the number sits at its floor forever, disarmed and silent.",
+    "scope": "No model calls. judge_pass is FROZEN in the golden fixture, so editing .claude/agents/coherence.md changes nothing here and this gate will not catch a bad prompt. The L2 numbers move when the golden set is re-judged and re-committed, or when the fixture is otherwise edited.",
+    "l2_population": "The L2 rates are computed over the golden cases carrying label_blind and NOTHING else. The remainder carry only label_pass, which equals judge_pass on every case in the set (see the golden set's _meta.label_pass: 'label_pass mirrors the verified judge verdict'), so scoring against it is an identity that pins agreement_rate and fail_precision at their ceiling and leak_count at its floor no matter what the judge does. Nearly all of their label_rationale strings open with one of three identical preambles, differing only in the tail that names the article ids -- another sign they were not written case by case.",
+    "independent_of_what": "label_blind is independent OF THE JUDGE'S VERDICT -- decided from articles[] without reading judge_pass. It is NOT human ground truth: blind_method does not record who or what produced the blind labels, and the rationales read as agent output. Only why_judge_golden.json is independently human-labelled. Do not upgrade this to 'the raters say X'.",
+    "do_not_close_the_gap": "The agreement/fail-precision headroom is NOT an error budget to close. Every current blind disagreement is judge-fail / blind-faithful on an unsupported specific, and every one of those blind rationales says the figure is unverifiable from the title-level proxy and resolves toward faithful by an explicit floor rule. Relaxing coherence.md to pass unsupported specifics would drive agreement and fail-precision to their ceiling and print as an improvement, while breaking the thing COHERENCE exists to catch. Pinned by test_the_two_blind_disagreements_are_proxy_artifacts_not_judge_errors.",
+    "leak_count_caveat": "Read leak_count asymmetrically: a rise is real news, its floor is close to vacuous rather than merely weak. It rests only on the blind-labelled cases the judge PASSED -- a fraction of the set and not a random sample -- and the blind protocol's tie-break resolves ambiguity toward faithful, so only an outright contradiction could register at all. By the rule of three, an unbroken floor over n observations bounds the true rate at about 3/n, which for an n in the low tens is a double-digit percentage. Neither historically known leak (the Gemini and Boeing cases named in the golden set's _meta.certification) carries a blind label, so neither is among the cases this floor rests on.",
+    "no_numbers_here": "This prose deliberately restates none of the values recorded below, and states rates as rules rather than figures. --update rewrites the numbers and carries _meta through verbatim (bin/eval-regression's `out = {'_meta': meta, **current}`), so any figure written here would go stale silently -- the same defect class this gate exists to prevent.",
+    "cardinality_not_identity": "The blind_labeled_cases guard catches DELETION, not SUBSTITUTION. Dropping the disagreeing blind labels and adding agreeing ones keeps n unchanged, drives the rates to their ceiling, and prints as an improvement -- reconstructing the identity metric this gate exists to remove. The mechanism against that is the test suite, not this gate: the disagreement test above fails, and pytest runs in the lefthook pre-commit. Note bin/eval-regression itself is NOT wired into bin/ci; its only caller is `make eval`."
   },
+  "l1_golden_stories": 386,
   "l1_golden_headlines": {
     "schema_valid": true,
     "required_fields_present": true,
@@ -33,9 +40,12 @@
     "no_internal_article_ids": true
   },
   "l2_judge_agreement": {
-    "labeled_cases": 386,
-    "agreement_rate": 1.0,
-    "fail_precision": 1.0,
-    "leak_count": 0
+    "total_cases": 386,
+    "blind_labeled_cases": 60,
+    "agreement_rate": 0.966667,
+    "fail_precision": 0.942857,
+    "leak_count": 0,
+    "unresolved_sources": 32,
+    "unresolved_sources_passed": 0
   }
 }

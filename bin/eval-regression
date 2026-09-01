@@ -3,10 +3,23 @@
 # if they regress against the committed baseline.
 #
 # No model calls, no credit -- pure code + fixtures, safe in CI and on every
-# change. Watches three things:
-#   * L1 pass-rate     -- any code-assertion check flipping PASS -> FAIL
-#   * L2 fail-precision -- the COHERENCE judge's fail accuracy dropping
-#   * L2 leak count     -- false passes (unfaithful headlines the judge let through) rising
+# change. Watches:
+#   * L1 pass-rate       -- any code-assertion check flipping PASS -> FAIL
+#   * L1 graded stories  -- the L1 checks passing over fewer headlines than before
+#   * L2 agreement rate  -- the recorded verdicts agreeing less with the blind labels
+#   * L2 fail-precision  -- the recorded fail accuracy dropping
+#   * L2 leak count      -- false passes (unfaithful headlines let through) rising
+#   * L2 unresolved      -- a headline citing nothing resolvable recorded as passed
+#   * L2 subset sizes    -- the golden set, the blind-labelled subset, or the
+#                          unresolved-source subset shrinking
+#
+# The L2 rates are scored against `label_blind` (a subset of the golden cases),
+# a verdict reached from the source articles alone without reading the judge.
+# `label_pass` is NOT scored: it mirrors judge_pass on every case.
+#
+# SCOPE: this makes no model calls. `judge_pass` is frozen in the fixture, so
+# editing .claude/agents/coherence.md changes nothing here. The L2 numbers move
+# when the golden set is re-judged and re-committed, not when the prompt changes.
 #
 # Runs under `uv` because the host python lacks the project's deps / version
 # (mirrors bin/eval-judge / bin/trace's "no bare python3" convention).
@@ -37,7 +50,12 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path.cwd() / "src"))
 
-from eval_regression import compare, compute_metrics_from_paths, load_json  # noqa: E402
+from eval_regression import (  # noqa: E402
+    FixtureError,
+    compare_for_gate,
+    compute_metrics_for_gate,
+    load_json_for_gate,
+)
 
 proj = Path(os.environ["PROJECT_DIR"])
 mode = os.environ["MODE"]
@@ -68,10 +86,31 @@ for label, path in (("golden set", golden_path), ("selections fixture", selectio
         print("the gate needs its committed fixtures; check the path or restore the file", file=sys.stderr)
         sys.exit(2)
 
-current = compute_metrics_from_paths(golden_path, selections_path)
+def fixture_problem(exc):
+    # Exit 2, not 1: a broken instrument is not a regression, and a caller must
+    # be able to tell them apart. Policy pinned by the FixtureError tests.
+    print(color(str(exc), RED), file=sys.stderr)
+    print("this is a fixture/baseline problem, not a regression. Confirm the", file=sys.stderr)
+    print("fixtures are good AND the gate itself is unmodified -- a bug in", file=sys.stderr)
+    print("compare() lands here too -- then: bin/eval-regression --update", file=sys.stderr)
+    sys.exit(2)
+
+
+try:
+    current = compute_metrics_for_gate(golden_path, selections_path)
+except FixtureError as exc:
+    fixture_problem(exc)
 
 if mode == "--update":
-    baseline = load_json(baseline_path) if baseline_path.exists() else {}
+    try:
+        baseline = load_json_for_gate(baseline_path) if baseline_path.exists() else {}
+    except FixtureError as exc:
+        # --update reads the old baseline ONLY to carry _meta forward, so refusing
+        # here would make the recovery this tool prints impossible; rm would be the
+        # undocumented remedy. Regenerate, and be loud about the prose that is lost.
+        print(color(f"{exc}", YELLOW), file=sys.stderr)
+        print("regenerating anyway -- the _meta prose in it is LOST, rewrite it", file=sys.stderr)
+        baseline = {}
     meta = baseline.get("_meta", {})
     out = {"_meta": meta, **current}
     baseline_path.write_text(json.dumps(out, indent=2) + "\n", encoding="utf-8")
@@ -83,8 +122,11 @@ if not baseline_path.exists():
     print("run: bin/eval-regression --update", file=sys.stderr)
     sys.exit(2)
 
-baseline = load_json(baseline_path)
-result = compare(baseline, current)
+try:
+    baseline = load_json_for_gate(baseline_path)
+    result = compare_for_gate(baseline, current)
+except FixtureError as exc:
+    fixture_problem(exc)
 
 print(color("Eval-floor regression gate", BOLD))
 print()
@@ -92,6 +134,12 @@ print()
 # L1 diff (per check, both fixtures).
 for fixture in ("l1_golden_headlines", "l1_selections_fixture"):
     print(color(fixture, BOLD))
+    if fixture == "l1_golden_headlines":
+        # Without this the ten PASS rows below carry no denominator, and a
+        # projection emptied to zero stories looks like a clean sweep.
+        b_n, c_n = baseline["l1_golden_stories"], current["l1_golden_stories"]
+        arrow = "" if b_n == c_n else color(f"  (baseline {b_n})", YELLOW)
+        print(f"  {'graded stories':<26} {c_n}{arrow}")
     base = baseline[fixture]
     cur = current[fixture]
     for check in sorted(set(base) | set(cur)):
@@ -119,10 +167,18 @@ def fmt(v):
     return "n/a" if v is None else (f"{v:.4f}" if isinstance(v, float) else str(v))
 
 
-for key in ("labeled_cases", "agreement_rate", "fail_precision", "leak_count"):
+for key in (
+    "total_cases",
+    "blind_labeled_cases",
+    "agreement_rate",
+    "fail_precision",
+    "leak_count",
+    "unresolved_sources",
+    "unresolved_sources_passed",
+):
     b, c = bl.get(key), cl.get(key)
     same = b == c
-    line = f"  {key:<16} {fmt(c)}"
+    line = f"  {key:<25} {fmt(c)}"
     if not same:
         line += color(f"  (baseline {fmt(b)})", YELLOW)
     print(line)
