@@ -145,6 +145,13 @@ def test_probe_one_still_asks_for_the_single_least_supported_specific():
     assert "Find the single least-supported specific" in _spec().body
 
 
+def test_no_effort_override():
+    """`effort: xhigh` was MEASURED AND REJECTED on 2026-08-31: identical to default effort on
+    recall (4.60), idx 0 (4/5), idx 3 (0/5) and false-drops (0/35), for ~33% more wall clock.
+    run_usage.effort is NULL by choice, not oversight."""
+    assert _spec().effort is None
+
+
 def test_body_carries_the_current_date_token():
     """coherence.md auto-fails a STALE WORLD-STATE assertion and tells the model to check
     "the cited articles and today's date" -- so it has to be given the date."""
