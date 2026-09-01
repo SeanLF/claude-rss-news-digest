@@ -127,6 +127,24 @@ def test_failed_fields_schema_example_present():
     assert '"failed_fields"' in body
 
 
+def test_binding_probe_is_not_scoped_to_relations_or_the_headline():
+    """Measured 2026-08-31 on the run-245 fixture: widening probe 2 to SCOPE/TIME-WINDOW/
+    EVENT-PARTICIPANT and lifting probe 3 off the headline took idx 0 from 0/4 to 4/5 and idx 4
+    from 2/4 to 4/5, false-drops 0/35. Narrowing either back is the regression."""
+    body = _spec().body
+    assert "SCOPE and TIME-WINDOW" in body
+    assert "EVENT-PARTICIPANT" in body
+    assert "In EVERY field, verify each named entity" in body
+
+
+def test_probe_one_still_asks_for_the_single_least_supported_specific():
+    """The 'list EVERY specific' rewrite (audit hunk F2) was MEASURED AND REJECTED: it moved
+    nothing its own target cared about (idx 3, 0/6) and both gains it appeared to produce were
+    reproduced by F3 alone. Kept out deliberately -- re-adding it lengthens the most expensive
+    prompt in the pipeline for no measured effect."""
+    assert "Find the single least-supported specific" in _spec().body
+
+
 def test_body_carries_the_current_date_token():
     """coherence.md auto-fails a STALE WORLD-STATE assertion and tells the model to check
     "the cited articles and today's date" -- so it has to be given the date."""
