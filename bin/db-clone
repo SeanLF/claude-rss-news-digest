@@ -1,50 +1,102 @@
 #!/bin/bash
-# Clone SQLite database from cloud to local
-# Usage: bin/db-clone [--output PATH]
+# Clone the production SQLite database to this machine.
+# Usage: bin/db-clone [--output PATH] [--live]
 #
-# Copies the production digest.db to data/digest.db (or specified path), overwriting it
+# Prefers the newest verified deploy backup over a live copy. bin/deploy snapshots
+# digest.db through the SQLite backup API and restore-verifies it; a live `cat` of the
+# volume copies a file that may be mid-write. --live forces the wire copy.
+#
+# The target is replaced only after a candidate verifies. The previous version wrote the
+# ssh output straight into it, and a shell redirect truncates before the command runs --
+# so any failure (a stopped Tailscale, 2026-08-30) destroyed the local database and left
+# nothing to fall back to.
 
-set -e
+set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 DEFAULT_OUTPUT="$PROJECT_DIR/data/digest.db"
+BACKUP_ROOT="${NEWS_DIGEST_BACKUP_ROOT:-$HOME/Backups/seanfloyd-hetzner}"
 
 # shellcheck source=lib/log.sh
 source "$SCRIPT_DIR/lib/log.sh"
 
 OUTPUT_PATH="$DEFAULT_OUTPUT"
+FORCE_LIVE=false
 
 while [[ $# -gt 0 ]]; do
   case $1 in
     --output)
-      if [[ -z ${2:-} ]]; then
-        log_error "--output requires a path argument"
-        exit 1
-      fi
-      OUTPUT_PATH="$2"
-      shift 2
-      ;;
+      [[ -n ${2:-} ]] || { log_error "--output requires a path argument"; exit 1; }
+      OUTPUT_PATH="$2"; shift 2 ;;
+    --live)
+      FORCE_LIVE=true; shift ;;
     -h|--help)
-      echo "Usage: bin/db-clone [--output PATH]"
-      echo "Clone production SQLite database to local machine."
-      echo "Default output: data/digest.db (overwrites)"
-      exit 0
-      ;;
+      echo "Usage: bin/db-clone [--output PATH] [--live]"
+      echo "Clone the production SQLite database to this machine."
+      echo "Prefers the newest verified deploy backup; --live forces a copy over the wire."
+      echo "Default output: $DEFAULT_OUTPUT (replaced only after the candidate verifies)"
+      exit 0 ;;
     *)
-      log_error "Unknown option: $1"
-      exit 1
-      ;;
+      log_error "Unknown option: $1"; exit 1 ;;
   esac
 done
 
-log_step "Cloning database..."
-"$SCRIPT_DIR/ssh" "docker run --rm -v news-digest-data:/data alpine cat /data/digest.db" > "$OUTPUT_PATH"
+# A SQLite file is only trustworthy if it is internally consistent AND complete. Size alone
+# is not enough: a truncated copy is still non-empty, which is exactly what the old -s check
+# accepted. page_count*page_size catches the truncation; integrity_check catches corruption.
+verify_sqlite() {
+  local path="$1"
+  [[ -s "$path" ]] || { log_error "candidate is empty"; return 1; }
+  if ! command -v sqlite3 >/dev/null 2>&1; then
+    log_info "sqlite3 not on PATH -- size checked, contents NOT verified"
+    return 0
+  fi
+  local integrity expected actual
+  integrity="$(sqlite3 "$path" 'PRAGMA integrity_check;' 2>/dev/null | head -1)"
+  [[ "$integrity" == "ok" ]] || { log_error "integrity_check: ${integrity:-unreadable}"; return 1; }
+  expected="$(sqlite3 "$path" 'SELECT (SELECT * FROM pragma_page_count())*(SELECT * FROM pragma_page_size());' 2>/dev/null)"
+  actual="$(wc -c <"$path" | tr -d ' ')"
+  [[ "$expected" == "$actual" ]] || { log_error "truncated: $actual bytes, header claims $expected"; return 1; }
+  return 0
+}
 
-if [ ! -s "$OUTPUT_PATH" ]; then
-  log_error "Database clone failed - empty output file"
-  exit 1
+TMP="$(mktemp "${TMPDIR:-/tmp}/db-clone.XXXXXX")"
+trap 'rm -f "$TMP" "$TMP.gz"' EXIT
+
+SOURCE=""
+if [[ "$FORCE_LIVE" == false && -d "$BACKUP_ROOT" ]]; then
+  # Newest first; a partially-written backup dir simply fails verification and we move on.
+  while IFS= read -r dir; do
+    [[ -f "$dir/digest.db.gz" ]] || continue
+    log_step "Trying backup $(basename "$dir")..."
+    # Verify against the backup's own MANIFEST before spending time on decompression.
+    if [[ -f "$dir/MANIFEST" ]] && command -v shasum >/dev/null 2>&1; then
+      if ! (cd "$dir" && shasum -a 256 -c --status --ignore-missing MANIFEST 2>/dev/null); then
+        log_info "  checksum mismatch -- skipping"; continue
+      fi
+    fi
+    gunzip -c "$dir/digest.db.gz" >"$TMP" 2>/dev/null || { log_info "  decompress failed -- skipping"; continue; }
+    if verify_sqlite "$TMP"; then SOURCE="backup $(basename "$dir")"; break; fi
+    log_info "  failed verification -- skipping"
+  done < <(find "$BACKUP_ROOT" -mindepth 1 -maxdepth 1 -type d | sort -r)
 fi
 
-SIZE=$(du -h "$OUTPUT_PATH" | cut -f1)
-log_success "Done: $OUTPUT_PATH ($SIZE)"
+if [[ -z "$SOURCE" ]]; then
+  [[ "$FORCE_LIVE" == true ]] || log_info "No verified backup found -- falling back to a live copy"
+  log_step "Cloning over the wire..."
+  "$SCRIPT_DIR/ssh" "docker run --rm -v news-digest-data:/data alpine cat /data/digest.db" >"$TMP"
+  verify_sqlite "$TMP" || { log_error "Live clone failed verification -- $OUTPUT_PATH left untouched"; exit 1; }
+  SOURCE="live copy"
+fi
+
+mkdir -p "$(dirname "$OUTPUT_PATH")"
+mv "$TMP" "$OUTPUT_PATH"
+trap - EXIT
+
+log_success "Done: $OUTPUT_PATH ($(du -h "$OUTPUT_PATH" | cut -f1), from $SOURCE)"
+if [[ "$SOURCE" == backup* ]]; then
+  # bin/deploy snapshots BEFORE applying migrations, so a backup-sourced clone can be one
+  # schema behind. Run `make migrate` if a stage errors on a missing column.
+  log_step "Backups are taken pre-migration -- run 'make migrate' if the schema looks behind."
+fi
