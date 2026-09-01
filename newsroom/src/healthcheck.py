@@ -23,12 +23,27 @@ _PING_ENV = "HEALTHCHECK_PING_URL"
 _TIMEOUT_S = 10
 
 
+def log(message: str) -> None:
+    """Post a progress marker to the /log endpoint. No-op if unconfigured. Never raises.
+
+    /log records an event WITHOUT signalling success or failure, so a stage boundary can be
+    reported without touching the run's up/down state. This is the only signal that makes a
+    run observable from off-box WHILE it is still running: run_health only judges runs that
+    finish, and run 281 hung 62 minutes with nothing outside the container noticing.
+    """
+    _post("log", message.encode("utf-8")[:1000])
+
+
 def ping(event: str | None = None) -> None:
     """Ping the configured healthchecks.io endpoint. No-op if unconfigured.
 
     ``event`` is None for a success ping, or "start"/"fail" for the run-started
     and run-failed signals. Never raises.
     """
+    _post(event, None)
+
+
+def _post(event: str | None, body: bytes | None) -> None:
     base = os.environ.get(_PING_ENV)
     if not base:
         return
@@ -41,7 +56,7 @@ def ping(event: str | None = None) -> None:
         logger.warning("HEALTHCHECK_PING_URL is not https -- skipping %s ping", event or "success")
         return
     try:
-        req = urllib.request.Request(url, headers={"User-Agent": "news-digest-healthcheck/1"})
+        req = urllib.request.Request(url, data=body, headers={"User-Agent": "news-digest-healthcheck/1"})
         with urllib.request.urlopen(req, timeout=_TIMEOUT_S) as resp:  # nosec B310 -- https-guarded above
             resp.read()
     except (urllib.error.URLError, OSError) as e:

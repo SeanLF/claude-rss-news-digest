@@ -15,6 +15,7 @@ import json
 import sys
 import time
 from pathlib import Path
+from unittest import mock
 
 import pytest
 
@@ -1110,6 +1111,40 @@ class TestStageAttemptIsBounded:
                 run_deadline=run_deadline,
             )
         assert seen["deadline"] <= run_deadline + 0.01, "the per-stage budget outran the run deadline"
+
+
+class TestStageBoundaryHeartbeat:
+    def test_each_completed_stage_reports_off_box(self, tmp_path, monkeypatch):
+        """A run that never finishes is invisible to run_health, which only judges runs that
+        complete. Without a per-stage marker the last external signal is the start ping, so a
+        stage wedged at minute 3 and one wedged at minute 200 look identical from off-box."""
+        TestOrchestrateSelections()._write_articles(tmp_path)
+        logged: list[str] = []
+        monkeypatch.setattr(orchestrate.healthcheck, "log", logged.append)
+        monkeypatch.setattr(orchestrate.claude_cli, "run_agent", TestOrchestrateSelections()._fake_writer(tmp_path))
+        monkeypatch.setattr(orchestrate, "_AGENTS_DIR", REPO_ROOT / ".claude" / "agents")
+
+        _orchestrate(claude_input_dir=tmp_path)
+
+        assert any("curation start" in line for line in logged)
+        for stage in ("cluster", "recap", "select", "write", "coherence"):
+            assert any(line.startswith(f"{stage} done") for line in logged), f"no marker for {stage}"
+
+    def test_an_unreachable_monitor_never_breaks_the_run(self, tmp_path, monkeypatch):
+        """Observability on a healthy run must not be able to fail it. orchestrate calls
+        healthcheck.log UNGUARDED, so the guarantee has to live in healthcheck -- this drives
+        the real implementation with a dead network rather than a fake that swallows."""
+        TestOrchestrateSelections()._write_articles(tmp_path)
+        monkeypatch.setenv("HEALTHCHECK_PING_URL", "https://hc-ping.com/abc")
+        monkeypatch.setattr(
+            orchestrate.healthcheck.urllib.request, "urlopen", mock.Mock(side_effect=OSError("unreachable"))
+        )
+        monkeypatch.setattr(orchestrate.claude_cli, "run_agent", TestOrchestrateSelections()._fake_writer(tmp_path))
+        monkeypatch.setattr(orchestrate, "_AGENTS_DIR", REPO_ROOT / ".claude" / "agents")
+
+        rows = _orchestrate(claude_input_dir=tmp_path)
+
+        assert [r["subagent"] for r in rows] == ["cluster", "recap", "select", "write", "coherence"]
 
 
 class TestUsageSurvivesALaterStageFailing:

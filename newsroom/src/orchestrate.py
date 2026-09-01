@@ -46,6 +46,7 @@ import config
 import db
 import fulltext
 import gnews
+import healthcheck
 import repair
 from claude_agent_sdk import ThinkingConfig
 from merge import _item_article_ids
@@ -855,11 +856,17 @@ async def orchestrate_selections(
     usage_rows: list[dict[str, Any]] = []
     run_deadline = time.monotonic() + _RUN_RETRY_BUDGET_S
 
+    healthcheck.log(f"curation start: {len(_STAGES)} stages")
+
     def _record(row: dict[str, Any]) -> None:
         # Emitted as each stage completes, not returned in a batch at the end: a later stage
         # raising used to discard every earlier stage's row, so a run that failed at WRITE
         # recorded none of the cluster/recap/select spend it had already been billed for.
         usage_rows.append(row)
+        # Off-box progress marker. The only signal that makes a run observable WHILE it runs:
+        # run_health judges finished runs only, the deadman fires 2h35m after start, and
+        # OnFailure waits for the 5h TimeoutStartSec. Run 281 hung 62 minutes unseen.
+        healthcheck.log(f"{row['subagent']} done {row.get('duration_ms', 0) // 1000}s ${row['api_cost_usd']:.4f}")
         if on_usage is not None:
             on_usage(row)
 
