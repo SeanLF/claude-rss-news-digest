@@ -43,9 +43,14 @@ from eval_graders import GradeReport, GraderLimits, _word_count
 # Stages whose WRITE/coherence shape carries the full article fields.
 ARTICLE_TIERS = ("must_know", "should_know")
 
-# Sane upper bound for the recap blurb (2-3 sentences). Generous so it does not
-# fail spuriously, but tight enough to catch a runaway dump.
-RECAP_MAX_CHARS = 600
+# Runaway-dump tripwire, not a style bound -- the prompt states no character
+# limit (recap.md: "2-3 sentences"), and recap_sentence_count below is what
+# actually enforces that contract. Measured over 79 recorded runs' recap.txt:
+# min 515, median 826, mean 843, p95 1135, p99 1249, max 1283. The former cap
+# (600) sat below all but the shortest recaps and fired on 94.9% of healthy
+# ones; this one sits ~17% above the observed max so it only trips on a
+# genuine dump.
+RECAP_MAX_CHARS = 1500
 
 # The recap spec is "2-3 sentences maximum". Cap at 4 (one over) so a legitimate
 # three-sentence recap never trips, but a runaway list-as-prose does.
@@ -271,13 +276,14 @@ def grade_recap(recap_text: str, source_titles: list[str] | None = None) -> Grad
 # --------------------------------------------------------------------------- #
 
 
-def grade_select(selected: dict, clusters: dict, limits: GraderLimits | None = None) -> GradeReport:
-    """Grade the SELECT subagent's selected.json against clusters.json.
+def grade_select(
+    selected: dict, clusters: dict, article_index: dict, limits: GraderLimits | None = None
+) -> GradeReport:
+    """Grade the SELECT subagent's selected.json against clusters.json and article_index.json.
 
     Checks: must_know/should_know present as lists; counts within
     GraderLimits ranges; every referenced cluster_index resolves to a real
-    cluster; the article_ids on each selection are a subset of that cluster's
-    article_ids.
+    cluster; every article_id resolves in article_index.
     """
     limits = limits or GraderLimits()
     report = GradeReport()
@@ -305,28 +311,39 @@ def grade_select(selected: dict, clusters: dict, limits: GraderLimits | None = N
         detail=summary if not out_of_range else "; ".join(out_of_range),
     )
 
-    # cluster_index references resolve, and article_ids subset the cluster.
+    # cluster_index references resolve to a real cluster. This does NOT check
+    # that article_ids are a subset of that cluster's -- cluster_index is a
+    # 0-based position into a several-hundred-element array that a model
+    # counts by eye and gets wrong ~16% of individual selections (mean offset
+    # +8.93 over runs 241-280, of which 74/80 undercount), which is enough to
+    # put a bad index in ~50% of RUNS (a run holds ~16 selections). threads.py
+    # and utils.cluster_for_articles() already derive story identity from
+    # article_ids instead for exactly this reason. A subset check here would
+    # grade a field the pipeline retired as load-bearing in b114c6a, not a
+    # real defect -- see docs/2026-09-01-eval-stages-grader-diagnosis.md.
     bad_index: list[str] = []
-    bad_subset: list[str] = []
     for tier, item in _iter_tier_items(selected):
         idx = item.get("cluster_index")
         if not isinstance(idx, int) or not (0 <= idx < len(cluster_list)):
             bad_index.append(f"{tier} cluster_index={idx!r}")
-            continue
-        cluster_ids = set(cluster_list[idx].get("article_ids", []) or [])
-        sel_ids = set(item.get("article_ids", []) or [])
-        stray = sel_ids - cluster_ids
-        if stray:
-            bad_subset.append(f"{tier}[idx {idx}] stray {sorted(stray)[:5]}")
     report.add(
         "select_cluster_index_resolves",
         passed=not bad_index,
         detail="ok" if not bad_index else f"{len(bad_index)} bad: " + "; ".join(bad_index[:5]),
     )
+
+    # Every article_id resolves in article_index.json. This is the assertion
+    # the pipeline actually depends on for id integrity -- unlike the deleted
+    # cluster-subset check, it does not depend on a model-counted position.
+    unknown_ids: list[str] = []
+    for tier, item in _iter_tier_items(selected):
+        for aid in item.get("article_ids", []) or []:
+            if aid not in article_index:
+                unknown_ids.append(f"{tier}: {aid!r}")
     report.add(
-        "select_article_ids_in_cluster",
-        passed=not bad_subset,
-        detail="ok" if not bad_subset else f"{len(bad_subset)} mismatch: " + "; ".join(bad_subset[:5]),
+        "select_article_ids_resolve",
+        passed=not unknown_ids,
+        detail="ok" if not unknown_ids else f"{len(unknown_ids)} unknown: {unknown_ids[:8]}",
     )
 
     return report
@@ -501,7 +518,7 @@ def grade_all_stages(stage_dicts: dict, limits: GraderLimits | None = None) -> d
     return {
         "CLUSTER": grade_cluster(clusters, article_index),
         "RECAP": grade_recap(stage_dicts.get("recap.txt", "")),
-        "SELECT": grade_select(stage_dicts.get("selected.json", {}), clusters, limits),
+        "SELECT": grade_select(stage_dicts.get("selected.json", {}), clusters, article_index, limits),
         "WRITE": grade_write(draft, article_index, limits),
         "COHERENCE": grade_coherence(stage_dicts.get("coherence_report.json", {}), draft),
     }

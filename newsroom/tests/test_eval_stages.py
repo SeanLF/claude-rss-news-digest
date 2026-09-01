@@ -16,6 +16,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 from eval_stages import (
+    RECAP_MAX_CHARS,
     MissingArtifactError,
     grade_cluster,
     grade_coherence,
@@ -134,7 +135,10 @@ def test_recap_empty_fails():
 
 
 def test_recap_too_long_fails():
-    report = grade_recap("word " * 200)
+    # Derived from the cap, not restated: hardcoding a word count silently
+    # stops exercising the boundary the moment the cap moves.
+    over_cap_words = RECAP_MAX_CHARS // len("word ") + 10
+    report = grade_recap("word " * over_cap_words)
     assert not _check(report, "recap_length").passed
 
 
@@ -181,30 +185,36 @@ def test_recap_thematic_summary_with_titles_passes_reproduction_check():
 # --------------------------------------------------------------------------- #
 
 
-def test_select_golden_passes(selected, clusters):
-    report = grade_select(selected, clusters)
+def test_select_golden_passes(selected, clusters, article_index):
+    report = grade_select(selected, clusters, article_index)
     assert report.passed, f"unexpected failures: {_names_failed(report)}"
 
 
-def test_select_count_out_of_range_fails(selected, clusters):
+def test_select_count_out_of_range_fails(selected, clusters, article_index):
     broken = copy.deepcopy(selected)
     broken["should_know"] = broken["should_know"][:1]  # below should_know min (3)
-    report = grade_select(broken, clusters)
+    report = grade_select(broken, clusters, article_index)
     assert not _check(report, "select_counts_in_range").passed
 
 
-def test_select_bad_cluster_index_fails(selected, clusters):
+def test_select_bad_cluster_index_fails(selected, clusters, article_index):
     broken = copy.deepcopy(selected)
     broken["must_know"][0]["cluster_index"] = 99999
-    report = grade_select(broken, clusters)
+    report = grade_select(broken, clusters, article_index)
     assert not _check(report, "select_cluster_index_resolves").passed
 
 
-def test_select_stray_article_id_fails(selected, clusters):
+def test_select_unknown_article_id_fails(selected, clusters, article_index):
+    # Replaces the deleted select_article_ids_in_cluster check: that check
+    # asserted article_ids were a subset of the cluster named by cluster_index,
+    # a field the pipeline stopped relying on in b114c6a because models
+    # miscount it -- see docs/2026-09-01-eval-stages-grader-diagnosis.md. The
+    # assertion the pipeline actually depends on is id resolution, not cluster
+    # membership.
     broken = copy.deepcopy(selected)
-    broken["must_know"][0]["article_ids"].append("A_NOT_IN_CLUSTER")
-    report = grade_select(broken, clusters)
-    assert not _check(report, "select_article_ids_in_cluster").passed
+    broken["must_know"][0]["article_ids"].append("A_NOT_IN_INDEX")
+    report = grade_select(broken, clusters, article_index)
+    assert not _check(report, "select_article_ids_resolve").passed
 
 
 # --------------------------------------------------------------------------- #

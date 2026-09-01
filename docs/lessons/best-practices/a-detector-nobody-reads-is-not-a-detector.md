@@ -47,3 +47,17 @@ When a defect gets through, check whether something already computed it before w
 check. Adding a second detector next to an unread first one doubles the code and changes
 nothing. The fix for `cluster_index` was not a new check — it was deleting the reliance on a
 model-counted position, plus wiring the *existing* signal somewhere visible.
+
+## Update (2026-09-01)
+
+`select_article_ids_in_cluster` (the `sel_ids - cluster_ids` computation this lesson is about)
+was deleted, not fixed: `b114c6a` (2026-07-28, the same day as this lesson) retired
+`cluster_index` as load-bearing pipeline-wide, so by 2026-09-01 the check was failing 52% of
+healthy runs for a reason unrelated to id integrity — 88.5% of its failures were the model
+miscounting a position in a several-hundred-element array, not a stray id. See
+`docs/2026-09-01-eval-stages-grader-diagnosis.md`.
+
+The corollary above still held: rather than leave SELECT with no id-integrity check,
+`grade_select` now asserts `select_article_ids_resolve` (every `article_id` resolves in
+`article_index.json`) — the same pattern already used by CLUSTER (`cluster_ids_in_index`) and
+WRITE (`write_source_ids_in_index`), and the assertion the pipeline actually depends on.
