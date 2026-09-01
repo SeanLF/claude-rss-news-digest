@@ -130,6 +130,13 @@ _RUN_RETRY_BUDGET_S = 14400
 # emits tokens steadily and never terminates was bounded by nothing in this process.
 _STAGE_ATTEMPT_TIMEOUT_S = 2700.0
 
+# Spend cap for ONE stage attempt, enforced by the SDK (subtype="error_max_budget_usd", which
+# StageResult.ok already rejects). _STAGE_ATTEMPT_TIMEOUT_S bounds the clock; a stage that loops
+# cheaply inside it still burns money. A backstop, not a budget: the worst single call in runs
+# 241-280 is $3.16 (coherence), so this never fires on a healthy run and still trips before one
+# stage can outspend a whole normal run.
+_STAGE_BUDGET_USD = 8.0
+
 # Per-event idle timeout for the SDK stream (in-process hang detection). A stage
 # that goes silent longer than this raises a retryable RuntimeError, so a hang is
 # caught at the source rather than waited on. This is the primary hang detector;
@@ -442,6 +449,7 @@ async def _invoke_agent(
     model: str,
     cwd: str | Path | None,
     idle_timeout: float = _IDLE_TIMEOUT_S,
+    max_budget_usd: float | None = None,
 ) -> claude_cli.StageResult:
     """Drive one agent to completion and return its :class:`StageResult`.
 
@@ -465,6 +473,7 @@ async def _invoke_agent(
         idle_timeout=idle_timeout,
         thinking=_resolved_thinking(spec),
         effort=spec.effort,
+        max_budget_usd=max_budget_usd,
     )
     if not result.ok:
         # error_summary() carries api_error_status when set, so a transient API
@@ -514,7 +523,10 @@ async def run_stage(
         try:
             logger.info("[%s started]%s", label.capitalize(), " (retry)" if attempt == 2 else "")
             result = await with_retry_async(
-                lambda: asyncio.wait_for(_invoke_agent(spec, model=model, cwd=cwd), timeout=_STAGE_ATTEMPT_TIMEOUT_S),
+                lambda: asyncio.wait_for(
+                    _invoke_agent(spec, model=model, cwd=cwd, max_budget_usd=_STAGE_BUDGET_USD),
+                    timeout=_STAGE_ATTEMPT_TIMEOUT_S,
+                ),
                 label=label,
                 deadline=stage_deadline,
             )

@@ -1057,6 +1057,39 @@ class TestThinkingDisplay:
         assert spec.thinking == {"type": "disabled"}
 
 
+class TestStageSpendIsBounded:
+    """_STAGE_ATTEMPT_TIMEOUT_S bounds TIME. A stage that loops cheaply within the clock still
+    burns money, and the SDK's own spend cap was supported by _build_options and passed by
+    nobody. Worst single call ever observed is $3.16 (coherence, runs 241-280)."""
+
+    def test_a_spend_cap_reaches_the_sdk(self, tmp_path, monkeypatch):
+        seen = {}
+
+        async def fake_run(*_a, **k):
+            seen.update(k)
+            return _stage_result()
+
+        monkeypatch.setattr(orchestrate.claude_cli, "run_agent", fake_run)
+        out = tmp_path / "clusters.json"
+        out.write_text(json.dumps({"clusters": [{"story": "x", "article_ids": ["A1"]}]}))
+        _run_stage(
+            _spec(),
+            label="cluster",
+            output_path=out,
+            validate=_ok_validator,
+            model_override=None,
+            cwd=None,
+            claude_input_dir=tmp_path,
+        )
+        assert seen["max_budget_usd"] == orchestrate._STAGE_BUDGET_USD
+
+    def test_the_cap_clears_the_worst_observed_call(self):
+        """A backstop, not a budget: it must never fire on a healthy run. $3.16 is the worst
+        single call in runs 241-280, so the cap sits well above it and still stops a runaway
+        long before it could exceed a normal full run's ~$5."""
+        assert orchestrate._STAGE_BUDGET_USD >= 3.16 * 2
+
+
 class TestStageAttemptIsBounded:
     """with_retry_async's deadline is only consulted after fn() RAISES. A stage that streams
     events forever never raises, so the 4h budget was never reached and only the container's
