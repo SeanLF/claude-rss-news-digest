@@ -47,11 +47,11 @@ def _thinking_for(model: str) -> ThinkingConfig | None:
 
     Originally a hard-400 workaround: next-gen models used to REJECT ``thinking=disabled``, so a
     ``CLUSTER_EXTRACT_MODEL=<next-gen>`` build would 400 every batch into a degenerate partition.
-    As of claude-agent-sdk 0.2.110 that 400 no longer reproduces (re-verified live on 0.2.148 by ``bin/sdk-canary``),
+    As of claude-agent-sdk 0.2.110 that 400 no longer reproduces (re-verified live on 0.2.149 by ``bin/sdk-canary``),
     but the split is RETAINED deliberately as CONFIG POLICY, not a 400 dodge: adaptive is the
     validated config for next-gen (the S5 extraction sweep; and on WRITE, forcing ``disabled`` on
     S5 induced a self-revision rewrite pathology). ``effort`` is likewise left unset -- Haiku 4.5
-    used to 400 on it (also no longer reproduces on 0.2.148 per ``bin/sdk-canary``), and the
+    used to 400 on it (also no longer reproduces on 0.2.149 per ``bin/sdk-canary``), and the
     extraction call has no reason to spend on effort -- keeping CLUSTER_EXTRACT_MODEL swappable
     across 4.6 / Haiku / next-gen. Re-run ``bin/sdk-canary`` after an SDK bump to re-check both.
     """
