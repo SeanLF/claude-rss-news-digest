@@ -60,6 +60,15 @@ class GraderLimits:
     # while the schema said 157 and this said 150.
     preheader_max_chars: int = PREHEADER_MAX_CHARS
 
+    # Share of why_it_matters' content tokens that also occur in its own summary
+    # (inclusive maximum). Bounded from BELOW by simulated repair output, not by the
+    # shipped p99 -- see _check_why_it_matters_restates_summary.
+    why_restatement_max_overlap: float = 0.70
+
+    # write.md tells WRITE why_it_matters is "One sentence". The cap IS the spec, not a
+    # percentile: the word caps sit at a percentile because nothing specifies them.
+    why_it_matters_max_sentences: int = 1
+
     # Story-count ranges (inclusive [min, max]). Bounds track the live volume
     # policy (SELECT targets must_know 3-5 / hard-max 6, should_know 8-12 /
     # hard-max 14) with slack below target so the L1 floor catches bloat
@@ -105,6 +114,80 @@ class GradeReport:
 
 def _word_count(text: str) -> int:
     return len(text.split())
+
+
+# Function words carry no topic, so leaving them in puts a floor under every overlap
+# score. WHICH words are in the list is not load-bearing -- see
+# test_the_cap_does_not_depend_on_the_stop_list.
+_STOP_WORD_TEXT = """
+a an the and or but if then than that this these those of in on at to for from by with
+as is are was were be been being it its he she they them his her their we you i our your
+has have had do does did not no nor so such can could will would shall should may might must
+about into over under after before between during against through above below up down out off
+own same too very just also more most other some any each both which who whom whose what when
+where why how there here now new one two first second us said says say while because
+"""
+_STOP_WORDS = frozenset(_STOP_WORD_TEXT.split())
+
+# Tokens of 1-2 characters are initialisms and units that recur regardless of topic.
+_MIN_CONTENT_TOKEN_CHARS = 3
+
+
+def _content_tokens(text: str) -> list[str]:
+    """Lowercased alphanumeric tokens with stop words and very short tokens dropped."""
+    return [
+        t for t in re.findall(r"[a-z0-9]+", text.lower()) if t not in _STOP_WORDS and len(t) >= _MIN_CONTENT_TOKEN_CHARS
+    ]
+
+
+def _restatement_overlap(why: str, summary: str) -> float:
+    """Share of why_it_matters' content tokens that also occur in its own summary.
+
+    Positional, not set-based: a flattening that leans on one entity repeatedly scores
+    higher, which is the direction the failure moves. The set-based form separated the same
+    populations just as well when measured, so this is a tie broken on the failure mode
+    rather than on evidence.
+
+    Returns 0.0 for an empty numerator -- see the empty-field test for why that is a
+    pass and not a 1.0.
+    """
+    tokens = _content_tokens(why)
+    if not tokens:
+        return 0.0
+    in_summary = set(_content_tokens(summary))
+    return sum(1 for t in tokens if t in in_summary) / len(tokens)
+
+
+# Abbreviation-aware sentence splitting: a naive split on a terminator plus whitespace
+# over-counts real shipped lines and never under-counts them, and every one of its spurious
+# splits is "U.S." -- see test_abbreviations_are_not_sentence_ends. Counts in the commit.
+#
+# TWO letter-dot pairs, not one, is a TRADE like the quote rule below. It keeps the real
+# sentence end in "The grade was an A. The school objected" -- under-counting is the
+# direction that goes unnoticed -- and it costs a false positive on a middle initial
+# ("Robert F. Kennedy Jr."). Both sides pinned; see the over-count test.
+_INITIALISM = r"(?:\b(?:[A-Z]\.){2,})"
+_LOWER_ABBREVIATION = r"(?:\b(?:a\.m|p\.m|e\.g|i\.e)\.)"
+# Also a trade: (?i:) buys "Dr."/"Sept."/"No. 10" and costs the under-count on ordinary
+# words it collides with ("was no. The vote"). Both sides pinned in the splitter tests.
+_TITLE_ABBREVIATION = (
+    r"(?i:\b(?:Mr|Mrs|Ms|Dr|Prof|Gen|Sen|Rep|St|Lt|Col|Sgt|Gov|Pres|Rev|Hon"
+    r"|Jan|Feb|Mar|Apr|Jun|Jul|Aug|Sept|Sep|Oct|Nov|Dec"
+    r"|No|Vol|Art|Inc|Ltd|Co|Corp|vs|etc|approx|est|Fig)\.)"
+)
+_ABBREVIATION = re.compile("|".join((_INITIALISM, _LOWER_ABBREVIATION, _TITLE_ABBREVIATION)))
+
+# A terminator ends a sentence only before an opener (uppercase, digit, quote, bracket) or
+# end of string, so a decimal or an ellipsis mid-clause does not split. Allowing a closing
+# quote between the terminator and the space is a TRADE, not a free fix: it costs a false
+# positive on a terminator INSIDE a quotation. Both sides are pinned as tests.
+_SENTENCE_BOUNDARY = re.compile(r"[.?!]+[\"'\u201d\u2019)\]]*(?:\s+(?=[\"'\u201c\u2018(\[A-Z0-9])|\s*$)")
+
+
+def _count_sentences(text: str) -> int:
+    """Sentences in one reader-facing string, abbreviations masked first."""
+    masked = _ABBREVIATION.sub(lambda m: m.group(0).replace(".", "\x00"), text.strip())
+    return len([part for part in _SENTENCE_BOUNDARY.split(masked) if part.strip()])
 
 
 def _normalize_title(text: str) -> str:
@@ -380,6 +463,92 @@ def _check_no_internal_article_ids(selections: dict, report: GradeReport) -> Non
     )
 
 
+def _check_why_it_matters_restates_summary(selections: dict, report: GradeReport, limits: GraderLimits) -> None:
+    """Flag a why_it_matters rebuilt out of its own summary's vocabulary.
+
+    READ THE SCOPE BEFORE TRUSTING THIS. It is a NEAR-COPY tripwire, not a restatement
+    detector, and docs/lessons/best-practices/a-lexical-detector-is-anti-correlated-with-
+    a-rewording-defect.md (severity high, applies_when "Detecting duplicate, restated or
+    'no new information' model output") already measured the general form at ~10% recall:
+    "Only the near-verbatim case is detectable."
+
+    That holds here, on write.md's own worked pair: write.md's "Filler self-check" gives a
+    filler example and the line that should replace it, and the filler scores LOWER than
+    the replacement against real summaries. The metric is inverted on the one degeneracy
+    the prompt documents, so this catches a repair that re-emits the summary's words and
+    does not catch filler. No threshold changes that. Do not use it to size the problem --
+    a detector's recall bounds every prevalence estimate made with it, and its recall
+    against fluent restatement is unmeasured because the population barely exists.
+
+    IT ALSO CANNOT SEE A THREAD DAY. It compares why_it_matters against item["summary"],
+    but render.py uses `body = delta if delta else summary`, and attach_thread_context runs
+    inside write_digest AFTER grading -- so on a continuation the reader's body is a string
+    this check never receives. A why_it_matters that restates the DELTA is invisible here.
+    Same mechanism _check_no_internal_article_ids documents for its own scope.
+
+    The sign is undefined at the short end, in both directions. A one-content-token
+    why_it_matters can only score 0.0 or 1.0, so gutting to "It matters." usually passes and
+    fires only when the summary happens to contain "matters" -- reported under a check name
+    that is then the wrong name for the fault. Shortening to one summary-derived clause
+    scores 1.000 and fires. Closing that needs a minimum-content check of its own, not a
+    floor smuggled in here.
+    """
+    cap = limits.why_restatement_max_overlap
+    offenders: list[str] = []
+    for tier, item in _iter_articles(selections):
+        why, summary = item.get("why_it_matters"), item.get("summary")
+        if not isinstance(why, str) or not isinstance(summary, str):
+            continue
+        overlap = _restatement_overlap(why, summary)
+        if overlap > cap:
+            head = (item.get("headline") or "")[:50]
+            offenders.append(f"{tier} ({overlap:.3f} > {cap:.3f}): {head!r}")
+    report.add(
+        "why_it_matters_restates_summary",
+        passed=not offenders,
+        detail=f"ok (cap {cap:.3f} overlap)"
+        if not offenders
+        else f"{len(offenders)} restating summary: " + " | ".join(offenders[:5]),
+    )
+
+
+def _check_why_it_matters_sentence_count(selections: dict, report: GradeReport, limits: GraderLimits) -> None:
+    """Flag a why_it_matters longer than the one sentence write.md specifies.
+
+    OBSERVE ONLY in the sense _check_no_internal_article_ids uses -- it never edits the
+    text. It IS gated: the baseline records it and bin/eval-regression fails on a
+    PASS -> FAIL flip.
+
+    write.md tells WRITE the field is "One sentence" and nothing graded it,
+    so the constraint lived only in prose. The cap is pinned to that wording by a test,
+    because a cap and a spec that drift apart are worse than neither. The rule is not
+    decorative: the field is the story's analytic payload, and a second sentence is where
+    a restatement of the summary, or a second unsupported claim for COHERENCE to flag,
+    gets appended.
+
+    The cap is the spec, not a percentile -- the word caps in GraderLimits sit at the p99
+    of shipped output because nothing specifies them. Shipped output almost always meets
+    the spec already, so most of this check's value is forward drift rather than history:
+    per-run counts are in the detail string, and most of the runs it flags today already
+    fail another check. Numbers in the commit.
+    """
+    cap = limits.why_it_matters_max_sentences
+    offenders: list[str] = []
+    for tier, item in _iter_articles(selections):
+        why = item.get("why_it_matters")
+        if not isinstance(why, str) or not why.strip():
+            continue
+        n = _count_sentences(why)
+        if n > cap:
+            head = (item.get("headline") or "")[:50]
+            offenders.append(f"{tier} ({n} sentences > {cap}): {head!r}")
+    report.add(
+        "why_it_matters_sentence_count",
+        passed=not offenders,
+        detail=f"ok (cap {cap})" if not offenders else f"{len(offenders)} over cap: " + " | ".join(offenders[:5]),
+    )
+
+
 def grade_selections(
     selections: dict,
     *,
@@ -413,5 +582,7 @@ def grade_selections(
     _check_sources_nonempty(selections, report)
     _check_dedup_vs_recent(selections, report, recent_titles)
     _check_no_internal_article_ids(selections, report)
+    _check_why_it_matters_restates_summary(selections, report, limits)
+    _check_why_it_matters_sentence_count(selections, report, limits)
 
     return report

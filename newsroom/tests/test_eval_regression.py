@@ -85,7 +85,7 @@ def test_improvement_passes_but_notes():
 
 
 def test_l1_grading_fewer_stories_regresses():
-    # Blank every headline and the projection is empty, so ten of the eleven L1
+    # Blank every headline and the projection is empty, so all but one of the L1
     # checks report PASS over zero stories while total_cases still reads 386.
     # Vacuous truth in the L1 arm, structurally identical to the n=0 hole the L2
     # population guards close.
@@ -413,6 +413,67 @@ def test_a_passed_headline_citing_nothing_is_a_regression():
 def test_committed_baseline_matches_the_committed_fixtures():
     current = compute_metrics_from_paths(GOLDEN_PATH, SELECTIONS_PATH)
     assert compare(load_json(BASELINE_PATH), current).passed
+
+
+def test_the_baseline_covers_every_check_grade_selections_registers():
+    """2e14c02 found no_internal_article_ids registered but absent from the baseline, so
+    _compare_l1 routed it to non-fatal notes and the gate could not enforce it. That was a
+    one-off repair; this is the rule, so the NEXT new check cannot ship ungated."""
+    from eval_graders import grade_selections
+
+    registered = {c.name for c in grade_selections(load_json(SELECTIONS_PATH)).checks}
+    baseline = load_json(BASELINE_PATH)
+    for key in ("l1_golden_headlines", "l1_selections_fixture"):
+        # Equality, not a subset. _compare_l1 downgrades a baseline key with no matching
+        # check to a note as well, so a DELETED check would leave a stale entry that reads
+        # as coverage in the file and enforces nothing.
+        assert registered == baseline[key].keys(), f"{key}: {registered ^ baseline[key].keys()}"
+
+
+def test_the_golden_entry_for_the_restatement_check_is_vacuous_not_coverage():
+    """golden_headlines_as_selections projects every case with summary="placeholder summary"
+    and why_it_matters="placeholder rationale", so all 386 stories score exactly 0.5 -- one
+    shared token out of two. The baseline's l1_golden_headlines entry for this check is
+    pinned by that coincidence, not by anything about the product, and it would flip
+    wholesale if the cap were ever tuned below 0.5. Recorded so nobody reads it as signal.
+    """
+    from eval_graders import GraderLimits, _restatement_overlap
+
+    projection = golden_headlines_as_selections(load_json(GOLDEN_PATH))
+    scores = {
+        _restatement_overlap(item["why_it_matters"], item["summary"])
+        for tier in ("must_know", "should_know")
+        for item in projection.get(tier) or []
+    }
+    assert scores == {0.5}
+    assert GraderLimits().why_restatement_max_overlap > 0.5
+
+
+def test_gate_fails_when_a_why_it_matters_is_flattened_into_its_summary():
+    """The degenerate REPAIR: delete the analysis, restate the summary in importance
+    language. coherence.md passes analytical content by design, so nothing else sees it."""
+    selections = copy.deepcopy(load_json(SELECTIONS_PATH))
+    story = (selections.get("must_know") or selections["should_know"])[0]
+    story["why_it_matters"] = "This matters because " + story["summary"]
+
+    current = compute_metrics(load_json(GOLDEN_PATH), selections)
+    result = compare(load_json(BASELINE_PATH), current)
+
+    assert not result.passed
+    assert any("why_it_matters_restates_summary" in r and "PASS -> FAIL" in r for r in result.regressions)
+
+
+def test_gate_fails_when_a_why_it_matters_runs_to_two_sentences():
+    """write.md says one sentence. Run 235 shipped 10 of 18 stories at two and nothing
+    fired, so this is a historical failure the gate could not previously see."""
+    selections = copy.deepcopy(load_json(SELECTIONS_PATH))
+    story = (selections.get("must_know") or selections["should_know"])[0]
+    story["why_it_matters"] = "The ruling clears the merger. It does not settle the pricing question."
+
+    result = compare(load_json(BASELINE_PATH), compute_metrics(load_json(GOLDEN_PATH), selections))
+
+    assert not result.passed
+    assert any("why_it_matters_sentence_count" in r and "PASS -> FAIL" in r for r in result.regressions)
 
 
 def test_gate_fails_when_a_blind_label_flips_to_a_leak():

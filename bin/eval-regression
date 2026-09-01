@@ -139,7 +139,7 @@ for fixture in ("l1_golden_headlines", "l1_selections_fixture"):
         # projection emptied to zero stories looks like a clean sweep.
         b_n, c_n = baseline["l1_golden_stories"], current["l1_golden_stories"]
         arrow = "" if b_n == c_n else color(f"  (baseline {b_n})", YELLOW)
-        print(f"  {'graded stories':<26} {c_n}{arrow}")
+        print(f"  {'graded stories':<32} {c_n}{arrow}")
     base = baseline[fixture]
     cur = current[fixture]
     for check in sorted(set(base) | set(cur)):
@@ -154,7 +154,7 @@ for fixture in ("l1_golden_headlines", "l1_selections_fixture"):
             mark_color = DIM
         mark = color(status_label(c), mark_color)
         arrow = "" if b == c else color(f"  (was {status_label(b)})", YELLOW)
-        print(f"  {check:<26} {mark}{arrow}")
+        print(f"  {check:<32} {mark}{arrow}")
     print()
 
 # L2 diff.

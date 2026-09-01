@@ -85,8 +85,8 @@ def _story_count(selections: dict) -> int:
     """How many stories the L1 checks actually graded.
 
     The projection above drops cases with a falsy headline, so a field rename or
-    extraction bug can empty it while every case record survives. Ten of the
-    eleven L1 checks then report PASS over zero stories -- vacuous truth, the
+    extraction bug can empty it while every case record survives. All but one of
+    the L1 checks then report PASS over zero stories -- vacuous truth, the
     same hole the L2 population guards close. Gated in ``compare``.
     """
     return len(selections.get("must_know", [])) + len(selections.get("should_know", []))

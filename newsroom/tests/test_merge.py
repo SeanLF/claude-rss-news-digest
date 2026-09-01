@@ -563,6 +563,35 @@ class TestNonFatalGraderHook:
         assert any("summary_length" in r.message or "summary_length" in str(r.args) for r in caplog.records)
         assert any("non-fatal" in r.getMessage() for r in caplog.records)
 
+    def test_a_flattened_why_it_matters_reaches_the_run_log(self, tmp_path, caplog):
+        """The only per-run visibility this check has. db.get_run_health builds the health
+        dict in one statement, run_artifacts among the tables it reads -- run_health.py itself
+        is predicates over that dict -- and containment is not expressible in SQL, so merge's
+        warning is where an operator sees it."""
+        item = _article("h")
+        item["summary"] = "Regulators approved the merger after a lengthy antitrust investigation."
+        item["why_it_matters"] = (
+            "It matters because regulators approved the merger after a lengthy antitrust investigation."
+        )
+        draft = _draft(must_know=[item])
+        _write(tmp_path, draft, _coherence({"headline": "h", "pass": True}))
+
+        with caplog.at_level("WARNING", logger="merge"):
+            assemble_selections(tmp_path)
+
+        assert any("why_it_matters_restates_summary" in r.getMessage() for r in caplog.records)
+
+    def test_a_two_sentence_why_it_matters_reaches_the_run_log(self, tmp_path, caplog):
+        item = _article("h")
+        item["why_it_matters"] = "The ruling clears the merger. It does not settle pricing."
+        draft = _draft(must_know=[item])
+        _write(tmp_path, draft, _coherence({"headline": "h", "pass": True}))
+
+        with caplog.at_level("WARNING", logger="merge"):
+            assemble_selections(tmp_path)
+
+        assert any("why_it_matters_sentence_count" in r.getMessage() for r in caplog.records)
+
     def test_clean_output_logs_all_checks_passed(self, tmp_path, caplog):
         draft = _draft(
             must_know=[_article("h")], should_know=[_article("s", "A2"), _article("t", "A3"), _article("u", "A4")]

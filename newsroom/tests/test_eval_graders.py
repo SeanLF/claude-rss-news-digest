@@ -6,6 +6,7 @@ No network, no DB -- small inline fixtures only.
 """
 
 import sys
+from fractions import Fraction
 from pathlib import Path
 
 import pytest
@@ -67,6 +68,8 @@ class TestKnownGood:
             "sources_nonempty",
             "dedup_vs_recent",
             "no_internal_article_ids",
+            "why_it_matters_restates_summary",
+            "why_it_matters_sentence_count",
         }
 
 
@@ -405,7 +408,7 @@ class TestLeakCheckDoesNotCryWolf:
     @pytest.mark.parametrize("bad", [5, "A3", None, {"a": 1}], ids=["int", "scalar-str", "none", "dict"])
     def test_non_list_sources_does_not_discard_every_check(self, bad):
         report = grade_selections(self._sel(sources=bad))
-        assert len(report.checks) > 1, "a raise here loses all 11 checks, not just this one"
+        assert len(report.checks) > 1, "a raise here loses every other check, not just this one"
 
     @pytest.mark.parametrize("bad", [5, "x", {"a": 1}], ids=["int", "str", "dict"])
     def test_non_list_reporting_varies_does_not_raise(self, bad):
@@ -432,6 +435,173 @@ class TestLeakCheckDoesNotCryWolf:
         assert not self._check(sel).passed
 
 
+class TestWhyItMattersSentenceCount:
+    """write.md tells WRITE why_it_matters is "One sentence" and nothing graded it. The
+    spec is the cap here -- unlike the word caps, which sit at a percentile because no
+    spec exists. Measured over 1149 shipped lines (runs 204-285) the spec normally holds:
+    98.6% one sentence, 1.4% two, none longer."""
+
+    def _sentences(self, sel):
+        return _check(grade_selections(sel), "why_it_matters_sentence_count")
+
+    def test_one_sentence_passes(self):
+        sel = _good_selections()
+        sel["must_know"][0]["why_it_matters"] = "The ruling removes the last domestic barrier to the merger."
+        assert self._sentences(sel).passed
+
+    def test_at_the_cap_passes_and_one_sentence_over_fails(self):
+        """Derived from the cap, not restated."""
+        cap = GraderLimits().why_it_matters_max_sentences
+        sel = _good_selections()
+        sel["should_know"][0]["why_it_matters"] = " ".join(f"Sentence number {i} says something." for i in range(cap))
+        assert self._sentences(sel).passed
+
+        sel["should_know"][0]["why_it_matters"] = " ".join(
+            f"Sentence number {i} says something." for i in range(cap + 1)
+        )
+        check = self._sentences(sel)
+        assert not check.passed
+        assert "should_know" in check.detail
+
+    def test_configurable_cap_respected(self):
+        sel = _good_selections()
+        sel["must_know"][0]["why_it_matters"] = "The vote settles leadership. It does not settle the budget."
+        assert not self._sentences(sel).passed
+        loose = GraderLimits(why_it_matters_max_sentences=2)
+        assert _check(grade_selections(sel, limits=loose), "why_it_matters_sentence_count").passed
+
+    @pytest.mark.parametrize(
+        "why",
+        [
+            "The U.S. decision reshapes the alliance for a decade.",
+            "It matters because the U.S. and the U.K. now diverge on enforcement.",
+            "Sept. 11 remains the reference point for the whole doctrine.",
+            "Dr. Ahmed's finding undercuts the ministry's published timeline.",
+            "The vote at 9 a.m. settles nothing about the succession.",
+            "Talks resume Nov. 3 under No. 10's new negotiating terms.",
+        ],
+        ids=["us", "us-uk", "month", "title", "am", "no-and-month"],
+    )
+    def test_abbreviations_are_not_sentence_ends(self, why):
+        """The whole risk in a naive split. A naive `[.?!]\\s+` splitter reads all six as
+        multi-sentence; over the 1149 shipped lines it over-counts 9 and under-counts none,
+        and all 10 of its spurious splits are "U.S."."""
+        sel = _good_selections()
+        sel["must_know"][0]["why_it_matters"] = why
+        assert self._sentences(sel).passed
+
+    @pytest.mark.parametrize(
+        "why",
+        [
+            "The vote settles the leadership question. It does not settle the budget.",
+            "Why now? Because the tariff waiver lapses on Friday.",
+            "Washington blinked! Beijing did not.",
+            "The grade was an A. The school objected anyway.",
+        ],
+        ids=["period", "question", "bang", "single-letter-then-stop"],
+    )
+    def test_genuine_sentence_breaks_are_still_counted(self, why):
+        """The single-letter case is why the initialism guard requires TWO letter-dot pairs:
+        masking a lone "A." would swallow a real sentence end and make the check under-count,
+        which is the failure direction that goes unnoticed."""
+        sel = _good_selections()
+        sel["must_know"][0]["why_it_matters"] = why
+        assert not self._sentences(sel).passed
+
+    def test_a_terminator_inside_a_closing_quote_still_ends_the_sentence(self):
+        """The terminator is not the last character: `."` puts a quote between the stop and
+        the space. Found by stress-testing the splitter, not by the corpus -- shipped output
+        happens not to contain it, and the whole distribution is unchanged by the fix."""
+        sel = _good_selections()
+        sel["must_know"][0]["why_it_matters"] = 'She called it "a disgrace." The ministry disagreed.'
+        assert not self._sentences(sel).passed
+
+    @pytest.mark.parametrize(
+        "why",
+        [
+            "Prices rose in the U.S. Europe saw no change at all.",
+            "The deal collapsed at 3 p.m. Talks resume again on Monday.",
+            "the vote settled the leadership. the budget did not follow.",
+            "The answer from the ministry was no. The vote proceeds anyway.",
+            "It changed the state of the art. Nobody in the sector noticed.",
+        ],
+        ids=[
+            "initialism-then-capital",
+            "lowercase-abbrev-then-capital",
+            "lowercase-opener",
+            "title-list-collides-with-a-word",
+            "title-list-collides-with-a-word-2",
+        ],
+    )
+    def test_known_under_counts_are_recorded_not_claimed_fixed(self, why):
+        """Inputs the splitter reads as ONE sentence when they are two. Under-counting is the
+        silent direction, so they are pinned rather than left to be discovered.
+
+        Three distinct causes, not one. The initialism cases are genuinely ambiguous --
+        nothing lexical separates "the U.S. Europe saw" from "the U.S. Europe policy", and
+        that needs a model. The lowercase opener cannot arise from WRITE, which capitalises.
+        The last two are neither: _TITLE_ABBREVIATION is wrapped in (?i:) so "no." and "art."
+        mask ordinary English words, which is unambiguous, WRITE-reachable, and fixable by
+        dropping the case-insensitivity for the colliding entries. It is unfixed because the
+        base rate is zero -- that pattern matches none of the 1149 shipped why_it_matters
+        lines, the only field this check reads. If a fix lands, this test flips to the
+        positive assertion."""
+        sel = _good_selections()
+        sel["must_know"][0]["why_it_matters"] = why
+        assert self._sentences(sel).passed, "splitter improved -- move this case to the positive test"
+
+    @pytest.mark.parametrize(
+        "why",
+        [
+            'Trump said the ceasefire is "dead. Over. Finished." for Tehran.',
+            "The ruling cites Art. 5, Sec. 3 and Para. 12 of the treaty text.",
+            "Robert F. Kennedy Jr. now leads the agency regulating the vaccines he sued over.",
+        ],
+        ids=["terminator-inside-quotation", "abbreviations-not-in-the-list", "middle-initial"],
+    )
+    def test_known_over_counts_are_recorded_not_claimed_fixed(self, why):
+        """The COST side of three deliberate choices, pinned so none reads as free.
+
+        Letting a closing quote sit between the terminator and the space buys the
+        '"a disgrace." The ministry' case above and costs a quotation containing its own full
+        stops. The abbreviation list's edge carries Art./No./Vol./Fig. but not
+        Sec./Para./Ave./Rd., and every addition widens the under-count risk pinned above.
+        Requiring TWO letter-dot pairs keeps the sentence end in "an A. The school" and costs
+        a middle initial -- and unlike the lowercase-opener under-count this one is reachable
+        from WRITE, since sitting officials have middle initials.
+
+        None of the three occurs in the 1149 shipped lines, and all 16 lines the check flags
+        there are genuine two-sentence prose."""
+        sel = _good_selections()
+        sel["must_know"][0]["why_it_matters"] = why
+        assert not self._sentences(sel).passed, "splitter improved -- move this case to the negative test"
+
+    def test_non_string_why_does_not_raise(self):
+        sel = _good_selections()
+        sel["must_know"][0]["why_it_matters"] = None
+        assert self._sentences(sel).passed
+
+    def test_a_run_235_line_no_other_check_covers_is_caught(self):
+        """Run 235 shipped 10 of its 18 stories at two sentences. This is one of the six that
+        are UNDER the 80-word cap (56 words), verbatim -- so it is coverage no existing check
+        provides.
+
+        The obvious pick, run 235's longest two-sentence line, is 82 words and already fails
+        why_it_matters_length. A fixture that another check catches proves nothing about this
+        one."""
+        sel = _good_selections()
+        sel["must_know"][0]["why_it_matters"] = (
+            "The Starmer government completed the nationalisation days before leaving office, "
+            "meaning Burnham inherits an asset that requires a credible industrial plan. Without "
+            "a procurement commitment to buy British steel for public infrastructure projects — "
+            "as unions explicitly demanded — the nationalisation risks becoming an expensive "
+            "holding operation rather than a durable revival of domestic steelmaking capacity."
+        )
+        report = grade_selections(sel)
+        assert not _check(report, "why_it_matters_sentence_count").passed
+        assert _check(report, "why_it_matters_length").passed, "fixture must not be covered by the word cap"
+
+
 class TestLimitsAreCalibratedNotAspirational:
     """GraderLimits' own docstring: defaults are "set generously around current observed volume
     so they don't fail spuriously". Measured over 40 shipped runs / 635 stories (runs 241-280)
@@ -455,3 +625,183 @@ class TestLimitsAreCalibratedNotAspirational:
         assert lim.summary_max_words >= 119
         assert lim.why_it_matters_max_words >= 77
         assert lim.headline_max_words >= 19
+
+    def test_restatement_cap_clears_simulated_repair_output_not_just_shipped_output(self):
+        """Shipped containment over 1149 stories (runs 204-285) is p50 0.176 / p99 0.375 /
+        max 0.500, but shipped output is PRE-repair and is not the binding constraint.
+        repair.md deletes the unsupported specific, which is by definition absent from the
+        summary, so repair can only raise containment. Simulated over the same corpus
+        (n=632) a correctly repaired line reaches 0.647. A cap must clear THAT, not 0.500 --
+        0.65 would have cleared it by 0.003, which is luck rather than calibration."""
+        assert GraderLimits().why_restatement_max_overlap > 0.647
+        # Below the lowest hand-written restatement measured (0.750 against run 265).
+        assert GraderLimits().why_restatement_max_overlap < 0.750
+
+    def test_the_sentence_cap_matches_the_write_spec(self):
+        """The cap is not an independent judgement -- it restates a rule WRITE is already
+        given. If write.md is relaxed to two sentences and this cap is not, the grader
+        starts failing compliant output; if the cap is relaxed and the prompt is not,
+        the grader stops enforcing the prompt. Fail here rather than in either direction."""
+        spec = (Path(__file__).parent.parent.parent / ".claude/agents/write.md").read_text(encoding="utf-8")
+        why_rule = next(ln for ln in spec.splitlines() if ln.startswith("**Why it matters"))
+        assert "One sentence" in why_rule
+        assert GraderLimits().why_it_matters_max_sentences == 1
+
+
+def _sized_why(shared: int, novel: int) -> tuple[str, str]:
+    """(summary, why) whose content-token overlap is exactly shared / (shared + novel).
+
+    Both halves are coined words so nothing collides with a stop word, with each
+    other, or with punctuation handling.
+    """
+    shared_words = [f"sharedtoken{i}" for i in range(shared)]
+    novel_words = [f"noveltoken{i}" for i in range(novel)]
+    # Every carrier word must be a stop word or the overlap is not what this says. "It
+    # matters that ..." put "matters" -- a content token absent from the summary -- into
+    # the denominator, so the at-the-cap case scored 0.636 against a 0.70 cap and the
+    # pass-side assertion never touched the boundary. A `>` to `>=` mutation survived the
+    # whole suite. That is exactly the defect b4ca27d named, one level further in.
+    summary = "It is that " + " ".join(shared_words) + " now."
+    why = "It is that " + " ".join(shared_words + novel_words) + " now."
+    return summary, why
+
+
+def _overlap_denominator(cap: float) -> int:
+    """Token count that expresses `cap` EXACTLY, so the boundary tests derive from it.
+
+    From the decimal repr, not Fraction(cap).limit_denominator(1000): that rounds 0.6666 to
+    2/3, which would silently move the at-the-cap case above the cap and test the wrong side
+    of the boundary the moment someone retunes the limit.
+    """
+    frac = Fraction(str(cap))
+    assert frac.numerator / frac.denominator == cap, f"{cap} is not an exact decimal"
+    return frac.denominator
+
+
+# Run 233's shipped must_know story, verbatim: the highest content-token containment of
+# why_it_matters in its own summary across 1149 shipped stories (runs 204-285).
+_RUN_233_STORY = {
+    "summary": (
+        "A late-night fire at Rong Beer Na Lat Phrao bar in Bangkok's Chatuchak district killed at "
+        "least 30 people and injured more than 70, with 24 remaining in critical condition; police "
+        "say blocked rear exits and flammable decorative materials — including plastic flowers and "
+        "foam ceilings — are the primary theory for the high death toll. Investigators found a table "
+        "blocking one exit near the restrooms, where most victims were found, and a second exit with "
+        "a broken handle and damaged signage; preliminary findings point to an electrical short "
+        "circuit in a ceiling air conditioner as the likely ignition source. The bar was registered "
+        "as a restaurant with live music rather than an entertainment venue, exempting it from "
+        "requirements to use fire-retardant materials."
+    ),
+    "why_it_matters": (
+        "The venue's classification as a 'restaurant with live music' rather than an 'entertainment "
+        "venue' let it avoid fire-retardant material requirements — a legal gap Bangkok authorities "
+        "have now said they will review — meaning the death toll was shaped as much by a regulatory "
+        "category as by the fire itself."
+    ),
+}
+
+
+class TestWhyItMattersRestatesSummary:
+    """The degenerate REPAIR of a flagged why_it_matters is to delete the analysis and
+    restate the summary in importance-language. coherence.md does not fail analytical
+    content, so such a repair passes the re-check by construction and is recorded as a
+    success. This check is the only thing that sees it."""
+
+    def _overlap_check(self, sel):
+        return _check(grade_selections(sel), "why_it_matters_restates_summary")
+
+    def test_a_flattened_why_it_matters_fails(self):
+        sel = _good_selections()
+        summary, why = _sized_why(shared=20, novel=1)
+        sel["must_know"][0]["summary"] = summary
+        sel["must_know"][0]["why_it_matters"] = why
+        check = self._overlap_check(sel)
+        assert not check.passed
+        assert "must_know" in check.detail
+
+    def test_the_failure_detail_does_not_print_false_arithmetic(self):
+        """The detail line is this check's only production visibility. Rounded to 2 dp a
+        genuine failure printed "(0.70 > 0.70)", because the comparison is full-precision and
+        the display was not. Derived from the cap: pick an overlap that rounds DOWN to it."""
+        cap = GraderLimits().why_restatement_max_overlap
+        # Search for the smallest denominator admitting an overlap just above the cap rather
+        # than assuming one. A fixed multiple of _overlap_denominator happens to work at 0.70
+        # and raises StopIteration at 0.65 and 0.75 -- both values this file's own calibration
+        # test puts in play -- which would fail a valid retune in a language nobody can read.
+        total, shared = next(
+            (t, n) for t in range(2, 4000) if (n := next((m for m in range(t + 1) if cap < m / t < cap + 0.005), None))
+        )
+        summary, why = _sized_why(shared=shared, novel=total - shared)
+        sel = _good_selections()
+        sel["must_know"][0]["summary"] = summary
+        sel["must_know"][0]["why_it_matters"] = why
+        check = self._overlap_check(sel)
+        assert not check.passed
+        assert f"{cap:.2f} > {cap:.2f}" not in check.detail, check.detail
+
+    def test_at_the_cap_passes_and_one_token_over_fails(self):
+        """Boundary DERIVED from the cap. Restating it as a literal is the defect b4ca27d
+        found: the test silently stops exercising the boundary the moment the cap moves."""
+        cap = GraderLimits().why_restatement_max_overlap
+        total = _overlap_denominator(cap)
+        at_cap = round(cap * total)
+
+        sel = _good_selections()
+        summary, why = _sized_why(shared=at_cap, novel=total - at_cap)
+        sel["should_know"][0]["summary"] = summary
+        sel["should_know"][0]["why_it_matters"] = why
+        assert self._overlap_check(sel).passed
+
+        summary, why = _sized_why(shared=at_cap + 1, novel=total - at_cap - 1)
+        sel["should_know"][0]["summary"] = summary
+        sel["should_know"][0]["why_it_matters"] = why
+        assert not self._overlap_check(sel).passed
+
+    def test_configurable_cap_respected(self):
+        sel = _good_selections()
+        summary, why = _sized_why(shared=1, novel=3)
+        sel["must_know"][0]["summary"] = summary
+        sel["must_know"][0]["why_it_matters"] = why
+        assert self._overlap_check(sel).passed
+        tight = GraderLimits(why_restatement_max_overlap=0.1)
+        assert not _check(grade_selections(sel, limits=tight), "why_it_matters_restates_summary").passed
+
+    def test_an_empty_why_it_matters_does_not_fire(self):
+        """Blanking is BLANKED_WHY_IT_MATTERS' rule and no_empty_strings' check. A zero
+        denominator scoring 1.0 here would make two rules fire on one fault and bury the
+        one that names it."""
+        sel = _good_selections()
+        sel["must_know"][0]["why_it_matters"] = "   "
+        assert self._overlap_check(sel).passed
+
+    def test_non_string_fields_do_not_raise(self):
+        """merge._grade_assembled swallows a grader exception and loses the WHOLE report,
+        so a check that raises disables every other check, not just this one."""
+        sel = _good_selections()
+        sel["must_know"][0]["why_it_matters"] = None
+        sel["should_know"][0]["summary"] = 42
+        assert self._overlap_check(sel).passed
+
+    def test_the_highest_overlap_line_ever_shipped_still_passes(self):
+        """Run 233's Bangkok bar fire story, verbatim: the maximum content-token containment
+        (0.500) over 1149 shipped stories, runs 204-285. It reuses the summary's entities to
+        make an argument the summary does not make, which is what an analytic line looks
+        like. A cap that fails it is a cap that rejects the product.
+
+        Quoted in full deliberately. An abridged summary scores 0.429, which would leave the
+        test passing while no longer pinning the maximum it names."""
+        sel = _good_selections()
+        sel["must_know"][0].update(_RUN_233_STORY)
+        assert self._overlap_check(sel).passed
+
+    def test_the_cap_does_not_depend_on_the_stop_list(self, monkeypatch):
+        """The stop list is a free parameter baked into production. Recomputed over the same
+        1149 shipped stories, dropping it ENTIRELY moves p99 0.375 -> 0.440 and the maximum
+        0.500 -> 0.571, and still leaves zero stories over the cap. The threshold rests on
+        the gap between the two populations, not on which words were picked."""
+        import eval_graders
+
+        monkeypatch.setattr(eval_graders, "_STOP_WORDS", frozenset())
+        sel = _good_selections()
+        sel["must_know"][0].update(_RUN_233_STORY)
+        assert self._overlap_check(sel).passed
