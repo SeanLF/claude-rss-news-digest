@@ -277,9 +277,11 @@ def create_snapshot() -> str:
 
     snapshot_dir.mkdir(parents=True, exist_ok=True)
 
-    # Copy all files from claude_input (but not selections.json - that's output)
+    # Copy all files from claude_input (but not selections.json - that's output).
+    # Directories are skipped: the per-story WRITE fan-out leaves write_branches/ here,
+    # and copy2 on a directory raises IsADirectoryError.
     for src_file in CLAUDE_INPUT_DIR.iterdir():
-        if src_file.name != "selections.json":
+        if src_file.is_file() and src_file.name != "selections.json":
             shutil.copy2(src_file, snapshot_dir / src_file.name)
 
     file_count = len(list(snapshot_dir.iterdir()))

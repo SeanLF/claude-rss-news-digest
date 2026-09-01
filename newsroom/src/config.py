@@ -122,6 +122,8 @@ FULLTEXT_MAX_DOC_CHARS = int(os.environ.get("FULLTEXT_MAX_DOC_CHARS", "2000000")
 # additive + fail-closed: any repair-stage failure falls back to today's drop behaviour.
 REPAIR_ENABLED = os.environ.get("REPAIR_ENABLED", "false").lower() in ("1", "true", "yes")
 
+WRITE_PER_STORY_ENABLED = os.environ.get("WRITE_PER_STORY_ENABLED", "false").lower() in ("1", "true", "yes")
+
 # GNEWS_RESOLVE_ENABLED: kill switch for resolving Google-News redirect links (Reuters/Nikkei)
 # to the publisher URL at render time. Best-effort + undocumented Google internals, so keep it
 # trivially disableable if Google breaks the RPC (the gnews_live canary flags that).

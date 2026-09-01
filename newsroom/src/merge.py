@@ -392,6 +392,33 @@ def _truncate_on_word_boundary(text: str, max_len: int) -> str:
     return head.rstrip() + "…"
 
 
+def _fill_missing_preheader(draft: dict) -> None:
+    """Substitute the top must_know headline when no preheader survived.
+
+    The preheader is the inbox preview: a blank one ships a digest that looks broken, and
+    the schema has a maxLength but no minimum, so nothing downstream would catch it. It is
+    also the field with a hard-fail history (run 229 aborted on a 152-char preheader), so
+    the response here is a substitution and a warning, never a raise. Runs whenever the
+    field is absent or blank -- one call writing every story or one per story alike. Called
+    after the empty-must_know guard, so there is always a headline to fall back to."""
+    value = draft.get("preheader")
+    if isinstance(value, str) and value.strip():
+        return
+    # First NON-EMPTY headline, not must_know[0] blindly: SELECTIONS_SCHEMA permits an empty
+    # headline string, and substituting one blank for another would look like it worked.
+    headline = next(
+        (
+            (item.get("headline") or "").strip()
+            for tier in ("must_know", "should_know")
+            for item in (draft.get(tier) or [])
+            if isinstance(item, dict) and (item.get("headline") or "").strip()
+        ),
+        "",
+    )
+    logger.warning("preheader is empty -- substituting the first shipped headline: %r", headline)
+    draft["preheader"] = headline
+
+
 def _enforce_capped_string_fields(draft: dict) -> None:
     """Truncate any over-cap top-level string field on a word boundary, in place,
     so no schema length cap can hard-abort a delivered digest.
@@ -649,6 +676,8 @@ def assemble_selections(claude_input_dir: Path) -> Path:
     not_covered_blurb = _load_not_covered_blurb(claude_input_dir)
     if not_covered_blurb:
         draft["not_covered_blurb"] = not_covered_blurb
+
+    _fill_missing_preheader(draft)
 
     # Backstop: no length-capped display field may hard-abort a delivered digest.
     _enforce_capped_string_fields(draft)

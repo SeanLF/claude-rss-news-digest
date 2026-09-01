@@ -24,6 +24,8 @@ After the stages complete, Python (`merge.py:assemble_selections`) reads `draft_
 
 **Intermediate files** (in `data/claude_input/`): `clusters.json`, `recap.txt`, `selected.json`, `article_fulltext.json` (Python-fetched full text for SELECTED stories, best-effort), `draft_selections.json`, `coherence_report.json`, `article_index.json`, `selections.json` (assembled by Python).
 
+Behind `WRITE_PER_STORY_ENABLED` (default false), WRITE runs once per selected story against only that story's cluster instead of once over all of them. `write_fanout.py` builds `write_branches/sNN/` input dirs, Python fans the branch drafts back into `draft_selections.json` in SELECT's order, and a `preheader` agent (Haiku) writes `preheader.txt` — the one cross-story field. `run_usage` still gets one `write` row; the per-branch breakdown is the `write_branches.json` run artifact.
+
 **Dedup strategy:** TF-IDF pre-filter on RSS titles (not editorial). `recent_rss_titles.csv` + RECAP subagent + `weekly_recap.txt` replace the old `recent_headlines.csv` feedback loop.
 
 ## Commands
@@ -61,6 +63,7 @@ SQLite at `data/digest.db`. Schema managed by migrations in `migrations/`.
 - `newsroom/src/run.py` - CLI + pipeline orchestration (delegates to focused modules)
 - `newsroom/src/` - modules: config, feeds, prepare, claude, digest, render, broadcast, db, usage, utils
 - `newsroom/src/orchestrate.py` - Python orchestration of the 5 curation stages (replaced the old `/news-digest-select` LLM dispatcher); reads `.claude/agents/*.md`
+- `newsroom/src/write_fanout.py` - per-story WRITE branch inputs and fan-in (WRITE_PER_STORY_ENABLED)
 - `newsroom/src/merge.py` - post-orchestration assembly (drop coherence-failed entries, validate, write selections.json)
 - `newsroom/src/schema.py` - SELECTIONS_SCHEMA used to validate the assembled output
 - `newsroom/templates/digest-template.html` - HTML template for digest output
@@ -73,7 +76,7 @@ SQLite at `data/digest.db`. Schema managed by migrations in `migrations/`.
 `newsroom/src/` imports flow one direction. Do not introduce a cycle.
 
 ```
-config, schema          no internal imports — keep them leaf modules
+config, schema, write_fanout    no internal imports — keep them leaf modules
   -> db, feeds, utils
   -> render, merge, repair
   -> prepare, digest, orchestrate

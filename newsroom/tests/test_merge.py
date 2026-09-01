@@ -1351,3 +1351,62 @@ class TestClusterAttributionUsesPlurality:
         _attach_cluster_id(item, [{"article_id": ["A30"]}, {"article_id": "A1"}], {"A1": "own"})
 
         assert item["cluster_id"] == "own"
+
+
+class TestPreheaderNeverBlocksDelivery:
+    """Doctrine since run 229, where a 152-char preheader against a hard 150 cap aborted a
+    run: every preheader failure mode degrades. The cap truncates (tested above with the
+    other capped fields); an absent or blank value substitutes the top must_know headline.
+    Both paths reach here -- one WRITE call for every story, or one per story with a
+    separate preheader stage that can fail on its own."""
+
+    @pytest.mark.parametrize("value", ["", "   ", None])
+    def test_a_blank_preheader_is_filled_from_the_top_headline(self, tmp_path, value, caplog):
+        draft = _draft(must_know=[_article("Iran strikes widen"), _article("Quake toll rises", "A2")])
+        if value is None:
+            del draft["preheader"]
+        else:
+            draft["preheader"] = value
+        _write(tmp_path, draft, _coherence())
+
+        with caplog.at_level("WARNING"):
+            assembled = json.loads(assemble_selections(tmp_path).read_text())
+
+        assert assembled["preheader"] == "Iran strikes widen"
+        assert "preheader is empty" in caplog.text
+
+    def test_the_fill_skips_a_blank_headline(self, tmp_path):
+        """SELECTIONS_SCHEMA permits an empty headline string, so must_know[0] is not
+        guaranteed to carry text -- substituting one blank for another would look like it
+        worked."""
+        draft = _draft(
+            must_know=[_article(""), _article("Quake toll rises", "A2")],
+            should_know=[_article("Something else", "A3")],
+            preheader="",
+        )
+        _write(tmp_path, draft, _coherence())
+        assembled = json.loads(assemble_selections(tmp_path).read_text())
+        assert assembled["preheader"] == "Quake toll rises"
+
+    def test_the_fill_reaches_should_know_when_every_must_know_headline_is_blank(self, tmp_path):
+        draft = _draft(
+            must_know=[_article("")],
+            should_know=[_article("Quake toll rises", "A2")],
+            preheader="",
+        )
+        _write(tmp_path, draft, _coherence())
+        assembled = json.loads(assemble_selections(tmp_path).read_text())
+        assert assembled["preheader"] == "Quake toll rises"
+
+    def test_a_real_preheader_is_left_alone(self, tmp_path):
+        draft = _draft(must_know=[_article("Iran strikes widen")], preheader="Two things happened today.")
+        _write(tmp_path, draft, _coherence())
+        assembled = json.loads(assemble_selections(tmp_path).read_text())
+        assert assembled["preheader"] == "Two things happened today."
+
+    def test_the_substituted_headline_is_still_capped(self, tmp_path):
+        long_headline = "word " * 60
+        draft = _draft(must_know=[_article(long_headline.strip())], preheader="")
+        _write(tmp_path, draft, _coherence())
+        assembled = json.loads(assemble_selections(tmp_path).read_text())
+        assert 0 < len(assembled["preheader"]) <= SELECTIONS_SCHEMA["properties"]["preheader"]["maxLength"]

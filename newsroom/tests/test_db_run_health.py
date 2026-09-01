@@ -172,6 +172,87 @@ class TestClusterHealthArtifactJoin:
         assert db.get_run_health(db._state.run_id)["batches_lost"] is None
 
 
+class TestWriteBranchesArtifactJoin:
+    """The same archive->SQL join for the per-story WRITE fan-out's dropped list. It is
+    recorded through db.record_run_artifact (mid-run, outside the file sweep), so the round
+    trip differs from cluster_health.json's and needs its own end-to-end test."""
+
+    def _archive(self, payload):
+        db.record_run_artifact("write_branches.json", payload)
+
+    def test_a_dropped_story_survives_the_round_trip_and_fires(self, fresh_db):
+        self._archive(
+            json.dumps(
+                {
+                    "branches_total": 15,
+                    "branches_completed": 15,
+                    "dropped": [{"branch": "s07", "tier": "should_know", "reason": "no article in this run's CSVs"}],
+                    "branches": [],
+                }
+            )
+        )
+
+        health = db.get_run_health(db._state.run_id)
+
+        assert health["stories_dropped_at_write"] == 1
+        assert any("STORIES_DROPPED_AT_WRITE" in v for v in run_health.violations(health))
+
+    def test_a_clean_phase_round_trips_as_zero_and_is_silent(self, fresh_db):
+        self._archive(json.dumps({"branches_total": 16, "branches_completed": 16, "dropped": [], "branches": []}))
+
+        health = db.get_run_health(db._state.run_id)
+
+        assert health["stories_dropped_at_write"] == 0
+        assert not [v for v in run_health.violations(health) if "STORIES_DROPPED_AT_WRITE" in v]
+
+    @pytest.mark.parametrize(
+        "payload",
+        ['{"dropped": [', "", "not json at all", '{"dropped": 3}'],
+        ids=["truncated", "empty", "prose", "wrong-type"],
+    )
+    def test_a_corrupt_artifact_does_not_blind_every_other_invariant(self, fresh_db, payload):
+        # json_extract/json_array_length RAISE on malformed input or a non-array, and
+        # get_run_health's blanket `except sqlite3.Error` turns that into {} -- which makes
+        # the caller skip EVERY rule, not just this one.
+        self._archive(payload)
+
+        health = db.get_run_health(db._state.run_id)
+
+        assert health, "a corrupt artifact must not empty the whole health dict"
+        assert health["stories_dropped_at_write"] is None, "unreadable means cannot judge, never clean"
+        assert not [v for v in run_health.violations(health) if "STORIES_DROPPED_AT_WRITE" in v]
+
+    def test_the_drop_reaches_the_db_when_curation_ran_before_start_run(self, tmp_path):
+        """--resume calls generate_selections BEFORE db.start_run (run.py: start_run lives
+        in _render_record_deliver), so record_run_artifact is a no-op for the whole write
+        phase -- recording is False and run_id is None. That is the path taken after a
+        mid-run failure, i.e. the one where a degraded input state is MOST likely, and the
+        invariant this change added for it would be dark. The file the phase leaves in
+        claude_input rides archive_run_artifacts' sweep instead.
+
+        Deliberately does NOT monkeypatch record_run_artifact: every other artifact test
+        does, and a stub cannot observe the real function's recording gate."""
+        db._state = db._State()
+        db.init(tmp_path / "test.db", MIGRATIONS_DIR)
+
+        # The write phase runs here, with recording still off.
+        assert db.record_run_artifact("write_branches.json", "{}") is True
+        (tmp_path / "write_branches.json").write_text(
+            json.dumps({"branches_total": 3, "branches_completed": 2, "dropped": [{"branch": "s02"}], "branches": []})
+        )
+
+        run_id = db.start_run(recording=True, broadcasting=False, alerting=False)
+        db.archive_run_artifacts(tmp_path)
+
+        health = db.get_run_health(run_id)
+        assert health["stories_dropped_at_write"] == 1
+        assert any("STORIES_DROPPED_AT_WRITE" in v for v in run_health.violations(health))
+
+    def test_the_batch_path_reads_as_cannot_judge(self, fresh_db):
+        # No fan-out ran, so no artifact exists. Absence must not read as "no drops".
+        assert db.get_run_health(db._state.run_id)["stories_dropped_at_write"] is None
+
+
 class TestCompleteRunArticlesKept:
     """Run 230 -- the --resume of the failed run 229 -- is recorded as a completed run that
     emailed 11 people from articles_kept=0, because _render_record_deliver hardcodes 0. The

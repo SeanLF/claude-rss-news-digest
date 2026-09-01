@@ -272,3 +272,24 @@ class TestCmdCompare:
         assert "sonnet vs haiku" in out
         assert "differs" in out
         assert "story_counts_in_range" in out
+
+
+class TestCreateSnapshot:
+    def test_a_subdirectory_in_claude_input_does_not_break_the_snapshot(self, tmp_path, monkeypatch):
+        """The per-story WRITE fan-out is the first thing to leave a DIRECTORY in
+        claude_input (write_branches/), and it survives until the next full run wipes the
+        tree. A flat copy2 over iterdir() raises IsADirectoryError on it, which breaks
+        `make prompt` for everyone after any per-story run."""
+        claude_input = tmp_path / "claude_input"
+        claude_input.mkdir()
+        (claude_input / "selected.json").write_text("{}")
+        (claude_input / "selections.json").write_text("{}")
+        (claude_input / "write_branches" / "s00").mkdir(parents=True)
+        (claude_input / "write_branches" / "s00" / "selected.json").write_text("{}")
+        monkeypatch.setattr(test_prompt, "CLAUDE_INPUT_DIR", claude_input)
+        monkeypatch.setattr(test_prompt, "SNAPSHOTS_DIR", tmp_path / "snapshots")
+
+        date_str = test_prompt.create_snapshot()
+
+        snapshot = tmp_path / "snapshots" / date_str
+        assert [p.name for p in snapshot.iterdir()] == ["selected.json"]

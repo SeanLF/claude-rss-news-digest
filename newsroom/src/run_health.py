@@ -76,6 +76,21 @@ _RULES: list[tuple[str, Callable[[dict], bool], str | Callable[[dict], str]]] = 
         ),
     ),
     (
+        "STORIES_DROPPED_AT_WRITE",
+        # The per-story WRITE fan-out can drop a story SELECT chose (one that resolves to no
+        # article in the run's CSVs). That ships a shorter digest and nothing else notices:
+        # the story never reaches shown_narratives, so every downstream count agrees with
+        # itself. Read from write_branches.json the way DEGRADED_CLUSTERING reads
+        # batches_lost from cluster_health.json.
+        # `or 0` is the "cannot judge" path, not a default: the batch path archives no such
+        # artifact and carries None, and absence is not evidence of a clean run.
+        lambda h: (h.get("stories_dropped_at_write") or 0) > 0,
+        lambda h: (
+            f"{h.get('stories_dropped_at_write')} story(ies) SELECT chose never reached WRITE; "
+            f"the digest shipped shorter than it was curated to be"
+        ),
+    ),
+    (
         "BLANKED_WHY_IT_MATTERS",
         # Blanking SHIPS: nothing is dropped, the story count is unchanged, and every
         # other invariant reads clean -- which is why run 280 lost the field on 38% of
@@ -162,6 +177,8 @@ REQUIRED_KEYS = frozenset(
         "threads_available",
         "threads_enabled",
         "batches_lost",
+        # None on the batch path (no such artifact); absence must not read as "no drops".
+        "stories_dropped_at_write",
         # Counted in process state by record_usage; absent means the caller built the dict
         # by hand and the partial-loss rule was never evaluated.
         "usage_rows_dropped",

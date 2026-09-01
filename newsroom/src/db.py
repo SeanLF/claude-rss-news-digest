@@ -554,7 +554,12 @@ def get_run_health(run_id: int) -> dict:
                   (SELECT CASE WHEN json_valid(content)
                                THEN json_extract(content, '$.detail') END
                      FROM run_artifacts
-                    WHERE run_id = :r AND artifact_name = 'repair_health.json')
+                    WHERE run_id = :r AND artifact_name = 'repair_health.json'),
+                  (SELECT CASE WHEN json_valid(content)
+                                AND json_type(content, '$.dropped') = 'array'
+                               THEN json_array_length(json_extract(content, '$.dropped')) END
+                     FROM run_artifacts
+                    WHERE run_id = :r AND artifact_name = 'write_branches.json')
                 """,
                 {"r": run_id},
             ).fetchone()
@@ -628,6 +633,14 @@ def get_run_health(run_id: int) -> dict:
         # Quoted by the alert, not triggered on. Without it the operator is told "a
         # prompt/config error" and has to find which file in a log that rotates within days.
         "repair_detail": row[15],
+        # Stories SELECT chose that the per-story WRITE fan-out could not run. The digest
+        # ships shorter than SELECT intended and nothing else notices: the story never
+        # reaches shown_narratives, so every count downstream is self-consistent. None when
+        # the artifact is absent (the batch path, or a run before it existed), which is
+        # "cannot judge", not a clean run -- same contract as batches_lost above, and the
+        # same three-deep guard, because json_extract RAISES on a non-array and this
+        # function's blanket handler would turn that into {} and skip EVERY invariant.
+        "stories_dropped_at_write": row[16],
     }
 
 
@@ -734,6 +747,11 @@ _TRACE_ARTIFACTS = (
     # The deterministic join's INPUT; only its output (clusters.json) was kept before.
     "cluster_tags.json",
     "fulltext_health.json",
+    # Per-branch costs and the stories the per-story WRITE fan-out could not run. Also
+    # recorded mid-run via record_run_artifact; it is in this sweep as well because that call
+    # is a no-op until start_run(), and on --resume start_run happens AFTER curation -- so
+    # without the file, STORIES_DROPPED_AT_WRITE would be dark on exactly the recovery path.
+    "write_branches.json",
     # Written only when the repair phase hit a prompt/config fault. The phase is
     # best-effort and swallows everything, so this file is the only way its faults
     # reach the post-run invariants.

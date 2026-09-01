@@ -34,6 +34,7 @@ def _healthy(**overrides):
         "threads_available": 55,
         "threads_enabled": True,
         "batches_lost": 0,
+        "stories_dropped_at_write": 0,
         "title_only_fallback": 0,
         "dropped_continuations": 0,
         "linker_ok": True,
