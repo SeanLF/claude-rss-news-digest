@@ -14,10 +14,9 @@ Both outputs are derived, never authored:
     python3 newsroom/tools/pipeline_anatomy.py --mermaid
     make anatomy [RUN=284] [DB=path]
 
-The data-flow drawing is laid out by the box/arrow helpers below rather than pasted
-as a string with numbers substituted, so a stage added to `_STAGES` is drawn
-without touching the drawing code. Box widths are computed from label length, and
-newsroom/tests/test_pipeline_anatomy.py fails if any label outgrows its box.
+The data-flow drawing is a fixed hand-laid SVG template (pipeline_anatomy_template.svg); only the
+labels the code determines are substituted into it -- models, thinking, fan-out sizes -- and
+newsroom/tests/test_pipeline_anatomy.py fails if a substituted label outgrows its box.
 
 One layout, three renderings, chosen by `Palette`: the page embeds it against CSS
 tokens, and `--readme` writes the same drawing twice as self-contained files with
@@ -31,16 +30,14 @@ from __future__ import annotations
 import argparse
 import contextlib
 import html
-import itertools
 import json
 import math
 import os
 import re
 import sqlite3
 import sys
-import textwrap
 from collections.abc import Iterator
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -588,24 +585,12 @@ def all_stages(fig: RunFigures) -> list[Stage]:
 
 
 # --------------------------------------------------------------------------- #
-# SVG box/arrow helpers. Sizes come from label length, so nothing overflows.
+# SVG palette and font stacks for the template drawing.
 # --------------------------------------------------------------------------- #
 
-CHAR_W = 0.62  # advance per character, as a fraction of font size
-BOX_PAD_X = 13.0
-BOX_PAD_TOP = 13.0
-BOX_PAD_BOTTOM = 9.0
-LINE_H = 14.5
-MIN_BOX_W = 96.0
-GAP_X = 44.0
-GAP_Y = 40.0
-LANE_X = 92.0
-CANVAS_W = 1000.0
-STACK_OFFSET = 4.5
 
 # Single-quoted family names: the whole stack is an XML attribute value delimited by
 # double quotes, and GitHub serves the standalone files without the webfont link, so
-# every stack has to fall back on its own. CHAR_W is sized for that fallback.
 SANS = "'IBM Plex Sans', system-ui, sans-serif"
 MONO = "'IBM Plex Mono', ui-monospace, Menlo, monospace"
 
@@ -661,317 +646,10 @@ DARK_PALETTE = Palette(
 )
 
 
-@dataclass(frozen=True)
-class TextLine:
-    text: str
-    fill: str
-    size: float = 11.0
-    font: str = SANS
-    weight: str = "normal"
-    opacity: float = 1.0
-
-    @property
-    def width(self) -> float:
-        return len(self.text) * self.size * CHAR_W
-
-
-@dataclass
-class NodeBox:
-    key: str
-    lines: tuple[TextLine, ...]
-    accent: str
-    fill: str
-    stroke_width: float = 1.4
-    stack: int = 1
-    x: float = 0.0
-    y: float = 0.0
-    w: float = 0.0
-    h: float = 0.0
-
-    def measure(self) -> None:
-        self.w = max(MIN_BOX_W, max(line.width for line in self.lines) + 2 * BOX_PAD_X)
-        self.h = BOX_PAD_TOP + LINE_H * len(self.lines) + BOX_PAD_BOTTOM
-
-    @property
-    def right(self) -> float:
-        return self.x + self.w
-
-    @property
-    def bottom(self) -> float:
-        return self.y + self.h
-
-    @property
-    def cx(self) -> float:
-        return self.x + self.w / 2
-
-    @property
-    def cy(self) -> float:
-        return self.y + self.h / 2
-
-    def overflowing(self) -> list[TextLine]:
-        """Labels wider than the space inside the box."""
-        inner = self.w - 2 * BOX_PAD_X
-        return [line for line in self.lines if line.width > inner + 1e-6]
-
-
-def pack_rows(boxes: list[NodeBox], max_width: float) -> list[list[NodeBox]]:
-    rows: list[list[NodeBox]] = []
-    current: list[NodeBox] = []
-    used = 0.0
-    for box in boxes:
-        extra = box.w + (GAP_X if current else 0.0)
-        if current and used + extra > max_width:
-            rows.append(current)
-            current, used = [box], box.w
-        else:
-            current.append(box)
-            used += extra
-    if current:
-        rows.append(current)
-    return rows
-
-
-def place_rows(rows: list[list[NodeBox]], x0: float, y0: float) -> float:
-    """Lay each row out left to right, top to bottom. Returns the bottom edge."""
-    y = y0
-    for row in rows:
-        x = x0
-        height = max(box.h for box in row)
-        for box in row:
-            box.x, box.y = x, y + (height - box.h) / 2
-            x += box.w + GAP_X
-        y += height + GAP_Y
-    return y - GAP_Y
-
-
 def _esc(text: str) -> str:
     """Escape for both text content and attribute values -- `aria-label` and `alt`
     carry stage titles and run figures, and one quote there ends the attribute."""
     return html.escape(text, quote=True)
-
-
-def _marker_id(colour: str) -> str:
-    return "arrow-" + re.sub(r"[^a-z0-9]", "", colour.lower())
-
-
-def draw_box(box: NodeBox) -> list[str]:
-    out: list[str] = []
-    for depth in range(box.stack - 1, 0, -1):
-        out.append(
-            f'<rect x="{box.x + depth * STACK_OFFSET:.1f}" y="{box.y + depth * STACK_OFFSET:.1f}" '
-            f'width="{box.w:.1f}" height="{box.h:.1f}" rx="3" fill="none" '
-            f'stroke="{box.accent}" stroke-width="1" opacity="{0.7 - 0.2 * depth:.2f}"/>'
-        )
-    out.append(
-        f'<rect x="{box.x:.1f}" y="{box.y:.1f}" width="{box.w:.1f}" height="{box.h:.1f}" rx="3" '
-        f'fill="{box.fill}" stroke="{box.accent}" stroke-width="{box.stroke_width}"/>'
-    )
-    ty = box.y + BOX_PAD_TOP
-    for line in box.lines:
-        ty += LINE_H * 0.78
-        out.append(
-            f'<text x="{box.cx:.1f}" y="{ty:.1f}" text-anchor="middle" font-family="{line.font}" '
-            f'font-size="{line.size}" font-weight="{line.weight}" fill="{line.fill}" '
-            f'opacity="{line.opacity}">{_esc(line.text)}</text>'
-        )
-        ty += LINE_H * 0.22
-    return out
-
-
-def draw_hop(a: NodeBox, b: NodeBox, colour: str, ink: str, label: str | None = None) -> list[str]:
-    """Arrow between two boxes on the same row."""
-    marker = _marker_id(colour)
-    out = [
-        f'<line x1="{a.right:.1f}" y1="{a.cy:.1f}" x2="{b.x - 2:.1f}" y2="{a.cy:.1f}" '
-        f'stroke="{colour}" stroke-width="1.4" marker-end="url(#{marker})"/>'
-    ]
-    # An edge label wider than the gap would print across both boxes; the stage's own
-    # caption already carries the condition, so drop it rather than overlap.
-    if label and len(label) * 9 * CHAR_W > b.x - a.right:
-        label = None
-    if label:
-        out.append(
-            f'<text x="{(a.right + b.x) / 2:.1f}" y="{a.cy - 7:.1f}" text-anchor="middle" '
-            f'font-family="{MONO}" font-size="9" fill="{ink}" opacity=".7">{_esc(label)}</text>'
-        )
-    return out
-
-
-def draw_wrap(a: NodeBox, b: NodeBox, colour: str, ink: str, label: str | None = None) -> list[str]:
-    """Elbow from the end of one row down and back to the start of the next, so
-    every row still reads left to right."""
-    marker = _marker_id(colour)
-    mid = (a.bottom + b.y) / 2
-    out = [
-        f'<path d="M {a.cx:.1f} {a.bottom:.1f} L {a.cx:.1f} {mid:.1f} L {b.cx:.1f} {mid:.1f} '
-        f'L {b.cx:.1f} {b.y - 2:.1f}" fill="none" stroke="{colour}" stroke-width="1.4" '
-        f'marker-end="url(#{marker})"/>'
-    ]
-    if label:
-        out.append(
-            f'<text x="{(a.cx + b.cx) / 2:.1f}" y="{mid - 5:.1f}" text-anchor="middle" '
-            f'font-family="{MONO}" font-size="9" fill="{ink}" opacity=".7">{_esc(label)}</text>'
-        )
-    return out
-
-
-def _wrap_caption(caption: str, width: int = 36, limit: int = 5) -> list[str]:
-    lines = textwrap.wrap(caption, width=width) or [""]
-    if len(lines) > limit:
-        lines = lines[:limit]
-        lines[-1] = lines[-1].rstrip(" .,;") + "…"
-    return lines
-
-
-def stage_box(stage: Stage, palette: Palette) -> NodeBox:
-    claude = stage.engine == "claude"
-    accent = palette.cost if stage.key in ("coherence", "repair") else (palette.flow if claude else palette.ink)
-    if stage.key == "send":
-        accent = palette.good
-    title_fill = accent if claude or stage.key == "send" else palette.ink
-    lines = [TextLine(stage.title, title_fill, size=12, font=MONO if claude else SANS, weight="600")]
-    lines += [TextLine(part, palette.ink, size=10.5, opacity=0.78) for part in _wrap_caption(stage.caption)]
-    meta: list[str] = []
-    if stage.model:
-        meta.append(model_pill(stage.model, stage.thinking))
-    if stage.fanout:
-        count = f"×{stage.fanout.count}" if stage.fanout.count else "×N"
-        meta.append(f"{count} · {stage.fanout.per_call} · {stage.fanout.concurrency} in flight")
-    meta += [part for part in (stage.meta, stage.run_meta) if part]
-    lines += [TextLine(part, palette.ink, size=9.5, font=MONO, opacity=0.6) for part in meta]
-    box = NodeBox(
-        key=stage.key,
-        lines=tuple(lines),
-        accent=accent,
-        fill=palette.raised,
-        stroke_width=1.8 if stage.key in ("coherence", "send") else 1.4,
-        stack=3 if stage.fanout else 1,
-    )
-    box.measure()
-    return box
-
-
-@dataclass
-class Diagram:
-    palette: Palette
-    boxes: list[NodeBox] = field(default_factory=list)
-    body: list[str] = field(default_factory=list)
-    width: float = CANVAS_W
-    height: float = 0.0
-    colours: set[str] = field(default_factory=set)
-
-    def svg(self, aria: str, *, standalone: bool = False) -> str:
-        """The diagram as one SVG element.
-
-        ``standalone`` adds what a file loaded on its own needs and a fragment inside
-        the page does not: the namespace, intrinsic dimensions, a ``<title>``, and a
-        background rect (GitHub's image proxy paints nothing behind it).
-        """
-        defs = "".join(
-            f'<marker id="{_marker_id(c)}" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" '
-            f'markerHeight="6" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="{c}"/></marker>'
-            for c in sorted(self.colours)
-        )
-        head = f'<svg viewBox="0 0 {self.width:.0f} {self.height:.0f}" role="img" aria-label="{_esc(aria)}"'
-        title = ""
-        background = ""
-        if standalone:
-            head = (
-                f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {self.width:.0f} {self.height:.0f}" '
-                f'width="{self.width:.0f}" height="{self.height:.0f}" role="img" aria-label="{_esc(aria)}"'
-            )
-            title = f"<title>{_esc(aria)}</title>"
-            if self.palette.background:
-                background = (
-                    f'<rect x="0" y="0" width="{self.width:.0f}" height="{self.height:.0f}" '
-                    f'fill="{self.palette.background}"/>'
-                )
-        return head + ">" + title + f"<defs>{defs}</defs>" + background + "".join(self.body) + "</svg>"
-
-
-def build_diagram(stages: list[Stage], palette: Palette = PAGE_PALETTE) -> Diagram:
-    """Lay the whole flow out from the stage list alone.
-
-    Three lanes stacked top to bottom, each packed left to right and wrapped when it
-    runs out of width; a lane change drops down and returns to the leftmost box.
-    """
-    diagram = Diagram(palette=palette)
-    lanes = [INTAKE_LANE, CURATION_LANE, ASSEMBLY_LANE]
-    content_w = CANVAS_W - LANE_X - 20
-    y = 26.0
-    previous_last: NodeBox | None = None
-    previous_label: str | None = None
-
-    for lane in lanes:
-        lane_stages = [s for s in stages if s.lane == lane]
-        if not lane_stages:
-            continue
-        boxes = [stage_box(s, palette) for s in lane_stages]
-        rows = pack_rows(boxes, content_w)
-        lane_top = y
-        bottom = place_rows(rows, LANE_X, y)
-        diagram.boxes.extend(boxes)
-
-        if lane == CURATION_LANE:
-            pad = 16
-            diagram.body.append(
-                f'<rect x="{LANE_X - pad:.1f}" y="{lane_top - pad:.1f}" width="{content_w + 2 * pad:.1f}" '
-                f'height="{bottom - lane_top + 2 * pad:.1f}" rx="4" fill="none" stroke="{palette.flow}" '
-                f'stroke-width="1.2" stroke-dasharray="3 3" opacity=".5"/>'
-            )
-        colour = palette.flow if lane == CURATION_LANE else palette.ink
-        diagram.body.append(
-            f'<text x="6" y="{lane_top + 12:.1f}" font-family="{MONO}" font-size="10" '
-            f'fill="{colour}" opacity=".75" '
-            f'letter-spacing="1">{_esc(lane.split(" · ")[-1].upper())}</text>'
-        )
-
-        for box in boxes:
-            diagram.body.extend(draw_box(box))
-
-        diagram.colours.add(colour)
-        # Keyed by box identity, not by stage key: two stages in a lane may share a
-        # key (an added `_STAGES` label colliding with one of this tool's own steps),
-        # and a dict keyed on that would hand the wrong edge label to the survivor.
-        edge_label = {id(box): stage.edge_label for box, stage in zip(boxes, lane_stages, strict=True)}
-        for row in rows:
-            for a, b in itertools.pairwise(row):
-                diagram.body.extend(draw_hop(a, b, colour, palette.ink, edge_label[id(b)]))
-        for upper, lower in itertools.pairwise(rows):
-            diagram.body.extend(draw_wrap(upper[-1], lower[0], colour, palette.ink, edge_label[id(lower[0])]))
-
-        if previous_last is not None:
-            diagram.colours.add(palette.ink)
-            diagram.body = draw_wrap(previous_last, boxes[0], palette.ink, palette.ink, previous_label) + diagram.body
-        previous_last, previous_label = boxes[-1], None
-        y = bottom + GAP_Y + 18
-
-    diagram.height = y - GAP_Y + 6
-    return diagram
-
-
-def out_of_canvas(diagram: Diagram) -> list[str]:
-    """Boxes that fall outside the fixed viewBox.
-
-    The real overflow risk is not a label inside its box -- ``measure`` sizes the box
-    to the label -- but a box too wide for the lane, which ``pack_rows`` then places
-    alone and lets run past ``CANVAS_W``. Nothing in the layout clamps that, so it is
-    checked rather than assumed.
-    """
-    return [
-        box.key
-        for box in diagram.boxes
-        if box.x < 0 or box.right > diagram.width + 1e-6 or box.y < 0 or box.bottom > diagram.height + 1e-6
-    ]
-
-
-def diagram_aria(fig: RunFigures, stages: list[Stage]) -> str:
-    names = ", ".join(s.title for s in stages if s.lane == CURATION_LANE)
-    return (
-        f"Data flow for run {fig.run_id}: {fig.active_sources} RSS feeds and {fig.articles_fetched:,} items "
-        f"into Python intake, then the Claude curation lane ({names}), then Python assembly out to "
-        + (f"{fig.recipients} recipients." if fig.recipients is not None else "the broadcast.")
-    )
 
 
 # --------------------------------------------------------------------------- #
@@ -981,6 +659,25 @@ def diagram_aria(fig: RunFigures, stages: list[Stage]) -> str:
 # Mermaid node ids that collide with its own keywords.
 MERMAID_RESERVED = frozenset({"end", "graph", "subgraph", "click", "class", "style", "call", "o", "x", "default"})
 _MERMAID_QUOTE_TRIGGER = re.compile(r"""[()\[\]{}"'#;]""")
+
+
+def _wrap_caption(caption: str, width: int = 36, limit: int = 5) -> list[str]:
+    """Greedy word-wrap to ``width`` characters, at most ``limit`` lines, last line elided."""
+    lines: list[str] = []
+    current = ""
+    for word in caption.split():
+        candidate = f"{current} {word}".strip()
+        if len(candidate) > width and current:
+            lines.append(current)
+            current = word
+        else:
+            current = candidate
+    if current:
+        lines.append(current)
+    if len(lines) > limit:
+        lines = lines[:limit]
+        lines[-1] = lines[-1][: max(0, width - 1)].rstrip() + "…"
+    return lines
 
 
 def mermaid_id(key: str) -> str:
@@ -1105,14 +802,61 @@ SVG_LIGHT_NAME = "pipeline-anatomy.svg"
 SVG_DARK_NAME = "pipeline-anatomy-dark.svg"
 
 
+TEMPLATE_PATH = Path(__file__).with_name("pipeline_anatomy_template.svg")
+TEMPLATE_ARIA = (
+    "Data flow: RSS feeds are fetched, deduplicated and given opaque IDs in Python; Claude clusters,"
+    " recaps, selects, writes one story per call, writes the preheader, fact-checks and repairs;"
+    " Python assembles, resolves IDs to URLs, renders and sends."
+)
+
+
+def _model_and_thinking(spec: orchestrate.AgentSpec) -> str:
+    label = model_display(spec.model)
+    thinking = orchestrate._resolved_thinking(spec)
+    return f"{label} + thinking" if _thinking_name(thinking) in ("adaptive", "enabled") else label
+
+
+def template_values() -> dict[str, str]:
+    """Everything the fixed drawing takes from the code: models, thinking, fan-out shapes."""
+    coherence = _spec("coherence.md")
+    return {
+        "aria": _esc(TEMPLATE_ARIA),
+        "cluster_batch": str(cluster_extractjoin._EXTRACT_BATCH),
+        "cluster_concurrency": str(cluster_extractjoin._EXTRACT_CONCURRENCY),
+        "cluster_model": model_display(config.CLUSTER_EXTRACT_MODEL),
+        "recap_model": model_display(_spec("recap.md").model),
+        "select_model": _model_and_thinking(_spec("select.md")),
+        "write_model": _model_and_thinking(_spec("write.md")),
+        "write_concurrency": str(orchestrate._WRITE_BRANCH_CONCURRENCY),
+        "write_budget": f"{orchestrate._WRITE_BRANCH_BUDGET_USD:.2f}".rstrip("0").rstrip("."),
+        "preheader_model": model_display(_spec("preheader.md").model),
+        "coherence_model": _model_and_thinking(coherence),
+        "repair_model": _model_and_thinking(_spec("repair.md")),
+        "recheck_model": _model_and_thinking(coherence),
+    }
+
+
+def render_template_svg(palette: Palette) -> str:
+    """The hand-laid drawing, with the code-determined labels filled in."""
+    values = dict(
+        template_values(),
+        ink=palette.ink,
+        raised=palette.raised,
+        flow=palette.flow,
+        cost=palette.cost,
+        good=palette.good,
+        background=palette.background or "var(--raised)",
+    )
+    return TEMPLATE_PATH.read_text(encoding="utf-8").format(**values)
+
+
 def write_standalone_svgs(svg_dir: Path, fig: RunFigures, stages: list[Stage]) -> tuple[Path, Path]:
     """The same drawing as the page, once per theme, as two self-contained files."""
     svg_dir.mkdir(parents=True, exist_ok=True)
-    aria = diagram_aria(fig, stages)
     written = []
     for name, palette in ((SVG_LIGHT_NAME, LIGHT_PALETTE), (SVG_DARK_NAME, DARK_PALETTE)):
         path = svg_dir / name
-        path.write_text(build_diagram(stages, palette).svg(aria, standalone=True) + "\n", encoding="utf-8")
+        path.write_text(render_template_svg(palette) + "\n", encoding="utf-8")
         written.append(path)
     return written[0], written[1]
 
@@ -1128,7 +872,7 @@ def readme_picture_block(
     """A <picture> that follows the reader's GitHub theme, plus one line of provenance."""
     light = _posix_relpath(svg_dir / SVG_LIGHT_NAME, readme.parent)
     dark = _posix_relpath(svg_dir / SVG_DARK_NAME, readme.parent)
-    alt = _esc(diagram_aria(fig, stages))
+    alt = _esc(TEMPLATE_ARIA)
     caption = f"<sub>{provenance_caption(fig, code_version)} Regenerate with `make anatomy`."
     if html_path is not None:
         # A code span, not a link: GitHub renders a linked .html as source, which reads
@@ -1471,7 +1215,6 @@ def _funnel_caption(fig: RunFigures, stages: list[Stage]) -> str:
 
 
 def render_html(fig: RunFigures, stages: list[Stage], code_version: str | None = None) -> str:
-    diagram = build_diagram(stages)
     absent = stages_without_usage(fig, stages)
     generated = datetime.now(UTC).strftime("%Y-%m-%d")
     wall = f"{fig.wall_clock_s / 60:.0f} min" if fig.wall_clock_s else "—"
@@ -1502,7 +1245,7 @@ def render_html(fig: RunFigures, stages: list[Stage], code_version: str | None =
         f'<p class="sec-sub">{fig.articles_fetched:,} articles in, '
         f"{fig.stories_shipped or '?'} stories out, once a day.</p></div></div>",
         "<figure>"
-        + diagram.svg(diagram_aria(fig, stages))
+        + render_template_svg(PAGE_PALETTE)
         + f"<figcaption>{_esc(provenance_caption(fig, code_version))} {_funnel_caption(fig, stages)}"
         "</figcaption></figure>",
         "</section>",

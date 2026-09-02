@@ -152,6 +152,11 @@ def figures(fake_db: Path) -> pa.RunFigures:
 # --------------------------------------------------------------------------- #
 
 
+def _standalone(figures, palette):
+    """The shipped standalone drawing for one theme (the template, not a run)."""
+    return pa.render_template_svg(palette)
+
+
 def test_curation_stages_follow_orchestrate_stages_in_order(figures):
     """Every `_STAGES` label is drawn, in the orchestrator's order."""
     keys = [s.key for s in pa.curation_stages(figures)]
@@ -223,106 +228,9 @@ def test_repair_phase_is_drawn_as_a_conditional_stage(figures):
     assert repair.model == orchestrate.parse_agent_spec(AGENTS_DIR / "repair.md").model
 
 
-def test_a_new_stage_is_drawn_without_touching_the_drawing(figures, monkeypatch):
-    """The point of the tool: adding to `_STAGES` adds a box."""
-    added = (*orchestrate._STAGES, ("tighten", "recap.md", "extra.json", lambda _p: None))
-    monkeypatch.setattr(orchestrate, "_STAGES", added)
-    stages = pa.all_stages(figures)
-    assert [s.key for s in stages].count("tighten") == 1
-    diagram = pa.build_diagram(stages)
-    assert [b.key for b in diagram.boxes].count("tighten") == 1
-    assert pa.out_of_canvas(diagram) == []
-    assert "tighten[" in pa.render_mermaid(stages)
-
-
-@pytest.mark.parametrize("colliding", ["render", "assemble", "join", "preheader", "recap"])
-def test_a_new_stage_whose_name_collides_still_gets_its_own_node(figures, monkeypatch, colliding):
-    """A `_STAGES` label that matches one of this tool's own step keys must not merge
-    into that step's node: mermaid unifies same-id nodes, which would relabel the
-    other lane's box and can close a cycle back into assembly."""
-    added = (*orchestrate._STAGES, (colliding, "recap.md", "extra.json", lambda _p: None))
-    monkeypatch.setattr(orchestrate, "_STAGES", added)
-    stages = pa.all_stages(figures)
-    assert [s.key for s in stages].count(colliding) == 2
-
-    ids = pa.unique_mermaid_ids(stages)
-    assert len(set(ids.values())) == len(stages)
-
-    block = pa.render_mermaid(stages)
-    declared = re.findall(r"(?<![A-Za-z0-9_])([A-Za-z][A-Za-z0-9_]*)\[", block)
-    assert len(declared) == len(set(declared)), sorted(declared)
-
-    # The drawing keeps both boxes too.
-    assert [b.key for b in pa.build_diagram(stages).boxes].count(colliding) == 2
-
-
 # --------------------------------------------------------------------------- #
 # The drawing.
 # --------------------------------------------------------------------------- #
-
-
-def test_no_label_outgrows_its_box(figures):
-    diagram = pa.build_diagram(pa.all_stages(figures))
-    overflows = [(box.key, line.text) for box in diagram.boxes for line in box.overflowing()]
-    assert overflows == []
-
-
-def test_no_box_falls_outside_the_canvas(figures):
-    """`measure` guarantees a label fits its box; nothing guarantees the box fits the
-    fixed viewBox, so that is the assertion with teeth."""
-    assert pa.out_of_canvas(pa.build_diagram(pa.all_stages(figures))) == []
-
-
-def test_the_canvas_check_can_actually_fail(figures):
-    """Negative control: a box wider than the lane is reported, not silently clipped."""
-    diagram = pa.build_diagram(pa.all_stages(figures))
-    assert pa.out_of_canvas(diagram) == []
-    diagram.boxes[0].w = pa.CANVAS_W * 2
-    assert pa.out_of_canvas(diagram) == [diagram.boxes[0].key]
-
-
-def test_the_fit_check_can_actually_fail():
-    """Negative control: the fit check is not vacuously true."""
-    box = pa.NodeBox(
-        key="probe",
-        lines=(pa.TextLine("a label far too long for this box", "#000", size=12),),
-        accent="#000",
-        fill="#fff",
-    )
-    box.measure()
-    assert box.overflowing() == []
-    box.w = pa.MIN_BOX_W
-    assert [line.text for line in box.overflowing()] == ["a label far too long for this box"]
-
-
-def test_the_assembly_row_reads_left_to_right(figures):
-    """Sean found a right-to-left bottom row confusing; each assembly box starts
-    to the right of the one before it."""
-    diagram = pa.build_diagram(pa.all_stages(figures))
-    keys = [s.key for s in pa.assembly_stages(figures)]
-    boxes = [b for b in diagram.boxes if b.key in keys]
-    boxes.sort(key=lambda b: keys.index(b.key))
-    xs = [b.x for b in boxes]
-    assert xs == sorted(xs), xs
-
-
-def test_fanout_stages_draw_as_a_stack(figures):
-    diagram = pa.build_diagram(pa.all_stages(figures))
-    stacked = {b.key for b in diagram.boxes if b.stack > 1}
-    assert stacked == {s.key for s in pa.all_stages(figures) if s.fanout}
-
-
-def test_svg_is_well_formed_and_carries_the_runs_numbers(figures):
-    import xml.etree.ElementTree as ET
-
-    stages = pa.all_stages(figures)
-    svg = pa.build_diagram(stages).svg(pa.diagram_aria(figures, stages))
-    root = ET.fromstring(svg)
-    assert root.tag.endswith("svg")
-    text = "".join(node.text or "" for node in root.iter())
-    assert f"{FAKE['fetched'] // 5 * 5:,} items" in text
-    assert "88" in text  # clusters
-    assert "×4" in text  # write branches
 
 
 # --------------------------------------------------------------------------- #
@@ -392,8 +300,9 @@ def test_mermaid_carries_configuration_but_not_one_runs_figures(figures):
 def test_the_page_does_carry_the_runs_figures(figures):
     stages = pa.all_stages(figures)
     page = pa.render_html(figures, stages)
-    for value in (s.run_meta for s in stages if s.run_meta):
-        assert value in page, value
+    # The drawing is the fixed template; run figures live in the cost table, not the diagram.
+    assert pa.TEMPLATE_ARIA[:40] in page
+    assert f"Run {figures.run_id}" in page
 
 
 def test_mermaid_ids_are_github_safe(figures):
@@ -463,11 +372,6 @@ def test_readme_picture_paths_are_relative_to_the_readme(tmp_path, figures):
 # --------------------------------------------------------------------------- #
 
 
-def _standalone(figures, palette):
-    stages = pa.all_stages(figures)
-    return pa.build_diagram(stages, palette).svg(pa.diagram_aria(figures, stages), standalone=True)
-
-
 @pytest.mark.parametrize("palette", [pa.LIGHT_PALETTE, pa.DARK_PALETTE])
 def test_standalone_svg_is_self_contained(figures, palette):
     """GitHub's image proxy serves these as separate documents with no stylesheet,
@@ -496,23 +400,6 @@ def test_standalone_svg_names_no_webfont_it_cannot_load(figures, palette):
         assert stack in svg
         # Every stack ends in a generic family, so the fallback is defined.
         assert stack.rstrip().endswith(("sans-serif", "monospace"))
-
-
-@pytest.mark.parametrize("palette", [pa.LIGHT_PALETTE, pa.DARK_PALETTE])
-def test_no_label_outgrows_its_box_in_either_theme(figures, palette):
-    diagram = pa.build_diagram(pa.all_stages(figures), palette)
-    assert [(b.key, line.text) for b in diagram.boxes for line in b.overflowing()] == []
-
-
-def test_the_two_themes_are_the_same_drawing(figures):
-    """Only colours differ: a layout that moved between themes would mean the
-    README's light and dark images disagree about the pipeline."""
-    stages = pa.all_stages(figures)
-    light = pa.build_diagram(stages, pa.LIGHT_PALETTE)
-    dark = pa.build_diagram(stages, pa.DARK_PALETTE)
-    geometry = [(b.key, b.x, b.y, b.w, b.h, b.stack) for b in light.boxes]
-    assert geometry == [(b.key, b.x, b.y, b.w, b.h, b.stack) for b in dark.boxes]
-    assert light.colours != dark.colours
 
 
 def test_write_standalone_svgs_writes_both_files(tmp_path, figures):
@@ -585,7 +472,6 @@ def test_render_html_is_parseable_and_carries_the_runs_numbers(figures):
     assert f"Run {FAKE['run_id']}" in page
     assert FAKE["git_sha"] in page
     assert f"{FAKE['fetched'] // 5 * 5:,}" in page
-    assert f"{FAKE['recipients']} recipients" in page
     assert "API-equivalent" in page
     assert "$2.20" in page  # the fake run's total cost
 
@@ -733,3 +619,52 @@ def test_main_refuses_a_missing_database(tmp_path):
 def test_main_refuses_an_unknown_run(fake_db):
     with pytest.raises(SystemExit):
         pa.main(["--db", str(fake_db), "--run", "99999", "--mermaid"])
+
+
+def test_template_drawing_fills_every_placeholder_from_the_code():
+    svg = pa.render_template_svg(pa.LIGHT_PALETTE)
+    assert "{" not in svg and "}" not in svg
+    for stage in ("select.md", "write.md", "coherence.md", "repair.md", "preheader.md"):
+        assert pa.model_display(pa._spec(stage).model) in svg
+    assert f"{pa.cluster_extractjoin._EXTRACT_BATCH} articles a call" in svg
+    assert f"{pa.orchestrate._WRITE_BRANCH_CONCURRENCY} in flight" in svg
+    assert "var(" not in svg and "currentColor" not in svg
+    assert pa.LIGHT_PALETTE.background in svg and pa.DARK_PALETTE.background in pa.render_template_svg(pa.DARK_PALETTE)
+
+
+def _template_labels_fit(svg: str) -> list[str]:
+    """Heuristic label fit on the shipped template: each text must fit the rect it sits in."""
+    import xml.etree.ElementTree as ET
+
+    root = ET.fromstring(svg)
+    ns = "{http://www.w3.org/2000/svg}"
+    rects = [
+        (float(r.get("x")), float(r.get("y")), float(r.get("width")), float(r.get("height")))
+        for r in root.iter(ns + "rect")
+    ]
+    bad = []
+    for txt in root.iter(ns + "text"):
+        if txt.get("text-anchor") != "middle" or not (txt.text or "").strip():
+            continue
+        x, y, size = float(txt.get("x")), float(txt.get("y")), float(txt.get("font-size", "11"))
+        per_char = 0.6 if "Mono" in (txt.get("font-family") or "") else 0.46
+        if txt.get("font-weight") == "600":
+            per_char *= 1.05
+        boxes = [r for r in rects if r[0] <= x <= r[0] + r[2] and r[1] <= y <= r[1] + r[3] and r[2] < 400]
+        if not boxes:
+            continue
+        width = min(r[2] for r in boxes)
+        if len(txt.text) * size * per_char > width:
+            bad.append(txt.text)
+    return bad
+
+
+def test_no_substituted_label_outgrows_its_template_box():
+    assert _template_labels_fit(pa.render_template_svg(pa.LIGHT_PALETTE)) == []
+
+
+def test_the_template_fit_check_can_actually_fail():
+    svg = pa.render_template_svg(pa.LIGHT_PALETTE).replace(
+        "SELECT</text>", "SELECT and a very much longer model name here</text>"
+    )
+    assert _template_labels_fit(svg)
