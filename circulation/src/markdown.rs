@@ -132,32 +132,57 @@ fn has_class(element: &Element, token: &str) -> bool {
     element
         .attrs
         .iter()
-        .filter(|a| &*a.name.local == "class")
-        .any(|a| a.value.split_whitespace().any(|t| t == token))
+        .find(|a| &*a.name.local == "class")
+        .is_some_and(|a| a.value.split_whitespace().any(|t| t == token))
 }
 
-/// The digest's own chrome, keyed on the class names `render.py` and the template emit. Three
-/// things are decoration a reader's eye skips and a text reader trips over: the "AI-written"
-/// pill (which ran into the sentence after it), the `01`/`02` section numerals, and the
-/// copy-link anchor after every headline (an empty `[](#slug)`). The "Why it matters" label is
-/// a styled span that arrived as a bare line; as bold it reads as the label it is. Everything
-/// else falls back to htmd's own handler, so this never re-implements link or span rendering.
+/// `aria-hidden="true"`: the markup's own statement that this element is decoration and must
+/// not be read aloud. A Markdown reader is asking the same question a screen reader is, so
+/// this is the rule rather than a list of class names -- it needs no maintenance when the
+/// template changes, and it degrades safely, because marking something aria-hidden that a
+/// reader needs is already a bug in the HTML.
+fn is_decorative(element: &Element) -> bool {
+    element
+        .attrs
+        .iter()
+        .any(|a| &*a.name.local == "aria-hidden" && &*a.value == "true")
+}
+
+/// The digest's inline chrome. Two things trip a text reader that CSS handles for a viewer:
+/// decoration read as prose (the section numerals, the rules and separators), and a styled
+/// label that arrives as an unmarked line, or worse runs into the sentence after it -- the
+/// masthead pill rendered as "AI-writtenWritten by Claude".
+///
+/// Labels are BOLDED, never dropped. Dropping is unrecoverable and silent, and the class
+/// names are generic enough to be reused: `tag` marks the pill today and marked bias labels
+/// ("center-right") in the December 2025 issues, which this route still serves. Bolding a
+/// span that turns out to be content costs a pair of asterisks; deleting it costs the words.
 fn span_handler(handlers: &dyn Handlers, element: Element) -> Option<HandlerResult> {
-    if has_class(&element, "tag") || has_class(&element, "num") {
+    if is_decorative(&element) {
         return None;
     }
-    if has_class(&element, "lbl") {
+    if has_class(&element, "lbl") || has_class(&element, "tag") {
         let label = handlers.walk_children(element.node).content;
         let label = label.trim();
-        if !label.is_empty() {
-            return Some(format!("**{label}**").into());
+        // Only a single-line label: CommonMark cannot bold across a blank line, so anything
+        // block-shaped goes through unchanged rather than being wrapped into broken emphasis.
+        if !label.is_empty() && !label.contains("\n") {
+            return Some(format!("**{label}** ").into());
         }
     }
     handlers.fallback(element)
 }
 
+/// A link with no text is not something a reader can read: today's copy-link anchor is empty
+/// and the 2026-03 era's held an inline SVG icon, so both go, while any anchor that carries
+/// words keeps them.
 fn anchor_handler(handlers: &dyn Handlers, element: Element) -> Option<HandlerResult> {
-    if has_class(&element, "anchor") {
+    if handlers
+        .walk_children(element.node)
+        .content
+        .trim()
+        .is_empty()
+    {
         return None;
     }
     handlers.fallback(element)
@@ -173,7 +198,7 @@ pub fn issue_markdown(html_blob: &str, digest_name: &str, date: &str) -> Option<
     let main = extract_main(html_blob);
     let converter = HtmlToMarkdown::builder()
         .skip_tags(vec!["script", "style"])
-        .add_handler(vec!["span"], span_handler)
+        .add_handler(vec!["span", "div"], span_handler)
         .add_handler(vec!["a"], anchor_handler)
         .build();
     let body = match converter.convert(main) {
@@ -356,8 +381,8 @@ mod tests {
     }
 
     #[test]
-    fn issue_markdown_drops_chrome_and_labels_the_why() {
-        // The shapes render.py and the template emit, verbatim in class names.
+    fn issue_markdown_drops_decoration_and_bolds_labels() {
+        // The shapes render.py and the template emit, verbatim in class names and attributes.
         let html = concat!(
             "<html><body><main>",
             r##"<p class="notice"><span class="tag">AI-written</span>Written by Claude, an assistant. "##,
@@ -368,25 +393,44 @@ mod tests {
             r##"<a class="anchor" href="#ceasefire-holds" aria-label="Copy link: Ceasefire holds"></a></h3>"##,
             "<p>A summary of the day.</p>",
             r##"<div class="why"><span class="lbl">Why it matters</span><p>Because it does.</p></div>"##,
-            r##"<p><span class="src">Reuters</span> <a href="https://example.com/a?x=(1)">1</a></p>"##,
+            r##"<p><span class="src">Reuters</span> <a href="https://example.com/a?x=(1)">1</a>"##,
+            r##" <span aria-hidden="true">/</span> <a href="https://example.com/full">Read on</a></p>"##,
             "</article></section></main></body></html>"
         );
         let md = issue_markdown(html, "Test Digest", "2026-09-02").expect("converts");
-        assert!(!md.contains("AI-written"), "{md}");
-        assert!(md.contains("Written by Claude, an assistant."), "{md}");
-        assert!(!md.contains("\n01\n"), "{md}");
+
+        // Decoration the markup itself marks aria-hidden is gone: numerals, rules, separators.
+        assert!(!md.contains("01"), "{md}");
+        assert!(!md.contains(" / "), "{md}");
         assert!(md.contains("## Must Know"), "{md}");
-        assert!(md.contains("### Ceasefire holds\n"), "{md}");
+        // The empty copy-link anchor is gone; a link with text is untouched.
         assert!(!md.contains("[](#"), "{md}");
-        assert!(md.contains("**Why it matters**"), "{md}");
-        assert!(md.contains("Because it does."), "{md}");
-        // Ordinary links and spans still render through htmd's own handlers.
+        assert!(md.contains("[Read on](https://example.com/full)"), "{md}");
+        assert!(md.contains("[1](https://example.com/a?x=\\(1\\))"), "{md}");
         assert!(
             md.contains("[independent assessors](https://digest.example/sources)"),
             "{md}"
         );
+        // Labels are bolded and separated, never deleted.
+        assert!(
+            md.contains("**AI-written** Written by Claude, an assistant."),
+            "{md}"
+        );
+        assert!(md.contains("**Why it matters**"), "{md}");
+        assert!(md.contains("Because it does."), "{md}");
+        assert!(md.contains("### Ceasefire holds\n"), "{md}");
         assert!(md.contains("Reuters"), "{md}");
-        assert!(md.contains("[1](https://example.com/a?x=\\(1\\))"), "{md}");
+    }
+
+    #[test]
+    fn issue_markdown_keeps_a_tag_span_that_carries_content() {
+        // The December 2025 issues used `tag` for bias labels. Those words must survive.
+        let html = concat!(
+            "<html><body><main><p>Source: ",
+            r##"<span class="tag">center-right</span></p></main></body></html>"##
+        );
+        let md = issue_markdown(html, "Test Digest", "2025-12-06").expect("converts");
+        assert!(md.contains("center-right"), "bias label was deleted: {md}");
     }
 
     #[test]
