@@ -444,7 +444,7 @@ impl DigestTools {
             );
         };
         markdown::issue_markdown(&html, &self.ctx.digest_name, date)
-            .ok_or_else(|| format!("The issue dated {date} could not be rendered as text."))
+            .ok_or_else(|| "That issue could not be rendered as text.".to_string())
     }
 }
 
