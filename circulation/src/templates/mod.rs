@@ -1,5 +1,6 @@
 //! HTML templates for the digest server.
 
+mod ask;
 mod chrome;
 mod connect;
 mod digest;
@@ -11,6 +12,7 @@ mod sources;
 mod stats;
 mod thread;
 
+pub use ask::{AskParams, render_ask};
 pub use chrome::{
     NO_FLASH_SCRIPT, TOGGLE_BTN, TOGGLE_JS, footer as chrome_footer, topbar as chrome_topbar,
     translate_pill,

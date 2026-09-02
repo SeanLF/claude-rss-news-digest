@@ -41,6 +41,7 @@ use rmcp::{ServerHandler, tool, tool_handler, tool_router};
 use rusqlite::{Connection, OpenFlags, OptionalExtension};
 use schemars::JsonSchema;
 use serde::Deserialize;
+use serde_json::Value;
 
 use crate::handlers::RateLimiter;
 use crate::util::is_valid_date;
@@ -640,6 +641,70 @@ impl Endpoint {
         self.service.handle(request).await.map(Body::new)
     }
 
+    /// Call one tool by name and return its text, going through the JSON-RPC transport
+    /// exactly as a connected client does. Every door onto these tools -- the GET bridge and
+    /// the `/ask` loop -- comes through here, so none of them can answer differently from
+    /// what an MCP client gets.
+    ///
+    /// `Err` is a sentence for a reader; the detail is logged. A tool that reports its own
+    /// failure (an unknown date, say) is `Ok` with that text: it answered.
+    pub async fn call_tool(&self, name: &str, arguments: Value) -> Result<String, String> {
+        let response = self.call_tool_raw(name, arguments).await?;
+        let text = response
+            .get("content")
+            .and_then(Value::as_array)
+            .map(|blocks| {
+                blocks
+                    .iter()
+                    .filter_map(|b| b.get("text").and_then(Value::as_str))
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            })
+            .unwrap_or_default();
+        if text.is_empty() {
+            tracing::error!(tool = name, "mcp: tool returned no text content");
+            return Err("that tool returned nothing".to_string());
+        }
+        Ok(text)
+    }
+
+    /// The raw `tools/call` result object, for the bridge, which passes `content` through
+    /// unchanged and needs the `isError` flag alongside it.
+    async fn call_tool_raw(&self, name: &str, arguments: Value) -> Result<Value, String> {
+        let body = serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "tools/call",
+            "params": { "name": name, "arguments": arguments },
+        });
+        // The transport parses `Host` unconditionally (a real client always sends one; this
+        // in-process request has no client), even with host pinning disabled.
+        let request = Request::builder()
+            .method(Method::POST)
+            .uri(routes::MCP)
+            .header(HOST, "localhost")
+            .header(CONTENT_TYPE, "application/json")
+            .header("accept", "application/json, text/event-stream")
+            .body(Body::from(body.to_string()))
+            .expect("static request");
+        let response = self.dispatch(request).await;
+        let status = response.status();
+        let bytes = axum::body::to_bytes(response.into_body(), 1 << 22)
+            .await
+            .map_err(|e| {
+                tracing::error!(error = %e, "mcp: transport body unreadable");
+                "the tool transport failed".to_string()
+            })?;
+        let parsed: Value = serde_json::from_slice(&bytes).map_err(|e| {
+            tracing::error!(%status, error = %e, "mcp: transport answer not JSON");
+            "the tool transport failed".to_string()
+        })?;
+        parsed.get("result").cloned().ok_or_else(|| {
+            tracing::error!(%status, answer = %parsed, "mcp: JSON-RPC error");
+            "the tool call failed".to_string()
+        })
+    }
+
     /// The discovery card: what a client needs to decide whether to connect, without
     /// connecting. `tools` is the same shape `tools/list` returns, and `capabilities` is read
     /// off the server rather than restated, so the two doors cannot disagree.
@@ -1058,6 +1123,7 @@ mod tests {
             subscribe_token_secret: None,
             double_opt_in: false,
             mcp: Default::default(),
+            ask: Default::default(),
         })
     }
 

@@ -6,9 +6,13 @@ edition = "2024"
 [dependencies]
 axum = "0.8.8"
 axum-client-ip = "1.3"
-tokio = { version = "1", features = ["rt-multi-thread", "macros", "net"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "time"] }
+# StreamExt over the provider's byte stream, and the channel adapter behind the SSE reply.
+tokio-stream = "0.1"
 rusqlite = { version = "0.40", features = ["bundled"] }
-reqwest = { version = "0.13", default-features = false, features = ["json", "rustls"] }
+# `stream` so /ask can read the provider's server-sent events as they arrive rather than
+# buffering a whole answer before showing any of it.
+reqwest = { version = "0.13", default-features = false, features = ["json", "rustls", "stream"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tower = "0.5"

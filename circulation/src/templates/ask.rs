@@ -1,0 +1,299 @@
+//! The `/ask` page: a question box over the archive.
+//!
+//! Deliberately not a chat product. One column, a few example questions, and an answer that
+//! names the issues it came from. The fine print names the model actually answering, read
+//! from the live config so the disclosure cannot drift from the truth, and points at
+//! `/connect` for the reader who would rather use their own client than ours.
+
+use super::chrome;
+use super::digest::og_image_tags;
+use crate::util::escape_html;
+
+pub struct AskParams<'a> {
+    pub title: &'a str,
+    pub brand_html: &'a str,
+    pub home_url: &'a str,
+    pub canonical_url: &'a str,
+    pub feed_url: &'a str,
+    pub image_url: &'a str,
+    pub font_url: &'a str,
+    pub topbar_html: &'a str,
+    pub footer_html: &'a str,
+    pub connect_url: &'a str,
+    /// The answering model, or `None` when no provider is configured (the box is then read-only).
+    pub model: Option<&'a str>,
+    pub provider: Option<&'a str>,
+}
+
+/// Example questions. Each is answerable from the tools and shows a different one off, so a
+/// first-time reader learns the shape of what this can do by clicking rather than by reading.
+const SUGGESTIONS: [&str; 4] = [
+    "What was in today's briefing?",
+    "What has the briefing covered about Iran?",
+    "Which stories is it still following?",
+    "How balanced are its sources?",
+];
+
+const ASK_CSS: &str = r#"
+.narrow{max-width:680px;}
+.lede{font-family:var(--serif); font-size:19px; color:var(--ink2); line-height:1.55; margin:20px 0 0;}
+.thread{margin:26px 0 0; display:flex; flex-direction:column; gap:18px;}
+.turn{font-family:var(--serif); font-size:16px; line-height:1.65;}
+.turn.q{color:var(--ink); font-weight:600;}
+.turn.a{color:var(--ink2); white-space:pre-wrap;}
+.turn.a a{color:var(--accent-ink);}
+.turn.err{color:var(--accent-ink); font-size:15px;}
+.steps{display:flex; flex-wrap:wrap; gap:6px; margin:0 0 8px;}
+.step{font-family:var(--sans); font-size:11px; letter-spacing:.06em; text-transform:uppercase;
+  color:var(--muted); border:1px solid var(--line); padding:3px 9px;}
+.askform{display:flex; gap:10px; align-items:flex-end; margin:26px 0 0;}
+.askin{flex:1; font-family:var(--serif); font-size:16px; color:var(--ink); background:none;
+  border:1px solid var(--line); padding:12px 14px; resize:none; line-height:1.5;}
+.askin:focus{outline:2px solid var(--accent-ink); outline-offset:1px;}
+.asksend{font-family:var(--sans); font-size:14px; border:1px solid var(--line); background:none;
+  color:var(--ink); padding:12px 18px; cursor:pointer;}
+.asksend:hover:not(:disabled){border-color:var(--accent-ink); color:var(--accent-ink);}
+.asksend:disabled{opacity:.5; cursor:default;}
+.chips{display:flex; flex-wrap:wrap; gap:8px; margin:14px 0 0;}
+.chip{font-family:var(--serif); font-size:14px; color:var(--ink2); background:none;
+  border:1px solid var(--line); padding:7px 13px; cursor:pointer; text-align:left;}
+.chip:hover{border-color:var(--accent-ink); color:var(--accent-ink);}
+.fine{font-family:var(--serif); font-size:13.5px; color:var(--muted); line-height:1.6; margin:28px 0 0;
+  border-top:1px solid var(--line); padding-top:16px;}
+.fine code{font-family:var(--mono,ui-monospace,Menlo,monospace); font-size:12.5px;}
+.off{border:1px solid var(--line); padding:14px 16px; margin:26px 0 0; font-family:var(--serif);
+  font-size:15px; color:var(--muted);}
+@media (max-width:560px){ .askform{flex-direction:column; align-items:stretch;} }
+"#;
+
+/// The client. Posts the question with the running history, reads the event stream, and shows
+/// each tool as it runs. History lives here and nowhere else: the server stores nothing, and
+/// each answer carries a signature that must be echoed back for the server to trust its own
+/// words next turn.
+const ASK_JS: &str = r#"<script>(function(){
+var form=document.getElementById('askform');
+if(!form)return;
+var input=document.getElementById('askq'), send=document.getElementById('asksend'),
+    thread=document.getElementById('thread'), chips=document.getElementById('chips');
+var history=[], busy=false;
+
+function el(cls,text){var d=document.createElement('div');d.className=cls;if(text!=null)d.textContent=text;return d;}
+
+// Answers arrive as plain text with bare URLs. Linkify only our own issue links, and build
+// every node with textContent so nothing an answer contains can become markup.
+function renderAnswer(node,text){
+  var re=/(https?:\/\/[^\s)]+)/g, last=0, m;
+  while((m=re.exec(text))!==null){
+    if(m.index>last)node.appendChild(document.createTextNode(text.slice(last,m.index)));
+    var a=document.createElement('a');a.href=m[1];a.textContent=m[1];a.rel='noopener';
+    node.appendChild(a);last=m.index+m[1].length;
+  }
+  if(last<text.length)node.appendChild(document.createTextNode(text.slice(last)));
+}
+
+function ask(q){
+  if(busy||!q)return;
+  busy=true;send.disabled=true;if(chips)chips.hidden=true;
+  thread.appendChild(el('turn q',q));
+  var steps=el('steps');thread.appendChild(steps);
+  var out=el('turn a');thread.appendChild(out);
+  out.textContent='Thinking…';
+  var answered=false;
+
+  fetch('/ask',{method:'POST',headers:{'content-type':'application/json'},
+    body:JSON.stringify({question:q,history:history})}).then(function(r){
+    if(!r.ok||!r.body){throw new Error(r.status===429?'Too many questions just now. Try again in a minute.':'That did not work.');}
+    var reader=r.body.getReader(),dec=new TextDecoder(),buf='';
+    function pump(){return reader.read().then(function(res){
+      if(res.done)return finish();
+      buf+=dec.decode(res.value,{stream:true});
+      var parts=buf.split('\n\n');buf=parts.pop();
+      parts.forEach(function(frame){
+        // An answer with newlines arrives as SEVERAL data: lines; the spec says join them
+        // with a newline. Concatenating instead collapses every list and paragraph.
+        var ev='message',lines=[];
+        frame.split('\n').forEach(function(line){
+          if(line.indexOf('event:')===0)ev=line.slice(6).trim();
+          else if(line.indexOf('data:')===0)lines.push(line.slice(5).replace(/^ /,''));
+        });
+        var data=lines.join('\n');
+        if(ev==='tool'){steps.appendChild(el('step',data));}
+        else if(ev==='answer'){answered=true;out.textContent='';renderAnswer(out,data);
+          history.push({role:'user',content:q});history.push({role:'assistant',content:data});}
+        else if(ev==='sig'){var last=history[history.length-1];if(last&&last.role==='assistant')last.sig=data;}
+        else if(ev==='failed'){answered=true;out.className='turn err';out.textContent=data;}
+      });
+      return pump();
+    });}
+    return pump();
+  }).catch(function(e){
+    out.className='turn err';out.textContent=e.message||'That did not work.';
+  }).then(finish);
+
+  function finish(){
+    if(!answered&&out.textContent==='Thinking…'){out.className='turn err';out.textContent='No answer came back.';}
+    busy=false;send.disabled=false;input.value='';input.focus();
+  }
+}
+
+form.addEventListener('submit',function(e){e.preventDefault();ask(input.value.trim());});
+input.addEventListener('keydown',function(e){
+  if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();ask(input.value.trim());}
+});
+if(chips)chips.querySelectorAll('.chip').forEach(function(c){
+  c.addEventListener('click',function(){ask(c.textContent);});
+});
+})();</script>"#;
+
+pub fn render_ask(p: &AskParams) -> String {
+    let head = chrome::page_head(
+        p.title,
+        "Ask a question about the briefing's archive; answers cite the issue they came from.",
+        p.canonical_url,
+        p.feed_url,
+        &og_image_tags(p.image_url),
+        p.font_url,
+        ASK_CSS,
+    );
+
+    // No provider configured: say so instead of shipping a box that only ever fails.
+    let Some(model) = p.model else {
+        return format!(
+            r#"{head}
+<body>
+{skip}
+<div class="wrap"><div class="col">
+    {topbar}
+    <main id="main" class="narrow">
+      <a class="brandmark" href="{home}">{brand}</a>
+      <h1 class="h1">Ask the <em>archive</em></h1>
+      <div class="off">The question box is not switched on for this deployment. You can still
+      point your own assistant at the archive &mdash; see <a href="{connect}">connect your
+      assistant</a>.</div>
+    </main>
+    {footer}
+</div></div>
+{toggle_js}
+</body>
+</html>"#,
+            skip = chrome::SKIP_HTML,
+            topbar = p.topbar_html,
+            home = p.home_url,
+            brand = p.brand_html,
+            connect = p.connect_url,
+            footer = p.footer_html,
+            toggle_js = chrome::TOGGLE_JS,
+        );
+    };
+
+    let chips: String = SUGGESTIONS
+        .iter()
+        .map(|s| format!(r#"<button class="chip" type="button">{s}</button>"#))
+        .collect();
+
+    let provider = p
+        .provider
+        .map(|name| format!(" served by {}", escape_html(name)))
+        .unwrap_or_default();
+
+    format!(
+        r#"{head}
+<body>
+{skip}
+<div class="wrap"><div class="col">
+    {topbar}
+    <main id="main" class="narrow">
+      <a class="brandmark" href="{home}">{brand}</a>
+      <h1 class="h1">Ask the <em>archive</em></h1>
+      <p class="lede">Every answer here is read out of the briefing's own archive by the same
+      read-only tools any assistant can call, and cites the issue it came from. It has no
+      opinions of its own and no knowledge beyond what has been published.</p>
+
+      <div class="thread" id="thread" aria-live="polite"></div>
+
+      <form class="askform" id="askform" novalidate>
+        <label class="skip" for="askq">Your question about the briefing</label>
+        <textarea class="askin" id="askq" rows="2" maxlength="2000"
+          placeholder="What has the briefing said about&hellip;"></textarea>
+        <button class="asksend" id="asksend" type="submit">Ask</button>
+      </form>
+
+      <div class="chips" id="chips" aria-label="Example questions">{chips}</div>
+
+      <p class="fine">Answers are generated by <code>{model}</code>{provider}, from the archive's
+      own search, issues, threads, sources and statistics. It can still be wrong, and the
+      briefing it reads was itself written by a model &mdash; follow the issue links for what
+      was actually published. Nothing you type is stored. Prefer your own assistant? See
+      <a href="{connect}">connect your assistant</a>.</p>
+    </main>
+    {footer}
+</div></div>
+{ask_js}
+{toggle_js}
+</body>
+</html>"#,
+        skip = chrome::SKIP_HTML,
+        topbar = p.topbar_html,
+        home = p.home_url,
+        brand = p.brand_html,
+        model = escape_html(model),
+        connect = p.connect_url,
+        footer = p.footer_html,
+        ask_js = ASK_JS,
+        toggle_js = chrome::TOGGLE_JS,
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn params(model: Option<&'static str>) -> AskParams<'static> {
+        AskParams {
+            title: "Test Digest",
+            brand_html: "Test <em>Digest</em>",
+            home_url: "/",
+            canonical_url: "https://digest.example",
+            feed_url: "/feed.xml",
+            image_url: "https://digest.example/og.png",
+            font_url: "/assets/fonts/x.woff2",
+            topbar_html: "<div class=\"topbar\"></div>",
+            footer_html: "<footer></footer>",
+            connect_url: "/connect",
+            model,
+            provider: Some("Mistral"),
+        }
+    }
+
+    #[test]
+    fn a_configured_box_offers_the_form_and_names_the_model() {
+        let html = render_ask(&params(Some("mistral-medium-2508")));
+        assert!(html.contains(r#"id="askform""#), "{html}");
+        assert!(html.contains("<code>mistral-medium-2508</code>"), "{html}");
+        assert!(html.contains("served by Mistral"), "{html}");
+        for s in SUGGESTIONS {
+            assert!(html.contains(s), "missing suggestion: {s}");
+        }
+        assert!(html.contains(r#"href="/connect""#), "{html}");
+    }
+
+    /// Without a provider the page must not ship a box that can only fail.
+    #[test]
+    fn an_unconfigured_box_says_so_and_offers_the_alternative() {
+        let html = render_ask(&params(None));
+        assert!(!html.contains(r#"id="askform""#), "{html}");
+        assert!(html.contains("not switched on"), "{html}");
+        assert!(html.contains(r#"href="/connect""#), "{html}");
+    }
+
+    /// The answer is model output. It reaches the DOM through textContent, never innerHTML,
+    /// so an answer that contains markup is shown, not run.
+    #[test]
+    fn the_client_never_assigns_innerhtml() {
+        assert!(
+            !ASK_JS.contains("innerHTML"),
+            "answers must not be parsed as markup"
+        );
+        assert!(ASK_JS.contains("createTextNode"), "{ASK_JS}");
+    }
+}

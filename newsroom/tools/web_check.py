@@ -34,7 +34,7 @@ DEFAULT_BASE = "http://127.0.0.1:8080"
 
 # Every server-rendered HTML page. Non-HTML routes (/feed.xml, /og-image.png,
 # /robots.txt, /health) have nothing for either gate to assert.
-STATIC_ROUTES = ["/", "/sources", "/stats", "/threads", "/search", "/feedback", "/privacy", "/connect"]
+STATIC_ROUTES = ["/", "/sources", "/stats", "/threads", "/search", "/feedback", "/privacy", "/connect", "/ask"]
 
 # Measured 2026-07-28: 17 kB (/feedback) to 149 kB (/threads), which lists every
 # thread and so grows with content. 200 kB is a creep detector with headroom, not a

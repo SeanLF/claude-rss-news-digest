@@ -1,4 +1,5 @@
 mod archive;
+mod ask;
 mod assets;
 mod feed;
 mod handlers;
@@ -50,6 +51,8 @@ pub mod routes {
     pub const LLMS: &str = "/llms.txt";
     /// Human-facing companion to the MCP endpoint: how to point your own client at it.
     pub const CONNECT: &str = "/connect";
+    /// The grounded question box over the archive (see `ask.rs`).
+    pub const ASK: &str = "/ask";
 }
 
 pub struct AppState {
@@ -86,6 +89,8 @@ pub struct AppState {
     /// The MCP endpoint (transport + limiters), built on first use from the fields above so
     /// this struct's literals elsewhere need only a `Default` here. See `AppState::mcp`.
     pub mcp: std::sync::OnceLock<mcp::Endpoint>,
+    /// The `/ask` endpoint's config and limiters, built on first use. Off without a key.
+    pub ask: std::sync::OnceLock<ask::Ask>,
 }
 
 impl AppState {
@@ -119,6 +124,10 @@ impl AppState {
     /// The MCP endpoint, built on first use from this state's own fields.
     pub fn mcp(&self) -> &mcp::Endpoint {
         self.mcp.get_or_init(|| mcp::Endpoint::from_state(self))
+    }
+
+    pub fn ask(&self) -> &ask::Ask {
+        self.ask.get_or_init(ask::Ask::default)
     }
 
     /// Scheme+host (e.g. "https://example.com"), or empty string when DIGEST_DOMAIN is
@@ -238,6 +247,7 @@ async fn main() {
         subscribe_token_secret,
         double_opt_in,
         mcp: Default::default(),
+        ask: Default::default(),
     });
 
     let app = mcp_routes(Router::new())
@@ -275,6 +285,8 @@ async fn main() {
         .route(routes::SEARCH, get(search::search))
         .route(routes::FEEDBACK, get(handlers::feedback))
         .route(routes::CONNECT, get(handlers::connect))
+        .route(routes::ASK, get(ask::page).post(ask::stream))
+        .route(&format!("{}.json", routes::ASK), post(ask::json))
         .route(routes::TODAY, get(handlers::today))
         .route("/translate", get(translate::page_translate))
         .route("/today/translate", get(handlers::today_translate))
