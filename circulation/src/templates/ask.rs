@@ -27,13 +27,23 @@ pub struct AskParams<'a> {
     pub provider: Option<&'a str>,
 }
 
-/// Example questions. Each is answerable from the tools and shows a different one off, so a
-/// first-time reader learns the shape of what this can do by clicking rather than by reading.
+/// Example questions.
+///
+/// Chosen by asking them, not by taste. The four these replaced were mostly ABOUT the digest
+/// -- which stories it follows, how balanced its sources are -- and a reader arriving wants
+/// to know about the world, not about our methodology.
+///
+/// Each of these exercises a different tool path, and none names a story, so none of them
+/// dates. The last is the most interesting thing this archive can be asked: every running
+/// thread records the questions the briefing is still watching for answers to, which is
+/// something no other news site exposes about its own coverage. It is also the most
+/// expensive -- it fans out across every thread -- which is what the per-answer tool budget
+/// in `ask.rs` is for.
 const SUGGESTIONS: [&str; 4] = [
-    "What was in today's briefing?",
-    "What has the briefing covered about Iran?",
-    "Which stories is it still following?",
-    "How balanced are its sources?",
+    "What did I miss this week?",
+    "Which story has developed the most this month?",
+    "Where did outlets disagree in the latest issue?",
+    "What is the briefing still waiting to find out?",
 ];
 
 const ASK_CSS: &str = r#"

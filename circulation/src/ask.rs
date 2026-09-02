@@ -58,6 +58,12 @@ const MAX_TOOL_RESULT: usize = 12_000;
 /// and asks for the answer, so no question can grow without bound however many tools the
 /// model wants.
 const MAX_CONTEXT_BYTES: usize = 96_000;
+/// Tool calls one answer may make in TOTAL, however they are distributed across rounds.
+/// The round cap alone does not bound cost: a model can fan out inside a single round, and
+/// "what questions is the briefing still waiting on?" was measured making 17 thread calls in
+/// one round -- enough to exhaust the provider's own rate limit and make the NEXT reader's
+/// question fail. Past this the model answers from what it has.
+const MAX_TOOL_CALLS: usize = 8;
 /// Concurrent answers in flight, per client and in total. The rate limiter counts requests
 /// per minute and cannot see a stream that is still running; the sibling project's own
 /// comment says exactly that, and this port dropped its concurrency cap. Each answer holds a
@@ -593,14 +599,22 @@ pub async fn answer(
     messages.push(json!({"role": "user", "content": question}));
 
     let mut named_model = false;
+    let mut tool_calls_made = 0usize;
     for round in 0..MAX_TOOL_ROUNDS {
         // No tools on the last round, or once the conversation has grown past what one
         // question may cost: either way the model has to answer from what it already has
         // rather than reaching for more.
         let context_bytes: usize = messages.iter().map(|m| m.to_string().len()).sum();
-        let with_tools = round + 1 < MAX_TOOL_ROUNDS && context_bytes < MAX_CONTEXT_BYTES;
+        let with_tools = round + 1 < MAX_TOOL_ROUNDS
+            && context_bytes < MAX_CONTEXT_BYTES
+            && tool_calls_made < MAX_TOOL_CALLS;
         if !with_tools && round > 0 {
-            tracing::info!(round, context_bytes, "ask: answering without further tools");
+            tracing::info!(
+                round,
+                context_bytes,
+                tool_calls_made,
+                "ask: answering without further tools"
+            );
         }
         // Tokens are buffered for the length of one turn and released only once that turn is
         // known to be the answer: a turn that turns out to be a tool call must not leave half
@@ -629,10 +643,32 @@ pub async fn answer(
             return Ok(());
         }
 
+        // A round's own fan-out is trimmed to what is left of the budget, so one greedy round
+        // cannot spend the whole allowance before the next round's check sees it. The trim
+        // happens BEFORE the assistant turn is recorded, because the protocol requires a
+        // result for every declared call -- declaring seventeen and answering four is a
+        // malformed conversation the provider rejects.
+        let remaining = MAX_TOOL_CALLS.saturating_sub(tool_calls_made);
+        if turn.tool_calls.len() > remaining {
+            tracing::info!(
+                asked = turn.tool_calls.len(),
+                remaining,
+                "ask: trimming a round's tool fan-out to the budget"
+            );
+        }
+        let running = &turn.tool_calls[..remaining.min(turn.tool_calls.len())];
+        if running.is_empty() {
+            // The budget is spent and the model wants more. Drop this request and loop: the
+            // next round is offered no tools, so it must answer from what was already
+            // gathered. Answering "I could not find anything" here would be a lie -- the
+            // tool results are sitting in `messages`; only the allowance ran out.
+            tracing::info!("ask: tool budget spent; forcing an answer from what was gathered");
+            continue;
+        }
+
         // The model's own turn goes back before its results, or the provider sees tool output
         // answering nothing.
-        let calls: Vec<Value> = turn
-            .tool_calls
+        let calls: Vec<Value> = running
             .iter()
             .map(|c| {
                 json!({
@@ -648,7 +684,8 @@ pub async fn answer(
             "tool_calls": calls,
         }));
 
-        for call in &turn.tool_calls {
+        for call in running {
+            tool_calls_made += 1;
             if !report(Progress::Tool(tool_label(&call.name).to_string())) {
                 tracing::info!("ask: client hung up; abandoning the answer");
                 return Ok(());
