@@ -8,7 +8,8 @@
 //! visible to LLMs" conventions (`.md` routes + `Link`/`<link>` alternates + Accept
 //! negotiation + Cloudflare `Content-Signal`).
 
-use htmd::HtmlToMarkdown;
+use htmd::element_handler::{HandlerResult, Handlers};
+use htmd::{Element, HtmlToMarkdown};
 
 use crate::archive::{IndexMeta, IssueRow};
 
@@ -126,15 +127,54 @@ fn extract_main(html: &str) -> &str {
     html
 }
 
+/// Whether an element's `class` attribute carries `token` as one of its space-separated names.
+fn has_class(element: &Element, token: &str) -> bool {
+    element
+        .attrs
+        .iter()
+        .filter(|a| &*a.name.local == "class")
+        .any(|a| a.value.split_whitespace().any(|t| t == token))
+}
+
+/// The digest's own chrome, keyed on the class names `render.py` and the template emit. Three
+/// things are decoration a reader's eye skips and a text reader trips over: the "AI-written"
+/// pill (which ran into the sentence after it), the `01`/`02` section numerals, and the
+/// copy-link anchor after every headline (an empty `[](#slug)`). The "Why it matters" label is
+/// a styled span that arrived as a bare line; as bold it reads as the label it is. Everything
+/// else falls back to htmd's own handler, so this never re-implements link or span rendering.
+fn span_handler(handlers: &dyn Handlers, element: Element) -> Option<HandlerResult> {
+    if has_class(&element, "tag") || has_class(&element, "num") {
+        return None;
+    }
+    if has_class(&element, "lbl") {
+        let label = handlers.walk_children(element.node).content;
+        let label = label.trim();
+        if !label.is_empty() {
+            return Some(format!("**{label}**").into());
+        }
+    }
+    handlers.fallback(element)
+}
+
+fn anchor_handler(handlers: &dyn Handlers, element: Element) -> Option<HandlerResult> {
+    if has_class(&element, "anchor") {
+        return None;
+    }
+    handlers.fallback(element)
+}
+
 /// Convert the stored digest HTML blob for `date` into a standalone Markdown document. The blob
 /// is the single source; this derives a view of it. `script`/`style` are dropped so no inlined
-/// JS/CSS leaks into the text. Returns `None` (with a logged error) when the blob derives an
+/// JS/CSS leaks into the text, and the page chrome that only makes sense with its CSS is left
+/// out (see `span_handler`). Returns `None` (with a logged error) when the blob derives an
 /// empty body or `htmd` fails -- the caller then fails loud rather than serve a hollow,
 /// title-only document to an agent.
 pub fn issue_markdown(html_blob: &str, digest_name: &str, date: &str) -> Option<String> {
     let main = extract_main(html_blob);
     let converter = HtmlToMarkdown::builder()
         .skip_tags(vec!["script", "style"])
+        .add_handler(vec!["span"], span_handler)
+        .add_handler(vec!["a"], anchor_handler)
         .build();
     let body = match converter.convert(main) {
         Ok(b) => b,
@@ -313,6 +353,40 @@ mod tests {
         assert!(!md.contains("FOOTER JUNK"));
         assert!(!md.contains("alert(1)"));
         assert!(!md.contains("color:red"));
+    }
+
+    #[test]
+    fn issue_markdown_drops_chrome_and_labels_the_why() {
+        // The shapes render.py and the template emit, verbatim in class names.
+        let html = concat!(
+            "<html><body><main>",
+            r##"<p class="notice"><span class="tag">AI-written</span>Written by Claude, an assistant. "##,
+            r##"Leanings from <a href="https://digest.example/sources">independent assessors</a>.</p>"##,
+            r##"<section><div class="section"><span class="num" aria-hidden="true">01</span>"##,
+            r##"<h2 class="name" id="s-mk">Must Know</h2><span class="rule" aria-hidden="true"></span></div>"##,
+            r##"<article><h3 id="ceasefire-holds">Ceasefire holds"##,
+            r##"<a class="anchor" href="#ceasefire-holds" aria-label="Copy link: Ceasefire holds"></a></h3>"##,
+            "<p>A summary of the day.</p>",
+            r##"<div class="why"><span class="lbl">Why it matters</span><p>Because it does.</p></div>"##,
+            r##"<p><span class="src">Reuters</span> <a href="https://example.com/a?x=(1)">1</a></p>"##,
+            "</article></section></main></body></html>"
+        );
+        let md = issue_markdown(html, "Test Digest", "2026-09-02").expect("converts");
+        assert!(!md.contains("AI-written"), "{md}");
+        assert!(md.contains("Written by Claude, an assistant."), "{md}");
+        assert!(!md.contains("\n01\n"), "{md}");
+        assert!(md.contains("## Must Know"), "{md}");
+        assert!(md.contains("### Ceasefire holds\n"), "{md}");
+        assert!(!md.contains("[](#"), "{md}");
+        assert!(md.contains("**Why it matters**"), "{md}");
+        assert!(md.contains("Because it does."), "{md}");
+        // Ordinary links and spans still render through htmd's own handlers.
+        assert!(
+            md.contains("[independent assessors](https://digest.example/sources)"),
+            "{md}"
+        );
+        assert!(md.contains("Reuters"), "{md}");
+        assert!(md.contains("[1](https://example.com/a?x=\\(1\\))"), "{md}");
     }
 
     #[test]
