@@ -163,6 +163,7 @@ pub(crate) fn sub_chrome(
         (routes::SOURCES, "Sources"),
         (routes::THREADS, "Threads"),
         (routes::STATS, "Stats"),
+        (routes::ASK, "Ask"),
         (routes::CONNECT, "Connect"),
         (routes::FEED, "RSS"),
     ];
@@ -359,6 +360,7 @@ pub async fn index(
         (routes::SOURCES, "Sources"),
         (routes::THREADS, "Threads"),
         (routes::STATS, "Stats"),
+        (routes::ASK, "Ask"),
         (routes::CONNECT, "Connect"),
         (routes::FEED, "RSS"),
     ];
@@ -1514,6 +1516,7 @@ mod feed_tests {
             subscribe_token_secret: None,
             double_opt_in: false,
             mcp: Default::default(),
+            ask: Default::default(),
         })
     }
 
@@ -1766,6 +1769,7 @@ mod feed_tests {
             subscribe_token_secret: None,
             double_opt_in: false,
             mcp: Default::default(),
+            ask: Default::default(),
         })
     }
 
@@ -2105,11 +2109,21 @@ pub async fn feedback(State(state): State<Arc<AppState>>) -> Html<String> {
 /// up` and a real deployment respectively need. Empty when there is no usable Host at all,
 /// and callers then have nothing absolute to offer.
 pub(crate) fn request_origin(headers: &HeaderMap) -> String {
+    // An allow-list, not a block-list. `HeaderValue` admits every byte from 0x20 up except
+    // DEL, plus tab -- so stopping only `/` and space still lets a quote or a tab through,
+    // and this value is interpolated into an href. Only what may legally appear in an
+    // authority gets past.
     let host = headers
         .get(axum::http::header::HOST)
         .and_then(|h| h.to_str().ok())
         .map(str::trim)
-        .filter(|h| !h.is_empty() && !h.contains('/') && !h.contains(' '));
+        .filter(|h| {
+            !h.is_empty()
+                && h.len() <= 255
+                && h.chars().all(|c| {
+                    c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | ':' | '[' | ']' | '_')
+                })
+        });
     let Some(host) = host else {
         return String::new();
     };
@@ -2234,6 +2248,36 @@ mod request_origin_tests {
         assert_eq!(
             request_origin(&headers(&[("host", "evil.example/path")])),
             ""
+        );
+    }
+
+    /// The origin is interpolated into an href. A Host header can legally carry a quote or a
+    /// tab -- `HeaderValue` admits both -- so the filter is an allow-list over what an
+    /// authority may hold, and anything else yields nothing at all.
+    #[test]
+    fn a_host_that_could_break_out_of_an_attribute_is_refused() {
+        for bad in [
+            "x\"onmouseover=\"alert(1)",
+            "x\tonmouseover=alert(1)",
+            "x<script>",
+            "x'y",
+            "host name",
+            "h\u{e9}llo.example",
+        ] {
+            assert_eq!(
+                request_origin(&headers(&[("host", bad)])),
+                "",
+                "accepted a host that cannot appear in an authority: {bad:?}"
+            );
+        }
+        // Everything an authority legitimately holds still works, IPv6 literal included.
+        assert_eq!(
+            request_origin(&headers(&[("host", "[::1]:8080")])),
+            "http://[::1]:8080"
+        );
+        assert_eq!(
+            request_origin(&headers(&[("host", "my-host.example.com:8443")])),
+            "https://my-host.example.com:8443"
         );
     }
 }
@@ -2440,6 +2484,7 @@ mod subscribe_handler_tests {
             subscribe_token_secret: secret.map(str::to_string),
             double_opt_in,
             mcp: Default::default(),
+            ask: Default::default(),
         })
     }
 
