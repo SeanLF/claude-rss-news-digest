@@ -114,12 +114,13 @@ impl AppState {
             .unwrap_or_default()
     }
 
-    /// Scheme+host (e.g. "https://example.com"), or empty string when DIGEST_DOMAIN is
-    /// unset (local/dev) -- callers then fall back to root-relative links.
+    /// The MCP endpoint, built on first use from this state's own fields.
     pub fn mcp(&self) -> &mcp::Endpoint {
         self.mcp.get_or_init(|| mcp::Endpoint::from_state(self))
     }
 
+    /// Scheme+host (e.g. "https://example.com"), or empty string when DIGEST_DOMAIN is
+    /// unset (local/dev) -- callers then fall back to root-relative links.
     pub fn base_url(&self) -> String {
         self.digest_domain
             .as_ref()
