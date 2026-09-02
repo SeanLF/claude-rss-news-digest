@@ -39,44 +39,58 @@ const SUGGESTIONS: [&str; 4] = [
 const ASK_CSS: &str = r#"
 .narrow{max-width:680px;}
 .lede{font-family:var(--serif); font-size:19px; color:var(--ink2); line-height:1.55; margin:20px 0 0;}
-.thread{margin:26px 0 0; display:flex; flex-direction:column; gap:26px;}
-.turn{font-family:var(--serif); font-size:16px; line-height:1.65;}
+
+/* The ask area is ONE control group in a recessed panel, on the same tokens as the subscribe
+   band on the index. Three different jobs -- type here, send this, try an example -- have to
+   look like three different things, or the page reads as a row of identical rules and nothing
+   tells a reader where to start. */
+.askbox{margin:28px 0 0; padding:18px 20px 20px; background:var(--panel-2);
+  border:1px solid var(--line); border-radius:var(--r-card);}
+.asklabel{display:block; font-family:var(--sans); font-size:11px; letter-spacing:.14em;
+  text-transform:uppercase; color:var(--muted); margin:0 0 10px;}
+.askform{display:flex; gap:10px; align-items:flex-end;}
+.askin{flex:1; font-family:var(--serif); font-size:16px; color:var(--ink); background:var(--panel);
+  border:1px solid var(--line); border-radius:var(--r-input); padding:11px 13px; resize:none;
+  line-height:1.5; min-width:0;}
+.askin::placeholder{color:var(--muted);}
+.askin:focus-visible{outline:2px solid var(--accent); outline-offset:-1px; border-color:var(--accent);}
+.asksend{font-family:var(--sans); font-size:14px; font-weight:600; color:var(--panel);
+  background:var(--ink); border:1px solid var(--ink); border-radius:var(--r-input);
+  padding:11px 20px; cursor:pointer; white-space:nowrap;}
+.asksend:hover:not(:disabled){background:var(--accent-ink); border-color:var(--accent-ink);}
+.asksend:disabled{opacity:.45; cursor:default;}
+
+/* Examples are pills, not rules: clearly something you press, clearly not the field. */
+.chips{display:flex; flex-wrap:wrap; gap:8px; margin:14px 0 0;}
+.chip{font-family:var(--sans); font-size:13px; color:var(--ink2); background:var(--panel);
+  border:1px solid var(--line); border-radius:999px; padding:6px 14px; cursor:pointer;
+  text-align:left;}
+.chip:hover{border-color:var(--accent); color:var(--accent-ink);}
+
+/* The conversation. A question is a quiet label over its answer, not another bordered box. */
+.thread{margin:28px 0 0; display:flex; flex-direction:column; gap:28px;}
 .turn.q{color:var(--ink); font-family:var(--sans); font-size:14px; font-weight:600;
   padding-bottom:10px; border-bottom:1px solid var(--line);}
-.turn.a{color:var(--ink2);}
+.turn.a{color:var(--ink2); font-family:var(--serif); font-size:16px; line-height:1.65;}
 .turn.a a{color:var(--accent-ink); text-decoration:none;
   background-image:linear-gradient(var(--accent-ink),var(--accent-ink));
   background-size:100% 1px; background-repeat:no-repeat; background-position:0 100%;}
+.turn.err{color:var(--accent-ink); font-family:var(--serif); font-size:15px;}
 .ap{margin:0 0 12px;}
 .ap:last-child,.al:last-child{margin-bottom:0;}
 .ah{font-family:var(--sans); font-weight:700; font-size:12px; letter-spacing:.1em;
   text-transform:uppercase; color:var(--ink); margin:18px 0 8px;}
-.al{margin:0 0 12px; padding-left:18px;}
-.al li{margin:0 0 6px; line-height:1.6;}
-.turn.err{color:var(--accent-ink); font-size:15px;}
-.steps{display:flex; flex-wrap:wrap; gap:8px; margin:0 0 10px;}
+.al{margin:0 0 12px; padding-left:20px;}
+.al li{margin:0 0 7px; line-height:1.6;}
+.steps{display:flex; flex-wrap:wrap; gap:8px; margin:0 0 12px;}
 .step{font-family:var(--sans); font-size:10.5px; letter-spacing:.1em; text-transform:uppercase;
-  color:var(--muted); border:0; padding:0;}
-.step + .step::before{content:"· "; color:var(--line);}
-.askform{display:flex; gap:10px; align-items:flex-end; margin:26px 0 0;}
-.askin{flex:1; font-family:var(--serif); font-size:17px; color:var(--ink); background:none;
-  border:0; border-bottom:1px solid var(--line); padding:10px 2px; resize:none; line-height:1.5;}
-.askin:focus{outline:none; border-bottom-color:var(--accent-ink);}
-.askin:focus-visible{outline:2px solid var(--accent-ink); outline-offset:4px;}
-.asksend{font-family:var(--sans); font-size:13px; letter-spacing:.06em; text-transform:uppercase;
-  border:0; border-bottom:1px solid var(--line); background:none; color:var(--muted);
-  padding:10px 2px 11px; cursor:pointer;}
-.asksend:hover:not(:disabled){border-color:var(--accent-ink); color:var(--accent-ink);}
-.asksend:disabled{opacity:.5; cursor:default;}
-.chips{display:flex; flex-wrap:wrap; gap:8px 22px; margin:20px 0 0;}
-.chip{font-family:var(--serif); font-size:14px; color:var(--muted); background:none;
-  border:0; border-bottom:1px solid var(--line); padding:4px 1px; cursor:pointer; text-align:left;}
-.chip:hover{border-color:var(--accent-ink); color:var(--accent-ink);}
+  color:var(--muted); background:var(--wash); border-radius:999px; padding:3px 10px;}
+
 .fine{font-family:var(--serif); font-size:13.5px; color:var(--muted); line-height:1.6; margin:28px 0 0;
   border-top:1px solid var(--line); padding-top:16px;}
 .fine code{font-family:var(--mono,ui-monospace,Menlo,monospace); font-size:12.5px;}
-.off{border:1px solid var(--line); padding:14px 16px; margin:26px 0 0; font-family:var(--serif);
-  font-size:15px; color:var(--muted);}
+.off{border:1px solid var(--line); border-radius:var(--r-card); background:var(--panel-2);
+  padding:16px 18px; margin:26px 0 0; font-family:var(--serif); font-size:15px; color:var(--muted);}
 @media (max-width:560px){ .askform{flex-direction:column; align-items:stretch;} }
 "#;
 
@@ -272,14 +286,15 @@ pub fn render_ask(p: &AskParams) -> String {
 
       <div class="thread" id="thread" aria-live="polite"></div>
 
-      <form class="askform" id="askform" novalidate>
-        <label class="skip" for="askq">Your question about the briefing</label>
-        <textarea class="askin" id="askq" rows="2" maxlength="2000"
-          placeholder="What has the briefing said about&hellip;"></textarea>
-        <button class="asksend" id="asksend" type="submit">Ask</button>
-      </form>
-
-      <div class="chips" id="chips" aria-label="Example questions">{chips}</div>
+      <div class="askbox">
+        <label class="asklabel" for="askq">Ask a question</label>
+        <form class="askform" id="askform" novalidate>
+          <textarea class="askin" id="askq" rows="2" maxlength="2000"
+            placeholder="What has the briefing said about&hellip;"></textarea>
+          <button class="asksend" id="asksend" type="submit">Ask</button>
+        </form>
+        <div class="chips" id="chips" aria-label="Example questions">{chips}</div>
+      </div>
 
       <p class="fine">Answers are generated by <code id="askmodel">{model}</code>{provider}, from the archive's
       own search, issues, threads, sources and statistics. It can still be wrong, and the
