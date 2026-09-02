@@ -33,7 +33,7 @@ Two components:
   <img src="docs/pipeline-anatomy.svg" alt="Data flow for run 284: 37 RSS feeds and 2,686 items into Python intake, then the Claude curation lane (CLUSTER, deterministic join, RECAP, SELECT, WRITE, fan in, PREHEADER, COHERENCE, REPAIR + RECHECK), then Python assembly out to 11 recipients.">
 </picture>
 
-<sub>Stages and models as of c96ab5f. Run figures from run 284 (2026-09-02). That run wrote all stories in one call; the per-story WRITE shown here first ran on 2026-09-03. Regenerate with `make anatomy`. Per-stage models and costs: `docs/pipeline-anatomy.html`.</sub>
+<sub>Stages and models as of aa5d56f. Run figures from run 284 (2026-09-02). That run wrote all stories in one call; the per-story WRITE drawn here had not yet run. Regenerate with `make anatomy`. Per-stage models and costs: `docs/pipeline-anatomy.html`.</sub>
 <!-- pipeline-anatomy:end -->
 
 ## Quick Start

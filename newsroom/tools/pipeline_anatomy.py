@@ -1280,7 +1280,6 @@ def _stage_table(stages: list[Stage]) -> str:
 # The per-story WRITE fan-out landed here; before it, one call wrote every story.
 # A run without a write_branches.json artifact predates it, and the caption says so
 # until such a run exists -- at which point the sentence stops being emitted.
-PER_STORY_WRITE_FROM = "2026-09-03"
 
 
 def repo_head_sha() -> str | None:
@@ -1324,10 +1323,7 @@ def provenance_caption(fig: RunFigures, code_version: str | None = None) -> str:
     code = f"as of {sha}" if sha else f"as generated on {datetime.now(UTC):%Y-%m-%d}"
     caption = f"Stages and models {code}. Run figures from run {fig.run_id} ({fig.run_at[:10]})."
     if fig.write_branches_source == "selected.json":
-        caption += (
-            " That run wrote all stories in one call; the per-story WRITE shown here first ran on "
-            f"{PER_STORY_WRITE_FROM}."
-        )
+        caption += " That run wrote all stories in one call; the per-story WRITE drawn here had not yet run."
     return caption
 
 
@@ -1432,8 +1428,8 @@ def _read_write_figure(fig: RunFigures) -> str:
         "<figure>" + svg + "<figcaption>Cost tracks re-reading more than producing. "
         f"<code>{_esc(reader.subagent)}</code> re-read {reader.cache_read_tokens:,} cached tokens to write "
         f"{reader.output_tokens:,}; <code>{_esc(writer.subagent)}</code> wrote {writer.output_tokens:,} from "
-        f"{writer.cache_read_tokens:,}. Shrinking the article pool moves the first and barely touches the "
-        "second.</figcaption></figure>"
+        f"{writer.cache_read_tokens:,}. Both scale with the article pool, for opposite reasons: the first "
+        "reads more of it, the second writes one tag set per article.</figcaption></figure>"
     )
 
 

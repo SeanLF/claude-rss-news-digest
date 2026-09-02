@@ -644,7 +644,7 @@ def test_caption_flags_a_run_that_wrote_every_story_in_one_call(fake_db):
     figures = pa.load_run(fake_db, FAKE["run_id"])
     caption = pa.provenance_caption(figures)
     assert "wrote all stories in one call" in caption
-    assert pa.PER_STORY_WRITE_FROM in caption
+    assert "had not yet run" in caption
 
 
 def test_caption_says_nothing_extra_for_a_per_story_run(figures):
