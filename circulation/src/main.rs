@@ -48,6 +48,8 @@ pub mod routes {
     pub const MCP_TOOL_PREFIX: &str = "/mcp/tools";
     pub const PRIVACY: &str = "/privacy";
     pub const LLMS: &str = "/llms.txt";
+    /// Human-facing companion to the MCP endpoint: how to point your own client at it.
+    pub const CONNECT: &str = "/connect";
 }
 
 pub struct AppState {
@@ -272,6 +274,7 @@ async fn main() {
         )
         .route(routes::SEARCH, get(search::search))
         .route(routes::FEEDBACK, get(handlers::feedback))
+        .route(routes::CONNECT, get(handlers::connect))
         .route(routes::TODAY, get(handlers::today))
         .route("/translate", get(translate::page_translate))
         .route("/today/translate", get(handlers::today_translate))

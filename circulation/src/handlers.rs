@@ -28,11 +28,11 @@ use crate::feed::{DigestRow, render_atom_feed};
 use crate::markdown::{self, Negotiated};
 use crate::routes;
 use crate::templates::{
-    DIGEST_NAV_CSS, FAVICON_SVG, FeedbackParams, IndexParams, NO_FLASH_SCRIPT, NotFoundParams,
-    PROXY_TRANSLATE_HIDE_SCRIPT, REDUCED_MOTION_CSS, SKIP_LINK_CSS, SKIP_LINK_HTML, Source,
-    SourcesParams, TOGGLE_BTN, TOGGLE_JS, chrome_footer, chrome_topbar, digest_nav_html,
-    digest_og_tags, render_feedback, render_index, render_not_found, render_sources,
-    translate_pill, web_feedback_html,
+    ConnectParams, DIGEST_NAV_CSS, FAVICON_SVG, FeedbackParams, IndexParams, NO_FLASH_SCRIPT,
+    NotFoundParams, PROXY_TRANSLATE_HIDE_SCRIPT, REDUCED_MOTION_CSS, SKIP_LINK_CSS, SKIP_LINK_HTML,
+    Source, SourcesParams, TOGGLE_BTN, TOGGLE_JS, chrome_footer, chrome_topbar, digest_nav_html,
+    digest_og_tags, render_connect, render_feedback, render_index, render_not_found,
+    render_sources, translate_pill, web_feedback_html,
 };
 use crate::util::{escape_html, format_day_month_year, is_valid_date, log_row_error};
 
@@ -163,6 +163,7 @@ pub(crate) fn sub_chrome(
         (routes::SOURCES, "Sources"),
         (routes::THREADS, "Threads"),
         (routes::STATS, "Stats"),
+        (routes::CONNECT, "Connect"),
         (routes::FEED, "RSS"),
     ];
     if let Some(gh) = &state.source_url {
@@ -358,6 +359,7 @@ pub async fn index(
         (routes::SOURCES, "Sources"),
         (routes::THREADS, "Threads"),
         (routes::STATS, "Stats"),
+        (routes::CONNECT, "Connect"),
         (routes::FEED, "RSS"),
     ];
     if let Some(gh) = &state.source_url {
@@ -2094,6 +2096,46 @@ pub async fn feedback(State(state): State<Arc<AppState>>) -> Html<String> {
         footer_html: &footer_html,
         mailto: state.feedback_email.as_deref(),
         today_url: routes::TODAY,
+    }))
+}
+
+/// `GET /connect` -- how to point your own assistant at the MCP endpoint. The commands and the
+/// tool list are both derived (from the endpoint's URL and from the live tool router), so this
+/// page cannot advertise a command for a domain we do not serve or a tool we do not have.
+pub async fn connect(State(state): State<Arc<AppState>>) -> Html<String> {
+    let (topbar_html, footer_html) = sub_chrome(
+        &state,
+        "",
+        routes::CONNECT,
+        "Read-only tools over the archive, for any MCP client.",
+    );
+    let brand = brand_html(&state.digest_name);
+    let canonical_url = state.base_url();
+    let image_url = state.og_image_url();
+    let link = |path: &str| format!("{canonical_url}{path}");
+    let tools: Vec<(String, String)> = crate::mcp::DigestTools::catalog()
+        .into_iter()
+        .map(|t| {
+            (
+                t.name.to_string(),
+                t.description.as_deref().unwrap_or_default().to_string(),
+            )
+        })
+        .collect();
+    Html(render_connect(&ConnectParams {
+        title: &state.digest_name,
+        brand_html: &brand,
+        home_url: "/",
+        canonical_url: &canonical_url,
+        feed_url: routes::FEED,
+        image_url: &image_url,
+        font_url: &state.font_url,
+        topbar_html: &topbar_html,
+        footer_html: &footer_html,
+        mcp_url: &link(routes::MCP),
+        listing_url: &link(routes::MCP),
+        tools_url: &link(routes::MCP_TOOLS),
+        tools: &tools,
     }))
 }
 

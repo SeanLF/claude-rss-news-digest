@@ -705,6 +705,7 @@ impl Endpoint {
              ## Cannot POST JSON-RPC?\n\n\
              Every tool is also a GET. Start at {tools_url}, or read {card} for the same \
              catalogue plus this endpoint's capabilities and versions.\n\n\
+             Prefer a page with the copy-paste command for your client? See {connect}.\n\n\
              Want the issues as text? See {llms}.\n",
             name = self.ctx.digest_name,
             tools = tool_lines(),
@@ -716,6 +717,7 @@ impl Endpoint {
                 .join(", "),
             tools_url = self.ctx.link(routes::MCP_TOOLS),
             card = self.ctx.link(routes::MCP_CARD),
+            connect = self.ctx.link(routes::CONNECT),
             llms = self.ctx.link(routes::LLMS),
         )
     }

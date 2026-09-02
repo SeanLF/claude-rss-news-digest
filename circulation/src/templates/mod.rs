@@ -1,6 +1,7 @@
 //! HTML templates for the digest server.
 
 mod chrome;
+mod connect;
 mod digest;
 mod feedback;
 mod index;
@@ -14,6 +15,7 @@ pub use chrome::{
     NO_FLASH_SCRIPT, TOGGLE_BTN, TOGGLE_JS, footer as chrome_footer, topbar as chrome_topbar,
     translate_pill,
 };
+pub use connect::{ConnectParams, render_connect};
 pub use digest::{
     DIGEST_NAV_CSS, FAVICON_SVG, PROXY_TRANSLATE_HIDE_SCRIPT, REDUCED_MOTION_CSS, SKIP_LINK_CSS,
     SKIP_LINK_HTML, digest_nav_html, digest_og_tags, web_feedback_html,
