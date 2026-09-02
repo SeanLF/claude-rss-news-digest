@@ -765,7 +765,9 @@ pub async fn stream(
     let (tx, rx) = mpsc::unbounded_channel::<Result<Event, std::convert::Infallible>>();
     let state = state.clone();
     tokio::spawn(async move {
-        // Moved in, so the concurrency slot is released when this task ends, however it ends.
+        // Moved in, so the concurrency slot is released when this task finishes, fails, times
+        // out, or is abandoned. Not on a panic: the release profile sets `panic = "abort"`,
+        // and a process that dies takes these counters with it anyway.
         let _slot = slot;
         let tx2 = tx.clone();
         let mut report = move |p: Progress| {
@@ -1017,6 +1019,119 @@ mod tests {
         assert!(
             !from_env.contains(".or_else(|| std::env::var("),
             "no fallback key: a provider-named variable must not arm this on its own\n{from_env}"
+        );
+    }
+}
+
+#[cfg(test)]
+mod loop_tests {
+    //! The property this endpoint's cost control rests on: when nobody is listening, the loop
+    //! stops calling a provider that charges per call. Verified against a stub that counts
+    //! calls, because "it stops" is a number, not an opinion.
+    use super::*;
+    use axum::Router;
+    use axum::routing::post;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    /// A provider that always asks for another tool call, so the loop would run to
+    /// MAX_TOOL_ROUNDS if nothing stopped it. Returns its base URL and the call counter.
+    async fn stub_provider() -> (String, Arc<AtomicUsize>) {
+        let calls = Arc::new(AtomicUsize::new(0));
+        let seen = calls.clone();
+        let app = Router::new().route(
+            "/chat/completions",
+            post(move || {
+                let seen = seen.clone();
+                async move {
+                    seen.fetch_add(1, Ordering::SeqCst);
+                    let frame = serde_json::json!({
+                        "model": "stub",
+                        "choices": [{
+                            "index": 0,
+                            "delta": {"tool_calls": [{
+                                "index": 0, "id": "c1", "type": "function",
+                                "function": {"name": "get_latest_issue", "arguments": "{}"}
+                            }]},
+                            "finish_reason": "tool_calls"
+                        }]
+                    });
+                    format!("data: {frame}\n\ndata: [DONE]\n\n")
+                }
+            }),
+        );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let base = format!("http://{}", listener.local_addr().unwrap());
+        tokio::spawn(async move {
+            let _ = axum::serve(listener, app).await;
+        });
+        (base, calls)
+    }
+
+    fn state() -> Arc<AppState> {
+        Arc::new(AppState {
+            // No such database: a failing tool still appends a result and the loop continues,
+            // which is exactly the shape this test needs.
+            db_path: "/nonexistent/ask-loop-test.db".to_string(),
+            digest_name: "Test Digest".to_string(),
+            digest_domain: Some("digest.example".to_string()),
+            homepage_url: None,
+            source_url: None,
+            resend_api_key: None,
+            resend_audience_id: None,
+            from_email: None,
+            feedback_email: None,
+            font_url: "/assets/fonts/x.woff2".to_string(),
+            http_client: reqwest::Client::new(),
+            subscribe_limiter: RateLimiter::new(5, Duration::from_secs(3600)),
+            subscribe_token_secret: None,
+            double_opt_in: false,
+            mcp: Default::default(),
+            ask: Default::default(),
+        })
+    }
+
+    fn config(base: String) -> AskConfig {
+        AskConfig {
+            api_base: base,
+            model: "stub".to_string(),
+            api_key: "stub".to_string(),
+            provider_label: "Stub".to_string(),
+        }
+    }
+
+    #[tokio::test]
+    async fn a_listener_that_goes_away_stops_the_provider_calls() {
+        let (base, calls) = stub_provider().await;
+        let state = state();
+        // False on the first report: the client is already gone.
+        let mut report = |_p: Progress| false;
+        let out = answer(&state, &config(base), "anything", &[], &mut report).await;
+
+        assert!(out.is_ok(), "abandonment is not an error");
+        assert_eq!(
+            calls.load(Ordering::SeqCst),
+            1,
+            "the loop must stop at the first round once nobody is listening"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_listener_that_stays_lets_the_loop_run_its_bounded_course() {
+        let (base, calls) = stub_provider().await;
+        let state = state();
+        let mut report = |_p: Progress| true;
+        let out = answer(&state, &config(base), "anything", &[], &mut report).await;
+
+        // The stub never answers, so the loop exhausts its rounds and says so rather than
+        // running forever.
+        assert!(
+            out.is_err(),
+            "a provider that only ever calls tools must not hang"
+        );
+        assert_eq!(
+            calls.load(Ordering::SeqCst),
+            MAX_TOOL_ROUNDS,
+            "the round cap is what bounds an unproductive question"
         );
     }
 }
