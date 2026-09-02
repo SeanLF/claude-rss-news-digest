@@ -591,6 +591,31 @@ async fn stream_turn(
     Ok(turn)
 }
 
+/// One last turn with no tools and an explicit instruction to answer.
+///
+/// Needed because a provider that has been calling tools keeps asking for them even when the
+/// request offers none -- measured. Looping without tools therefore made no progress and the
+/// loop fell through to "I could not find anything", which was a lie: the results were in the
+/// message array and only the allowance had run out. This asks for the answer in as many
+/// words and uses whatever content comes back.
+async fn wrap_up(
+    client: &reqwest::Client,
+    cfg: &AskConfig,
+    messages: &mut Vec<Value>,
+) -> Result<String, AskError> {
+    messages.push(json!({
+        "role": "user",
+        "content": "Answer now, from the tool results above. Do not request any more tools. If those results do not settle the question, say so plainly.",
+    }));
+    let mut sink = |_: &str| {};
+    let turn = stream_turn(client, cfg, messages, false, &mut sink).await?;
+    let text = turn.content.trim().to_string();
+    if text.is_empty() {
+        return Ok("I could not find anything about that in the briefing's archive.".to_string());
+    }
+    Ok(text)
+}
+
 /// Run the question to an answer, naming each tool as it runs.
 ///
 /// The answer is delivered through `report`, not returned, so the caller sees it at the
@@ -672,12 +697,12 @@ pub async fn answer(
         }
         let running = &turn.tool_calls[..remaining.min(turn.tool_calls.len())];
         if running.is_empty() {
-            // The budget is spent and the model wants more. Drop this request and loop: the
-            // next round is offered no tools, so it must answer from what was already
-            // gathered. Answering "I could not find anything" here would be a lie -- the
-            // tool results are sitting in `messages`; only the allowance ran out.
-            tracing::info!("ask: tool budget spent; forcing an answer from what was gathered");
-            continue;
+            // The budget is spent and the model is still asking. Looping made no progress --
+            // it keeps asking whether or not tools are offered -- so ask outright instead.
+            tracing::info!("ask: tool budget spent; asking for the answer outright");
+            let text = wrap_up(&client, cfg, &mut messages).await?;
+            report(Progress::Answer(text));
+            return Ok(());
         }
 
         // The model's own turn goes back before its results, or the provider sees tool output
@@ -725,8 +750,8 @@ pub async fn answer(
     // the archive cannot settle looks like from in here. That is a FINDING, not a failure:
     // saying so is the right answer, where an error told the reader the machine broke when it
     // had in fact worked and found nothing.
-    tracing::info!("ask: rounds exhausted without an answer");
-    let text = "I could not find anything about that in the briefing's archive.".to_string();
+    tracing::info!("ask: rounds exhausted; asking for the answer outright");
+    let text = wrap_up(&client, cfg, &mut messages).await?;
     report(Progress::Answer(text));
     Ok(())
 }
