@@ -28,26 +28,31 @@ Two components:
 - **circulation** — a Rust (Axum) web server: the online archive, per-issue pages, the sources and stats pages, story threads, and the "view in browser" links.
 
 ```mermaid
-flowchart LR
-  feeds[37 RSS feeds] --> fetch[fetch · 28h window · dedup]
-  fetch --> ids[assign opaque IDs<br/>URLs never reach the model]
-  ids --> cluster[CLUSTER<br/>extract tags 40 articles a call, 4 in flight<br/>deterministic join in Python]
-  cluster --> recap[RECAP<br/>last week's themes · Haiku]
-  recap --> select[SELECT<br/>tiers, regions, order]
-  select --> w1[WRITE story 1]
-  select --> w2[WRITE story 2]
-  select --> wn[WRITE story n<br/>each sees only its own cluster]
-  w1 --> fanin[fan in, SELECT's order]
-  w2 --> fanin
-  wn --> fanin
-  fanin --> pre[PREHEADER · Haiku]
-  pre --> coh[COHERENCE<br/>every specific vs its cited sources]
-  coh -- flagged field --> repair[REPAIR<br/>fix from own sources, re-check once]
+flowchart TB
+  subgraph intake [Python · intake]
+    direction LR
+    feeds[37 RSS feeds] --> fetch[fetch · 28h window · dedup] --> ids[assign opaque IDs<br/>URLs never reach the model]
+  end
+  subgraph claude [Claude · curation]
+    direction TB
+    cluster[CLUSTER · Sonnet 4.6<br/>tag 40 articles a call, 4 in flight<br/>then a deterministic join in Python]
+    recap[RECAP · Haiku<br/>last week's themes]
+    select[SELECT · Sonnet 4.6<br/>tiers, regions, order]
+    cluster --> recap --> select
+    select --> w1[WRITE story 1] & w2[WRITE story 2] & wn[WRITE story n]
+    w1 & w2 & wn --> fanin[fan in, SELECT's order]
+    fanin --> pre[PREHEADER · Haiku]
+    pre --> coh[COHERENCE · Sonnet 5 + thinking<br/>every specific vs its cited sources]
+    coh -- flagged field --> repair[REPAIR · fix from own sources<br/>re-check once, else drop]
+  end
+  subgraph out [Python · assembly]
+    direction LR
+    assemble[assemble · 13 output checks<br/>IDs to URLs, source, bias] --> render[render HTML + MJML] --> email[email · Resend]
+    render --> archive[web archive · circulation]
+  end
+  ids --> cluster
+  coh -- passed --> assemble
   repair --> assemble
-  coh -- passed --> assemble[assemble · 13 output checks<br/>IDs → URLs, source, bias]
-  assemble --> render[render HTML + MJML]
-  render --> email[email · Resend]
-  render --> archive[web archive · circulation]
 ```
 
 ## Quick Start
