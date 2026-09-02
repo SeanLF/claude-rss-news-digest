@@ -747,6 +747,102 @@ apply_terraform() {
 }
 
 # ============================================
+# Post-deploy MCP contract smoke
+# ============================================
+
+# The web gate grades pages the way a browser sees them. The MCP surface is JSON-RPC that no
+# page links to, so nothing else would notice it 404ing. Three GETs and one POST against prod,
+# after the apply: the card, its alias and the GET catalogue must be served, tools/list must
+# answer, and the tool names in all four must be identical. Every list comes from one function
+# in one binary, so a difference cannot be a code drift; what it catches is the proxy or a
+# regressed route serving something else on one of the four paths (an interstitial, the HTML
+# 404 page) -- and the check refuses an empty list on every side, so "all paths serve garbage"
+# fails too, not just "one does".
+# Runs after the deploy is live and tagged, so a failure here is loud but not a rollback: the
+# fix is a forward deploy, and the deployment is marked failed so the record says it was not
+# verified. Needs jq, like the SBOM gate; checked here because --skip-build skips that gate.
+mcp_smoke() {
+  local url="${1:-}"
+  if [ -z "$url" ]; then
+    if [ -z "${DIGEST_DOMAIN:-}" ]; then
+      log_info "DIGEST_DOMAIN unset -- skipping MCP contract smoke"
+      return 0
+    fi
+    url="https://$DIGEST_DOMAIN"
+  fi
+
+  log_step "Smoking the MCP contract on $url..."
+  dry_run_skip "curl $url/.well-known/mcp.json, POST $url/mcp tools/list" && return 0
+  command -v jq &>/dev/null || { log_error "jq not installed -- cannot verify the MCP contract"; return 1; }
+
+  # wait_for_condition counts attempts, not seconds, so the probe's own timeout must be short
+  # or "60" quietly becomes eleven minutes of a dead box.
+  if ! wait_for_condition "circulation answering" 60 curl -fsS -o /dev/null --max-time 2 "$url/health"; then
+    log_error "circulation is not answering on $url/health"
+    return 1
+  fi
+
+  # Each curl and each jq is its own statement, never a pipeline: set -e sees only a pipeline's
+  # last command, so `jq | sort` would turn a parse failure into an empty list that happens to
+  # equal another empty list.
+  local served_json card served
+  local card_json legacy_json tools_json legacy tools
+  card_json=$(curl -fsS --max-time 15 "$url/.well-known/mcp.json") || {
+    log_error "MCP card not served at $url/.well-known/mcp.json"
+    return 1
+  }
+  # The directory-shaped alias and the GET bridge's catalogue are separate proxy paths from
+  # the file-shaped card; a rule that matches one and not the other is the failure this
+  # check is for, so all three GET doors are fetched, not one.
+  legacy_json=$(curl -fsS --max-time 15 "$url/.well-known/mcp/server-card.json") || {
+    log_error "MCP card alias not served at $url/.well-known/mcp/server-card.json"
+    return 1
+  }
+  tools_json=$(curl -fsS --max-time 15 "$url/mcp/tools.json") || {
+    log_error "MCP tool catalogue not served at $url/mcp/tools.json"
+    return 1
+  }
+  served_json=$(curl -fsS --max-time 15 "$url/mcp" \
+    -H 'content-type: application/json' \
+    -H 'accept: application/json, text/event-stream' \
+    -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}') || {
+    log_error "POST $url/mcp tools/list failed"
+    return 1
+  }
+  card=$(jq -er '.tools[].name' <<<"$card_json") || {
+    log_error "MCP card has no tools[] -- got: ${card_json:0:200}"
+    return 1
+  }
+  legacy=$(jq -er '.tools[].name' <<<"$legacy_json") || {
+    log_error "MCP card alias has no tools[] -- got: ${legacy_json:0:200}"
+    return 1
+  }
+  tools=$(jq -er '.tools[].name' <<<"$tools_json") || {
+    log_error "MCP tool catalogue has no tools[] -- got: ${tools_json:0:200}"
+    return 1
+  }
+  served=$(jq -er '.result.tools[].name' <<<"$served_json") || {
+    log_error "tools/list answered without result.tools[] -- got: ${served_json:0:200}"
+    return 1
+  }
+  if [ -z "$card" ] || [ -z "$legacy" ] || [ -z "$tools" ] || [ -z "$served" ]; then
+    log_error "MCP contract empty on $url -- card: ${#card}, alias: ${#legacy}, catalogue: ${#tools}, tools/list: ${#served} bytes"
+    return 1
+  fi
+  served=$(sort <<<"$served")
+  local name doc
+  for name in card legacy tools; do
+    doc=$(sort <<<"${!name}")
+    if [ "$doc" != "$served" ]; then
+      log_error "MCP contract drift on $url -- $name (<) vs tools/list (>):"
+      diff <(printf '%s\n' "$doc") <(printf '%s\n' "$served") >&2 || true
+      return 1
+    fi
+  done
+  log_success "MCP contract intact on $url: $(printf '%s\n' "$served" | wc -l | tr -d ' ') tools; card, alias and catalogue == tools/list"
+}
+
+# ============================================
 # Cleanup
 # ============================================
 
@@ -831,6 +927,9 @@ main() {
   run_migrations || exit 1
   apply_terraform
   tag_deployment
+  # Deploy is LIVE and its image digests are tagged from here; the smoke verifies it rather
+  # than gating it (see mcp_smoke), and must not sit ahead of the tag it would orphan.
+  mcp_smoke || exit 1
 
   # Success
   DEPLOYMENT_SUCCEEDED=true
