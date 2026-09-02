@@ -63,22 +63,36 @@ const MAX_CONTEXT_BYTES: usize = 96_000;
 /// "what questions is the briefing still waiting on?" was measured making 17 thread calls in
 /// one round -- enough to exhaust the provider's own rate limit and make the NEXT reader's
 /// question fail. Past this the model answers from what it has.
-const MAX_TOOL_CALLS: usize = 8;
+/// Four, not eight, and the number comes from the provider rather than from taste. The key's
+/// tier reports `x-ratelimit-limit-req-minute: 10` and `x-ratelimit-limit-tokens-minute:
+/// 20000`, and every round RESENDS the growing message array -- so an eight-call answer is
+/// nine requests and tens of thousands of tokens, i.e. one question could spend the whole
+/// minute for everybody. Search, read an issue or two, answer: four covers the questions this
+/// archive is actually asked.
+const MAX_TOOL_CALLS: usize = 4;
 /// Concurrent answers in flight, per client and in total. The rate limiter counts requests
 /// per minute and cannot see a stream that is still running; the sibling project's own
 /// comment says exactly that, and this port dropped its concurrency cap. Each answer holds a
 /// message array and re-serialises it every round, on two cores.
 const MAX_IN_FLIGHT_PER_CLIENT: usize = 1;
-const MAX_IN_FLIGHT_GLOBAL: usize = 4;
+/// Two globally, not four: the provider allows ten requests a minute and one answer costs
+/// several, so four at once is a promise this key cannot keep. Better that WE refuse with
+/// "one at a time" than that the provider refuses and the reader is told the assistant is
+/// busy, which reads as our fault and leaves them nothing to do about it.
+const MAX_IN_FLIGHT_GLOBAL: usize = 2;
 /// Answers per rolling day, whatever the per-minute caps allow. The per-minute limits bound a
 /// burst; this bounds the bill.
 const MAX_ANSWERS_PER_DAY: u32 = 500;
 
 /// Per-client questions per minute. An answer costs a provider call plus several SQLite
 /// reads, so this is deliberately far below the read-only endpoints' caps.
-const IP_LIMIT_PER_MINUTE: u32 = 6;
+const IP_LIMIT_PER_MINUTE: u32 = 3;
 /// Whole-endpoint questions per minute: the ceiling on what this page can spend.
-const GLOBAL_LIMIT_PER_MINUTE: u32 = 60;
+/// Six, against a provider that allows ten REQUESTS a minute -- safe only because most
+/// questions need one or two tools and the tool budget bounds the rest. A tier change is the
+/// only thing that makes this bigger; raising it alone would move the refusal upstream, where
+/// a reader cannot tell it from a fault of ours.
+const GLOBAL_LIMIT_PER_MINUTE: u32 = 6;
 
 /// Provider configuration. Absent key -> the endpoint is disabled.
 #[derive(Clone)]
