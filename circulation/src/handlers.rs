@@ -2099,10 +2099,42 @@ pub async fn feedback(State(state): State<Arc<AppState>>) -> Html<String> {
     }))
 }
 
+/// Scheme and authority this request arrived on, for building an absolute URL when no domain
+/// is configured. `X-Forwarded-Proto` decides the scheme where a proxy set it; otherwise a
+/// loopback-looking host is http and anything else https, which is what a bare `docker compose
+/// up` and a real deployment respectively need. Empty when there is no usable Host at all,
+/// and callers then have nothing absolute to offer.
+pub(crate) fn request_origin(headers: &HeaderMap) -> String {
+    let host = headers
+        .get(axum::http::header::HOST)
+        .and_then(|h| h.to_str().ok())
+        .map(str::trim)
+        .filter(|h| !h.is_empty() && !h.contains('/') && !h.contains(' '));
+    let Some(host) = host else {
+        return String::new();
+    };
+    let scheme = headers
+        .get("x-forwarded-proto")
+        .and_then(|h| h.to_str().ok())
+        .map(|s| s.split(',').next().unwrap_or(s).trim().to_string())
+        .unwrap_or_else(|| {
+            let local = host.starts_with("localhost")
+                || host.starts_with("127.")
+                || host.starts_with("[::1]")
+                || host.ends_with(".local")
+                || host.contains(".local:");
+            if local { "http".into() } else { "https".into() }
+        });
+    format!("{scheme}://{host}")
+}
+
 /// `GET /connect` -- how to point your own assistant at the MCP endpoint. The commands and the
 /// tool list are both derived (from the endpoint's URL and from the live tool router), so this
 /// page cannot advertise a command for a domain we do not serve or a tool we do not have.
-pub async fn connect(State(state): State<Arc<AppState>>) -> Html<String> {
+pub async fn connect(
+    State(state): State<Arc<AppState>>,
+    request_headers: HeaderMap,
+) -> Html<String> {
     let (topbar_html, footer_html) = sub_chrome(
         &state,
         "",
@@ -2112,7 +2144,18 @@ pub async fn connect(State(state): State<Arc<AppState>>) -> Html<String> {
     let brand = brand_html(&state.digest_name);
     let canonical_url = state.base_url();
     let image_url = state.og_image_url();
-    let link = |path: &str| format!("{canonical_url}{path}");
+    // Every command on this page is a URL someone pastes into a terminal, so a relative one
+    // is worse than useless: `claude mcp add ... /mcp` is ACCEPTED, exits 0, and leaves a
+    // broken entry the reader discovers later. When no DIGEST_DOMAIN is configured (a clone
+    // running locally) fall back to the origin this request arrived on, which is exactly the
+    // address that reader's own client should call. Behind the proxy the configured domain
+    // always wins, so a forged Host cannot reach this branch in production.
+    let origin = if canonical_url.is_empty() {
+        request_origin(&request_headers)
+    } else {
+        canonical_url.clone()
+    };
+    let link = |path: &str| format!("{origin}{path}");
     let tools: Vec<(String, String)> = crate::mcp::DigestTools::catalog()
         .into_iter()
         .map(|t| {
@@ -2137,6 +2180,62 @@ pub async fn connect(State(state): State<Arc<AppState>>) -> Html<String> {
         tools_url: &link(routes::MCP_TOOLS),
         tools: &tools,
     }))
+}
+
+#[cfg(test)]
+mod request_origin_tests {
+    //! The connect page's commands are pasted into terminals, so a relative URL there is a
+    //! silent failure (`claude mcp add ... /mcp` exits 0 and leaves a broken entry).
+    use super::request_origin;
+    use axum::http::HeaderMap;
+
+    fn headers(pairs: &[(&str, &str)]) -> HeaderMap {
+        let mut h = HeaderMap::new();
+        for (k, v) in pairs {
+            h.insert(
+                axum::http::HeaderName::from_bytes(k.as_bytes()).unwrap(),
+                v.parse().unwrap(),
+            );
+        }
+        h
+    }
+
+    #[test]
+    fn local_hosts_are_http_and_public_hosts_are_https() {
+        assert_eq!(
+            request_origin(&headers(&[("host", "localhost:8080")])),
+            "http://localhost:8080"
+        );
+        assert_eq!(
+            request_origin(&headers(&[("host", "127.0.0.1:8080")])),
+            "http://127.0.0.1:8080"
+        );
+        assert_eq!(
+            request_origin(&headers(&[("host", "digest.example")])),
+            "https://digest.example"
+        );
+    }
+
+    #[test]
+    fn a_proxys_forwarded_scheme_wins() {
+        assert_eq!(
+            request_origin(&headers(&[
+                ("host", "localhost:8080"),
+                ("x-forwarded-proto", "https"),
+            ])),
+            "https://localhost:8080"
+        );
+    }
+
+    #[test]
+    fn an_unusable_host_yields_nothing_rather_than_a_bad_url() {
+        assert_eq!(request_origin(&HeaderMap::new()), "");
+        assert_eq!(request_origin(&headers(&[("host", "  ")])), "");
+        assert_eq!(
+            request_origin(&headers(&[("host", "evil.example/path")])),
+            ""
+        );
+    }
 }
 
 #[cfg(test)]

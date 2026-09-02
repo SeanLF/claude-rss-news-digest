@@ -73,8 +73,13 @@ document.querySelectorAll('.copy').forEach(function(b){
   b.addEventListener('click',function(){
     var pre=document.getElementById(b.getAttribute('data-for'));
     if(!pre)return;
+    var t=b.textContent;
     navigator.clipboard.writeText(pre.textContent).then(function(){
-      var t=b.textContent;b.textContent='Copied';setTimeout(function(){b.textContent=t;},1400);
+      b.textContent='Copied';setTimeout(function(){b.textContent=t;},1400);
+    }).catch(function(){
+      // Denied permission or an unfocused document: say so rather than leaving a button
+      // that silently does nothing. The command is selectable text either way.
+      b.textContent='Copy failed';setTimeout(function(){b.textContent=t;},2200);
     });
   });
 });
@@ -117,8 +122,11 @@ pub fn commands(mcp_url: &str) -> Vec<(&'static str, &'static str, String)> {
         (
             "VS Code",
             "Run in your terminal",
+            // Double quotes with escaped inner quotes, which is VS Code's own documented
+            // form. Single quotes read better but are not quoting characters in cmd.exe,
+            // where the shell would hand VS Code something that is not JSON.
             format!(
-                r#"code --add-mcp '{{"name":"{SERVER_KEY}","type":"http","url":"{mcp_url}"}}'"#
+                r#"code --add-mcp "{{\"name\":\"{SERVER_KEY}\",\"type\":\"http\",\"url\":\"{mcp_url}\"}}""#
             ),
         ),
         ("Any other client", "Paste this URL", mcp_url.to_string()),
@@ -236,7 +244,7 @@ mod tests {
             vec![
                 "claude mcp add --transport http news-digest https://digest.example/mcp",
                 "codex mcp add news-digest --url https://digest.example/mcp",
-                r#"code --add-mcp '{"name":"news-digest","type":"http","url":"https://digest.example/mcp"}'"#,
+                r#"code --add-mcp "{\"name\":\"news-digest\",\"type\":\"http\",\"url\":\"https://digest.example/mcp\"}""#,
                 "https://digest.example/mcp",
             ]
         );
