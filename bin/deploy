@@ -73,16 +73,18 @@ run_or_skip() {
   "$@"
 }
 
+# `timeout` is wall-clock seconds. It used to count attempts, which agreed with the clock only
+# while every probe was instant; a probe that itself waits (curl with --max-time) turned "60"
+# into minutes and reported a time that was not the time.
 wait_for_condition() {
-  local description="$1" timeout="$2" waited=0
+  local description="$1" timeout="$2" start=$SECONDS
   shift 2
 
-  while ! "$@" &>/dev/null && (( waited < timeout )); do
+  while ! "$@" &>/dev/null && (( SECONDS - start < timeout )); do
     sleep 1
-    (( waited++ ))
   done
 
-  "$@" &>/dev/null && log_success "$description (${waited}s)" && return 0
+  "$@" &>/dev/null && log_success "$description ($((SECONDS - start))s)" && return 0
   return 1
 }
 
@@ -781,8 +783,6 @@ mcp_smoke() {
   dry_run_skip "curl $url/.well-known/mcp.json, POST $url/mcp tools/list" && return 0
   command -v jq &>/dev/null || { log_error "jq not installed -- cannot verify the MCP contract"; return 1; }
 
-  # wait_for_condition counts attempts, not seconds, so the probe's own timeout must be short
-  # or "60" quietly becomes eleven minutes of a dead box.
   if ! wait_for_condition "circulation answering" 60 curl -fsS -o /dev/null --max-time 2 "$url/health"; then
     log_error "circulation is not answering on $url/health"
     return 1
