@@ -463,65 +463,36 @@ def test_write_spec_still_carries_the_marker_to_redirect():
 
 def test_redirect_rewrites_every_occurrence():
     body = "read /app/data/claude_input/selected.json then /app/data/claude_input/articles_1.csv"
-    out = write_fanout.redirect_body(body, Path("/tmp/b/s00"))
+    out = write_fanout.branch_body(body, Path("/tmp/b/s00"))
     assert write_fanout.PROD_INPUT_MARKER not in out
     assert out.count("/tmp/b/s00/") == 2
 
 
 def test_redirect_raises_when_the_prompt_lost_the_marker():
     with pytest.raises(ValueError, match="drifted"):
-        write_fanout.redirect_body("no paths here", Path("/tmp/b/s00"))
+        write_fanout.branch_body("no paths here", Path("/tmp/b/s00"))
 
 
 class TestBranchBody:
-    """write.md on disk is the BATCH prompt and stays byte-identical -- an A/B whose
-    control has been edited measures two changes at once. Every per-story adjustment is
-    made on the copy a branch receives."""
+    """write.md IS the per-story prompt now -- branch_body only points it at the branch's
+    own input directory. Nothing about the prompt's content may be rewritten in flight."""
 
     def _body(self):
         return WRITE_SPEC.read_text(encoding="utf-8").split("---", 2)[2].strip()
 
-    def test_preheader_instruction_and_schema_key_are_removed(self):
-        """A branch sees one story, so "the 2-3 biggest stories" is unsatisfiable there;
-        the preheader agent writes it after fan-in."""
-        out = write_fanout.branch_body(self._body(), Path("/tmp/b/s00"))
-        assert "**Preheader:**" not in out
-        assert '"preheader"' not in out
-
-    def test_the_batching_clauses_are_removed(self):
-        """Both describe under-citing "the ones you write last" -- a failure mode a
-        single-story call cannot have."""
-        out = write_fanout.branch_body(self._body(), Path("/tmp/b/s00")).lower()
-        assert "many stories at once" not in out
-        assert "you write last" not in out
-
-    def test_the_shipped_prompt_still_carries_everything_that_was_stripped(self):
-        """The strip must live here and only here: write.md is what the batch arm runs."""
-        body = self._body().lower()
-        assert "**preheader:**" in body
-        assert body.count("many stories at once") == 2
-
-    def test_paths_are_still_redirected(self):
+    def test_paths_are_redirected(self):
         out = write_fanout.branch_body(self._body(), Path("/tmp/b/s00"))
         assert write_fanout.PROD_INPUT_MARKER not in out
         assert "/tmp/b/s00/selected.json" in out
 
-    def test_the_rest_of_the_prompt_is_untouched(self):
-        out = write_fanout.branch_body(self._body(), Path("/tmp/b/s00"))
-        for anchor in ("Citation self-check", "Anti-overstatement", "Filler self-check", "Continuing stories"):
-            assert anchor in out
-        # The self-checks keep their scope; only the batch-only sentence goes.
-        assert "give every why_it_matters the same scrutiny" not in out
-        assert "list every specific in its headline and summary" in out
+    def test_nothing_but_the_paths_changes(self):
+        """The prompt a branch runs differs from write.md by the input path and nothing
+        else. Reinstating an in-flight rewrite of the prompt fails here."""
+        body = self._body()
+        out = write_fanout.branch_body(body, Path("/tmp/b/s00"))
+        assert out == body.replace(write_fanout.PROD_INPUT_MARKER, "/tmp/b/s00/")
 
     def test_output_schema_stays_valid_json_shaped(self):
         out = write_fanout.branch_body(self._body(), Path("/tmp/b/s00"))
         schema_text = out[out.index("**Output schema:**") :]
         assert json.loads(schema_text[schema_text.index("{") : schema_text.rindex("}") + 1].replace("...", "x"))
-
-    @pytest.mark.parametrize("marker", write_fanout._BRANCH_EDITS)
-    def test_a_prompt_that_lost_any_stripped_marker_raises(self, marker):
-        """Each edit asserts its own marker, so a reworded prompt fails here instead of
-        silently leaving a branch with an instruction it cannot satisfy."""
-        with pytest.raises(ValueError, match="drifted"):
-            write_fanout.branch_body(self._body().replace(marker, "GONE"), Path("/tmp/b/s00"))

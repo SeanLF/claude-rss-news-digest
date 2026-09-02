@@ -12,7 +12,6 @@ import re
 import unicodedata
 from pathlib import Path
 
-import config
 from eval_graders import grade_selections
 from schema import NOT_COVERED_BLURB_MAX_LEN, SELECTIONS_SCHEMA, validate_selections
 from utils import ARTICLE_ID_GROUP, cluster_for_articles, strip_article_ids
@@ -184,8 +183,6 @@ def _load_repair_resolution(
     should apply -- but ONLY for entries the repair stage resolved as ``repaired``
     (apply guards passed AND the scoped re-check passed). Every layer here is
     fail-closed so repair can never silently WEAKEN a drop decision:
-      - gated on config.REPAIR_ENABLED, so a stale/foreign resolution file left
-        in claude_input from a prior run is ignored unless repair is on;
       - a missing or unreadable file yields an empty map (all coherence drops
         stand), never an exception;
       - only ``status == "repaired"`` entries whose ``recheck_pass`` is exactly
@@ -197,8 +194,6 @@ def _load_repair_resolution(
         EXACTLY the fields COHERENCE flagged) is enforced in the ladder against
         the authoritative coherence report, which this loader does not see.
     """
-    if not config.REPAIR_ENABLED:
-        return {}, "repair disabled (REPAIR_ENABLED=false)"
     path = claude_input_dir / "repair_resolution.json"
     if not path.exists():
         return {}, "no repair resolution this run"

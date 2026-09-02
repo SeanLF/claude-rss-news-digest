@@ -1,12 +1,11 @@
-"""Orchestrator wiring for the per-story WRITE fan-out (WRITE_PER_STORY_ENABLED).
+"""Orchestrator wiring for the per-story WRITE fan-out.
 
 Measured on run 284: one WRITE call over every selected story and every article
 fabricates unsupported specifics in ~40% of stories, and a replay through the
 production SDK path cut coherence flags from 6,6,7,6 to 2,3,2,1 per 16 stories
 when each story was written from its own cluster alone. This file pins the
-wiring that ships that: with the flag off the pipeline is unchanged, and with it
-on every branch keeps run_stage's bounds, the assembled order is SELECT's, and
-run_usage still gets exactly one `write` row.
+wiring that ships that: every branch keeps run_stage's bounds, the assembled
+order is SELECT's, and run_usage still gets exactly one `write` row.
 
 No SDK call is ever made -- ``claude_cli.run_agent`` is mocked throughout.
 """
@@ -25,7 +24,6 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 import orchestrate
 import schema
-import write_fanout
 from claude_cli import StageResult
 
 REPO_ROOT = Path(__file__).parent.parent.parent
@@ -125,12 +123,11 @@ class _Fake:
             self.live -= 1
 
 
-def _run_write(root, fake, monkeypatch, *, flag=True, rows=None):
+def _run_write(root, fake, monkeypatch, *, rows=None):
     """Drive the phase and return the usage rows it emitted, in emission order.
 
     ``rows`` lets a caller keep the list across a raising call, which is the point of the
     callback: spend already billed must survive a later failure."""
-    monkeypatch.setattr(orchestrate.config, "WRITE_PER_STORY_ENABLED", flag)
     monkeypatch.setattr(orchestrate.claude_cli, "run_agent", fake)
     monkeypatch.setattr(orchestrate, "_AGENTS_DIR", AGENTS_DIR)
     out = rows if rows is not None else []
@@ -143,45 +140,7 @@ def _run_write(root, fake, monkeypatch, *, flag=True, rows=None):
 
 
 # --------------------------------------------------------------------------- #
-# Flag off: byte-for-byte the batch stage.
-# --------------------------------------------------------------------------- #
-
-
-class TestFlagOff:
-    def test_batch_write_runs_once_over_the_unredirected_prompt(self, tmp_path, monkeypatch):
-        _seed(tmp_path)
-        seen: list[str] = []
-
-        async def fake(_prompt, *, system_prompt, **_k):
-            seen.append(system_prompt)
-            (tmp_path / "draft_selections.json").write_text(
-                json.dumps({"must_know": [_story("H")], "should_know": [], "preheader": "p"})
-            )
-            return _result()
-
-        rows = _run_write(tmp_path, fake, monkeypatch, flag=False)
-
-        assert len(seen) == 1
-        assert write_fanout.PROD_INPUT_MARKER in seen[0]
-        assert [r["subagent"] for r in rows] == ["write"]
-        assert not (tmp_path / write_fanout.BRANCH_ROOT_NAME).exists()
-
-    def test_batch_write_preheader_comes_from_the_write_stage(self, tmp_path, monkeypatch):
-        _seed(tmp_path)
-
-        async def fake(_prompt, *, system_prompt, **_k):
-            (tmp_path / "draft_selections.json").write_text(
-                json.dumps({"must_know": [_story("H")], "should_know": [], "preheader": "batch preheader"})
-            )
-            return _result()
-
-        _run_write(tmp_path, fake, monkeypatch, flag=False)
-        draft = json.loads((tmp_path / "draft_selections.json").read_text())
-        assert draft["preheader"] == "batch preheader"
-
-
-# --------------------------------------------------------------------------- #
-# Flag on: fan out / fan in.
+# Fan out / fan in.
 # --------------------------------------------------------------------------- #
 
 
@@ -272,7 +231,6 @@ class TestFanOut:
         """with_retry_async only consults the deadline once fn() raises, so a queued wave
         would otherwise open a fresh 15-minute attempt well past the run's budget."""
         _seed(tmp_path, n_must=2, n_should=0)
-        monkeypatch.setattr(orchestrate.config, "WRITE_PER_STORY_ENABLED", True)
         monkeypatch.setattr(orchestrate.claude_cli, "run_agent", _Fake(tmp_path))
         monkeypatch.setattr(orchestrate, "_AGENTS_DIR", AGENTS_DIR)
         with pytest.raises(RuntimeError, match="run deadline"):
@@ -539,7 +497,7 @@ class TestUsageAndArtifacts:
         assert row["cache_write_tokens"] == 3 * 50
         assert row["cache_read_tokens"] == 3 * 800
         assert row["api_cost_usd"] == pytest.approx(3 * 0.1)
-        assert row["model"] == "claude-sonnet-4-6"
+        assert row["model"] == orchestrate.parse_agent_spec(AGENTS_DIR / "write.md").model
 
     def test_write_row_duration_is_stage_wall_clock_not_the_sum_of_concurrent_branches(self, tmp_path, monkeypatch):
         _seed(tmp_path, n_must=2, n_should=1)
@@ -655,22 +613,6 @@ class TestUsageAndArtifacts:
     def test_the_file_is_in_the_archive_sweeps_list(self):
         assert "write_branches.json" in orchestrate.db._TRACE_ARTIFACTS
 
-    def test_no_branch_artifact_when_the_flag_is_off(self, tmp_path, monkeypatch):
-        _seed(tmp_path)
-        archived: dict[str, str] = {}
-        monkeypatch.setattr(
-            orchestrate.db, "record_run_artifact", lambda name, content: archived.update({name: content}) or True
-        )
-
-        async def fake(_prompt, *, system_prompt, **_k):
-            (tmp_path / "draft_selections.json").write_text(
-                json.dumps({"must_know": [_story("H")], "should_know": [], "preheader": "p"})
-            )
-            return _result()
-
-        _run_write(tmp_path, fake, monkeypatch, flag=False)
-        assert "write_branches.json" not in archived
-
 
 # --------------------------------------------------------------------------- #
 # Repetition guard.
@@ -741,7 +683,6 @@ class TestResume:
         )
         (tmp_path / "recap.txt").write_text("A recap.")
         fake = _Fake(tmp_path)
-        monkeypatch.setattr(orchestrate.config, "WRITE_PER_STORY_ENABLED", True)
         monkeypatch.setattr(orchestrate.claude_cli, "run_agent", fake)
         monkeypatch.setattr(orchestrate, "_AGENTS_DIR", AGENTS_DIR)
         monkeypatch.setattr(orchestrate.cluster_extractjoin, "run_extractjoin_stage", None)

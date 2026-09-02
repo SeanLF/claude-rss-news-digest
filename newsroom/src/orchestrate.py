@@ -69,8 +69,8 @@ _AGENTS_DIR = Path(".claude/agents")
 # model reason over ~460 articles until it tripped the 32k output-token ceiling
 # and the run aborted. That stage no longer reaches this default -- orchestrate_selections
 # routes cluster to cluster_extractjoin, which sets its own -- so this now governs only
-# RECAP/SELECT/WRITE, and the incident that justifies it happened elsewhere. coherence
-# overrides it per-stage; repair inherits this default and is the next candidate.
+# RECAP/SELECT, and the incident that justifies it happened elsewhere. coherence and write
+# override it per-stage; repair inherits this default and is the next candidate.
 _THINKING: ThinkingConfig = {"type": "disabled"}
 
 
@@ -141,8 +141,8 @@ _STAGE_ATTEMPT_TIMEOUT_S = 2700.0
 # stage can outspend a whole normal run.
 _STAGE_BUDGET_USD = 8.0
 
-# Concurrent WRITE branches when WRITE_PER_STORY_ENABLED. Matches
-# cluster_extractjoin._EXTRACT_CONCURRENCY, the only other fan-out in the pipeline.
+# Concurrent WRITE branches. Matches cluster_extractjoin._EXTRACT_CONCURRENCY, the only
+# other fan-out in the pipeline.
 _WRITE_BRANCH_CONCURRENCY = 4
 
 # Hard cap on ONE branch attempt. Far below _STAGE_ATTEMPT_TIMEOUT_S because a branch writes
@@ -152,8 +152,9 @@ _WRITE_BRANCH_CONCURRENCY = 4
 _WRITE_BRANCH_ATTEMPT_TIMEOUT_S = 900.0
 
 # Spend cap for ONE branch attempt, sized to a healthy branch rather than to a whole stage:
-# the run-284 replay bills ~$0.13 per branch, so this is ~8x headroom for one unusually large
-# cluster. _run_write_branches bounds the PHASE on top of it.
+# the run-284 replay on the shipped config bills ~$0.13 per branch and $0.25 at its widest
+# cluster, so this is ~4x headroom over the worst branch measured. _run_write_branches bounds
+# the PHASE on top of it.
 _WRITE_BRANCH_BUDGET_USD = 1.00
 
 _PREHEADER_NAME = "preheader.txt"
@@ -665,7 +666,7 @@ async def run_stage(
 
 
 # --------------------------------------------------------------------------- #
-# WRITE phase: one batch call, or one call per selected story behind the flag.
+# WRITE phase: one call per selected story, fanned back in by Python.
 # --------------------------------------------------------------------------- #
 
 
@@ -849,32 +850,17 @@ async def run_write_phase(
 ) -> None:
     """Run the WRITE stage, handing each usage row to ``on_usage`` as it is produced.
 
-    With ``config.WRITE_PER_STORY_ENABLED`` off this is the single batch call, unchanged.
-    With it on, WRITE runs once per selected story against only that story's cluster, and
-    Python assembles the branches back into ``draft_selections.json`` in SELECT's order;
-    the preheader -- the one genuinely cross-story field -- is then written by its own
-    stage from the assembled headlines.
+    WRITE runs once per selected story against only that story's cluster, and Python
+    assembles the branches back into ``draft_selections.json`` in SELECT's order; the
+    preheader -- the one genuinely cross-story field -- is then written by its own stage
+    from the assembled headlines.
 
-    Rows go out through the callback rather than a return value because the per-story path
-    can fail after paying for some of its branches, and spend already billed has to reach
+    Rows go out through the callback rather than a return value because the phase can fail
+    after paying for some of its branches, and spend already billed has to reach
     ``run_usage`` regardless (the invariant ``orchestrate_selections._record`` exists for).
     """
     spec = parse_agent_spec(_AGENTS_DIR / "write.md")
     draft_path = claude_input_dir / "draft_selections.json"
-    if not config.WRITE_PER_STORY_ENABLED:
-        on_usage(
-            await run_stage(
-                spec,
-                label="write",
-                output_path=draft_path,
-                validate=validate_draft,
-                model_override=model_override,
-                cwd=cwd,
-                claude_input_dir=claude_input_dir,
-                run_deadline=run_deadline,
-            )
-        )
-        return
 
     stage_start = time.monotonic()
     model = model_override or spec.model
@@ -1138,12 +1124,12 @@ def _load_repair_spec(filename: str) -> AgentSpec:
 
 
 def _clear_repair_health(claude_input_dir: Path) -> None:
-    """Drop a previous attempt's fault file. Called unconditionally, NOT from inside the
-    phase: same-day --resume reuses claude_input, so a fault left by a run made before repair
-    was switched off would otherwise be archived again and alert on a run that never ran it.
+    """Drop a previous attempt's fault file, before the phase can decide it has nothing to
+    do: same-day --resume reuses claude_input, so a fault left by an earlier attempt would
+    otherwise be archived again and alert on a run that hit no fault at all.
 
-    Never raises: one call site sits outside every try, and a filesystem mutation added for
-    observability must not be the thing that kills a delivery."""
+    Never raises: a filesystem mutation added for observability must not be the thing that
+    kills a delivery."""
     try:
         (claude_input_dir / _REPAIR_HEALTH_NAME).unlink(missing_ok=True)
     except OSError as e:
@@ -1398,8 +1384,8 @@ async def orchestrate_selections(
             )
             validate(claude_input_dir)
             _record(row)
-        # WRITE is one call over every story, or -- behind WRITE_PER_STORY_ENABLED -- one
-        # call per story against only that story's cluster, fanned back in by Python.
+        # WRITE is one call per story against only that story's cluster, fanned back in
+        # by Python.
         elif label == "write":
             await run_write_phase(
                 claude_input_dir=claude_input_dir,
@@ -1438,16 +1424,12 @@ async def orchestrate_selections(
                 deadline=config.GNEWS_RESOLVE_DEADLINE_S,
             )
 
-    # Repair-not-drop (conditional, additive): between COHERENCE and merge,
-    # regenerate a flagged repairable field and re-check it rather than let merge
-    # drop the whole story. Off by default; best-effort so it can never abort the
-    # run (merge falls back to dropping exactly as today). Skipped on resume-only
-    # runs where COHERENCE was reused -- the draft/report are still on disk, so it
-    # runs whenever those inputs exist and the flag is on.
-    _clear_repair_health(claude_input_dir)
-    if config.REPAIR_ENABLED:
-        for row in await _run_repair_phase_best_effort(claude_input_dir, model_override=model_override, cwd=cwd):
-            _record(row)
+    # Repair-not-drop: between COHERENCE and merge, regenerate a flagged repairable
+    # field and re-check it rather than let merge drop the whole story. Best-effort so
+    # it can never abort the run (merge falls back to dropping the story). Runs whenever
+    # the draft/report are on disk, including resume-only runs where COHERENCE was reused.
+    for row in await _run_repair_phase_best_effort(claude_input_dir, model_override=model_override, cwd=cwd):
+        _record(row)
 
     total = sum(r["api_cost_usd"] for r in usage_rows)
     logger.info("Selection complete: %d stages, $%.4f API-equivalent", len(usage_rows), total)

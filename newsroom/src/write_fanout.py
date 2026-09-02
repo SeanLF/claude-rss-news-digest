@@ -1,10 +1,9 @@
 """Per-story input branches for the WRITE stage, and the fan-in that follows.
 
-Deterministic Python only: building one input directory per selected story, rewriting
-write.md into the prompt a single-story branch should actually receive, validating what a
-branch wrote, assembling the branches back into a single ``draft_selections.json`` in
-SELECT's order, and flagging two headlines that ended up worded the same. The SDK wiring
-(bounds, retry, usage, concurrency) lives in ``orchestrate.py``.
+Deterministic Python only: building one input directory per selected story, pointing
+write.md at it, validating what a branch wrote, assembling the branches back into a single
+``draft_selections.json`` in SELECT's order, and flagging two headlines that ended up worded
+the same. The SDK wiring (bounds, retry, usage, concurrency) lives in ``orchestrate.py``.
 """
 
 from __future__ import annotations
@@ -82,30 +81,12 @@ class FanOut:
 
 
 # --------------------------------------------------------------------------- #
-# The branch prompt: write.md rewritten for a call that sees exactly one story.
+# The branch prompt: write.md pointed at one branch's input directory.
 # --------------------------------------------------------------------------- #
 
-# write.md is left byte-identical on disk -- the batch arm is the shipped one, and an A/B
-# whose control has been edited measures two changes at once. Every per-story adjustment is
-# made here, on the copy the branch receives.
-_PREHEADER_INSTRUCTION = "\n**Preheader:** One sentence capturing 2-3 biggest stories. Max 150 characters. No links.\n"
-_PREHEADER_SCHEMA_KEY = '  ],\n  "preheader": "..."\n}'
-_PREHEADER_SCHEMA_KEY_STRIPPED = "  ]\n}"
 
-# The two clauses that describe a failure mode of writing many stories in one call.
-_BATCHING_CLAUSES = (
-    " Writing many stories at once makes it easy to settle for an importance-sounding"
-    " restatement on the lines you write last -- give every why_it_matters the same"
-    " scrutiny as your first.",
-    " Writing many stories at once makes it easy to under-cite the ones you write last"
-    " -- give every story the same citation scrutiny as your first.",
-)
-
-_BRANCH_EDITS = (_PREHEADER_INSTRUCTION, _PREHEADER_SCHEMA_KEY, *_BATCHING_CLAUSES)
-
-
-def redirect_body(body: str, branch_dir: Path) -> str:
-    """Point an agent prompt's hardcoded prod input path at ``branch_dir``.
+def branch_body(body: str, branch_dir: Path) -> str:
+    """write.md as ONE branch runs it: the hardcoded prod input path redirected.
 
     Raises rather than returning the body untouched: a prompt whose paths drifted would
     otherwise run against the full run directory and silently undo the isolation.
@@ -113,27 +94,6 @@ def redirect_body(body: str, branch_dir: Path) -> str:
     if PROD_INPUT_MARKER not in body:
         raise ValueError(f"expected {PROD_INPUT_MARKER!r} in the agent body to redirect; prompt drifted")
     return body.replace(PROD_INPUT_MARKER, f"{branch_dir}/")
-
-
-def branch_body(body: str, branch_dir: Path) -> str:
-    """write.md as ONE branch runs it: paths redirected, batch-only text removed.
-
-    Removed: the preheader request and its schema key (a branch sees one story, so "the
-    2-3 biggest stories" is unsatisfiable, and the preheader agent writes it after fan-in);
-    and the two clauses about under-citing "the ones you write last", which describe a
-    failure mode a single-story call cannot have.
-
-    Every edit asserts its marker first, so a reworded prompt fails here instead of
-    silently leaving a branch with an instruction it cannot satisfy.
-    """
-    out = redirect_body(body, branch_dir)
-    for marker in _BRANCH_EDITS:
-        if marker not in out:
-            raise ValueError(f"write.md: expected {marker!r} to strip for a per-story branch; prompt drifted")
-    out = out.replace(_PREHEADER_INSTRUCTION, "\n").replace(_PREHEADER_SCHEMA_KEY, _PREHEADER_SCHEMA_KEY_STRIPPED)
-    for clause in _BATCHING_CLAUSES:
-        out = out.replace(clause, "")
-    return out
 
 
 # --------------------------------------------------------------------------- #

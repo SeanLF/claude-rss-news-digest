@@ -12,6 +12,7 @@ in Docker.
 
 import asyncio
 import json
+import re
 import sys
 import time
 from pathlib import Path
@@ -197,6 +198,30 @@ class TestRenderBody:
 
         assert "{{CURRENT_DATE}}" not in seen["system_prompt"]
         assert str(date.today().year) in seen["system_prompt"]
+
+
+class TestWriteStageSdkConfig:
+    """WRITE's model and thinking are chosen per-stage, so they belong in a test rather
+    than only in frontmatter a refactor can silently drop back to the module default.
+    The measurement behind the choice is in the commit, not asserted here."""
+
+    def _spec(self):
+        return orchestrate.parse_agent_spec(REPO_ROOT / ".claude" / "agents" / "write.md")
+
+    def test_write_runs_sonnet_5(self):
+        assert self._spec().model == "claude-sonnet-5"
+
+    def test_write_thinks_adaptively_and_leaves_a_trace(self):
+        """display defaults to "omitted" on Sonnet 5, so adaptive without it spends
+        thinking tokens that leave nothing in the transcript to audit. It is free."""
+        assert self._spec().thinking == {"type": "adaptive", "display": "summarized"}
+
+    def test_what_is_actually_sent_is_the_frontmatter_not_the_module_default(self):
+        """spec.thinking is only half the contract -- _resolved_thinking is what reaches the
+        SDK and the run_usage row. Dropping the frontmatter keys sends _THINKING (disabled)
+        instead, so pin the resolved value rather than the parsed one."""
+        assert orchestrate._resolved_thinking(self._spec()) == {"type": "adaptive", "display": "summarized"}
+        assert orchestrate._resolved_thinking(self._spec()) != orchestrate._THINKING
 
 
 class TestWriteSpecGroundsWorldState:
@@ -775,6 +800,11 @@ class TestValidateCoherenceFailedFields:
 # --------------------------------------------------------------------------- #
 
 
+# The one story SELECT hands the fanned-out WRITE stage, and the headline COHERENCE
+# must then report on -- an empty report no longer validates against a non-empty draft.
+_BRANCH_HEADLINE = "Iran attacks cargo ship in Hormuz"
+
+
 class TestOrchestrateSelections:
     # Canned output per stage, keyed by a distinctive phrase from each agent's
     # body (its system prompt) so we write the correct file even though several
@@ -783,10 +813,30 @@ class TestOrchestrateSelections:
     _STAGE_OUTPUTS = (
         ("news clustering agent", "clusters.json", {"clusters": [{"story": "x", "article_ids": ["A1"]}]}),
         ("recap summariser", "recap.txt", None),
-        ("news editor", "selected.json", {"must_know": [], "should_know": []}),
-        ("news writer", "draft_selections.json", {"must_know": [], "should_know": [], "preheader": "p"}),
-        ("fact-checking editor", "coherence_report.json", {"results": []}),
+        (
+            "news editor",
+            "selected.json",
+            {"must_know": [{"cluster_index": 0, "article_ids": ["A1"]}], "should_know": []},
+        ),
+        (
+            "fact-checking editor",
+            "coherence_report.json",
+            {"results": [{"headline": _BRANCH_HEADLINE, "article_ids": ["A1"], "pass": True}]},
+        ),
     )
+
+    # WRITE is fanned out: each call's prompt has been redirected at its own branch dir, so
+    # the fake writes the branch's draft there rather than to claude_input.
+    _BRANCH_DIR_RE = re.compile(r"([^\s`]+)/selected\.json")
+
+    @staticmethod
+    def _branch_story():
+        return {
+            "headline": _BRANCH_HEADLINE,
+            "summary": "A summary.",
+            "why_it_matters": "Because.",
+            "sources": [{"article_id": "A1"}],
+        }
 
     # CLUSTER is now the extract→join stage (not an agent): it reads articles_*.csv and calls
     # run_agent for per-article EXTRACTION, then joins deterministically and writes clusters.json
@@ -834,6 +884,15 @@ class TestOrchestrateSelections:
         async def fake_run(_prompt, *, system_prompt, **_k):
             if "extract clustering metadata" in system_prompt:
                 return self._extract_response()
+            if "news writer" in system_prompt:
+                branch = Path(self._BRANCH_DIR_RE.search(system_prompt).group(1))
+                (branch / "draft_selections.json").write_text(
+                    json.dumps({"must_know": [self._branch_story()], "should_know": []})
+                )
+                return _stage_result()
+            if "newsletter editor" in system_prompt:
+                (claude_input_dir / "preheader.txt").write_text("Iran attacks a cargo ship in Hormuz.")
+                return _stage_result()
             for phrase, filename, payload in self._STAGE_OUTPUTS:
                 if phrase in system_prompt:
                     path = claude_input_dir / filename
@@ -846,7 +905,7 @@ class TestOrchestrateSelections:
 
         return fake_run
 
-    def test_returns_five_rows_in_order(self, tmp_path, monkeypatch):
+    def test_returns_every_stage_row_in_order(self, tmp_path, monkeypatch):
         self._write_articles(tmp_path)
         monkeypatch.setattr(orchestrate.claude_cli, "run_agent", self._fake_writer(tmp_path))
         # Point the orchestrator's spec loader at the real agent files.
@@ -854,7 +913,7 @@ class TestOrchestrateSelections:
 
         rows = _orchestrate(claude_input_dir=tmp_path)
 
-        assert [r["subagent"] for r in rows] == ["cluster", "recap", "select", "write", "coherence"]
+        assert [r["subagent"] for r in rows] == ["cluster", "recap", "select", "write", "preheader", "coherence"]
         assert all(r["api_cost_usd"] >= 0 for r in rows)
 
     def test_raises_if_a_stage_never_validates(self, tmp_path, monkeypatch):
@@ -913,7 +972,7 @@ class TestFulltextWiring:
 
         rows = _orchestrate(claude_input_dir=tmp_path)
 
-        assert [r["subagent"] for r in rows] == ["cluster", "recap", "select", "write", "coherence"]
+        assert [r["subagent"] for r in rows] == ["cluster", "recap", "select", "write", "preheader", "coherence"]
         assert calls.index("select") < calls.index("fulltext") < calls.index("write")
 
     def test_fulltext_raising_unexpectedly_does_not_abort_orchestration(self, tmp_path, monkeypatch, caplog):
@@ -929,7 +988,7 @@ class TestFulltextWiring:
         with caplog.at_level("WARNING"):
             rows = _orchestrate(claude_input_dir=tmp_path)  # must not raise
 
-        assert [r["subagent"] for r in rows] == ["cluster", "recap", "select", "write", "coherence"]
+        assert [r["subagent"] for r in rows] == ["cluster", "recap", "select", "write", "preheader", "coherence"]
         warnings = [r for r in caplog.records if r.levelname == "WARNING"]
         # The unexpected-exception path must log with both the exception type/message and a
         # real traceback attached (exc_info=True), not just a bare str(e).
@@ -952,7 +1011,7 @@ class TestFulltextWiring:
 
         rows = _orchestrate(claude_input_dir=tmp_path)  # must not raise (and must not call fake_fetch)
 
-        assert [r["subagent"] for r in rows] == ["cluster", "recap", "select", "write", "coherence"]
+        assert [r["subagent"] for r in rows] == ["cluster", "recap", "select", "write", "preheader", "coherence"]
 
 
 # --------------------------------------------------------------------------- #
@@ -1160,7 +1219,7 @@ class TestStageBoundaryHeartbeat:
         _orchestrate(claude_input_dir=tmp_path)
 
         assert any("curation start" in line for line in logged)
-        for stage in ("cluster", "recap", "select", "write", "coherence"):
+        for stage in ("cluster", "recap", "select", "write", "preheader", "coherence"):
             assert any(line.startswith(f"{stage} done") for line in logged), f"no marker for {stage}"
 
     def test_an_unreachable_monitor_never_breaks_the_run(self, tmp_path, monkeypatch):
@@ -1177,7 +1236,7 @@ class TestStageBoundaryHeartbeat:
 
         rows = _orchestrate(claude_input_dir=tmp_path)
 
-        assert [r["subagent"] for r in rows] == ["cluster", "recap", "select", "write", "coherence"]
+        assert [r["subagent"] for r in rows] == ["cluster", "recap", "select", "write", "preheader", "coherence"]
 
 
 class TestUsageSurvivesALaterStageFailing:
@@ -1193,7 +1252,7 @@ class TestUsageSurvivesALaterStageFailing:
 
         async def fake_run(_prompt, *, system_prompt, **k):
             # cluster/recap/select behave; WRITE explodes after they have all been billed.
-            if "preheader" in system_prompt.lower():  # unique to write.md
+            if "news writer" in system_prompt:  # unique to write.md
                 raise RuntimeError("write stage exploded")
             return await writer(_prompt, system_prompt=system_prompt, **k)
 

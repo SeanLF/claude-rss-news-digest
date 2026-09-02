@@ -12,19 +12,23 @@ Automated news digest: RSS feeds → Claude curation → HTML email via Resend.
 
 **Curation pipeline (Python-orchestrated subagents):**
 
-Claude never sees URLs. Python assigns opaque article IDs (A1, A2...) and builds `article_index.json`. `orchestrate.py` runs 5 file-based subagents deterministically in a fixed order, invoking each one through the Claude Agent SDK wrapper (`claude_cli.py`):
+Claude never sees URLs. Python assigns opaque article IDs (A1, A2...) and builds `article_index.json`. `orchestrate.py` runs the file-based subagents deterministically in a fixed order, invoking each one through the Claude Agent SDK wrapper (`claude_cli.py`):
 
 1. **CLUSTER** -- group articles by story
 2. **RECAP** -- summarise recent RSS titles (Haiku)
 3. **SELECT** -- editorial judgment: tiers, regions, representative articles
-4. **WRITE** -- headlines, summaries, why_it_matters (references article IDs only)
-5. **COHERENCE** -- verify headlines vs source articles (Haiku)
+4. **WRITE** -- one call per selected story: headline, summary, why_it_matters (references article IDs only)
+5. **PREHEADER** -- the one cross-story field, from the assembled headlines (Haiku)
+6. **COHERENCE** -- verify headlines vs source articles
+7. **REPAIR** -- regenerate and re-check a flagged field instead of dropping the story
 
 After the stages complete, Python (`merge.py:assemble_selections`) reads `draft_selections.json` and `coherence_report.json`, drops headlines whose coherence entry has `pass: false`, validates against `schema.SELECTIONS_SCHEMA`, and writes `selections.json`. Python then resolves article IDs to URLs/source/bias via `resolve_article_ids()` in `digest.py`.
 
 **Intermediate files** (in `data/claude_input/`): `clusters.json`, `recap.txt`, `selected.json`, `article_fulltext.json` (Python-fetched full text for SELECTED stories, best-effort), `draft_selections.json`, `coherence_report.json`, `article_index.json`, `selections.json` (assembled by Python).
 
-Behind `WRITE_PER_STORY_ENABLED` (default false), WRITE runs once per selected story against only that story's cluster instead of once over all of them. `write_fanout.py` builds `write_branches/sNN/` input dirs, Python fans the branch drafts back into `draft_selections.json` in SELECT's order, and a `preheader` agent (Haiku) writes `preheader.txt` — the one cross-story field. `run_usage` still gets one `write` row; the per-branch breakdown is the `write_branches.json` run artifact.
+WRITE fans out: `write_fanout.py` builds one `write_branches/sNN/` input dir per selected story, holding only that story and its cluster's articles, and WRITE is run once against each. Python fans the branch drafts back into `draft_selections.json` in SELECT's order, and a `preheader` agent (Haiku) writes `preheader.txt` — the one cross-story field. `run_usage` gets one `write` row; the per-branch breakdown is the `write_branches.json` run artifact.
+
+After COHERENCE, repair-not-drop runs: a flagged repairable field is regenerated from its own cited sources and re-checked, and only what still fails is dropped (`repair.py`, `.claude/agents/repair.md`). Best-effort — any failure falls back to dropping the story.
 
 **Dedup strategy:** TF-IDF pre-filter on RSS titles (not editorial). `recent_rss_titles.csv` + RECAP subagent + `weekly_recap.txt` replace the old `recent_headlines.csv` feedback loop.
 
@@ -63,7 +67,7 @@ SQLite at `data/digest.db`. Schema managed by migrations in `migrations/`.
 - `newsroom/src/run.py` - CLI + pipeline orchestration (delegates to focused modules)
 - `newsroom/src/` - modules: config, feeds, prepare, claude, digest, render, broadcast, db, usage, utils
 - `newsroom/src/orchestrate.py` - Python orchestration of the 5 curation stages (replaced the old `/news-digest-select` LLM dispatcher); reads `.claude/agents/*.md`
-- `newsroom/src/write_fanout.py` - per-story WRITE branch inputs and fan-in (WRITE_PER_STORY_ENABLED)
+- `newsroom/src/write_fanout.py` - per-story WRITE branch inputs and fan-in
 - `newsroom/src/merge.py` - post-orchestration assembly (drop coherence-failed entries, validate, write selections.json)
 - `newsroom/src/schema.py` - SELECTIONS_SCHEMA used to validate the assembled output
 - `newsroom/templates/digest-template.html` - HTML template for digest output

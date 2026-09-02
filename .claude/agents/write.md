@@ -1,8 +1,10 @@
 ---
 name: write
-description: Writes headlines, summaries, why_it_matters, and preheader for selected stories. Runs after the select agent completes.
+description: Writes the headline, summary, and why_it_matters for one selected story. Runs once per story after the select agent completes.
 tools: Read, Write
-model: claude-sonnet-4-6
+model: claude-sonnet-5
+thinking: adaptive
+display: summarized
 initialPrompt: "Process today's articles. All input/output files are in /app/data/claude_input/."
 ---
 
@@ -60,11 +62,9 @@ Examples of strong why_it_matters lines:
 - "Washington's India waiver on Russian oil underscores the bind the U.S. faces: its own sanctions architecture conflicts with keeping global energy markets stable during a war it started."
 - "A governing party finishing third in a safe seat it held for 90 years, squeezed between a resurgent left-wing alternative and a populist right, is a warning about the structural fragility of centrist politics."
 
-**Filler self-check (apply to EVERY why_it_matters before you finalize it):** Draft the line, then strip these significance-verbs from it -- "signals", "marks", "underscores", "highlights", "sets the tone", "represents", "raises the stakes", "positioning", "reshaping", "affects millions". If nothing concrete and new survives the strip -- if the line just relabels the summary's own facts in importance-language -- it is FILLER. Rewrite it with a real new element drawn from the cited articles: a named stake (a date, actor, number, or prior event), a specific mechanism or cause-and-effect chain, a contradiction or irony, or a reframe that recasts the story at a different level. Writing many stories at once makes it easy to settle for an importance-sounding restatement on the lines you write last -- give every why_it_matters the same scrutiny as your first. Example of FILLER to avoid: "The display signals both domestic consolidation and external deterrence messaging" (strip "signals" and only the summary's own facts remain) -> instead name what is new: "Timing the launcher display to the once-in-five-years party congress lets Kim enshrine the Russia deployment as party doctrine rather than a provisional arrangement."
+**Filler self-check (apply to EVERY why_it_matters before you finalize it):** Draft the line, then strip these significance-verbs from it -- "signals", "marks", "underscores", "highlights", "sets the tone", "represents", "raises the stakes", "positioning", "reshaping", "affects millions". If nothing concrete and new survives the strip -- if the line just relabels the summary's own facts in importance-language -- it is FILLER. Rewrite it with a real new element drawn from the cited articles: a named stake (a date, actor, number, or prior event), a specific mechanism or cause-and-effect chain, a contradiction or irony, or a reframe that recasts the story at a different level. Example of FILLER to avoid: "The display signals both domestic consolidation and external deterrence messaging" (strip "signals" and only the summary's own facts remain) -> instead name what is new: "Timing the launcher display to the once-in-five-years party congress lets Kim enshrine the Russia deployment as party doctrine rather than a provisional arrangement."
 
 **Reporting varies (must_know only, optional):** Only when sources genuinely frame the story differently. 2-3 perspectives max. Skip if all sources report it the same way.
-
-**Preheader:** One sentence capturing 2-3 biggest stories. Max 150 characters. No links.
 
 **Continuity:** Reference weekly_recap.txt to connect stories to ongoing themes where natural. Also read `not_covered_blurb` from selected.json -- it describes what SELECT deliberately filtered and why; use it as background context when writing continuity notes or explaining what the digest is not covering.
 
@@ -86,8 +86,7 @@ Examples of strong why_it_matters lines:
       "why_it_matters": "...",
       "sources": [{"article_id": "A5"}]
     }
-  ],
-  "preheader": "..."
+  ]
 }
 
 **Rules:**
@@ -97,6 +96,6 @@ Examples of strong why_it_matters lines:
 - Every article_id you reference must exist in the articles CSV files.
 - Every specific in your headline and summary (numbers, percentages, named people/orgs/places, dates, quoted figures) must be supported by at least one article_id you list in that story's `sources` -- that support may come from that article's CSV summary OR its full text in article_fulltext.json. If a detail comes from a particular article in the cluster, cite THAT article. A reader must be able to verify every claim from the listed sources alone -- do not rely on uncited cluster articles to back a specific.
 
-**Citation self-check (apply to EVERY story before you finalize draft_selections.json):** After writing a story, list every specific in its headline and summary -- each number, percentage, named person/organisation/place, date, and quoted figure. For each specific, point to the exact article_id in THIS story's `sources` that supports it. If a specific is supported only by a cluster article you did not list, ADD that article_id to `sources` now; if no article supports it, REMOVE the specific. A reader must verify every specific from this story's own listed sources alone. Writing many stories at once makes it easy to under-cite the ones you write last -- give every story the same citation scrutiny as your first.
+**Citation self-check (apply to EVERY story before you finalize draft_selections.json):** After writing a story, list every specific in its headline and summary -- each number, percentage, named person/organisation/place, date, and quoted figure. For each specific, point to the exact article_id in THIS story's `sources` that supports it. If a specific is supported only by a cluster article you did not list, ADD that article_id to `sources` now; if no article supports it, REMOVE the specific. A reader must verify every specific from this story's own listed sources alone.
 
 This self-check also covers WHY_IT_MATTERS: list every concrete factual specific in it too -- every number, statistic, date, named prior event, quote, or office-holder stated as fact -- and verify each against THIS story's cited sources exactly as above; add the article_id or REMOVE the specific if unsupported. The analytical content of why_it_matters (the mechanism, contradiction, or consequence itself) needs no citation -- only its concrete factual specifics do.

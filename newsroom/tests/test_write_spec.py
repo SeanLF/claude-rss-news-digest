@@ -171,3 +171,35 @@ def test_thin_source_summary_cap():
     idx = text.index("bare headline")
     window = text[max(0, idx - 350) : idx + 350]
     assert "one sentence" in window or "single sentence" in window or "one-sentence" in window
+
+
+# --- One story per call: what write.md must NOT ask for --------------------
+# WRITE is fanned out one call per story (write_fanout.py). The prompt is the
+# per-story prompt; nothing rewrites it in flight any more, so an instruction a
+# single-story call cannot satisfy has to be absent from the file itself.
+
+
+def test_no_preheader_request():
+    """A branch sees one story, so "the 2-3 biggest stories" is unsatisfiable on the
+    same call that must not fabricate. preheader.md owns the field, and write.md has no
+    reason to name it at all -- so the whole word is the pin. Lexical: a reinstatement
+    that avoids the word would slip past, which is why the schema key is checked too."""
+    body = _body().lower()
+    assert "preheader" not in body
+    assert '"preheader"' not in body
+
+
+def test_no_batching_clauses():
+    """Both clauses described under-citing / under-scrutinising "the ones you write
+    last" -- a failure mode a single-story call cannot have."""
+    text = _body().lower()
+    assert "many stories at once" not in text
+    assert "you write last" not in text
+
+
+def test_the_self_checks_kept_their_scope_when_the_batching_clauses_went():
+    """Negative control for the two deletions above: they removed one sentence each,
+    not the rules those sentences sat in."""
+    text = _body().lower()
+    assert "list every specific in its headline and summary" in text
+    assert "filler self-check" in text

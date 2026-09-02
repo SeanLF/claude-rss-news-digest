@@ -413,16 +413,36 @@ class TestSpecDrift:
         assert health["outcome"] == "spec_error"
         assert "repair.md" in health["detail"]
 
-    def test_a_stale_fault_does_not_alert_after_repair_is_switched_off(self, tmp_path, monkeypatch):
-        # A spec fault, then REPAIR_ENABLED=false, then a same-day --resume: claude_input is
-        # reused, so a fault file cleared only INSIDE the phase would be archived again and
-        # alert on a run that never ran repair at all.
+    def test_a_stale_fault_does_not_alert_after_a_run_with_nothing_to_repair(self, tmp_path, monkeypatch, caplog):
+        # A spec fault, then a same-day resume whose coherence report flags nothing:
+        # claude_input is reused, so a fault file cleared only where the phase writes one
+        # would be archived again and alert on a run that hit no fault at all. The inputs
+        # are valid and every story passes, so the phase takes its no-op early return --
+        # the clear has to happen BEFORE that return, not merely before a crash.
         claude_input = tmp_path / "claude_input"
         claude_input.mkdir()
+        (claude_input / "draft_selections.json").write_text(
+            json.dumps(
+                {
+                    "must_know": [
+                        {"headline": "good", "summary": "s", "why_it_matters": "w", "sources": [{"article_id": "A1"}]}
+                    ],
+                    "should_know": [],
+                    "preheader": "p",
+                }
+            )
+        )
+        (claude_input / "coherence_report.json").write_text(
+            json.dumps({"results": [{"headline": "good", "article_ids": ["A1"], "pass": True}]})
+        )
         (claude_input / "repair_health.json").write_text(json.dumps({"outcome": "spec_error", "detail": "stale"}))
-        monkeypatch.setattr(orchestrate.config, "REPAIR_ENABLED", False)
         monkeypatch.setattr(orchestrate, "_STAGES", ())
 
-        asyncio.run(orchestrate.orchestrate_selections(claude_input_dir=claude_input))
+        with caplog.at_level("INFO"):
+            asyncio.run(orchestrate.orchestrate_selections(claude_input_dir=claude_input))
 
+        # Pins the PATH, not just the outcome: with no inputs on disk the phase crashes
+        # instead, and the assertion below would pass without the early return ever running.
+        assert "no repairable coherence failures" in caplog.text
+        assert "phase did not complete" not in caplog.text
         assert not (claude_input / "repair_health.json").exists()

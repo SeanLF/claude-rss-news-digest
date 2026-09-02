@@ -8,8 +8,7 @@ passes.
 
 This module is the deterministic, model-free core (RARR-shaped: localize ->
 minimal correction -> guard -> re-check). The model calls (the repairer prompt
-and the scoped re-check) are wired in Step 2 behind config.REPAIR_ENABLED; here
-we build the request, apply a repaired field under hard guards, assemble the
+and the scoped re-check) are wired in orchestrate.py; here we build the request, apply a repaired field under hard guards, assemble the
 resolution merge consumes, and log every event. Every guard falls back to
 today's drop -- repair can only ever KEEP a story it could not otherwise keep,
 never ship something worse.

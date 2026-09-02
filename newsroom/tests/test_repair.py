@@ -434,7 +434,6 @@ class TestBackfillRunId:
 # These live here (not test_merge.py) because they exercise the repair feature
 # end-to-end through merge; test_merge.py owns merge's pre-repair behaviour.
 
-import config  # noqa: E402
 from merge import assemble_selections  # noqa: E402
 
 
@@ -477,8 +476,7 @@ def _drop_setup(failed_fields=("headline",)):
 
 
 class TestMergeRepairLadder:
-    def test_repaired_resolution_keeps_and_patches_story(self, tmp_path, monkeypatch):
-        monkeypatch.setattr(config, "REPAIR_ENABLED", True)
+    def test_repaired_resolution_keeps_and_patches_story(self, tmp_path):
         draft, coherence = _drop_setup()
         resolution = {
             "results": [
@@ -497,8 +495,7 @@ class TestMergeRepairLadder:
 
         assert headlines == ["good", "bad, now correct"]
 
-    def test_recheck_failed_resolution_still_drops(self, tmp_path, monkeypatch):
-        monkeypatch.setattr(config, "REPAIR_ENABLED", True)
+    def test_recheck_failed_resolution_still_drops(self, tmp_path):
         draft, coherence = _drop_setup()
         resolution = {
             "results": [
@@ -512,8 +509,7 @@ class TestMergeRepairLadder:
 
         assert headlines == ["good"]
 
-    def test_no_resolution_file_drops_as_today(self, tmp_path, monkeypatch):
-        monkeypatch.setattr(config, "REPAIR_ENABLED", True)
+    def test_no_resolution_file_drops_as_today(self, tmp_path):
         draft, coherence = _drop_setup()
         _write_merge_inputs(tmp_path, draft, coherence, resolution=None)
 
@@ -522,34 +518,12 @@ class TestMergeRepairLadder:
 
         assert headlines == ["good"]
 
-    def test_disabled_flag_ignores_resolution(self, tmp_path, monkeypatch):
-        # Flag off: a stale/foreign repair_resolution.json must never alter drops.
-        monkeypatch.setattr(config, "REPAIR_ENABLED", False)
-        draft, coherence = _drop_setup()
-        resolution = {
-            "results": [
-                {
-                    "article_ids": ["A2"],
-                    "status": "repaired",
-                    "patched_fields": {"headline": "bad, now correct"},
-                    "recheck_pass": True,
-                }
-            ]
-        }
-        _write_merge_inputs(tmp_path, draft, coherence, resolution)
-
-        out = assemble_selections(tmp_path)
-        headlines = [a["headline"] for a in json.loads(out.read_text())["must_know"]]
-
-        assert headlines == ["good"]
-
-    def test_partial_coverage_drops(self, tmp_path, monkeypatch):
+    def test_partial_coverage_drops(self, tmp_path):
         # COHERENCE flagged BOTH headline and summary, but the resolution patches
         # only the headline. Keeping it would ship the still-bad summary. The
         # ladder cross-checks the patch against the checker's flagged fields and
         # drops on a mismatch. (In-process apply_repairs prevents this; the merge
         # consumer must also defend against a malformed/stale/hand-edited file.)
-        monkeypatch.setattr(config, "REPAIR_ENABLED", True)
         draft, coherence = _drop_setup(failed_fields=("headline", "summary"))
         resolution = {
             "results": [
@@ -568,10 +542,9 @@ class TestMergeRepairLadder:
 
         assert headlines == ["good"]
 
-    def test_extra_unflagged_field_drops(self, tmp_path, monkeypatch):
+    def test_extra_unflagged_field_drops(self, tmp_path):
         # Only headline was flagged, but the resolution also patches summary -- a
         # clean field must be untouchable, so the coverage mismatch drops it.
-        monkeypatch.setattr(config, "REPAIR_ENABLED", True)
         draft, coherence = _drop_setup(failed_fields=("headline",))
         resolution = {
             "results": [
@@ -590,10 +563,9 @@ class TestMergeRepairLadder:
 
         assert headlines == ["good"]
 
-    def test_internal_id_leak_in_patch_drops(self, tmp_path, monkeypatch):
+    def test_internal_id_leak_in_patch_drops(self, tmp_path):
         # A patched value carrying an internal article id must never reach a
         # reader (cf. the [A221] blurb leak merge already guards). Reject -> drop.
-        monkeypatch.setattr(config, "REPAIR_ENABLED", True)
         draft, coherence = _drop_setup(failed_fields=("summary",))
         resolution = {
             "results": [
@@ -612,10 +584,9 @@ class TestMergeRepairLadder:
 
         assert headlines == ["good"]
 
-    def test_recheck_pass_not_true_ignored(self, tmp_path, monkeypatch):
+    def test_recheck_pass_not_true_ignored(self, tmp_path):
         # Defense in depth: even if status says "repaired", a recheck_pass that is
         # not exactly True means the fix was never confirmed -> drop.
-        monkeypatch.setattr(config, "REPAIR_ENABLED", True)
         draft, coherence = _drop_setup(failed_fields=("headline",))
         resolution = {
             "results": [

@@ -8,7 +8,6 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
-import config
 from eval_graders import GraderLimits
 from merge import assemble_selections
 from schema import NOT_COVERED_BLURB_MAX_LEN, SELECTIONS_SCHEMA, validate_selections
@@ -332,21 +331,21 @@ class TestFieldAwareCoherenceDegradation:
         assert "2 of 3 assembled stories" in aggregate[0]
         assert "67%" in aggregate[0]
 
-    def test_aggregate_line_names_why_repair_did_not_cover_it(self, tmp_path, caplog, monkeypatch):
+    def test_aggregate_line_names_why_repair_did_not_cover_it(self, tmp_path, caplog):
         """The line is read before the query is. It must not assert a cause it cannot know:
-        REPAIR_ENABLED defaults to false, so "repair produced no usable patch" would send an
-        operator hunting the repairer when repair never ran."""
+        with no repair_resolution.json on disk, "repair produced no usable patch" would send
+        an operator hunting the repairer when repair wrote nothing to consume."""
         draft = _draft(must_know=[_article("good"), _article("bad1")])
         coherence = _coherence(
             {"headline": "bad1", "pass": False, "reason": "why: unsupported", "failed_fields": ["why_it_matters"]},
         )
         _write(tmp_path, draft, coherence)
+        assert not (tmp_path / "repair_resolution.json").exists()
 
-        monkeypatch.setattr(config, "REPAIR_ENABLED", False)
         with caplog.at_level("WARNING"):
             assemble_selections(tmp_path)
         line = next(r.getMessage() for r in caplog.records if "blanked why_it_matters on" in r.getMessage())
-        assert "REPAIR_ENABLED=false" in line
+        assert "no repair resolution this run" in line
         assert "no usable patch" not in line
 
     def test_no_aggregate_line_when_nothing_is_blanked(self, tmp_path, caplog):
