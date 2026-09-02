@@ -24,18 +24,30 @@ Each story carries a headline, a summary, a why-it-matters note, how the reporti
 
 Two components:
 
-- **newsroom** — the Python pipeline: `fetch -> cluster -> recap -> select -> write -> coherence -> assemble -> render -> email`. Subagents hand off through JSON files on disk rather than a shared context. Claude (Sonnet) does the reasoning; the cheap recap stage runs on Haiku.
+- **newsroom** — the Python pipeline: `fetch -> cluster -> recap -> select -> write (one call per story) -> preheader -> coherence -> repair -> assemble -> render -> email`. Stages hand off through JSON files on disk rather than a shared context, so a crashed run resumes and any past run can be replayed from its archived artifacts. Sonnet 5 with adaptive thinking writes and fact-checks; Sonnet 4.6 clusters, selects and repairs; Haiku writes the recap and the inbox preview line.
 - **circulation** — a Rust (Axum) web server: the online archive, per-issue pages, the sources and stats pages, story threads, and the "view in browser" links.
 
-```
-RSS feeds ->  fetch  ->  CLUSTER   group articles into stories (extract -> join)
-                         RECAP     summarise the week's titles (Haiku)
-                         SELECT    editorial judgment: tiers, regions, what matters
-                         WRITE     headlines, summaries, why-it-matters (IDs only)
-                         COHERENCE fact-check every claim vs its source
-                         REPAIR    regenerate failures from their sources, re-check, else drop
-                     ->  assemble (Python resolves IDs -> URLs/source/bias)
-                     ->  render HTML  ->  email (Resend)  +  web archive (circulation)
+```mermaid
+flowchart LR
+  feeds[37 RSS feeds] --> fetch[fetch · 28h window · dedup]
+  fetch --> ids[assign opaque IDs<br/>URLs never reach the model]
+  ids --> cluster[CLUSTER<br/>extract tags 40 articles a call, 4 in flight<br/>deterministic join in Python]
+  cluster --> recap[RECAP<br/>last week's themes · Haiku]
+  recap --> select[SELECT<br/>tiers, regions, order]
+  select --> w1[WRITE story 1]
+  select --> w2[WRITE story 2]
+  select --> wn[WRITE story n<br/>each sees only its own cluster]
+  w1 --> fanin[fan in, SELECT's order]
+  w2 --> fanin
+  wn --> fanin
+  fanin --> pre[PREHEADER · Haiku]
+  pre --> coh[COHERENCE<br/>every specific vs its cited sources]
+  coh -- flagged field --> repair[REPAIR<br/>fix from own sources, re-check once]
+  repair --> assemble
+  coh -- passed --> assemble[assemble · 13 output checks<br/>IDs → URLs, source, bias]
+  assemble --> render[render HTML + MJML]
+  render --> email[email · Resend]
+  render --> archive[web archive · circulation]
 ```
 
 ## Quick Start
