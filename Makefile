@@ -3,7 +3,7 @@
 
 .DEFAULT_GOAL := help
 .PHONY: ci ci-fix ci-full test eval eval-stages eval-coherence eval-repair a11y lighthouse web-check deploy deploy-dry migrate migrate-status \
-        ssh db-clone usage usage-daily analytics analytics-list analytics-q versions circulation preview prompt help
+        ssh db-clone usage usage-daily analytics analytics-list analytics-q versions circulation preview anatomy prompt help
 
 # Default window for the analytics queries; override with RUNS=N
 RUNS ?= 30
@@ -73,6 +73,12 @@ circulation: ## Run circulation server locally (fast Rust rebuilds)
 
 preview: ## Render + screenshot the digest locally, no Docker (usage: make preview [FIXTURE=path])
 	bin/render-preview $(FIXTURE)
+
+anatomy: ## Regenerate the pipeline anatomy page + README diagram (usage: make anatomy [RUN=284] [DB=path])
+	docker compose run --rm --build --entrypoint python3 ci newsroom/tools/pipeline_anatomy.py \
+		--html docs/pipeline-anatomy.html --svg-dir docs --readme README.md \
+		--code-version $(shell git rev-parse --short HEAD) \
+		$(if $(RUN),--run $(RUN),) $(if $(DB),--db $(DB),)
 
 ## Checks
 versions: ## Check for dependency updates

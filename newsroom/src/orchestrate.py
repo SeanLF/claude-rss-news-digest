@@ -189,6 +189,10 @@ class AgentSpec:
     model: str
     tools_str: str
     body: str
+    # The stage's own one-line summary, verbatim from frontmatter. Read by
+    # tools/pipeline_anatomy.py so the generated diagram cannot describe a stage
+    # differently from the stage's own spec.
+    description: str = ""
     # Optional per-stage SDK tuning, parsed from frontmatter. `effort` is opt-in
     # (low|medium|high|max) -- omitted means the SDK default. Haiku 4.5 used to
     # 400 on effort (no longer on SDK 0.2.110 per bin/sdk-canary), so Haiku stages
@@ -252,6 +256,7 @@ def parse_agent_spec(path: Path) -> AgentSpec:
         model=model,
         tools_str=tools_str,
         body=body.strip(),
+        description=fields.get("description", ""),
         effort=effort,
         thinking=thinking,
     )

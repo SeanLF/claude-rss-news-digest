@@ -27,33 +27,14 @@ Two components:
 - **newsroom** — the Python pipeline: `fetch -> cluster -> recap -> select -> write (one call per story) -> preheader -> coherence -> repair -> assemble -> render -> email`. Stages hand off through JSON files on disk rather than a shared context, so a crashed run resumes and any past run can be replayed from its archived artifacts. Sonnet 5 with adaptive thinking writes and fact-checks; Sonnet 4.6 clusters, selects and repairs; Haiku writes the recap and the inbox preview line.
 - **circulation** — a Rust (Axum) web server: the online archive, per-issue pages, the sources and stats pages, story threads, and the "view in browser" links.
 
-```mermaid
-flowchart TB
-  subgraph intake [Python · intake]
-    direction LR
-    feeds[37 RSS feeds] --> fetch[fetch · 28h window · dedup] --> ids[assign opaque IDs<br/>URLs never reach the model]
-  end
-  subgraph claude [Claude · curation]
-    direction TB
-    cluster[CLUSTER · Sonnet 4.6<br/>tag 40 articles a call, 4 in flight<br/>then a deterministic join in Python]
-    recap[RECAP · Haiku<br/>last week's themes]
-    select[SELECT · Sonnet 4.6<br/>tiers, regions, order]
-    cluster --> recap --> select
-    select --> w1[WRITE story 1] & w2[WRITE story 2] & wn[WRITE story n]
-    w1 & w2 & wn --> fanin[fan in, SELECT's order]
-    fanin --> pre[PREHEADER · Haiku]
-    pre --> coh[COHERENCE · Sonnet 5 + thinking<br/>every specific vs its cited sources]
-    coh -- flagged field --> repair[REPAIR · fix from own sources<br/>re-check once, else drop]
-  end
-  subgraph out [Python · assembly]
-    direction LR
-    assemble[assemble · 13 output checks<br/>IDs to URLs, source, bias] --> render[render HTML + MJML] --> email[email · Resend]
-    render --> archive[web archive · circulation]
-  end
-  ids --> cluster
-  coh -- passed --> assemble
-  repair --> assemble
-```
+<!-- pipeline-anatomy:begin -->
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/pipeline-anatomy-dark.svg">
+  <img src="docs/pipeline-anatomy.svg" alt="Data flow for run 284: 37 RSS feeds and 2,686 items into Python intake, then the Claude curation lane (CLUSTER, deterministic join, RECAP, SELECT, WRITE, fan in, PREHEADER, COHERENCE, REPAIR + RECHECK), then Python assembly out to 11 recipients.">
+</picture>
+
+<sub>Stages and models as of c96ab5f. Run figures from run 284 (2026-09-02). That run wrote all stories in one call; the per-story WRITE shown here first ran on 2026-09-03. Regenerate with `make anatomy`. Per-stage models and costs: `docs/pipeline-anatomy.html`.</sub>
+<!-- pipeline-anatomy:end -->
 
 ## Quick Start
 
