@@ -25,6 +25,11 @@ base64 = "0.23"
 # LLM-visibility routes. Single source stays the stored HTML; Markdown is derived, never a
 # second content store.
 htmd = "0.5"
+# MCP surface (`/mcp`, `/.well-known/mcp.json`, the GET bridge): the official Rust SDK, run
+# stateless with JSON responses. Only the server half and the streamable-HTTP transport.
+rmcp = { version = "3.2", default-features = false, features = ["server", "macros", "transport-streamable-http-server"] }
+# Tool input schemas for rmcp's `#[tool]` params (its own `schemars` re-export is the same crate).
+schemars = "1"
 
 [profile.release]
 opt-level = "z"

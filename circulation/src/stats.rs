@@ -799,7 +799,12 @@ pub async fn stats_json(
 ) -> Result<axum::Json<serde_json::Value>, (StatusCode, String)> {
     let days = query.days.unwrap_or(30);
     let data = fetch_stats_data(&state.db_path, days)?;
+    Ok(axum::Json(stats_value(&data)))
+}
 
+/// The `/stats.json` document. Shared with the MCP `get_stats` tool so both doors serve the
+/// same shape.
+pub fn stats_value(data: &StatsData) -> serde_json::Value {
     let source_health: Vec<serde_json::Value> = data
         .source_health
         .iter()
@@ -847,14 +852,14 @@ pub async fn stats_json(
         })
     });
 
-    Ok(axum::Json(serde_json::json!({
+    serde_json::json!({
         "period_days": data.period_days,
         "source_health": source_health,
         "source_usage": source_usage,
         "recent_runs": recent_runs,
         "dedup_stats": dedup_stats,
         "never_selected": data.never_selected
-    })))
+    })
 }
 
 /// Stats HTML dashboard

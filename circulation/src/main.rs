@@ -3,6 +3,7 @@ mod assets;
 mod feed;
 mod handlers;
 mod markdown;
+mod mcp;
 mod search;
 mod stats;
 mod templates;
@@ -38,6 +39,15 @@ pub mod routes {
     /// `/{date}` permalink is kept as a permanent redirect into this (legacy links,
     /// RSS ids, old email "view in browser").
     pub const ISSUES: &str = "/issues";
+    /// The MCP surface (see `mcp.rs`): one JSON-RPC endpoint, its discovery card (two paths,
+    /// the second for clients written against the first draft), and the GET bridge.
+    pub const MCP: &str = "/mcp";
+    pub const MCP_CARD: &str = "/.well-known/mcp.json";
+    pub const MCP_CARD_LEGACY: &str = "/.well-known/mcp/server-card.json";
+    pub const MCP_TOOLS: &str = "/mcp/tools.json";
+    pub const MCP_TOOL_PREFIX: &str = "/mcp/tools";
+    pub const PRIVACY: &str = "/privacy";
+    pub const LLMS: &str = "/llms.txt";
 }
 
 pub struct AppState {
@@ -71,6 +81,9 @@ pub struct AppState {
     /// Whether new signups go through double opt-in (`SUBSCRIBE_DOUBLE_OPT_IN`, default true).
     /// The rollback lever: off restores instant direct-add.
     pub double_opt_in: bool,
+    /// The MCP endpoint (transport + limiters), built on first use from the fields above so
+    /// this struct's literals elsewhere need only a `Default` here. See `AppState::mcp`.
+    pub mcp: std::sync::OnceLock<mcp::Endpoint>,
 }
 
 impl AppState {
@@ -103,6 +116,10 @@ impl AppState {
 
     /// Scheme+host (e.g. "https://example.com"), or empty string when DIGEST_DOMAIN is
     /// unset (local/dev) -- callers then fall back to root-relative links.
+    pub fn mcp(&self) -> &mcp::Endpoint {
+        self.mcp.get_or_init(|| mcp::Endpoint::from_state(self))
+    }
+
     pub fn base_url(&self) -> String {
         self.digest_domain
             .as_ref()
@@ -217,18 +234,19 @@ async fn main() {
         subscribe_limiter: RateLimiter::new(5, Duration::from_secs(3600)),
         subscribe_token_secret,
         double_opt_in,
+        mcp: Default::default(),
     });
 
-    let app = Router::new()
+    let app = mcp_routes(Router::new())
         .route("/", get(handlers::index))
         .route("/subscribe", post(handlers::subscribe))
         .route("/confirm", get(handlers::confirm))
-        .route("/privacy", get(handlers::privacy))
+        .route(routes::PRIVACY, get(handlers::privacy))
         .route("/health", get(handlers::health))
         .route("/favicon.ico", get(handlers::favicon))
         .route("/robots.txt", get(handlers::robots_txt))
         // LLM-visibility discovery files + the archive index as Markdown.
-        .route("/llms.txt", get(handlers::llms_txt))
+        .route(routes::LLMS, get(handlers::llms_txt))
         .route("/llms-full.txt", get(handlers::llms_full_txt))
         .route("/index.md", get(handlers::index_md))
         .route("/apple-touch-icon.png", get(handlers::apple_touch_icon))
@@ -282,6 +300,22 @@ async fn main() {
     )
     .await
     .unwrap();
+}
+
+/// The MCP surface's routes, kept together so the tests can mount exactly what production
+/// mounts. `GET /mcp` is the human listing and `POST /mcp` the JSON-RPC transport; the rest is
+/// discovery and the GET bridge. Not under `/api/`: nothing disallows that prefix in robots.txt
+/// today, but keeping these beside `/llms.txt` says what they are for.
+pub fn mcp_routes(router: Router<Arc<AppState>>) -> Router<Arc<AppState>> {
+    router
+        .route(routes::MCP, get(mcp::listing).post(mcp::jsonrpc))
+        .route(routes::MCP_CARD, get(mcp::server_card))
+        .route(routes::MCP_CARD_LEGACY, get(mcp::server_card))
+        .route(routes::MCP_TOOLS, get(mcp::tools_json))
+        .route(
+            &format!("{}/{{name}}", routes::MCP_TOOL_PREFIX),
+            get(mcp::tool_get),
+        )
 }
 
 /// Required tables for the server to function. `story_feedback` was dropped here when the per-story

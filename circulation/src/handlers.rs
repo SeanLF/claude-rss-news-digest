@@ -846,6 +846,7 @@ pub async fn llms_txt(State(state): State<Arc<AppState>>) -> impl IntoResponse {
     body.push_str(
         "\nEvery dated issue at `/issues/YYYY-MM-DD` also serves Markdown at `/issues/YYYY-MM-DD.md`.\n",
     );
+    body.push_str(&crate::mcp::llms_section(&base));
     ([(CONTENT_TYPE, "text/markdown; charset=utf-8")], body)
 }
 
@@ -1510,6 +1511,7 @@ mod feed_tests {
             subscribe_limiter: RateLimiter::new(5, Duration::from_secs(3600)),
             subscribe_token_secret: None,
             double_opt_in: false,
+            mcp: Default::default(),
         })
     }
 
@@ -1761,6 +1763,7 @@ mod feed_tests {
             subscribe_limiter: RateLimiter::new(5, Duration::from_secs(3600)),
             subscribe_token_secret: None,
             double_opt_in: false,
+            mcp: Default::default(),
         })
     }
 
@@ -2295,6 +2298,7 @@ mod subscribe_handler_tests {
             subscribe_limiter: limiter,
             subscribe_token_secret: secret.map(str::to_string),
             double_opt_in,
+            mcp: Default::default(),
         })
     }
 

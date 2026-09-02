@@ -308,6 +308,7 @@ mod tests {
             ),
             subscribe_token_secret: None,
             double_opt_in: false,
+            mcp: Default::default(),
         })
     }
 
