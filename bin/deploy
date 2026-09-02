@@ -761,14 +761,20 @@ apply_terraform() {
 # Runs after the deploy is live and tagged, so a failure here is loud but not a rollback: the
 # fix is a forward deploy, and the deployment is marked failed so the record says it was not
 # verified. Needs jq, like the SBOM gate; checked here because --skip-build skips that gate.
+# Takes an explicit base URL for testing the function outside a deploy (see docs/lessons).
 mcp_smoke() {
   local url="${1:-}"
   if [ -z "$url" ]; then
-    if [ -z "${DIGEST_DOMAIN:-}" ]; then
-      log_info "DIGEST_DOMAIN unset -- skipping MCP contract smoke"
-      return 0
+    # The domain comes from terraform, the thing that just deployed, not from .env: .env's
+    # DIGEST_DOMAIN is this machine's local OrbStack name, and a dry run showed the smoke
+    # about to probe it. No fallback -- a smoke that cannot name prod must say so, not skip.
+    local domain
+    domain=$(echo 'var.news_digest_domain' | "$INFRA_DIR/bin/tf" console 2>/dev/null | tr -d '"[:space:]') || domain=""
+    if [ -z "$domain" ]; then
+      log_error "could not resolve var.news_digest_domain from terraform -- MCP contract unverified"
+      return 1
     fi
-    url="https://$DIGEST_DOMAIN"
+    url="https://$domain"
   fi
 
   log_step "Smoking the MCP contract on $url..."
