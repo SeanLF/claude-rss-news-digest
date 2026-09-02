@@ -90,7 +90,7 @@ pub struct AppState {
     /// this struct's literals elsewhere need only a `Default` here. See `AppState::mcp`.
     pub mcp: std::sync::OnceLock<mcp::Endpoint>,
     /// The `/ask` endpoint's config and limiters, built on first use. Off without a key.
-    pub ask: std::sync::OnceLock<ask::Ask>,
+    pub ask: std::sync::OnceLock<Arc<ask::Ask>>,
 }
 
 impl AppState {
@@ -127,7 +127,14 @@ impl AppState {
     }
 
     pub fn ask(&self) -> &ask::Ask {
-        self.ask.get_or_init(ask::Ask::default)
+        self.ask_arc()
+    }
+
+    /// The shared handle, for the concurrency slot: a slot has to outlive the request that
+    /// took it (it is released when the answering task ends), so it holds an `Arc`, not a
+    /// borrow of `AppState`.
+    pub fn ask_arc(&self) -> &Arc<ask::Ask> {
+        self.ask.get_or_init(|| Arc::new(ask::Ask::default()))
     }
 
     /// Scheme+host (e.g. "https://example.com"), or empty string when DIGEST_DOMAIN is
