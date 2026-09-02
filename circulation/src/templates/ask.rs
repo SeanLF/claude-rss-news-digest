@@ -39,26 +39,38 @@ const SUGGESTIONS: [&str; 4] = [
 const ASK_CSS: &str = r#"
 .narrow{max-width:680px;}
 .lede{font-family:var(--serif); font-size:19px; color:var(--ink2); line-height:1.55; margin:20px 0 0;}
-.thread{margin:26px 0 0; display:flex; flex-direction:column; gap:18px;}
+.thread{margin:26px 0 0; display:flex; flex-direction:column; gap:26px;}
 .turn{font-family:var(--serif); font-size:16px; line-height:1.65;}
-.turn.q{color:var(--ink); font-weight:600;}
-.turn.a{color:var(--ink2); white-space:pre-wrap;}
-.turn.a a{color:var(--accent-ink);}
+.turn.q{color:var(--ink); font-family:var(--sans); font-size:14px; font-weight:600;
+  padding-bottom:10px; border-bottom:1px solid var(--line);}
+.turn.a{color:var(--ink2);}
+.turn.a a{color:var(--accent-ink); text-decoration:none;
+  background-image:linear-gradient(var(--accent-ink),var(--accent-ink));
+  background-size:100% 1px; background-repeat:no-repeat; background-position:0 100%;}
+.ap{margin:0 0 12px;}
+.ap:last-child,.al:last-child{margin-bottom:0;}
+.ah{font-family:var(--sans); font-weight:700; font-size:12px; letter-spacing:.1em;
+  text-transform:uppercase; color:var(--ink); margin:18px 0 8px;}
+.al{margin:0 0 12px; padding-left:18px;}
+.al li{margin:0 0 6px; line-height:1.6;}
 .turn.err{color:var(--accent-ink); font-size:15px;}
-.steps{display:flex; flex-wrap:wrap; gap:6px; margin:0 0 8px;}
-.step{font-family:var(--sans); font-size:11px; letter-spacing:.06em; text-transform:uppercase;
-  color:var(--muted); border:1px solid var(--line); padding:3px 9px;}
+.steps{display:flex; flex-wrap:wrap; gap:8px; margin:0 0 10px;}
+.step{font-family:var(--sans); font-size:10.5px; letter-spacing:.1em; text-transform:uppercase;
+  color:var(--muted); border:0; padding:0;}
+.step + .step::before{content:"· "; color:var(--line);}
 .askform{display:flex; gap:10px; align-items:flex-end; margin:26px 0 0;}
-.askin{flex:1; font-family:var(--serif); font-size:16px; color:var(--ink); background:none;
-  border:1px solid var(--line); padding:12px 14px; resize:none; line-height:1.5;}
-.askin:focus{outline:2px solid var(--accent-ink); outline-offset:1px;}
-.asksend{font-family:var(--sans); font-size:14px; border:1px solid var(--line); background:none;
-  color:var(--ink); padding:12px 18px; cursor:pointer;}
+.askin{flex:1; font-family:var(--serif); font-size:17px; color:var(--ink); background:none;
+  border:0; border-bottom:1px solid var(--line); padding:10px 2px; resize:none; line-height:1.5;}
+.askin:focus{outline:none; border-bottom-color:var(--accent-ink);}
+.askin:focus-visible{outline:2px solid var(--accent-ink); outline-offset:4px;}
+.asksend{font-family:var(--sans); font-size:13px; letter-spacing:.06em; text-transform:uppercase;
+  border:0; border-bottom:1px solid var(--line); background:none; color:var(--muted);
+  padding:10px 2px 11px; cursor:pointer;}
 .asksend:hover:not(:disabled){border-color:var(--accent-ink); color:var(--accent-ink);}
 .asksend:disabled{opacity:.5; cursor:default;}
-.chips{display:flex; flex-wrap:wrap; gap:8px; margin:14px 0 0;}
-.chip{font-family:var(--serif); font-size:14px; color:var(--ink2); background:none;
-  border:1px solid var(--line); padding:7px 13px; cursor:pointer; text-align:left;}
+.chips{display:flex; flex-wrap:wrap; gap:8px 22px; margin:20px 0 0;}
+.chip{font-family:var(--serif); font-size:14px; color:var(--muted); background:none;
+  border:0; border-bottom:1px solid var(--line); padding:4px 1px; cursor:pointer; text-align:left;}
 .chip:hover{border-color:var(--accent-ink); color:var(--accent-ink);}
 .fine{font-family:var(--serif); font-size:13.5px; color:var(--muted); line-height:1.6; margin:28px 0 0;
   border-top:1px solid var(--line); padding-top:16px;}
@@ -81,26 +93,62 @@ var history=[], busy=false;
 
 function el(cls,text){var d=document.createElement('div');d.className=cls;if(text!=null)d.textContent=text;return d;}
 
-// Answers are model output, built from archive text a model wrote from news feeds, so a
-// hostile feed item can put a URL in one. Only URLs under OUR OWN origin become links; any
-// other stays plain text, so an injected address cannot arrive styled as this site's own.
-// Every node is built with textContent, so nothing in an answer can become markup.
-function renderAnswer(node,text){
+// Answers are Markdown. It is rendered by BUILDING NODES, never by assigning innerHTML, so
+// nothing a model writes can become markup: every piece of text goes through createTextNode
+// and every element is created explicitly. A subset is enough for what answers contain --
+// headings, bold, lists, links, paragraphs -- and anything unrecognised stays literal text,
+// which is the safe direction to be wrong in.
+//
+// Links: only URLs under OUR OWN origin become anchors. An answer is built from archive text
+// a model wrote from news feeds, so a hostile item can put a URL in one, and it must not
+// arrive styled as this site's own.
+function inline(node,text){
   var origin=document.body.getAttribute('data-origin')||'';
-  var re=/(https?:\/\/[^\s)\]]+)/g, last=0, m;
+  // [label](url) | **bold** | bare url
+  var re=/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)|\*\*([^*]+)\*\*|(https?:\/\/[^\s)\]]+)/g;
+  var last=0,m;
+  function link(url,label){
+    if(origin&&url.indexOf(origin+'/')===0){
+      var a=document.createElement('a');a.href=url;a.textContent=label;
+      a.rel='nofollow ugc noreferrer';return a;
+    }
+    return document.createTextNode(label===url?url:label+' ('+url+')');
+  }
   while((m=re.exec(text))!==null){
     if(m.index>last)node.appendChild(document.createTextNode(text.slice(last,m.index)));
-    var url=m[1];
-    if(origin&&url.indexOf(origin+'/')===0){
-      var a=document.createElement('a');a.href=url;a.textContent=url;
-      a.rel='nofollow ugc noreferrer';
-      node.appendChild(a);
-    }else{
-      node.appendChild(document.createTextNode(url));
-    }
-    last=m.index+url.length;
+    if(m[2]!==undefined){node.appendChild(link(m[2],m[1]));}
+    else if(m[3]!==undefined){var b=document.createElement('strong');b.textContent=m[3];node.appendChild(b);}
+    else{node.appendChild(link(m[4],m[4]));}
+    last=m.index+m[0].length;
   }
   if(last<text.length)node.appendChild(document.createTextNode(text.slice(last)));
+}
+
+function renderAnswer(node,text){
+  node.textContent='';
+  var blocks=text.replace(/\r/g,'').split(/\n{2,}/);
+  blocks.forEach(function(block){
+    var lines=block.split('\n').filter(function(l){return l.trim()!=='';});
+    if(!lines.length)return;
+    var h=lines[0].match(/^(#{1,6})\s+(.*)$/);
+    if(h&&lines.length===1){
+      var el=document.createElement('h'+Math.min(h[1].length+2,6));
+      el.className='ah';inline(el,h[2]);node.appendChild(el);return;
+    }
+    var bulleted=lines.every(function(l){return /^\s*[-*]\s+/.test(l);});
+    var numbered=lines.every(function(l){return /^\s*\d+[.)]\s+/.test(l);});
+    if(bulleted||numbered){
+      var list=document.createElement(numbered?'ol':'ul');list.className='al';
+      lines.forEach(function(l){
+        var li=document.createElement('li');
+        inline(li,l.replace(/^\s*(?:[-*]|\d+[.)])\s+/,''));
+        list.appendChild(li);
+      });
+      node.appendChild(list);return;
+    }
+    var p=document.createElement('p');p.className='ap';
+    inline(p,lines.join(' '));node.appendChild(p);
+  });
 }
 
 function ask(q){
@@ -335,8 +383,18 @@ mod tests {
     /// so an answer that contains markup is shown, not run.
     #[test]
     fn the_client_never_assigns_innerhtml() {
+        // The property is that nothing is ASSIGNED to innerHTML; naming it in a comment that
+        // explains why is fine, and the first version of this test failed on its own prose.
         assert!(
-            !ASK_JS.contains("innerHTML"),
+            !ASK_JS.contains("innerHTML="),
+            "answers must not be parsed as markup"
+        );
+        assert!(
+            !ASK_JS.contains("innerHTML ="),
+            "answers must not be parsed as markup"
+        );
+        assert!(
+            !ASK_JS.contains("insertAdjacentHTML"),
             "answers must not be parsed as markup"
         );
         assert!(ASK_JS.contains("createTextNode"), "{ASK_JS}");

@@ -80,6 +80,17 @@ services:
       # Sending address -> web "hit reply" mailto target; unset just hides the line.
       - RESEND_FROM
       - DIGEST_DOMAIN
+      # The /ask question box. Both are required: the key alone does not arm an endpoint that
+      # spends money per request. Unset either and /ask renders its "not switched on" state,
+      # which is the same thing a deployment without them does.
+      - ASK_ENABLED
+      - ASK_API_KEY
+      - ASK_MODEL
+    # Production runs this container at --memory=256m on a 2-core box (see the terraform for
+    # digest_server). Matching it locally means a memory problem shows up here rather than in
+    # front of readers.
+    mem_limit: 256m
+    cpus: 2
     labels:
       - dev.orbstack.domains=${ORBSTACK_DOMAIN:-}
 
