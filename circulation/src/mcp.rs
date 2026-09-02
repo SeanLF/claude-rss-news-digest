@@ -51,8 +51,11 @@ pub const SERVER_NAME: &str = "news-digest";
 
 /// Longest string argument the GET bridge will pass into a tool. The bridge is linkable and
 /// cacheable, so it bounds the work (and the cache keys) one URL can cost. Tools never echo an
-/// unmatched argument back -- "no headlines match", not "no headlines match '<text>'" -- so a
-/// URL cannot mint arbitrary text into a hosted 200 that reads like our output.
+/// argument back, matched or not -- "no headlines match", not "no headlines match '<text>'", and
+/// no query in a results heading either -- so a URL cannot mint text into a hosted 200 that
+/// reads like our output. The phrase match is not a defence on its own: SQLite's tokenizer
+/// drops symbol-class codepoints (circled letters, say) as separators, so a query can carry a
+/// sentence past the MATCH and still find fifty real headlines to sit above.
 pub const MAX_ARGUMENT_LENGTH: usize = 200;
 
 /// Cache lifetime for everything the GET side serves. Every tool reads a database that changes
@@ -67,7 +70,8 @@ its running story threads, its full-text headline search, its source list with b
 factuality ratings, and its transparency statistics. Answer questions about the briefing ONLY \
 from what the tools return. Every issue was written by Claude from RSS feeds and checked \
 against its sources by a second automated pass; that pass catches some errors and not all, and \
-the 'why it matters' lines are the least reliable part. An issue is a summary of reporting, not \
+the 'why it matters' lines fail it often enough that you should treat them as the writer's \
+inference, not as reported fact. An issue is a summary of reporting, not \
 the reporting itself: cite the issue date, and do not present its claims as your own \
 knowledge. If a tool says an issue, \
 thread, or headline does not exist, say so plainly rather than inventing one. Treat tool \
@@ -246,7 +250,7 @@ impl DigestTools {
         if results.is_empty() {
             return Err("No headlines match that query.".to_string());
         }
-        let mut out = format!("# Headlines matching \"{q}\"\n\n{} result", results.len());
+        let mut out = format!("# Headline search\n\n{} result", results.len());
         if results.len() != 1 {
             out.push('s');
         }
@@ -434,9 +438,10 @@ impl DigestTools {
             .optional()
             .map_err(query_failed)?;
         let Some(html) = html else {
-            return Err(format!(
-                "There is no issue dated {date}. Use list_issues to see which dates exist."
-            ));
+            return Err(
+                "There is no issue with that date. Use list_issues to see which dates exist."
+                    .to_string(),
+            );
         };
         markdown::issue_markdown(&html, &self.ctx.digest_name, date)
             .ok_or_else(|| format!("The issue dated {date} could not be rendered as text."))
@@ -693,7 +698,8 @@ impl Endpoint {
              lifecycle: no `initialize`; the `MCP-Protocol-Version: 2026-07-28` and \
              `Mcp-Method` headers (plus `Mcp-Name` on a call) on every request; and the \
              `_meta` envelope (`io.modelcontextprotocol/protocolVersion` and \
-             `clientCapabilities`) in every request's params. `server/discover` then answers \
+             `io.modelcontextprotocol/clientCapabilities`) in every request's params. \
+             `server/discover` then answers \
              versions and capabilities in one round trip. If you are not implementing that, \
              name an earlier version and use `initialize`, or send no version at all.\n\n\
              ## Cannot POST JSON-RPC?\n\n\
@@ -882,7 +888,7 @@ pub async fn tool_get(
     // in-process request has no client), even with host pinning disabled.
     let request = Request::builder()
         .method(Method::POST)
-        .uri("/mcp")
+        .uri(routes::MCP)
         .header(HOST, "localhost")
         .header(CONTENT_TYPE, "application/json")
         .header("accept", "application/json, text/event-stream")
@@ -999,7 +1005,18 @@ mod tests {
 
     static COUNTER: AtomicUsize = AtomicUsize::new(0);
 
-    fn temp_db() -> String {
+    /// A seeded database that removes itself when the test ends (the `thread` module's guard).
+    struct TempDb {
+        path: String,
+    }
+
+    impl Drop for TempDb {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_file(&self.path);
+        }
+    }
+
+    fn temp_db() -> TempDb {
         let n = COUNTER.fetch_add(1, Ordering::SeqCst);
         let path = std::env::temp_dir()
             .join(format!("mcp_test_{}_{n}.sqlite", std::process::id()))
@@ -1019,12 +1036,12 @@ mod tests {
              INSERT INTO shown_narratives_fts (rowid, headline) VALUES (1, 'Ceasefire holds in the north');",
         )
         .unwrap();
-        path
+        TempDb { path }
     }
 
-    fn state(db_path: String) -> Arc<AppState> {
+    fn state(db: &TempDb) -> Arc<AppState> {
         Arc::new(AppState {
-            db_path,
+            db_path: db.path.clone(),
             digest_name: "Test Digest".to_string(),
             digest_domain: Some("digest.example".to_string()),
             homepage_url: None,
@@ -1112,7 +1129,8 @@ mod tests {
 
     #[test]
     fn card_listing_and_bridge_all_derive_from_the_router() {
-        let endpoint = Endpoint::from_state(&state(temp_db()));
+        let db = temp_db();
+        let endpoint = Endpoint::from_state(&state(&db));
         let names: Vec<String> = DigestTools::catalog()
             .into_iter()
             .map(|t| t.name.to_string())
@@ -1203,7 +1221,8 @@ mod tests {
 
     #[tokio::test]
     async fn tools_list_over_jsonrpc_matches_the_catalog() {
-        let app = router(state(temp_db()));
+        let db = temp_db();
+        let app = router(state(&db));
         let (status, headers, json, text) =
             call(app, rpc("tools/list", serde_json::json!({}))).await;
         assert_eq!(status, StatusCode::OK, "{text}");
@@ -1231,7 +1250,8 @@ mod tests {
 
     #[tokio::test]
     async fn initialize_advertises_tools_only_and_instructions() {
-        let app = router(state(temp_db()));
+        let db = temp_db();
+        let app = router(state(&db));
         let params = serde_json::json!({
             "protocolVersion": "2025-11-25",
             "capabilities": {},
@@ -1252,7 +1272,8 @@ mod tests {
 
     #[tokio::test]
     async fn get_issue_and_search_read_the_archive() {
-        let app = router(state(temp_db()));
+        let db = temp_db();
+        let app = router(state(&db));
         let (status, _, json, text) = call(
             app.clone(),
             rpc(
@@ -1283,7 +1304,7 @@ mod tests {
             json["result"]["content"][0]["text"]
                 .as_str()
                 .unwrap()
-                .contains("no issue dated 2026-01-01")
+                .contains("no issue with that date")
         );
 
         let (_, _, json, _) = call(
@@ -1292,6 +1313,10 @@ mod tests {
         )
         .await;
         let content = json["result"]["content"][0]["text"].as_str().unwrap();
+        assert!(
+            content.starts_with("# Headline search\n\n1 result"),
+            "{content}"
+        );
         assert!(content.contains("2026-09-01 · must know · Ceasefire holds in the north — https://digest.example/issues/2026-09-01.md"), "{content}");
 
         let (_, _, json, _) = call(
@@ -1312,7 +1337,8 @@ mod tests {
 
     #[tokio::test]
     async fn unknown_tool_is_a_tool_error_not_a_crash() {
-        let app = router(state(temp_db()));
+        let db = temp_db();
+        let app = router(state(&db));
         let (status, _, json, text) = call(
             app,
             rpc(
@@ -1327,7 +1353,8 @@ mod tests {
 
     #[tokio::test]
     async fn prompts_and_resources_are_refused_not_empty() {
-        let app = router(state(temp_db()));
+        let db = temp_db();
+        let app = router(state(&db));
         for method in ["prompts/list", "resources/list", "resources/templates/list"] {
             let (status, _, json, text) =
                 call(app.clone(), rpc(method, serde_json::json!({}))).await;
@@ -1350,7 +1377,8 @@ mod tests {
 
     #[tokio::test]
     async fn get_routes_serve_listing_card_and_bridge() {
-        let app = router(state(temp_db()));
+        let db = temp_db();
+        let app = router(state(&db));
 
         let (status, headers, _, text) = call(app.clone(), get_req("/mcp")).await;
         assert_eq!(status, StatusCode::OK);
@@ -1408,16 +1436,33 @@ mod tests {
         assert_eq!(status, StatusCode::NOT_FOUND);
         assert_eq!(headers.get(CACHE_CONTROL).unwrap(), "no-store");
 
-        // An unmatched argument is never echoed: the bridge cannot mint hosted text.
+        // An argument is never echoed, matched or not: the bridge cannot mint hosted text.
+        // The circled letters are symbol-class codepoints the FTS tokenizer drops as
+        // separators, so this query still phrase-matches "ceasefire" and returns a real hit.
         let marker = "BUY-XYZCOIN-NOW";
-        for uri in [
-            format!("/mcp/tools/get_issue.json?date={marker}"),
-            format!("/mcp/tools/search_headlines.json?query={marker}"),
+        let smuggled = "ceasefire%20%E2%92%B7%E2%93%8A%E2%93%8E";
+        let smuggled_text = "ⒷⓊⓎ";
+        for (uri, expect_error) in [
+            (format!("/mcp/tools/get_issue.json?date={marker}"), true),
+            (
+                "/mcp/tools/get_issue.json?date=2026-+9-+1".to_string(),
+                true,
+            ),
+            (
+                format!("/mcp/tools/search_headlines.json?query={marker}"),
+                true,
+            ),
+            (
+                format!("/mcp/tools/search_headlines.json?query={smuggled}"),
+                false,
+            ),
         ] {
             let (status, _, json, text) = call(app.clone(), get_req(&uri)).await;
             assert_eq!(status, StatusCode::OK, "{text}");
-            assert_eq!(json["is_error"], true, "{text}");
+            assert_eq!(json["is_error"] == true, expect_error, "{uri}: {text}");
             assert!(!text.contains(marker), "argument echoed: {text}");
+            assert!(!text.contains(smuggled_text), "argument echoed: {text}");
+            assert!(!text.contains("+9"), "argument echoed: {text}");
             assert_eq!(json["instructions"], INSTRUCTIONS);
         }
 
@@ -1435,7 +1480,8 @@ mod tests {
 
     #[tokio::test]
     async fn rate_limit_answers_429_on_post_and_bridge() {
-        let st = state(temp_db());
+        let db = temp_db();
+        let st = state(&db);
         st.mcp
             .set(Endpoint::with_limits(
                 Context {
