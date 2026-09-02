@@ -1085,7 +1085,15 @@ mod loop_tests {
 
     /// A provider that always asks for another tool call, so the loop would run to
     /// MAX_TOOL_ROUNDS if nothing stopped it. Returns its base URL and the call counter.
-    async fn stub_provider() -> (String, Arc<AtomicUsize>) {
+    pub(super) async fn stub_provider() -> (String, Arc<AtomicUsize>) {
+        stub_provider_with_fanout(1).await
+    }
+
+    /// A provider that asks for `fanout` tools at once, every round. `fanout > 1` reproduces
+    /// the shape of the incident this budget exists for: one question made a real model ask
+    /// for seventeen thread reads in a single round, which spent the provider's own rate
+    /// limit and made the next reader's question fail.
+    pub(super) async fn stub_provider_with_fanout(fanout: usize) -> (String, Arc<AtomicUsize>) {
         let calls = Arc::new(AtomicUsize::new(0));
         let seen = calls.clone();
         let app = Router::new().route(
@@ -1094,14 +1102,19 @@ mod loop_tests {
                 let seen = seen.clone();
                 async move {
                     seen.fetch_add(1, Ordering::SeqCst);
+                    let tool_calls: Vec<_> = (0..fanout)
+                        .map(|i| {
+                            serde_json::json!({
+                                "index": i, "id": format!("c{i}"), "type": "function",
+                                "function": {"name": "get_latest_issue", "arguments": "{}"}
+                            })
+                        })
+                        .collect();
                     let frame = serde_json::json!({
                         "model": "stub",
                         "choices": [{
                             "index": 0,
-                            "delta": {"tool_calls": [{
-                                "index": 0, "id": "c1", "type": "function",
-                                "function": {"name": "get_latest_issue", "arguments": "{}"}
-                            }]},
+                            "delta": {"tool_calls": tool_calls},
                             "finish_reason": "tool_calls"
                         }]
                     });
@@ -1117,7 +1130,7 @@ mod loop_tests {
         (base, calls)
     }
 
-    fn state() -> Arc<AppState> {
+    pub(super) fn state() -> Arc<AppState> {
         Arc::new(AppState {
             // No such database: a failing tool still appends a result and the loop continues,
             // which is exactly the shape this test needs.
@@ -1140,7 +1153,7 @@ mod loop_tests {
         })
     }
 
-    fn config(base: String) -> AskConfig {
+    pub(super) fn config(base: String) -> AskConfig {
         AskConfig {
             api_base: base,
             model: "stub".to_string(),
@@ -1195,6 +1208,56 @@ mod loop_tests {
             calls.load(Ordering::SeqCst),
             MAX_TOOL_ROUNDS,
             "the round cap is what bounds an unproductive question"
+        );
+    }
+}
+
+#[cfg(test)]
+mod budget_tests {
+    //! The 17-calls-in-one-round incident, as a test. `MAX_TOOL_ROUNDS` bounds rounds and does
+    //! not bound fan-out within one, so a single greedy round could spend a provider's whole
+    //! rate limit and make the NEXT reader's question fail.
+    use super::loop_tests::{config, state, stub_provider_with_fanout};
+    use super::*;
+    use std::sync::atomic::Ordering;
+
+    #[tokio::test]
+    async fn one_greedy_round_cannot_exceed_the_tool_budget() {
+        // Ten at once, twice the budget, every round.
+        let (base, provider_calls) = stub_provider_with_fanout(10).await;
+        let state = state();
+        let mut tools = 0usize;
+        let mut answers = Vec::new();
+        let mut report = |p: Progress| {
+            match p {
+                Progress::Tool(_) => tools += 1,
+                Progress::Answer(t) => answers.push(t),
+                Progress::Model(_) => {}
+            }
+            true
+        };
+        let out = answer(&state, &config(base), "anything", &[], &mut report).await;
+
+        assert!(
+            out.is_ok(),
+            "a greedy provider must not error the answer: {out:?}"
+        );
+        assert!(
+            tools <= MAX_TOOL_CALLS,
+            "ran {tools} tools against a budget of {MAX_TOOL_CALLS}"
+        );
+        assert_eq!(
+            tools, MAX_TOOL_CALLS,
+            "the budget should be spent, not abandoned early"
+        );
+        // And the reader still gets an answer rather than a claim that nothing was found.
+        assert_eq!(answers.len(), 1, "exactly one answer: {answers:?}");
+        // The stub never answers, so this is the exhaustion text -- the point is that it is an
+        // answer at all, and that it took a bounded number of provider calls to get here.
+        assert!(
+            provider_calls.load(Ordering::SeqCst) <= MAX_TOOL_ROUNDS,
+            "spent {} provider calls",
+            provider_calls.load(Ordering::SeqCst)
         );
     }
 }
