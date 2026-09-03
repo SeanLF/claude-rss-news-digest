@@ -41,6 +41,12 @@ each carrying "Hong Kong" scored 1.0, as did the White House helipad bolted onto
 House story. The rubric had said so in words all along — "a typhoon and a company's earnings
 that both happen in Hong Kong = 2" — and the rule would have re-merged exactly that.
 
+The most natural repair fails hardest. Dropping the entity that every member of the cluster
+shares -- the "Hong Kong" that made the junk drawer -- is the obvious way to make the feature
+discriminative. It pushes the two classes further apart in the *wrong* direction: over-split
+mean 0.000 against correct-stray 0.092. IDF-weighting the entities does the same, more mildly.
+There is no residual signal to recover, because the tags never carried one.
+
 ## What to do instead
 
 Give the corrector a source the generator never read. The judge works because it reads titles
