@@ -231,3 +231,15 @@ def test_why_it_matters_is_written_for_must_know_only():
     assert '"why_it_matters"' not in should_know
     must_know = schema_text[schema_text.index('"must_know"') : schema_text.index('"should_know"')]
     assert '"why_it_matters"' in must_know
+
+
+def test_off_event_cluster_articles_are_left_out_of_the_story():
+    """A cluster is a model's guess, and about one in four bundles a second event. The old
+    all-stories WRITE quietly dropped the strays; a per-story WRITE handed the whole cluster
+    stitches them in -- run 285 led a should_know with a White House helipad because the
+    cluster held it, and 4 of 17 stories carried a 'Separately' or 'On the sidelines' tail
+    (1 of 17 the day before)."""
+    section = _section("**One story per cluster").lower()
+    assert "different event" in section
+    assert "separately" in section
+    assert "do not cite" in section or "not cite" in section

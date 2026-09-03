@@ -46,6 +46,15 @@ _REQUIRED_TEXT_FIELDS = {
     "should_know": ("headline", "summary"),
 }
 
+# A sentence that opens with one of these is reporting a second event, not the story's:
+# the connective WRITE reaches for when the cluster handed it an article about something
+# else. Sentence-opening only, and case-sensitive: a mid-sentence "separately" qualifies a
+# clause of the same event. "Meanwhile" is deliberately absent -- one in 1241 archived
+# stories, and it narrates simultaneity inside one event as often as it bolts on another.
+_BOLT_ON_CONNECTIVE = re.compile(r"(?:^|[.!?]\s+)(?:Separately|On the sidelines|In a separate|In other news|Also on)\b")
+# The headline form of the same defect: "X; Y" is two stories sharing a slot.
+_TWO_EVENT_HEADLINE = re.compile(r";\s")
+
 
 @dataclass(frozen=True)
 class GraderLimits:
@@ -520,6 +529,37 @@ def _check_why_it_matters_restates_summary(selections: dict, report: GradeReport
     )
 
 
+def _check_summary_bolt_on(selections: dict, report: GradeReport) -> None:
+    """Flag a story that carries a second event: a summary sentence opening with a
+    connective, or a "X; Y" headline.
+
+    A cluster is a model's grouping and about one in four bundles a second event, and WRITE
+    ships the stray behind a connective. Across the first 79 archived runs 68 of 1241
+    stories (5.5%) do -- 64 of them "Separately" -- at 0.86 a run and a max of 3 until run
+    285, the first per-story WRITE run, shipped 4 (one led by a White House helipad). The
+    headline form is commoner: 16% of archived headlines are "X; Y". One run above the
+    archive maximum is not a cause; this is the per-run count that lets the "one story per
+    cluster" rule in write.md be judged on numbers rather than on that run.
+    """
+    offenders: list[str] = []
+    for tier, item in _iter_articles(selections):
+        summary = item.get("summary")
+        headline = item.get("headline")
+        in_summary = isinstance(summary, str) and bool(_BOLT_ON_CONNECTIVE.search(summary))
+        in_headline = isinstance(headline, str) and bool(_TWO_EVENT_HEADLINE.search(headline))
+        if in_summary or in_headline:
+            head = (headline or "")[:50]
+            where = "+".join(w for w, hit in (("summary", in_summary), ("headline", in_headline)) if hit)
+            offenders.append(f"{tier} ({where}): {head!r}")
+    report.add(
+        "summary_bolt_on",
+        passed=not offenders,
+        detail="ok"
+        if not offenders
+        else f"{len(offenders)} summary(ies) bolt on a second event: " + " | ".join(offenders[:5]),
+    )
+
+
 def _check_why_it_matters_sentence_count(selections: dict, report: GradeReport, limits: GraderLimits) -> None:
     """Flag a why_it_matters longer than the one sentence write.md specifies.
 
@@ -592,5 +632,6 @@ def grade_selections(
     _check_no_internal_article_ids(selections, report)
     _check_why_it_matters_restates_summary(selections, report, limits)
     _check_why_it_matters_sentence_count(selections, report, limits)
+    _check_summary_bolt_on(selections, report)
 
     return report

@@ -70,6 +70,7 @@ class TestKnownGood:
             "no_internal_article_ids",
             "why_it_matters_restates_summary",
             "why_it_matters_sentence_count",
+            "summary_bolt_on",
         }
 
 
@@ -823,3 +824,52 @@ class TestWhyItMattersIsAMustKnowField:
         report = grade_selections(sel)
         assert not _check(report, "no_empty_strings").passed
         assert "must_know.why_it_matters" in _check(report, "no_empty_strings").detail
+
+
+class TestSummaryBoltOn:
+    """A cluster is a model's grouping and about one in four bundles a second event, and WRITE
+    ships the stray behind a connective. Across the first 79 archived runs 68 of 1241
+    stories (5.5%) open a sentence with one -- 64 of them "Separately" -- at 0.86 a run and a
+    max of 3 until run 285 shipped 4. Headlines carry the same defect as "X; Y" on 16% of
+    stories. This is the per-run count that lets the "one story per cluster" rule in
+    write.md be judged on numbers rather than on one run."""
+
+    @pytest.mark.parametrize(
+        "summary",
+        [
+            "The court ruled on Thursday. Separately, a nonprofit sued four agencies.",
+            "Ministers met in Wicklow. On the sidelines, Ireland raised reunification.",
+            "The summit closed. In a separate development, the envoy met three presidents.",
+            "Chevron pledged $7bn. In other news, a WSJ opinion piece argues Congress is underfunding the military.",
+        ],
+    )
+    def test_a_sentence_opening_connective_is_flagged(self, summary):
+        sel = _good_selections()
+        sel["should_know"][0]["summary"] = summary
+        check = _check(grade_selections(sel), "summary_bolt_on")
+        assert not check.passed
+        assert "Should-know story number 0" in check.detail
+
+    def test_a_two_event_headline_is_flagged(self):
+        sel = _good_selections()
+        sel["should_know"][1]["headline"] = (
+            "Xi to attend SCO summit and visit Egypt; Gates seeks meeting with him on AI"
+        )
+        check = _check(grade_selections(sel), "summary_bolt_on")
+        assert not check.passed
+        assert "should_know (headline): 'Xi to attend SCO summit" in check.detail
+
+    def test_meanwhile_is_not_a_tell(self):
+        """One "Meanwhile" in 1241 archived stories, and it narrates simultaneity inside one
+        event as often as it bolts on another. Not on the list."""
+        sel = _good_selections()
+        sel["must_know"][0]["summary"] = "Rescuers reached the village. Meanwhile, floodwater rose upstream."
+        assert _check(grade_selections(sel), "summary_bolt_on").passed
+
+    def test_a_mid_sentence_separately_is_not_a_bolt_on(self):
+        sel = _good_selections()
+        sel["must_know"][0]["summary"] = "The court separately ruled on the ad exchange, part of the same case."
+        assert _check(grade_selections(sel), "summary_bolt_on").passed
+
+    def test_known_good_has_none(self):
+        assert _check(grade_selections(_good_selections()), "summary_bolt_on").passed

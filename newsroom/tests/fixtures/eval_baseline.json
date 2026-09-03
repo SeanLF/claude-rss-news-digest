@@ -26,7 +26,8 @@
     "dedup_vs_recent": true,
     "no_internal_article_ids": true,
     "why_it_matters_restates_summary": true,
-    "why_it_matters_sentence_count": true
+    "why_it_matters_sentence_count": true,
+    "summary_bolt_on": false
   },
   "l1_selections_fixture": {
     "schema_valid": false,
@@ -41,7 +42,8 @@
     "dedup_vs_recent": true,
     "no_internal_article_ids": true,
     "why_it_matters_restates_summary": true,
-    "why_it_matters_sentence_count": true
+    "why_it_matters_sentence_count": true,
+    "summary_bolt_on": true
   },
   "l2_judge_agreement": {
     "total_cases": 386,
