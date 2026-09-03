@@ -221,7 +221,7 @@ class TestCohesionNarrowsTheBranch:
 
 ### Task 4: Replay measurement
 
-*Run 2026-09-03 (d6b6996): **gate failed** -- 67% count agreement (floor 80%), 5 over-splits (floor 0); all six known run-285 strays separated; stray set exact on 20 of 33; $0.05 and 19 s per run. Two causes, neither fixable on these labels: the dominant is chosen by size and size does not know which facet SELECT chose (show the judge the cluster label), and the rubric lacks the report-and-response and same-appearance cases. Next iteration needs a fresh run and fresh blind labels. See `docs/2026-09-03-cohesion-gate-measurement.md`. Not deployed.*
+*Run 2026-09-03 (d6b6996): **gate failed** -- 67% count agreement (floor 80%), 5 over-splits (floor 0); all six known run-285 strays separated; stray set exact on 24 of 33; $0.05 and 19 s per run. Two causes, neither fixable on these labels: the dominant is chosen by size and size does not know which facet SELECT chose (show the judge the cluster label), and the rubric lacks the report-and-response and same-appearance cases. Next iteration needs a fresh run and fresh blind labels. See `docs/2026-09-03-cohesion-gate-measurement.md`. Not deployed.*
 
 **Files:** Create `newsroom/src/eval_cohesion.py`, `bin/eval-cohesion` (copy the `bin/eval-write-turns` wrapper), `docs/2026-09-03-cohesion-gate-labels.json` (blind labels, written BEFORE the judge runs), `docs/2026-09-03-cohesion-gate-measurement.md`.
 

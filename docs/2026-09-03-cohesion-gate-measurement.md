@@ -12,7 +12,7 @@ ran, by one reader. 33 selected clusters labelled (one singleton is not judged).
 against a floor of 0.** Every one of the six known run-285 strays was separated (the helipad
 and the WSJ opinion, the OpenAI lawsuits, the Treasury-yields piece in the SCO cluster, the
 Northern Ireland remark, the Trump AI-race remark), the stray set matched the label exactly on
-20 of 33 clusters, and the whole thing costs $0.05 and 19 seconds per run. The gate is not
+24 of 33 clusters, and the whole thing costs $0.05 and 19 seconds per run. The gate is not
 deployed. What failed is specific and is written below.
 
 ## Numbers
@@ -21,12 +21,12 @@ deployed. What failed is specific and is written below.
 |---|---|
 | clusters scored | 33 |
 | event-count agreement | 22 (67%) |
-| stray-set Jaccard | mean 0.80, median 1.00; exact on 20 |
+| stray-set Jaccard | mean 0.80, median 1.00; exact on 24 |
 | over-splits (labelled same-event ids removed) | 5, on 3 clusters |
 | known run-285 cases separated | 6 of 6 |
 | cost per gate run | $0.048 API-equivalent (first call of a container $0.10) |
 | seconds per gate run | 19 |
-| verdicts stable across 3 reps | 30 of 33 clusters identical; cluster 6/285 differed once, cluster 3/284 and 48/284 differed on one id |
+| verdicts stable across 3 reps (from the per-rep artifacts below, not the raw block) | 28 of 33 clusters identical in all three; unstable: 284/3 strays per rep [5, 1, 4]; 284/102 strays per rep [0, 1, 1]; 284/1 strays per rep [1, 0, 0]; 284/48 strays per rep [1, 1, 2]; 285/6 strays per rep [0, 1, 1] |
 
 Per-rep artifacts are under `data/eval-cohesion/<run>/cluster_cohesion.<rep>.json` (gitignored).
 
@@ -73,7 +73,7 @@ these 33 after changing the prompt to fit them would make the gate a fit, not a 
 
 The reader-visible defects that started this (run 285's helipad brief, the lawsuits bolted onto
 the OpenAI story, the yields piece in the SCO cluster) were all separated, in all three reps,
-for five cents. Twenty of 33 clusters came back exactly as the labels had them, and the judge
+for five cents. Twenty-four of 33 clusters came back exactly as the labels had them, and the judge
 never invented an id or broke the partition. As a splitter of junk it works. As a chooser of
 which facet is the story it does not yet, and that is the part a WRITE branch depends on.
 
