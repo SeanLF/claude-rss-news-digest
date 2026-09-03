@@ -1,0 +1,18 @@
+#!/bin/bash
+# Replay a past run's WRITE branches through two deliveries, N reps each:
+# arm T = the Read/Write tool loop production runs today; arm S = one inline
+# turn with no tools, the same prompt with only its I/O section swapped.
+#
+# Reports the WITHIN-ARM SPREAD first (COHERENCE flags over the assembled
+# draft). Read the noise floor before the comparison.
+#
+# Makes REAL model calls on the subscription -- opt-in, never in CI.
+# Usage: bin/eval-write-turns [--run 285] [--reps 5] [--arms TS]
+set -euo pipefail
+cd "$(dirname "${BASH_SOURCE[0]}")/.."
+exec docker compose run --rm \
+  -v "$(pwd)/newsroom/src:/app/src" \
+  -v "$(pwd)/.claude/agents:/app/.claude/agents" \
+  -e PYTHONPATH=/app/src \
+  --entrypoint /app/.venv/bin/python3 \
+  digest-newsroom /app/src/eval_write_turns.py "$@"

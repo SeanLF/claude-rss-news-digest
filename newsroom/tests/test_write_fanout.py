@@ -561,3 +561,41 @@ class TestShouldKnowCarriesNoWhyItMatters:
         draft = write_fanout.assemble_draft(branches)
         assert "why_it_matters" not in draft["should_know"][0]
         assert draft["must_know"][0]["why_it_matters"] == "Because."
+
+
+# --------------------------------------------------------------------------- #
+# Single-turn delivery of a branch (Task 2 of docs/2026-09-03-stage-invocation-rewrite-plan.md)
+# --------------------------------------------------------------------------- #
+
+
+class TestSingleTurnBranch:
+    """The same branch, delivered inline: every file the prompt lists, in the prompt's order,
+    and the prompt with only its I/O section swapped. Derived, so a cost measurement cannot
+    quietly become a quality measurement."""
+
+    def test_corpus_inlines_exactly_the_files_the_prompt_lists(self, tmp_path):
+        branches = write_fanout.build_branches(_seed(tmp_path, extras=("recap.txt", "weekly_recap.txt"))).branches
+        corpus = write_fanout.branch_corpus(branches[0].dir)
+        for name in ("selected.json", "articles_1.csv", "weekly_recap.txt"):
+            assert f"## {name}" in corpus
+        assert "## recap.txt" not in corpus  # copied into the dir for parity, never read by WRITE
+        assert (
+            corpus.index("## selected.json") < corpus.index("## articles_1.csv") < corpus.index("## weekly_recap.txt")
+        )
+
+    def test_corpus_skips_files_the_branch_does_not_have(self, tmp_path):
+        branches = write_fanout.build_branches(_seed(tmp_path, extras=())).branches
+        corpus = write_fanout.branch_corpus(branches[0].dir)
+        assert "## weekly_recap.txt" not in corpus
+        assert "## recent_digest_headlines.txt" not in corpus
+
+    def test_single_turn_body_keeps_every_rule_and_drops_the_tools(self):
+        body = WRITE_SPEC.read_text(encoding="utf-8").split("---", 2)[2].strip()
+        out = write_fanout.single_turn_branch_body(write_fanout.branch_body(body, Path("/tmp/b/s00")))
+        rules_start = body.index("**Writing style")
+        rules_end = body.index("**Output schema:**")
+        assert body[rules_start:rules_end] in out
+        assert "Use the Read tool" not in out
+        assert "Use the Write tool" not in out
+        assert "DO NOT use Bash" not in out
+        assert "Reply with the JSON object and nothing else" in out

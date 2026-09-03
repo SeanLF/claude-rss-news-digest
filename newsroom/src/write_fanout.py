@@ -102,6 +102,42 @@ def branch_body(body: str, branch_dir: Path) -> str:
     return body.replace(PROD_INPUT_MARKER, f"{branch_dir}/")
 
 
+# The files write.md's read step lists, in its order. recap.txt is copied for parity with the
+# run dir but the prompt never reads it, so it stays out of the corpus.
+_BRANCH_CORPUS_FILES = (
+    BRANCH_SELECTED_NAME,
+    BRANCH_ARTICLES_NAME,
+    "weekly_recap.txt",
+    "article_fulltext.json",
+    "recent_digest_headlines.txt",
+)
+
+_SINGLE_TURN_IO = (
+    "**Your input arrives in the next message, inline, one section per file. "
+    "There are no files to open and no tools available.**\n\n"
+    "**Reply with the JSON object and nothing else** -- no preamble, no code fence, no commentary.\n\n"
+)
+
+
+def branch_corpus(branch_dir: Path) -> str:
+    """Everything the tool-loop WRITE opens with Read, inlined in the prompt's order."""
+    parts: list[str] = []
+    for name in _BRANCH_CORPUS_FILES:
+        path = branch_dir / name
+        if path.exists():
+            parts.append(f"## {name}\n\n{path.read_text(encoding='utf-8')}")
+    return "\n\n".join(parts)
+
+
+def single_turn_branch_body(body: str) -> str:
+    """The branch prompt with its I/O section swapped for the inline block. Derived, so the
+    rules cannot drift between the two deliveries; a test holds them byte for byte."""
+    start = body.index("**Instructions:**")
+    end = body.index("**Writing style")
+    out = body[:start] + _SINGLE_TURN_IO + body[end:]
+    return out.replace("- DO NOT use Bash. Use Read and Write tools only.\n", "")
+
+
 # --------------------------------------------------------------------------- #
 # Fan out.
 # --------------------------------------------------------------------------- #
