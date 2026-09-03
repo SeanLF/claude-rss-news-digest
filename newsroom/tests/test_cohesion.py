@@ -219,3 +219,12 @@ def test_scoring_a_verdict_against_a_label():
         ids, {"applied": False, "events": None, "dominant": ids, "strays": []}, label, must_separate=["A4"]
     )
     assert unapplied["n_events"] == 1 and unapplied["jaccard"] == 0.0 and unapplied["separated"] == {"A4": False}
+
+
+def test_groups_follow_the_citations_not_the_drifted_index():
+    """Same resolution as the fan-out, so the judge sees what WRITE would see."""
+    selected = {"must_know": [{"cluster_index": 0, "article_ids": ["A3", "A4"]}], "should_know": []}
+    clusters = [{"story": "a", "article_ids": ["A1", "A2"]}, {"story": "b", "article_ids": ["A3", "A4"]}]
+    groups = cohesion.selected_groups(selected, clusters)
+    assert groups[0]["cluster_index"] == 1
+    assert groups[0]["article_ids"] == ["A3", "A4"]

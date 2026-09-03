@@ -870,6 +870,7 @@ def _archive_write_branches(
                 "branch": b.name,
                 "tier": b.tier,
                 "cluster_index": b.cluster_index,
+                "selected_cluster_index": b.selected_cluster_index,
                 "story_article_ids": list(b.story_article_ids),
                 # The IDS, not a count: archive_run_artifacts globs articles_*.csv
                 # non-recursively, so the branch CSVs are never archived and this is the

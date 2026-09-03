@@ -116,11 +116,15 @@ class TestBuildBranches:
         branches = write_fanout.build_branches(_seed(tmp_path, selected=sel)).branches
         assert [r[0] for r in _branch_rows(branches[0])[1:]] == ["A1", "A2", "A3"]
 
-    def test_out_of_range_cluster_index_falls_back_to_story_ids_loudly(self, tmp_path, caplog):
+    def test_out_of_range_cluster_index_resolves_by_citations_loudly(self, tmp_path, caplog):
+        """Before the drift fix an out-of-range index left the branch with its citations alone.
+        The citations name the cluster (A1 lives in cluster 0), so the branch gets it, with a
+        warning; the citations-in-no-cluster case is TestClusterIndexDrift's fallback test."""
         sel = {"must_know": [{"cluster_index": 99, "article_ids": ["A1"]}], "should_know": []}
         with caplog.at_level("WARNING"):
             branches = write_fanout.build_branches(_seed(tmp_path, selected=sel)).branches
-        assert [r[0] for r in _branch_rows(branches[0])[1:]] == ["A1"]
+        assert [r[0] for r in _branch_rows(branches[0])[1:]] == ["A1", "A2"]
+        assert branches[0].cluster_index == 0 and branches[0].selected_cluster_index == 99
         assert "cluster_index" in caplog.text
 
     def test_branch_fulltext_is_filtered_to_the_same_ids(self, tmp_path):
@@ -676,3 +680,33 @@ class TestCohesionNarrowsTheBranch:
         assert one["must_know"][0]["article_ids"] == ["A2"]
         assert set(branch.context_article_ids) == {"A1", "A2"}
         assert branch.strays_removed == 0
+
+
+class TestClusterIndexDrift:
+    """SELECT's cluster_index is a 0-based position a model counts into a several-hundred
+    element list, and it drifts: on 182 of 1291 archived stories (14%, 79 runs) the index
+    names a cluster holding none or few of the story's own citations, mostly off by one to
+    three. threads stopped trusting it in July (utils.cluster_for_articles); the fan-out
+    trusted it, so run 285's SCO story was written with a lone Treasury-yields article as
+    context (index 234 where the citations live in 235). The citations decide."""
+
+    def test_the_cluster_holding_the_citations_wins_over_the_index(self, tmp_path):
+        sel = {"must_know": [{"cluster_index": 0, "article_ids": ["A3", "A4"]}], "should_know": []}
+        _seed(tmp_path, selected=sel)  # cluster 0 = A1, A2; cluster 1 = A3, A4
+        branch = write_fanout.build_branches(tmp_path).branches[0]
+        assert branch.cluster_index == 1
+        assert branch.selected_cluster_index == 0
+        assert set(branch.context_article_ids) == {"A3", "A4"}
+
+    def test_an_index_that_agrees_with_the_citations_is_kept(self, tmp_path):
+        branch = write_fanout.build_branches(_seed(tmp_path)).branches[0]
+        assert branch.cluster_index == 0 and branch.selected_cluster_index == 0
+
+    def test_citations_in_no_cluster_fall_back_to_the_index(self, tmp_path):
+        sel = {"must_know": [{"cluster_index": 1, "article_ids": ["A9"]}], "should_know": []}
+        _seed(tmp_path, selected=sel)
+        with open(tmp_path / "articles_2.csv", "a", newline="") as f:
+            csv.writer(f).writerow(["A9", "s9", "Stray", "2026-09-01", "Body nine"])
+        branch = write_fanout.build_branches(tmp_path).branches[0]
+        assert branch.cluster_index == 1
+        assert set(branch.context_article_ids) == {"A3", "A4", "A9"}

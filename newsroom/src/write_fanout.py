@@ -66,6 +66,9 @@ class Branch:
     context_article_ids: tuple[str, ...]
     # Articles the cohesion gate kept out of this branch (0 without an applied verdict).
     strays_removed: int = 0
+    # The cluster_index SELECT wrote. cluster_index above is the one the citations resolve
+    # to; they differ when the index drifted (14% of archived stories).
+    selected_cluster_index: int | None = None
 
 
 @dataclass(frozen=True)
@@ -202,6 +205,30 @@ def _load_cohesion(claude_input_dir: Path) -> dict[int, list[str]]:
     return out
 
 
+def resolve_cluster_index(clusters: list, cluster_index: object, story_ids: list[str]) -> int | None:
+    """The cluster holding the most of the story's DISTINCT citations, or None if none holds any.
+
+    SELECT's cluster_index is a 0-based position a model counts into a several-hundred
+    element list, and it drifts: 182 of 1291 archived stories (14%, 79 runs) name a cluster
+    holding none or few of their own citations, mostly off by one to three. threads stopped
+    trusting it in July (utils.cluster_for_articles, run 247); the citations decide here too.
+    Ties keep the earliest-cited cluster, so the result is stable across processes.
+    """
+    owner: dict[str, int] = {}
+    for i, entry in enumerate(clusters):
+        ids = entry.get("article_ids") if isinstance(entry, dict) else None
+        for a in ids or []:
+            if isinstance(a, str):
+                owner.setdefault(a, i)
+    homes = [owner[a] for a in dict.fromkeys(story_ids) if a in owner]
+    if not homes:
+        return None
+    counts: dict[int, int] = {}
+    for h in homes:
+        counts[h] = counts.get(h, 0) + 1
+    return max(counts, key=lambda i: counts[i])
+
+
 def _cluster_ids(clusters: list, cluster_index: object, story_ids: list[str], branch_name: str) -> list[str]:
     """The cluster's article_ids for this story, or none if it has no usable cluster.
 
@@ -293,8 +320,18 @@ def build_branches(claude_input_dir: Path) -> FanOut:
             name = f"s{index:02d}"
             index += 1
             story_ids = [i for i in (story.get("article_ids") or []) if isinstance(i, str)]
-            cluster_index = story.get("cluster_index") if isinstance(story.get("cluster_index"), int) else None
-            context = _cluster_ids(clusters, story.get("cluster_index"), story_ids, name)
+            selected_cluster_index = story.get("cluster_index") if isinstance(story.get("cluster_index"), int) else None
+            cluster_index = selected_cluster_index
+            resolved = resolve_cluster_index(clusters, cluster_index, story_ids)
+            if resolved is not None and resolved != cluster_index:
+                logger.warning(
+                    "%s: cluster_index %r holds few or none of the story's citations; using cluster %d, which holds most",
+                    name,
+                    cluster_index,
+                    resolved,
+                )
+                cluster_index = resolved
+            context = _cluster_ids(clusters, cluster_index, story_ids, name)
             strays_removed = 0
             dominant = cohesion.get(cluster_index) if cluster_index is not None else None
             if dominant:
@@ -380,6 +417,7 @@ def build_branches(claude_input_dir: Path) -> FanOut:
                     story_article_ids=tuple(story_ids),
                     context_article_ids=tuple(context_ids),
                     strays_removed=strays_removed,
+                    selected_cluster_index=selected_cluster_index,
                 )
             )
 

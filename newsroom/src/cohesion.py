@@ -29,6 +29,7 @@ from typing import Any
 
 import claude_cli
 import usage
+import write_fanout
 from claude_agent_sdk import ThinkingConfig
 
 logger = logging.getLogger(__name__)
@@ -160,6 +161,11 @@ def selected_groups(selected: dict, clusters: list[dict]) -> list[dict]:
     for n, story in enumerate(_selected_stories(selected)):
         ci = story.get("cluster_index")
         cited = [i for i in (story.get("article_ids") or []) if isinstance(i, str)]
+        # The same resolution as the fan-out: the citations decide, the index only breaks a
+        # total miss. A verdict keyed on a drifted index would never be applied.
+        resolved = write_fanout.resolve_cluster_index(clusters, ci, cited)
+        if resolved is not None:
+            ci = resolved
         cluster_ids: list[str] = []
         if isinstance(ci, int) and 0 <= ci < len(clusters):
             entry = clusters[ci]
