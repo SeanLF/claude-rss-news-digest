@@ -24,6 +24,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import shutil
 from pathlib import Path
 
 import claude_cli  # /app/src
@@ -303,6 +304,9 @@ def main() -> int:
             asyncio.run(run_single_turn_to_file(fixtures / REPORT_NAME, model, body, thinking, fixtures))
         else:
             asyncio.run(run_agent_to_file("coherence", fixtures / REPORT_NAME, model, body, thinking, tools))
+        # Keep every run's report: the 2026-09-03 per-story measurement lost the reasons behind
+        # three false drops because each run overwrote the last.
+        shutil.copyfile(fixtures / REPORT_NAME, fixtures / f"coherence_report.{i}.json")
         s = score(fixtures / REPORT_NAME, labels)
         scores.append(s)
         print(

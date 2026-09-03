@@ -69,3 +69,44 @@ def test_per_story_reports_merge_in_draft_order(tmp_path, monkeypatch):
     assert [r["headline"] for r in report["results"]] == ["One", "Two"]
     assert [r["pass"] for r in report["results"]] == [True, False]
     assert sorted(seen) == ["One", "Two"]
+
+
+def test_every_run_keeps_its_own_report(tmp_path, monkeypatch):
+    """Five per-story runs overwrote one coherence_report.json; the three idx-16 false-drop
+    reasons from runs 1-3 of the 2026-09-03 measurement were lost to it. Each run's report
+    is now kept as coherence_report.<n>.json next to the live one."""
+    (tmp_path / "labels.json").write_text(
+        json.dumps(
+            {
+                "hard_positives": [{"idx": 0, "field": "summary"}],
+                "borderline": [],
+                "clean_fields": [{"idx": 0, "field": "headline"}],
+                "idx_headlines": {"0": "One"},
+            }
+        )
+    )
+    calls = {"n": 0}
+
+    async def fake_run(label, out_path, model, body, thinking, tools):
+        calls["n"] += 1
+        out_path.write_text(
+            json.dumps(
+                {
+                    "results": [
+                        {"headline": "One", "pass": False, "reason": f"run {calls['n']}", "failed_fields": ["summary"]}
+                    ]
+                }
+            )
+        )
+
+    monkeypatch.setattr(eval_coherence, "run_agent_to_file", fake_run)
+    monkeypatch.setattr(
+        eval_coherence,
+        "load_agent_for_eval",
+        lambda agent, fixtures, override=None: ("m", "body", {"type": "disabled"}, ["Read", "Write"]),
+    )
+    monkeypatch.setattr(sys, "argv", ["eval_coherence", "--runs", "3", "--fixtures", str(tmp_path)])
+    assert eval_coherence.main() == 0
+    kept = sorted(p.name for p in tmp_path.glob("coherence_report.*.json"))
+    assert kept == ["coherence_report.0.json", "coherence_report.1.json", "coherence_report.2.json"]
+    assert json.loads((tmp_path / "coherence_report.1.json").read_text())["results"][0]["reason"] == "run 2"
