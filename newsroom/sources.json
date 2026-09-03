@@ -355,6 +355,8 @@
     "id": "upi",
     "name": "UPI",
     "url": "https://www.upi.com/rss/top_news.rss",
+    "active": false,
+    "inactive_reason": "403 Forbidden on every fetch since 2026-09-02 (runs 284, 285) and to a browser user-agent from a residential IP on 2026-09-03: UPI blocks bots, not this box. Revive by re-checking the URL.",
     "bias": "center",
     "factuality": "high",
     "credibility": "high",
