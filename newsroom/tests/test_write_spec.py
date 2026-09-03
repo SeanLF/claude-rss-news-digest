@@ -203,3 +203,18 @@ def test_the_self_checks_kept_their_scope_when_the_batching_clauses_went():
     text = _body().lower()
     assert "list every specific in its headline and summary" in text
     assert "filler self-check" in text
+
+
+# --------------------------------------------------------------------------- #
+# Per-story branches (run 285, the first prod run on the fan-out)
+# --------------------------------------------------------------------------- #
+
+
+def test_read_step_names_the_branch_articles_file_not_a_glob():
+    """Every branch holds exactly one articles_1.csv and the agent has no Glob tool. Told to
+    read 'ALL articles_*.csv', branch s10 spent 90 s and $0.20 guessing articles_33.csv,
+    articles_033.csv, articles_must_know.csv... before writing (run 285,
+    thinking_write_s10.txt)."""
+    text = _body()
+    assert "articles_*.csv" not in text
+    assert "articles_1.csv" in _section("**Instructions:**")
