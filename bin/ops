@@ -1,0 +1,186 @@
+#!/usr/bin/env python3
+"""Read-only operator queries against the production digest, over the SSH channel we already have.
+
+Reviewing a run used to mean cloning a 176 MB database over Tailscale and grepping journalctl
+by hand. This runs the query on the box instead and prints JSON, so nothing is copied and
+nothing is stale.
+
+Two independent read-only guarantees, because production data is under this:
+  1. the data volume is mounted ``:ro``, so the container cannot write it (verified against the
+     live WAL database -- a read-only mount does open cleanly);
+  2. SQLite opens the file with ``mode=ro``, so it refuses a write even if the mount changed.
+A test asserts both, and that no payload carries a write verb.
+
+Deliberately NOT an HTTP surface. circulation sits behind kamal-proxy on an internal Docker
+network and never sees a client address, so "Tailscale-only routes" there could only mean
+trusting an X-Forwarded-For header -- an authorisation boundary made of a header a caller
+controls. See docs/2026-09-03-ops-access-review.md. The channel here is SSH over Tailscale,
+which authenticates the device and grants this operator nothing they did not already have.
+
+Usage:
+  bin/ops run [ID]                 one run's row (default: the latest)
+  bin/ops usage [ID]               per-stage tokens and API-equivalent cost
+  bin/ops health [ID]              per-source fetch results, failures first
+  bin/ops artifacts [ID]           the archived artifact names and their sizes
+  bin/ops artifact ID NAME         one artifact's content, to stdout
+  bin/ops journal [--since 1h] [--lines 200] [--grep PAT]
+  ... any subcommand with --print-command to see what would run, and run nothing.
+"""
+
+from __future__ import annotations
+
+import argparse
+import re
+import shlex
+import subprocess
+import sys
+from pathlib import Path
+
+UNIT = "news-digest.service"
+VOLUME = "news-digest-data"
+IMAGE_MATCH = "digest-newsroom:latest"
+DB = "/d/digest.db"
+
+# Every query is a SELECT. The run id and the artifact name arrive as bound parameters from
+# the environment, never as SQL text, so a caller-supplied name cannot become SQL.
+_QUERIES = {
+    "run": """
+        select id, run_at, articles_kept, articles_emailed, completed_at, status, git_sha
+        from digest_runs where id = :rid
+    """,
+    "usage": """
+        select subagent, model, input_tokens, output_tokens, cache_read_tokens,
+               round(api_cost_usd, 4) as cost_usd, duration_ms, thinking, effort
+        from run_usage where run_id = :rid order by api_cost_usd desc
+    """,
+    "health": """
+        select source_id, success, articles_fetched, articles_kept, error_message
+        from source_health where run_id = :rid order by success asc, source_id
+    """,
+    "artifacts": """
+        select artifact_name, length(content) as bytes
+        from run_artifacts where run_id = :rid order by artifact_name
+    """,
+    "artifact": """
+        select content from run_artifacts where run_id = :rid and artifact_name = :name
+    """,
+}
+
+SQL_SUBCOMMANDS = tuple(_QUERIES)
+
+
+def build_payload(sub: str, db: str = DB) -> str:
+    """The Python program that runs on the box.
+
+    The run id and the artifact name are NOT arguments here: they reach SQLite as bound
+    parameters read from the environment inside the container, so no caller-supplied string
+    ever enters SQL text. `db` exists so a test can run this payload against a scratch
+    database and prove that end to end.
+    """
+    if sub not in _QUERIES:
+        raise KeyError(sub)
+    sql = " ".join(_QUERIES[sub].split())
+    body = f'''
+import json, os, sqlite3, sys
+conn = sqlite3.connect("file:{db}?mode=ro", uri=True)
+conn.row_factory = sqlite3.Row
+rid = os.environ.get("OPS_RUN") or None
+rid = int(rid) if rid else conn.execute("select max(id) from digest_runs").fetchone()[0]
+params = {{"rid": rid, "name": os.environ.get("OPS_NAME", "")}}
+rows = [dict(r) for r in conn.execute({sql!r}, params)]
+if {sub!r} == "artifact":
+    if not rows:
+        sys.stderr.write("no such artifact for run %s\\n" % rid)
+        raise SystemExit(1)
+    sys.stdout.write(rows[0]["content"])
+else:
+    json.dump({{"run_id": rid, "rows": rows}}, sys.stdout, indent=2)
+    sys.stdout.write("\\n")
+'''
+    return body.strip() + "\n"
+
+
+def remote_command(env: dict[str, str] | None = None) -> str:
+    """The shell command sent over bin/ssh. Resolves the image on the box rather than pinning a
+    registry host, so this survives a change of registry."""
+    flags = "".join(f" -e {k}={shlex.quote(v)}" for k, v in sorted((env or {}).items()) if v)
+    return (
+        "set -e; "
+        f"IMG=$(docker images --format '{{{{.Repository}}}}:{{{{.Tag}}}}' | grep -m1 {shlex.quote(IMAGE_MATCH)}); "
+        '[ -n "$IMG" ] || { echo "digest-newsroom image not found on host" >&2; exit 1; }; '
+        f"docker run --rm -i{flags} -v {VOLUME}:/d:ro "
+        '--entrypoint /app/.venv/bin/python3 "$IMG" -'
+    )
+
+
+def _relative_time(since: str) -> str:
+    """`6h` -> `-6h`. systemd needs a sign on a relative time and rejects a bare one with
+    "Failed to parse timestamp"; an absolute timestamp passes through untouched."""
+    stripped = since.strip()
+    return f"-{stripped}" if re.fullmatch(r"\d+[smhdw]", stripped) else since
+
+
+def journal_command(since: str, lines: int, grep: str | None) -> str:
+    """Scoped to the digest unit and bounded by --lines on purpose.
+
+    A free-form grep over the whole journal would be an unbounded read, and these logs carry
+    email addresses (broadcast.py logs test-send and alert recipients). That is acceptable on a
+    channel the operator already has; it is the specific reason this must never become an HTTP
+    tool.
+    """
+    cmd = (
+        f"journalctl -u {shlex.quote(UNIT)} --since {shlex.quote(_relative_time(since))} "
+        f"-n {int(lines)} --no-pager"
+    )
+    if grep:
+        cmd += f" | grep -- {shlex.quote(grep)}"
+    return cmd
+
+
+def _ssh(command: str, stdin: str | None) -> int:
+    ssh = Path(__file__).resolve().parent / "ssh"
+    proc = subprocess.run(
+        [str(ssh), command],
+        input=stdin,
+        text=True,
+        check=False,
+    )
+    return proc.returncode
+
+
+def main(argv: list[str] | None = None) -> int:
+    ap = argparse.ArgumentParser(prog="bin/ops", description=__doc__.split("\n")[0])
+    ap.add_argument("subcommand", choices=[*SQL_SUBCOMMANDS, "journal"])
+    ap.add_argument("args", nargs="*", help="run id, and the artifact name for `artifact`")
+    ap.add_argument("--since", default="1h", help="journal only (default 1h)")
+    ap.add_argument("--lines", type=int, default=200, help="journal only (default 200)")
+    ap.add_argument("--grep", default=None, help="journal only")
+    ap.add_argument("--print-command", action="store_true", help="show what would run; run nothing")
+    ns = ap.parse_args(argv)
+
+    if ns.subcommand == "journal":
+        command, payload = journal_command(ns.since, ns.lines, ns.grep), None
+    else:
+        expected = 2 if ns.subcommand == "artifact" else 1
+        if len(ns.args) > expected:
+            # Silently discarding an extra argument hides an operator typo behind a result
+            # that looks right.
+            ap.error(f"{ns.subcommand} takes at most {expected} argument(s), got {len(ns.args)}")
+        run_id = ns.args[0] if ns.args else ""
+        name = ns.args[1] if len(ns.args) > 1 else ""
+        if ns.subcommand == "artifact" and not name:
+            ap.error("artifact needs a run id and an artifact name")
+        payload = build_payload(ns.subcommand)
+        command = remote_command({"OPS_RUN": run_id, "OPS_NAME": name})
+
+    if ns.print_command:
+        print(command)
+        if payload:
+            print("--- stdin ---")
+            print(payload, end="")
+        return 0
+    return _ssh(command, payload)
+
+
+if __name__ == "__main__":
+    sys.exit(main())

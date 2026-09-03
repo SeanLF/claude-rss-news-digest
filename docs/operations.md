@@ -35,10 +35,29 @@ New migrations: `migrations/YYYYMMDDHHMMSS_description.sql`. The baseline uses
 `CREATE TABLE IF NOT EXISTS`, so it is safe on existing databases with no
 bootstrap step.
 
-For queries, clone first (`bin/db-clone`) and query `data/digest-cloud.db`
-locally. Note `make db-clone` **overwrites** `data/digest.db`, and raw-`cat`s
-the prod DB over SSH, so it can truncate on a slow transfer -- verify
-`page-count x pagesize == file size` and re-run if short.
+### Reading production
+
+`bin/ops` runs the query on the box and prints JSON -- nothing is copied, nothing
+is stale:
+
+```bash
+bin/ops run|usage|health|artifacts [ID]   # ID defaults to the latest run
+bin/ops artifact ID NAME                  # one archived artifact to stdout
+bin/ops journal [--since 6h] [--lines 200] [--grep PAT]
+bin/ops <any> --print-command             # show what would run, run nothing
+```
+
+Read-only twice over: the volume is mounted `:ro` and SQLite opens with
+`mode=ro`, both negative-controlled against the live database
+(`docs/2026-09-03-ops-access-review.md`). That doc also records why this is a
+CLI and not a Tailscale-only route on circulation.
+
+Clone only when you need the whole database offline -- a replay harness, or
+analysis across many runs. `bin/db-clone` prefers the newest verified deploy
+backup (so it is **stale** until the next deploy; `--live` forces a wire copy)
+and verifies any candidate with `integrity_check` and
+`page_count x page_size == file size` before replacing the target, leaving the
+existing file untouched if that fails. No manual check needed.
 
 ## Local development
 
