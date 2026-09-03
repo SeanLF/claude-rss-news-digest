@@ -72,7 +72,7 @@ Replay runs 284 and 285 (34 selected clusters). Before the judge runs, I label e
 - `COHESION_ARTIFACT = "cluster_cohesion.json"`
 - `build_judge_prompt(groups: list[dict], articles: dict[str, dict]) -> str` — `groups` items `{"group": int, "article_ids": [str]}`; `articles` maps id to `{"title", "summary"}`.
 - `parse_verdicts(text: str) -> dict[int, list[list[str]]]` — group number to events; `{}` when unparseable.
-- `validate_partition(article_ids: list[str], events: list[list[str]]) -> list[list[str]] | None` — the events largest-first when they partition `article_ids` exactly, else `None`.
+- `validate_partition(article_ids: list[str], events: list[list[str]]) -> list[list[str]] | None` — the events in the judge's order when they partition `article_ids` exactly, else `None` (largest-first was dropped on 2026-09-03; order is the judge's answer to "which is the story").
 - `judge_selected(selected: dict, clusters: list[dict], verdicts_by_group: dict[int, list[list[str]]], groups: list[dict]) -> dict` — the artifact document (no I/O).
 - `async run_cohesion_stage(claude_input_dir: Path, *, model: str, cwd) -> dict` — writes the artifact, returns a `run_usage` row.
 
