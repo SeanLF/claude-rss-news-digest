@@ -550,13 +550,14 @@ def build_story_corpus(claude_input_dir: Path, story: dict) -> str:
 
 
 def build_per_story_body(body: str) -> str:
-    """The single-turn body, scoped to one story. Derived, not rewritten: the probe block is
-    asserted byte for byte by the same test that guards build_single_turn_body."""
+    """The single-turn body, scoped to one story.
+
+    build_single_turn_body already replaces the whole numbered instructions block (including
+    "for each story in draft_selections.json") with the inline-input block, so the only
+    per-story wording left to change is the rules line. Derived, not rewritten: the probe
+    block is asserted byte for byte by the same test that guards build_single_turn_body.
+    """
     out = build_single_turn_body(body)
-    out = out.replace(
-        "2. For each story in draft_selections.json (must_know and should_know), check",
-        "2. draft_selections.json holds the one story to check. Check",
-    )
     return out.replace("- Check EVERY story (must_know and should_know).", "- Check the one story.")
 
 
