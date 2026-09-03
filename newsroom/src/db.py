@@ -758,6 +758,8 @@ _TRACE_ARTIFACTS = (
     # is a no-op until start_run(), and on --resume start_run happens AFTER curation -- so
     # without the file, STORIES_DROPPED_AT_WRITE would be dark on exactly the recovery path.
     "write_branches.json",
+    # The cohesion gate's verdicts (cohesion.py); "skipped" when the flag is off.
+    "cluster_cohesion.json",
     # Written only when the repair phase hit a prompt/config fault. The phase is
     # best-effort and swallows everything, so this file is the only way its faults
     # reach the post-run invariants.

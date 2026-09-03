@@ -186,3 +186,11 @@ def test_one_failed_batch_does_not_discard_the_others(tmp_path, monkeypatch):
     assert len(calls) == 2
     assert doc["outcome"] == "partial" and doc["split"] == 12
     assert doc["verdicts"][12]["applied"] is False and doc["verdicts"][12]["reason"] == "no verdict"
+
+
+def test_the_artifact_is_archived_with_the_run():
+    """claude_input/ is rebuilt every run; a verdict that only lived there could never be
+    replayed or counted. Same guard as cluster_tags.json."""
+    import db
+
+    assert cohesion.COHESION_ARTIFACT in db._TRACE_ARTIFACTS
