@@ -699,3 +699,65 @@ class TestResume:
         assert fake.write_calls == []
         assert fake.preheader_calls == 0
         assert [r["subagent"] for r in rows] == []
+
+
+# --------------------------------------------------------------------------- #
+# Cohesion gate hook (Phase C, Task 3)
+# --------------------------------------------------------------------------- #
+
+
+class TestCohesionGateHook:
+    """Between SELECT and the fan-out, behind COHESION_ENABLED. The gate's row is emitted
+    before any write row; with the flag off the artifact says so and nothing is billed."""
+
+    def _two_article_cluster(self, root):
+        _seed(root, n_must=1, n_should=0)
+        (root / "clusters.json").write_text(json.dumps({"clusters": [{"story": "c0", "article_ids": ["A1", "A2"]}]}))
+
+    def test_flag_on_runs_the_gate_first_and_the_branch_reflects_it(self, tmp_path, monkeypatch):
+        self._two_article_cluster(tmp_path)
+        monkeypatch.setattr(orchestrate.config, "COHESION_ENABLED", True)
+        monkeypatch.setattr(orchestrate.config, "COHESION_MODEL", "claude-sonnet-4-6")
+        seen = {}
+
+        async def fake_gate(claude_input_dir, *, model, cwd):
+            seen["model"] = model
+            (claude_input_dir / "cluster_cohesion.json").write_text(
+                json.dumps(
+                    {
+                        "outcome": "completed",
+                        "verdicts": [
+                            {"cluster_index": 0, "applied": True, "dominant": ["A1"], "strays": ["A2"], "reason": None}
+                        ],
+                    }
+                )
+            )
+            return {"subagent": "cohesion", "model": model, "api_cost_usd": 0.02}
+
+        monkeypatch.setattr(orchestrate.cohesion, "run_cohesion_stage", fake_gate)
+        rows = _run_write(tmp_path, _Fake(tmp_path), monkeypatch)
+        assert rows[0]["subagent"] == "cohesion" and seen["model"] == "claude-sonnet-4-6"
+        assert [r["subagent"] for r in rows[1:]].count("cohesion") == 0
+        csv_ids = [
+            ln.split(",")[0]
+            for ln in (tmp_path / "write_branches" / "s00" / "articles_1.csv").read_text().splitlines()[1:]
+        ]
+        assert csv_ids == ["A1"]
+
+    def test_flag_off_writes_a_skipped_artifact_and_bills_nothing(self, tmp_path, monkeypatch):
+        self._two_article_cluster(tmp_path)
+        monkeypatch.setattr(orchestrate.config, "COHESION_ENABLED", False)
+
+        async def never(*a, **k):
+            raise AssertionError("gate ran with the flag off")
+
+        monkeypatch.setattr(orchestrate.cohesion, "run_cohesion_stage", never)
+        rows = _run_write(tmp_path, _Fake(tmp_path), monkeypatch)
+        assert all(r["subagent"] != "cohesion" for r in rows)
+        doc = json.loads((tmp_path / "cluster_cohesion.json").read_text())
+        assert doc["outcome"] == "skipped"
+        csv_ids = [
+            ln.split(",")[0]
+            for ln in (tmp_path / "write_branches" / "s00" / "articles_1.csv").read_text().splitlines()[1:]
+        ]
+        assert csv_ids == ["A1", "A2"]

@@ -85,6 +85,14 @@ RECAP_MODEL = os.environ.get("RECAP_MODEL", "claude-haiku-4-5")
 CLUSTER_EXTRACT_MODEL = os.environ.get("CLUSTER_EXTRACT_MODEL", "claude-sonnet-4-6")
 CLUSTER_JOIN_THRESHOLD = float(os.environ.get("CLUSTER_JOIN_THRESHOLD", "0.80"))
 
+# Cohesion gate (newsroom/src/cohesion.py): after SELECT and before WRITE, one judgement over
+# the selected clusters that names each story's event and keeps the strays out of its branch.
+# Off by default until the replay measurement (docs/2026-09-03-cohesion-gate-plan.md, Task 4)
+# says it separates events without splitting them; prod flips it by terraform. Fail-open when
+# on. COHESION_MODEL follows the extract call's policy (thinking disabled on the 4.x family).
+COHESION_ENABLED = os.environ.get("COHESION_ENABLED", "false").lower() in ("1", "true", "yes")
+COHESION_MODEL = os.environ.get("COHESION_MODEL", "claude-sonnet-4-6")
+
 # Evolving story-thread substrate (sub-project A). Off by default until the feature is
 # reader-visible (sub-project C); when on, each run persists thread identity for the
 # selected stories. THREAD_DORMANT_AFTER: runs since last-seen before a thread stops matching.

@@ -24,7 +24,7 @@ Claude never sees URLs. Python assigns opaque article IDs (A1, A2...) and builds
 
 After the stages complete, Python (`merge.py:assemble_selections`) reads `draft_selections.json` and `coherence_report.json`, drops headlines whose coherence entry has `pass: false`, validates against `schema.SELECTIONS_SCHEMA`, and writes `selections.json`. Python then resolves article IDs to URLs/source/bias via `resolve_article_ids()` in `digest.py`.
 
-**Intermediate files** (in `data/claude_input/`): `clusters.json`, `recap.txt`, `selected.json`, `article_fulltext.json` (Python-fetched full text for SELECTED stories, best-effort), `draft_selections.json`, `coherence_report.json`, `article_index.json`, `selections.json` (assembled by Python).
+**Intermediate files** (in `data/claude_input/`): `clusters.json`, `recap.txt`, `selected.json`, `article_fulltext.json` (Python-fetched full text for SELECTED stories, best-effort), `cluster_cohesion.json` (the cohesion gate's verdicts, or `skipped`), `draft_selections.json`, `coherence_report.json`, `article_index.json`, `selections.json` (assembled by Python).
 
 WRITE fans out: `write_fanout.py` builds one `write_branches/sNN/` input dir per selected story, holding only that story and its cluster's articles, and WRITE is run once against each. Python fans the branch drafts back into `draft_selections.json` in SELECT's order, and a `preheader` agent (Haiku) writes `preheader.txt` — the one cross-story field. `run_usage` gets one `write` row; the per-branch breakdown is the `write_branches.json` run artifact.
 

@@ -45,6 +45,7 @@ from typing import Any, cast
 
 import claude_cli
 import cluster_extractjoin
+import cohesion
 import config
 import db
 import fulltext
@@ -935,6 +936,13 @@ async def run_write_phase(
     # mistake for this run's output.
     draft_path.unlink(missing_ok=True)
     try:
+        # The cohesion gate runs here, on the selected clusters, so the branches below see
+        # each story's event rather than its whole cluster. Off: the artifact says so, and
+        # its absence never has to be read as a failure.
+        if config.COHESION_ENABLED:
+            on_usage(await cohesion.run_cohesion_stage(claude_input_dir, model=config.COHESION_MODEL, cwd=cwd))
+        else:
+            cohesion.write_skipped(claude_input_dir)
         fanout = write_fanout.build_branches(claude_input_dir)
         for entry in fanout.dropped:
             healthcheck.log(f"write {entry.name} DROPPED ({entry.tier}): {entry.reason}")
