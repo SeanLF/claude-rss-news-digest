@@ -158,14 +158,15 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--print-command", action="store_true", help="show what would run; run nothing")
     ns = ap.parse_args(argv)
 
+    # Silently discarding an extra argument hides an operator typo behind a result that looks
+    # right, so every subcommand is bounded -- journal included, which takes none at all.
+    expected = 0 if ns.subcommand == "journal" else (2 if ns.subcommand == "artifact" else 1)
+    if len(ns.args) > expected:
+        ap.error(f"{ns.subcommand} takes at most {expected} argument(s), got {len(ns.args)}")
+
     if ns.subcommand == "journal":
         command, payload = journal_command(ns.since, ns.lines, ns.grep), None
     else:
-        expected = 2 if ns.subcommand == "artifact" else 1
-        if len(ns.args) > expected:
-            # Silently discarding an extra argument hides an operator typo behind a result
-            # that looks right.
-            ap.error(f"{ns.subcommand} takes at most {expected} argument(s), got {len(ns.args)}")
         run_id = ns.args[0] if ns.args else ""
         name = ns.args[1] if len(ns.args) > 1 else ""
         if ns.subcommand == "artifact" and not name:

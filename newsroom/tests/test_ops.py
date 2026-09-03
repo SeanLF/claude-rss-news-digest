@@ -100,6 +100,9 @@ def test_the_payload_cannot_write_even_to_a_writable_file(tmp_path):
     """mode=ro is the layer that survives if the :ro mount is ever dropped, so it is tested
     on a file the process CAN write at the filesystem level."""
     db = _scratch_db(tmp_path)
+    # The injected write must run BEFORE the select: the scratch digest_runs has none of the
+    # columns the run query names, so if this ever stopped failing on readonly it would fail
+    # on "no such column" instead of passing for the wrong reason.
     payload = ops.build_payload("run", db=str(db)).replace(
         "rows = [dict(r) for r in conn.execute(",
         'conn.execute("delete from digest_runs")\nrows = [dict(r) for r in conn.execute(',
@@ -126,9 +129,18 @@ def test_a_padded_relative_window_is_still_normalised():
     assert "--since -6h" in ops.journal_command(since=" 6h ", lines=10, grep=None)
 
 
-def test_extra_positional_arguments_are_refused(capsys):
+@pytest.mark.parametrize(
+    "argv",
+    [
+        ["run", "285", "stray"],
+        ["artifact", "285", "clusters.json", "stray"],
+        # journal takes no positional args; it was the one subcommand the guard missed.
+        ["journal", "stray"],
+    ],
+)
+def test_extra_positional_arguments_are_refused(argv):
     with pytest.raises(SystemExit):
-        ops.main(["run", "285", "stray"])
+        ops.main(argv)
 
 
 def test_a_bare_relative_window_is_made_a_systemd_relative_time():
