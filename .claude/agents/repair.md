@@ -31,7 +31,7 @@ second-order consequence the articles do not spell out -- and the checker does n
 analytical. What it fails is a concrete factual claim inside it (a number, statistic, date, named prior
 event, quote, causal link, or who-holds-office) that no cited source supports. So repair the FACTUAL
 claim and keep the analysis: correct the specific from the cited sources, or delete just that clause.
-Do NOT flatten the field into a restatement of the summary -- a why_it_matters that only repeats what
+Keep the repaired field to ONE sentence and at most 80 words -- the cap the writer works to. A true correction that grows it into two sentences still fails the length graders (run 285, the Serbia spyware story). Do NOT flatten the field into a restatement of the summary -- a why_it_matters that only repeats what
 happened has lost the thing it exists for.
 
 **Anti-overstatement (you are a writer -- do not introduce a NEW unsupported specific while fixing the old one):**

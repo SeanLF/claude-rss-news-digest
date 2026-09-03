@@ -86,3 +86,14 @@ def test_prompt_forbids_internal_ids_in_reader_facing_text():
     body = _spec().body.lower()
     assert "article_id" in body or "article id" in body
     assert "never output" in body or "must never" in body
+
+
+def test_a_repaired_why_it_matters_keeps_the_one_sentence_cap():
+    """Run 285: the Serbia repair was correct against its source and came back at 86 words in
+    two sentences, over both caps write.md sets; the repair guard checks empty and id-leak
+    only, so the prompt is where the cap has to live."""
+    body = _spec().body
+    start = body.index("**Repairing `why_it_matters`.**")
+    end = body.find("\n**", start + 1)
+    section = body[start : end if end != -1 else None].lower()
+    assert "one sentence" in section
