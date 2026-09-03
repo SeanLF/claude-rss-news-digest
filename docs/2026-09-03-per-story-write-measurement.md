@@ -12,8 +12,8 @@ corpus. Model `claude-sonnet-5`, thinking adaptive, both arms.*
 **Gate failed on quality. WRITE stays on the tool loop.** The single-turn arm was flagged more
 by COHERENCE in four of five reps, and its mean (2.6 flags per digest) sits above the tool
 loop's maximum (2). It also writes shorter summaries, bolts on second events more often, and
-in one rep echoed `cluster_index` and `article_ids` from the inline `selected.json` into a
-story, which the schema rejects.
+in one rep echoed `cluster_index` from the inline `selected.json` into a story (the smoke
+rep echoed `article_ids` too), which the schema rejects.
 
 With Phase 1 (per-story COHERENCE) also failed on precision, **Phase A of the plan is closed**:
 under the current prompts, the file-handoff tool loop earns its price for the checker and the
@@ -60,8 +60,9 @@ thinking budget is the one follow-up this measurement leaves open. It was not ru
 
 ## Two smaller findings
 
-- **Echoed keys.** In S3 one story carried `cluster_index` and `article_ids` copied from the
-  inline `selected.json`. The tool loop never does this across five reps. Any inline delivery
+- **Echoed keys.** In S3 one story carried `cluster_index` copied from the inline
+  `selected.json`; the smoke rep's S1 carried `article_ids` as well. The tool loop never does
+  this across six reps. Any inline delivery
   needs Python to strip unknown keys before validation, and the fact that the model merges
   input records into output records at all says something about giving it the input as a
   document rather than as files.
