@@ -28,8 +28,8 @@ def test_parse_reads_events_per_group_and_tolerates_fences():
     assert cohesion.parse_verdicts("no json") == {}
 
 
-def test_partition_must_cover_exactly_and_orders_largest_first():
-    assert cohesion.validate_partition(["A1", "A2", "A3"], [["A1"], ["A2", "A3"]]) == [["A2", "A3"], ["A1"]]
+def test_partition_must_cover_exactly_and_keeps_the_judges_order():
+    assert cohesion.validate_partition(["A1", "A2", "A3"], [["A1"], ["A2", "A3"]]) == [["A1"], ["A2", "A3"]]
     assert cohesion.validate_partition(["A1", "A2", "A3"], [["A1"], ["A2"]]) is None  # missing
     assert cohesion.validate_partition(["A1", "A2"], [["A1"], ["A2", "A1"]]) is None  # duplicate
     assert cohesion.validate_partition(["A1", "A2"], [["A1"], ["A2", "A9"]]) is None  # unknown
@@ -45,12 +45,12 @@ def test_verdict_applies_dominant_and_records_strays():
     assert doc["split"] == 1 and doc["strays_removed"] == 2
 
 
-def test_ties_go_to_the_group_holding_selects_first_citation():
+def test_the_dominant_is_the_first_listed_event_that_holds_a_citation():
     selected = {"must_know": [{"cluster_index": 0, "article_ids": ["A3", "A1"]}], "should_know": []}
     clusters = [{"story": "s", "article_ids": ["A1", "A2", "A3"]}]
     groups = [{"group": 0, "cluster_index": 0, "article_ids": ["A1", "A2", "A3"]}]
-    doc = cohesion.judge_selected(selected, clusters, {0: [["A1"], ["A2"], ["A3"]]}, groups)
-    assert doc["verdicts"][0]["dominant"] == ["A3"]
+    doc = cohesion.judge_selected(selected, clusters, {0: [["A2"], ["A1"], ["A3"]]}, groups)
+    assert doc["verdicts"][0]["dominant"] == ["A1"]  # A2 first but uncited; A1 is the first cited
 
 
 def test_one_event_and_bad_partitions_are_not_applied():
@@ -66,12 +66,15 @@ def test_one_event_and_bad_partitions_are_not_applied():
     assert gone["applied"] is True and gone["dominant"] == ["A1"]
 
 
-def test_a_dominant_that_drops_every_cited_id_is_refused():
+def test_the_dominant_follows_selects_citations_when_the_judge_lists_an_uncited_event_first():
     selected = {"must_know": [{"cluster_index": 0, "article_ids": ["A3"]}], "should_know": []}
     clusters = [{"story": "s", "article_ids": ["A1", "A2", "A3"]}]
     groups = [{"group": 0, "cluster_index": 0, "article_ids": ["A1", "A2", "A3"]}]
     v = cohesion.judge_selected(selected, clusters, {0: [["A1", "A2"], ["A3"]]}, groups)["verdicts"][0]
-    assert v["applied"] is False and v["reason"] == "dominant drops every cited id"
+    # The judge put the uncited pair first; SELECT cited A3, so A3's event is the story.
+    assert v["applied"] is True and v["dominant"] == ["A3"]
+    none = cohesion.judge_selected(selected, clusters, {0: [["A1", "A2", "A3"]]}, groups)["verdicts"][0]
+    assert none["applied"] is False and none["reason"] == "one event"
 
 
 def _stage_dir(tmp_path):
@@ -241,3 +244,29 @@ def test_verdicts_carry_the_story_position():
         selected, clusters, {0: [["A1"], ["A2"], ["A3"]], 1: [["A1"], ["A2"], ["A3"]]}, groups
     )
     assert [v["group"] for v in doc["verdicts"]] == [0, 1]
+
+
+class TestTheJudgeSeesTheStoryLabel:
+    """The 2026-09-03 replay: the dominant was chosen by size and the judge never saw the
+    cluster's label, so on 284/109 Putin's Ukraine remarks outranked the Iran-support story
+    SELECT chose. Shown the label and asked to list that story's event first, the judge
+    picked the right facet in both targeted cases (docs/2026-09-03-clustering-pocs.md)."""
+
+    def test_groups_carry_the_cluster_label_and_the_prompt_shows_it(self):
+        selected = {"must_know": [{"cluster_index": 0, "article_ids": ["A1", "A2"]}], "should_know": []}
+        clusters = [{"story": "Russia signals support for Iran", "article_ids": ["A1", "A2"]}]
+        groups = cohesion.selected_groups(selected, clusters)
+        assert groups[0]["story"] == "Russia signals support for Iran"
+        text = cohesion.build_judge_prompt(groups, ARTS)
+        assert "GROUP 0" in text and "Russia signals support for Iran" in text
+
+    def test_the_first_listed_event_is_the_dominant_not_the_largest(self):
+        selected = {"must_know": [{"cluster_index": 0, "article_ids": ["A1", "A2", "A3"]}], "should_know": []}
+        clusters = [{"story": "s", "article_ids": ["A1", "A2", "A3"]}]
+        groups = cohesion.selected_groups(selected, clusters)
+        doc = cohesion.judge_selected(selected, clusters, {0: [["A3"], ["A1", "A2"]]}, groups)
+        v = doc["verdicts"][0]
+        assert v["applied"] is True and v["dominant"] == ["A3"] and sorted(v["strays"]) == ["A1", "A2"]
+
+    def test_the_system_prompt_asks_for_the_story_event_first(self):
+        assert "list that story's event first" in cohesion.JUDGE_SYSTEM.lower()

@@ -44,7 +44,9 @@ JUDGE_SYSTEM = """You are auditing a news-clustering system. Each GROUP below is
 system decided cover THE SAME news story. Some groups are right; some bundle a second, unrelated \
 event that merely shares a place, a person, an organisation or a topic with the story.
 
-For each group, partition its articles into EVENTS.
+Each GROUP header names the story the system selected that group for. For each group, partition \
+its articles into EVENTS, and list that story's event FIRST -- the articles about the named story -- \
+then every other event.
 
 Rules:
 - Different angles, reactions, analysis, follow-ups or later developments of ONE underlying event \
@@ -98,7 +100,9 @@ def build_judge_prompt(groups: list[dict], articles: dict[str, dict]) -> str:
     parts: list[str] = []
     for g in groups:
         ids = g["article_ids"]
-        parts.append(f"\nGROUP {g['group']} ({len(ids)} articles):")
+        story = g.get("story")
+        header = f"\nGROUP {g['group']} ({len(ids)} articles)"
+        parts.append(f"{header} -- selected as: {story}:" if story else f"{header}:")
         for aid in ids:
             art = articles.get(aid, {})
             title = (art.get("title") or "").strip()
@@ -139,15 +143,19 @@ def parse_verdicts(text: str) -> dict[int, list[list[str]]]:
 
 
 def validate_partition(article_ids: list[str], events: list[list[str]]) -> list[list[str]] | None:
-    """The events largest-first when they partition article_ids exactly; else None."""
+    """The events in the judge's order when they partition article_ids exactly; else None.
+
+    The order is information: the judge is asked to list the selected story's event first.
+    Size is not -- on the 2026-09-03 replay, largest-first made Putin's Ukraine remarks
+    outrank the Iran-support story SELECT chose (docs/2026-09-03-clustering-pocs.md).
+    """
     expected = set(article_ids)
     seen: list[str] = [i for ev in events for i in ev]
     if not events or any(not ev for ev in events):
         return None
     if len(seen) != len(set(seen)) or set(seen) != expected:
         return None
-    # Stable: equal-size groups keep the judge's order, which the tie rule then resolves.
-    return sorted((list(ev) for ev in events), key=lambda ev: -len(ev))
+    return [list(ev) for ev in events]
 
 
 def _selected_stories(selected: dict) -> list[dict]:
@@ -175,7 +183,9 @@ def selected_groups(selected: dict, clusters: list[dict]) -> list[dict]:
         ids = list(dict.fromkeys([*cluster_ids, *cited]))
         if len(ids) < 2 or not isinstance(ci, int):
             continue  # nothing to partition, or nothing to key the verdict on
-        groups.append({"group": n, "cluster_index": ci, "article_ids": ids, "cited": cited})
+        label = clusters[ci].get("story") if 0 <= ci < len(clusters) and isinstance(clusters[ci], dict) else None
+        story_label = label if isinstance(label, str) else None
+        groups.append({"group": n, "cluster_index": ci, "article_ids": ids, "cited": cited, "story": story_label})
     return groups
 
 
@@ -222,13 +232,16 @@ def judge_selected(
             entry["reason"] = "one event"
         else:
             entry["events"] = events
-            top = len(events[0])
-            tied = [ev for ev in events if len(ev) == top]
-            dominant = tied[0]
-            if len(tied) > 1 and cited:
-                first = cited[0]
-                dominant = next((ev for ev in tied if first in ev), tied[0])
-            if cited and not any(i in dominant for i in cited):
+            # The judge lists the selected story's event first. SELECT's citations are the
+            # other authority on what the story is: the dominant is the first listed event
+            # that holds at least one of them, so WRITE never writes from articles SELECT
+            # did not cite. No event holds any: refuse, and the branch stays as it is.
+            dominant = None
+            if cited:
+                dominant = next((ev for ev in events if any(i in ev for i in cited)), None)
+            else:
+                dominant = events[0]
+            if dominant is None:
                 entry["reason"] = "dominant drops every cited id"
             else:
                 entry["dominant"] = dominant

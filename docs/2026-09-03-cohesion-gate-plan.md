@@ -14,7 +14,7 @@
 
 - Off by default: `COHESION_ENABLED` (env, default `false`), same parsing as `FULLTEXT_ENABLED`. Prod turns it on by terraform after the measurement, not by this plan.
 - Fail-open at every layer: a failed call, an unparseable reply, a partition that is not exactly the cluster's ids, or a dominant group that drops every one of SELECT's cited ids, each leave that cluster untouched and are recorded in the artifact with a reason.
-- Never merges. A verdict may only split one cluster into groups; the branch gets the largest group.
+- Never merges. A verdict may only split one cluster into groups; the branch gets the story's event (the first listed that holds a citation).
 - The model never sees URLs, source names or bias: ids, titles, snippets only (same rule as every stage).
 - One `run_usage` row, subagent `cohesion`, model `COHESION_MODEL` (default `claude-sonnet-4-6`, thinking per `cluster_extractjoin._thinking_for`).
 - The measurement's metric is agreement with independent labels and the known run-285 cases, never "fewer multi-event clusters" (the 2026-09-01 embedding gate's metric was maximised by fragmentation).
@@ -33,7 +33,7 @@ Input per selected story: its cluster's articles (`cluster_index` resolved again
 - Judge from the titles and snippets given; do not guess at content you cannot see.
 - Every id exactly once.
 
-The dominant event is the largest group; ties go to the group holding the earliest of SELECT's `article_ids` (SELECT's first citation is its representative article). Strays are every other group's ids.
+The dominant event was the largest group in the first build. After the 2026-09-03 replay and PoC (largest-first chose the wrong facet; shown the cluster's label the judge chose the right one), each GROUP header carries the cluster's `story` label, the judge lists that story's event first, and the dominant is the first listed event that holds at least one of SELECT's citations. Strays are every other group's ids.
 
 ### The artifact: `cluster_cohesion.json`
 
