@@ -125,5 +125,64 @@ def test_stage_fails_open(tmp_path, monkeypatch):
     monkeypatch.setattr(cohesion.claude_cli, "run_agent", boom)
     row = asyncio.run(cohesion.run_cohesion_stage(_stage_dir(tmp_path), model="claude-sonnet-4-6", cwd=None))
     doc = json.loads((tmp_path / cohesion.COHESION_ARTIFACT).read_text())
-    assert doc["outcome"] == "failed" and doc["verdicts"] == []
+    assert doc["outcome"] == "failed" and not any(v["applied"] for v in doc["verdicts"])
+    assert "529" in doc["reason"]
     assert row["subagent"] == "cohesion"
+
+
+def test_two_stories_on_one_cluster_each_keep_their_own_citations():
+    """Never assume cluster_index uniqueness (the 2026-07-16 duplicate-label incident). Each
+    group's tie-break and drop-guard read the citations of ITS story, not the first story
+    that happened to share the cluster."""
+    selected = {
+        "must_know": [{"cluster_index": 0, "article_ids": ["A1"]}],
+        "should_know": [{"cluster_index": 0, "article_ids": ["A3"]}],
+    }
+    clusters = [{"story": "s", "article_ids": ["A1", "A2", "A3"]}]
+    groups = cohesion.selected_groups(selected, clusters)
+    assert [g["group"] for g in groups] == [0, 1]
+    verdict = {0: [["A1"], ["A2"], ["A3"]], 1: [["A1"], ["A2"], ["A3"]]}
+    doc = cohesion.judge_selected(selected, clusters, verdict, groups)
+    assert doc["verdicts"][0]["dominant"] == ["A1"]
+    assert doc["verdicts"][1]["dominant"] == ["A3"]
+
+
+def test_one_failed_batch_does_not_discard_the_others(tmp_path, monkeypatch):
+    """Thirteen selected clusters make two batches. If the second call raises, the first
+    batch's verdicts still apply; the failed groups read 'no verdict'."""
+    stories = [{"cluster_index": i, "article_ids": [f"A{i}a"]} for i in range(13)]
+    (tmp_path / "selected.json").write_text(
+        json.dumps({"must_know": stories, "should_know": [], "not_covered_blurb": ""})
+    )
+    (tmp_path / "clusters.json").write_text(
+        json.dumps({"clusters": [{"story": f"s{i}", "article_ids": [f"A{i}a", f"A{i}b"]} for i in range(13)]})
+    )
+    rows = "\n".join(f"A{i}{s},src,title {i}{s},2026,sum" for i in range(13) for s in "ab")
+    (tmp_path / "articles_1.csv").write_text("article_id,source_id,title,published,summary\n" + rows + "\n")
+    calls = []
+
+    async def fake(prompt, **kw):
+        calls.append(prompt)
+        if "GROUP 12" in prompt:
+            raise RuntimeError("529")
+        results = [{"group": g, "events": [[f"A{g}a"], [f"A{g}b"]]} for g in range(12)]
+        return StageResult(
+            subtype="success",
+            text=json.dumps({"results": results}),
+            usage={
+                "input_tokens": 1,
+                "output_tokens": 1,
+                "cache_creation_input_tokens": 0,
+                "cache_read_input_tokens": 0,
+            },
+            total_cost_usd=0.01,
+            duration_ms=1,
+            is_error=False,
+        )
+
+    monkeypatch.setattr(cohesion.claude_cli, "run_agent", fake)
+    asyncio.run(cohesion.run_cohesion_stage(tmp_path, model="claude-sonnet-4-6", cwd=None))
+    doc = json.loads((tmp_path / cohesion.COHESION_ARTIFACT).read_text())
+    assert len(calls) == 2
+    assert doc["outcome"] == "partial" and doc["split"] == 12
+    assert doc["verdicts"][12]["applied"] is False and doc["verdicts"][12]["reason"] == "no verdict"

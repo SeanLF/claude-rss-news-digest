@@ -180,17 +180,19 @@ def judge_selected(
     groups: list[dict],
 ) -> dict:
     """Turn raw verdicts into the artifact document. No I/O, no model."""
-    # SELECT's citations, by cluster: the tie-breaker and the "drops every cited id" guard.
-    cited_by_cluster: dict[int, list[str]] = {}
-    for story in _selected_stories(selected):
-        ci = story.get("cluster_index")
-        if isinstance(ci, int) and ci not in cited_by_cluster:
-            cited_by_cluster[ci] = [i for i in (story.get("article_ids") or []) if isinstance(i, str)]
+    # SELECT's citations for THIS group's story (a group number is the story's position):
+    # the tie-breaker and the "drops every cited id" guard. Two stories can share a
+    # cluster_index and cite different articles, so never key this on the cluster.
+    stories = _selected_stories(selected)
     verdicts: list[dict] = []
     split = strays_removed = 0
     for g in groups:
         ids = g["article_ids"]
-        cited = cited_by_cluster.get(g["cluster_index"], [])
+        cited = g.get("cited")
+        if cited is None:
+            n = g["group"]
+            story = stories[n] if 0 <= n < len(stories) else {}
+            cited = [i for i in (story.get("article_ids") or []) if isinstance(i, str)]
         entry: dict[str, Any] = {
             "cluster_index": g["cluster_index"],
             "article_ids": ids,
@@ -269,22 +271,30 @@ async def run_cohesion_stage(claude_input_dir: Path, *, model: str, cwd: str | P
         articles = load_articles(claude_input_dir)
         groups = selected_groups(selected, clusters)
         sem = asyncio.Semaphore(_CONCURRENCY)
+        failed_batches: list[str] = []
 
         async def _judge(batch: list[dict]) -> dict[int, list[list[str]]]:
-            async with sem:
-                result = await claude_cli.run_agent(
-                    build_judge_prompt(batch, articles),
-                    model=model,
-                    system_prompt=JUDGE_SYSTEM,
-                    tools=[],
-                    max_turns=1,
-                    cwd=cwd,
-                    thinking=_thinking_for(model),
-                )
-            if not result.ok:
-                raise RuntimeError(result.error_summary())
-            usage_rows.append(result.usage or {})
+            """One batch's verdicts. A failed batch is its own loss: its groups read
+            'no verdict' and every other batch still applies."""
             nonlocal total_cost
+            try:
+                async with sem:
+                    result = await claude_cli.run_agent(
+                        build_judge_prompt(batch, articles),
+                        model=model,
+                        system_prompt=JUDGE_SYSTEM,
+                        tools=[],
+                        max_turns=1,
+                        cwd=cwd,
+                        thinking=_thinking_for(model),
+                    )
+                if not result.ok:
+                    raise RuntimeError(result.error_summary())
+            except Exception as e:
+                failed_batches.append(f"{type(e).__name__}: {e}")
+                logger.error("cohesion: batch of %d group(s) failed open (%s: %s)", len(batch), type(e).__name__, e)
+                return {}
+            usage_rows.append(result.usage or {})
             total_cost += result.total_cost_usd or 0.0
             return parse_verdicts(result.text)
 
@@ -292,7 +302,15 @@ async def run_cohesion_stage(claude_input_dir: Path, *, model: str, cwd: str | P
         verdicts: dict[int, list[list[str]]] = {}
         for part in await asyncio.gather(*(_judge(b) for b in batches)):
             verdicts.update(part)
-        doc = {"model": model, "outcome": "completed", **judge_selected(selected, clusters, verdicts, groups)}
+        # failed: no batch answered (nothing applied); partial: some did; completed: all did.
+        outcome = "completed"
+        if batches and len(failed_batches) == len(batches):
+            outcome = "failed"
+        elif failed_batches:
+            outcome = "partial"
+        doc = {"model": model, "outcome": outcome, **judge_selected(selected, clusters, verdicts, groups)}
+        if failed_batches:
+            doc["reason"] = "; ".join(failed_batches)
         logger.info(
             "cohesion: %d selected cluster(s) judged, %d split, %d stray article(s) removed ($%.4f)",
             doc["judged"],
