@@ -53,6 +53,8 @@ The join fuses articles on entity and keyword overlap and labels the cluster by 
 
 ### Task 1: Per-story single-turn COHERENCE arm in the coherence eval
 
+*Landed 2026-09-03 as 499dfd8 + a777a29; Step 10 (the measurement) is in progress.*
+
 **Files:**
 - Modify: `newsroom/src/orchestrate.py` (add `build_story_corpus`, `build_per_story_body` next to `build_coherence_corpus` and `build_single_turn_body`, around lines 472-510)
 - Modify: `newsroom/src/eval_coherence.py` (add `run_per_story_to_file`; add `--per-story` to `main`)
@@ -62,7 +64,7 @@ The join fuses articles on entity and keyword overlap and labels the cluster by 
 - Consumes: `orchestrate.build_single_turn_body(body) -> str`, `orchestrate.parse_coherence_report(text) -> dict | None`, `claude_cli.run_agent(prompt, *, model, system_prompt, allowed_tools, tools, cwd, idle_timeout, thinking, max_turns)`, `eval_coherence.score(report_path, labels)`.
 - Produces: `orchestrate.build_story_corpus(claude_input_dir: Path, story: dict) -> str` (the story as a one-entry draft, the CSV header plus only the rows whose `article_id` is in the story's `sources`, and the `article_fulltext.json` entries for those ids), `orchestrate.build_per_story_body(body: str) -> str` (the single-turn body with "For each story in draft_selections.json" scoped to "the one story"), `eval_coherence.run_per_story_to_file(out_path, model, body, thinking, fixtures) -> None` (writes one merged `coherence_report.json` with one result per story, in draft order).
 
-- [ ] **Step 1: Write the failing test for the corpus builder**
+- [x] **Step 1: Write the failing test for the corpus builder**
 
 ```python
 # newsroom/tests/test_orchestrate.py, in the class holding test_every_probe_survives_the_rewrite_byte_for_byte
@@ -93,12 +95,12 @@ The join fuses articles on entity and keyword overlap and labels the cluster by 
         assert "every story" not in single.lower()
 ```
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [x] **Step 2: Run the tests to verify they fail**
 
 Run: `docker compose run --rm --entrypoint pytest ci -q newsroom/tests/test_orchestrate.py -k "story_corpus or per_story_body"`
 Expected: FAIL with `AttributeError: module 'orchestrate' has no attribute 'build_story_corpus'`
 
-- [ ] **Step 3: Implement the two builders**
+- [x] **Step 3: Implement the two builders**
 
 ```python
 # newsroom/src/orchestrate.py, after build_single_turn_body
@@ -141,29 +143,27 @@ def build_story_corpus(claude_input_dir: Path, story: dict) -> str:
 
 
 def build_per_story_body(body: str) -> str:
-    """The single-turn body, scoped to one story. Derived, not rewritten: the probe block is
-    asserted byte for byte by the same test that guards build_single_turn_body."""
+    """The single-turn body, scoped to one story.
+
+    build_single_turn_body already replaces the whole numbered instructions block (including
+    "for each story in draft_selections.json") with the inline-input block, so the only
+    per-story wording left to change is the rules line. Derived, not rewritten: the probe
+    block is asserted byte for byte by the same test that guards build_single_turn_body.
+    """
     out = build_single_turn_body(body)
-    out = out.replace(
-        "2. For each story in draft_selections.json (must_know and should_know), check",
-        "2. draft_selections.json holds the one story to check. Check",
-    )
-    return out.replace(
-        "- Check EVERY story (must_know and should_know).",
-        "- Check the one story.",
-    )
+    return out.replace("- Check EVERY story (must_know and should_know).", "- Check the one story.")
 ```
 
 Add `import csv` and `import io` at the top of `orchestrate.py` if absent (check with `rg -n '^import (csv|io)$' newsroom/src/orchestrate.py`).
 
-- [ ] **Step 4: Run the tests to verify they pass**
+- [x] **Step 4: Run the tests to verify they pass**
 
 Run: `docker compose run --rm --entrypoint pytest ci -q newsroom/tests/test_orchestrate.py -k "story_corpus or per_story_body or probe_survives"`
 Expected: PASS (3 tests)
 
 If `test_per_story_body_scopes...` fails on the "every story" assertion, read the current `coherence.md` rules block: the exact sentence to replace is the one beginning `- Check EVERY story`. Adjust the `replace` target to the current text; do not weaken the assertion.
 
-- [ ] **Step 5: Write the failing test for the merged report**
+- [x] **Step 5: Write the failing test for the merged report**
 
 ```python
 # newsroom/tests/test_eval_coherence.py (create if absent; mirror test_eval_repair.py's imports)
@@ -198,12 +198,12 @@ def test_per_story_reports_merge_in_draft_order(tmp_path, monkeypatch):
     assert [r["pass"] for r in report["results"]] == [True, False]
 ```
 
-- [ ] **Step 6: Run it to verify it fails**
+- [x] **Step 6: Run it to verify it fails**
 
 Run: `docker compose run --rm --entrypoint pytest ci -q newsroom/tests/test_eval_coherence.py`
 Expected: FAIL with `AttributeError: module 'eval_coherence' has no attribute 'run_per_story_to_file'`
 
-- [ ] **Step 7: Implement the per-story runner and the flag**
+- [x] **Step 7: Implement the per-story runner and the flag**
 
 ```python
 # newsroom/src/eval_coherence.py, after run_single_turn_to_file
@@ -266,14 +266,14 @@ In `main()`:
         elif args.single_turn:
 ```
 
-- [ ] **Step 8: Run the test to verify it passes, then the whole suite**
+- [x] **Step 8: Run the test to verify it passes, then the whole suite**
 
 Run: `docker compose run --rm --entrypoint pytest ci -q newsroom/tests/test_eval_coherence.py newsroom/tests/test_orchestrate.py`
 Expected: PASS
 Run: `bin/ci`
 Expected: `CI passed`
 
-- [ ] **Step 9: Commit**
+- [x] **Step 9: Commit**
 
 ```bash
 git add newsroom/src/orchestrate.py newsroom/src/eval_coherence.py newsroom/tests/test_orchestrate.py newsroom/tests/test_eval_coherence.py
@@ -299,6 +299,8 @@ Read the scorecard as: mean recall over 6; how many of 5 runs caught idx 4 (`(4,
 
 ### Task 2: Per-story single-turn WRITE arm
 
+*Landed 2026-09-03 as 23df49c + 44fe45c; Step 6 (the measurement) not yet run.*
+
 **Files:**
 - Create: `newsroom/src/eval_write_turns.py`
 - Create: `bin/eval-write-turns` (copy `bin/eval-write-arms`, swap the module name)
@@ -309,7 +311,7 @@ Read the scorecard as: mean recall over 6; how many of 5 runs caught idx 4 (`(4,
 - Consumes: `write_fanout.build_branches(claude_input_dir) -> FanOut` (`.branches: list[Branch]`, each with `.dir`, `.tier`, `.name`), `write_fanout.branch_body`, `write_fanout.branch_story(branch_dir)`, `claude_cli.run_agent`, `eval_graders.grade_selections`, and the multi-turn coherence path in `eval_coherence.run_agent_to_file` for the endpoint.
 - Produces: `write_fanout.branch_corpus(branch_dir) -> str` (every file in the branch dir the prompt lists, inlined under `## <name>` headings, in the prompt's order), `write_fanout.single_turn_branch_body(body) -> str` (the branch prompt with the Read/Write I/O replaced by the inline block and "Reply with the JSON object and nothing else").
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 ```python
 # newsroom/tests/test_write_fanout.py
@@ -331,12 +333,12 @@ class TestSingleTurnBranch:
         assert "Reply with the JSON object and nothing else" in out
 ```
 
-- [ ] **Step 2: Run them to verify they fail**
+- [x] **Step 2: Run them to verify they fail**
 
 Run: `docker compose run --rm --entrypoint pytest ci -q newsroom/tests/test_write_fanout.py -k SingleTurnBranch`
 Expected: FAIL with `AttributeError: module 'write_fanout' has no attribute 'branch_corpus'`
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 ```python
 # newsroom/src/write_fanout.py, after branch_body
@@ -377,19 +379,19 @@ def single_turn_branch_body(body: str) -> str:
     return out.replace("- DO NOT use Bash. Use Read and Write tools only.\n", "")
 ```
 
-- [ ] **Step 4: Run the tests to verify they pass**
+- [x] **Step 4: Run the tests to verify they pass**
 
 Run: `docker compose run --rm --entrypoint pytest ci -q newsroom/tests/test_write_fanout.py`
 Expected: PASS
 
-- [ ] **Step 5: Write the harness**
+- [x] **Step 5: Write the harness**
 
-`newsroom/src/eval_write_turns.py` replays an archived run (default: the newest with a `write_branches.json` artifact) through both deliveries, `--reps 5` each, and reports the within-arm spread first. Pattern: `eval_write_arms.py` (its `build_arm`, `deltas` and archive-loading helpers are reusable; import them rather than copying). The harness:
+`newsroom/src/eval_write_turns.py` replays an archived run (default: the newest with a `write_branches.json` artifact) through both deliveries, `--reps 5` each, and reports the within-arm spread first. Pattern: `eval_write_arms.py` for the shell wrapper and the archive-restore shape; its `build_arm` and `deltas` helpers are specific to the thread-delta A/B and do not apply here. The harness:
 
 1. Restores the run's `claude_input/` from `run_artifacts` into `/app/data/eval-write-turns/<run>/`, exactly as `eval_write_arms.py` does.
 2. Calls `write_fanout.build_branches` on it.
 3. Arm **T** (tool loop): for each branch, `claude_cli.run_agent("Begin.", system_prompt=write_fanout.branch_body(body, branch.dir), tools=["Read", "Write"], allowed_tools="Read Write", cwd=str(branch.dir), thinking=<write.md's>, model=<write.md's>)`, then `write_fanout.branch_story(branch.dir)`.
-4. Arm **S** (single turn): for each branch, `claude_cli.run_agent(write_fanout.branch_corpus(branch.dir), system_prompt=write_fanout.single_turn_branch_body(write_fanout.branch_body(body, branch.dir)), tools=[], allowed_tools="", max_turns=1, ...)`, parse the reply with `orchestrate.parse_coherence_report` (it is a generic fenced-JSON extractor despite the name), write it to `branch.dir / "draft_selections.json"`, then `write_fanout.branch_story(branch.dir)`.
+4. Arm **S** (single turn): for each branch, `claude_cli.run_agent(write_fanout.branch_corpus(branch.dir), system_prompt=write_fanout.single_turn_branch_body(write_fanout.branch_body(body, branch.dir)), tools=[], allowed_tools="", max_turns=1, ...)`, parse the reply with `orchestrate.parse_json_object` (the shape-agnostic extractor; `parse_coherence_report` insists on a `results` list and returns None for a WRITE draft), write it to `branch.dir / "draft_selections.json"`, then `write_fanout.branch_story(branch.dir)`.
 5. Fans each rep in with `write_fanout.assemble_draft`, writes `draft_<arm><rep>.json`, then runs the shipped multi-turn COHERENCE over each draft with `eval_coherence.run_agent_to_file` against the restored corpus, and counts `pass: false` results.
 6. Prints per rep: stories written, coherence flags, L1 failures (`eval_graders.grade_selections`), tokens (input, cache write, cache read, output) and cost. Then per arm: min, mean, max of flags and of tokens.
 
@@ -404,7 +406,7 @@ bin/eval-write-turns --run 285 --reps 5 | tee docs/2026-09-03-per-story-write-me
 
 **Gate for Phase A (generators):** arm S coherence flags, mean over 5 reps, within arm T's spread or lower; L1 failures no worse; the tokens line is the saving. If S flags more than T's maximum, single-turn WRITE is rejected on quality and Phase A applies only to COHERENCE (if Task 1 passed), PREHEADER and RECAP.
 
-- [ ] **Step 7: Commit the harness, then the measurement doc, separately**
+- [x] **Step 7: Commit the harness, then the measurement doc, separately** (harness landed as 23df49c + 44fe45c; the measurement doc is pending the run)
 
 ```bash
 git add newsroom/src/write_fanout.py newsroom/tests/test_write_fanout.py newsroom/src/eval_write_turns.py bin/eval-write-turns
@@ -446,4 +448,4 @@ git commit -m "docs(eval): single-turn WRITE at per-story size, measured against
 
 - Spec coverage: the four rewrite items map to Phases A (tool-free), B (dynamic prompts), C (clusterer reasoning), D (one verifier). Tasks 1 and 2 are the gates for A. Phase B's dependency on A is real (the prompt becomes a Python-owned string only once the tool I/O section is gone), so B is not started early.
 - Placeholders: Phases A to D are outlines by design and say so; Tasks 1 and 2 carry code. Task 2 Step 5 describes a harness rather than reproducing `eval_write_arms.py`'s 200 lines; the reusable helpers are named.
-- Names used across tasks: `build_story_corpus`, `build_per_story_body`, `run_per_story_to_file`, `branch_corpus`, `single_turn_branch_body`, `_BRANCH_CORPUS_FILES`. `orchestrate.parse_coherence_report` is reused in Task 2 as a generic JSON extractor; if that reads badly in review, alias it as `parse_json_reply` in Task 2 and keep the old name.
+- Names used across tasks: `build_story_corpus`, `build_per_story_body`, `run_per_story_to_file`, `branch_corpus`, `single_turn_branch_body`, `_BRANCH_CORPUS_FILES`, `parse_json_object` (split out of `parse_coherence_report` in 44fe45c after review found the report parser cannot parse a WRITE draft).
