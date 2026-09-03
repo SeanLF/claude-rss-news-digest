@@ -194,3 +194,28 @@ def test_the_artifact_is_archived_with_the_run():
     import db
 
     assert cohesion.COHESION_ARTIFACT in db._TRACE_ARTIFACTS
+
+
+def test_scoring_a_verdict_against_a_label():
+    """The replay measurement's per-cluster score: event-count agreement, stray-set Jaccard,
+    over-splits (labelled same-event ids the judge put outside the dominant), and whether
+    each must-separate id was separated."""
+    import eval_cohesion
+
+    ids = ["A1", "A2", "A3", "A4"]
+    label = {"n_events": 2, "strays": ["A4"]}
+    verdict = {
+        "applied": True,
+        "events": [["A1", "A2"], ["A3"], ["A4"]],
+        "dominant": ["A1", "A2"],
+        "strays": ["A3", "A4"],
+    }
+    s = eval_cohesion.score_verdict(ids, verdict, label, must_separate=["A4"])
+    assert s["n_events"] == 3 and s["count_agrees"] is False
+    assert s["jaccard"] == 0.5
+    assert s["over_splits"] == ["A3"]
+    assert s["separated"] == {"A4": True}
+    unapplied = eval_cohesion.score_verdict(
+        ids, {"applied": False, "events": None, "dominant": ids, "strays": []}, label, must_separate=["A4"]
+    )
+    assert unapplied["n_events"] == 1 and unapplied["jaccard"] == 0.0 and unapplied["separated"] == {"A4": False}

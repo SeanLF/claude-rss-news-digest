@@ -1,0 +1,15 @@
+#!/bin/bash
+# Replay the cohesion gate over archived runs and score it against the blind labels in
+# docs/2026-09-03-cohesion-gate-labels.json (event-count agreement, stray-set Jaccard,
+# over-splits, the known run-285 cases). Reads the MODAL verdict across reps.
+#
+# Makes REAL model calls on the subscription -- opt-in, never in CI.
+# Usage: bin/eval-cohesion [--runs 284,285] [--reps 3] [--model claude-sonnet-4-6]
+set -euo pipefail
+cd "$(dirname "${BASH_SOURCE[0]}")/.."
+exec docker compose run --rm \
+  -v "$(pwd)/newsroom/src:/app/src" \
+  -v "$(pwd)/docs/2026-09-03-cohesion-gate-labels.json:/app/eval-labels.json:ro" \
+  -e PYTHONPATH=/app/src \
+  --entrypoint /app/.venv/bin/python3 \
+  digest-newsroom /app/src/eval_cohesion.py "$@"
