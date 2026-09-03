@@ -64,6 +64,8 @@ class Branch:
     cluster_index: int | None
     story_article_ids: tuple[str, ...]
     context_article_ids: tuple[str, ...]
+    # Articles the cohesion gate kept out of this branch (0 without an applied verdict).
+    strays_removed: int = 0
 
 
 @dataclass(frozen=True)
@@ -172,6 +174,34 @@ def _read_article_rows(claude_input_dir: Path) -> tuple[list[str], list[list[str
     return header, rows
 
 
+COHESION_ARTIFACT_NAME = "cluster_cohesion.json"
+
+
+def _load_cohesion(claude_input_dir: Path) -> dict[int, list[str]]:
+    """cluster_index -> the dominant event's ids, for APPLIED verdicts only.
+
+    Written by cohesion.py; read here as a file so this module stays a leaf. Anything
+    missing or malformed is an empty map: the gate is additive, and no verdict means no
+    change to what a branch sees.
+    """
+    path = claude_input_dir / COHESION_ARTIFACT_NAME
+    if not path.exists():
+        return {}
+    try:
+        doc = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as e:
+        logger.warning("%s unreadable (%s) -- ignoring; branches see their whole clusters", COHESION_ARTIFACT_NAME, e)
+        return {}
+    out: dict[int, list[str]] = {}
+    for v in (doc.get("verdicts") if isinstance(doc, dict) else None) or []:
+        if not isinstance(v, dict) or v.get("applied") is not True:
+            continue
+        ci, dominant = v.get("cluster_index"), v.get("dominant")
+        if isinstance(ci, int) and isinstance(dominant, list) and dominant:
+            out[ci] = [i for i in dominant if isinstance(i, str)]
+    return out
+
+
 def _cluster_ids(clusters: list, cluster_index: object, story_ids: list[str], branch_name: str) -> list[str]:
     """The cluster's article_ids for this story, or none if it has no usable cluster.
 
@@ -248,6 +278,7 @@ def build_branches(claude_input_dir: Path) -> FanOut:
     fulltext_path = claude_input_dir / "article_fulltext.json"
     fulltext = _load_json(fulltext_path) if fulltext_path.exists() else None
     blurb = selected.get("not_covered_blurb")
+    cohesion = _load_cohesion(claude_input_dir)
 
     root = claude_input_dir / BRANCH_ROOT_NAME
     root.mkdir(parents=True, exist_ok=True)
@@ -264,6 +295,23 @@ def build_branches(claude_input_dir: Path) -> FanOut:
             story_ids = [i for i in (story.get("article_ids") or []) if isinstance(i, str)]
             cluster_index = story.get("cluster_index") if isinstance(story.get("cluster_index"), int) else None
             context = _cluster_ids(clusters, story.get("cluster_index"), story_ids, name)
+            strays_removed = 0
+            dominant = cohesion.get(cluster_index) if cluster_index is not None else None
+            if dominant:
+                kept_cited = [i for i in story_ids if i in dominant]
+                if story_ids and not kept_cited:
+                    # cohesion.py refuses this verdict itself; the file is an input, so defend here too.
+                    logger.warning("%s: cohesion verdict keeps none of SELECT's citations -- ignored", name)
+                else:
+                    before = set(context) | set(story_ids)
+                    strays_removed = len(before - set(dominant))
+                    context = list(dominant)
+                    story_ids = kept_cited or story_ids
+                    story = {**story, "article_ids": story_ids}
+                    if strays_removed:
+                        logger.info(
+                            "%s: cohesion gate kept %d article(s), removed %d", name, len(dominant), strays_removed
+                        )
             context_ids = [i for i in dict.fromkeys([*context, *story_ids]) if i in known_ids]
             if not context_ids:
                 logger.error(
@@ -331,6 +379,7 @@ def build_branches(claude_input_dir: Path) -> FanOut:
                     cluster_index=cluster_index,
                     story_article_ids=tuple(story_ids),
                     context_article_ids=tuple(context_ids),
+                    strays_removed=strays_removed,
                 )
             )
 

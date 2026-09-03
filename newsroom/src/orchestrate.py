@@ -874,6 +874,7 @@ def _archive_write_branches(
                 # non-recursively, so the branch CSVs are never archived and this is the
                 # only record of what a branch was actually allowed to read.
                 "context_article_ids": list(b.context_article_ids),
+                "strays_removed": b.strays_removed,
                 **{
                     k: row[k]
                     for k in (

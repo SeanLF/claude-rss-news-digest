@@ -599,3 +599,80 @@ class TestSingleTurnBranch:
         assert "Use the Write tool" not in out
         assert "DO NOT use Bash" not in out
         assert "Reply with the JSON object and nothing else" in out
+
+
+# --------------------------------------------------------------------------- #
+# Cohesion gate: a verdict narrows what a branch sees
+# --------------------------------------------------------------------------- #
+
+
+class TestCohesionNarrowsTheBranch:
+    """cluster_cohesion.json (written by cohesion.py, read here as a file so this module stays
+    a leaf) names the dominant event of a selected cluster. An applied verdict is the only
+    thing that changes a branch's evidence; anything else leaves it exactly as today."""
+
+    def test_dominant_replaces_the_cluster_and_filters_selects_citations(self, tmp_path):
+        sel = {"must_know": [{"cluster_index": 0, "article_ids": ["A1", "A2"]}], "should_know": []}
+        _seed(tmp_path, selected=sel)  # cluster 0 = A1, A2
+        (tmp_path / "cluster_cohesion.json").write_text(
+            json.dumps(
+                {
+                    "outcome": "completed",
+                    "verdicts": [
+                        {
+                            "cluster_index": 0,
+                            "article_ids": ["A1", "A2"],
+                            "events": [["A1"], ["A2"]],
+                            "dominant": ["A1"],
+                            "strays": ["A2"],
+                            "applied": True,
+                            "reason": None,
+                        }
+                    ],
+                }
+            )
+        )
+        branch = write_fanout.build_branches(tmp_path).branches[0]
+        assert branch.context_article_ids == ("A1",)
+        assert branch.strays_removed == 1
+        one = json.loads((branch.dir / "selected.json").read_text())
+        assert one["must_know"][0]["article_ids"] == ["A1"]
+        assert [r[0] for r in _branch_rows(branch) if r[0] != "article_id"] == ["A1"]
+
+    def test_an_unapplied_verdict_changes_nothing(self, tmp_path):
+        sel = {"must_know": [{"cluster_index": 0, "article_ids": ["A1", "A2"]}], "should_know": []}
+        _seed(tmp_path, selected=sel)
+        (tmp_path / "cluster_cohesion.json").write_text(
+            json.dumps(
+                {
+                    "outcome": "completed",
+                    "verdicts": [{"cluster_index": 0, "applied": False, "reason": "one event", "dominant": ["A1"]}],
+                }
+            )
+        )
+        branch = write_fanout.build_branches(tmp_path).branches[0]
+        assert set(branch.context_article_ids) == {"A1", "A2"}
+        assert branch.strays_removed == 0
+
+    def test_a_malformed_artifact_changes_nothing(self, tmp_path):
+        sel = {"must_know": [{"cluster_index": 0, "article_ids": ["A1", "A2"]}], "should_know": []}
+        _seed(tmp_path, selected=sel)
+        (tmp_path / "cluster_cohesion.json").write_text("{not json")
+        branch = write_fanout.build_branches(tmp_path).branches[0]
+        assert set(branch.context_article_ids) == {"A1", "A2"}
+        assert branch.strays_removed == 0
+
+    def test_a_dominant_that_would_leave_no_citation_keeps_selects_list(self, tmp_path):
+        """cohesion.py refuses such a verdict, but the file is an input; defend here too."""
+        sel = {"must_know": [{"cluster_index": 0, "article_ids": ["A2"]}], "should_know": []}
+        _seed(tmp_path, selected=sel)
+        (tmp_path / "cluster_cohesion.json").write_text(
+            json.dumps(
+                {"outcome": "completed", "verdicts": [{"cluster_index": 0, "applied": True, "dominant": ["A1"]}]}
+            )
+        )
+        branch = write_fanout.build_branches(tmp_path).branches[0]
+        one = json.loads((branch.dir / "selected.json").read_text())
+        assert one["must_know"][0]["article_ids"] == ["A2"]
+        assert set(branch.context_article_ids) == {"A1", "A2"}
+        assert branch.strays_removed == 0
