@@ -221,11 +221,13 @@ class TestCohesionNarrowsTheBranch:
 
 ### Task 4: Replay measurement
 
+*Run 2026-09-03 (d6b6996): **gate failed** -- 67% count agreement (floor 80%), 5 over-splits (floor 0); all six known run-285 strays separated; stray set exact on 20 of 33; $0.05 and 19 s per run. Two causes, neither fixable on these labels: the dominant is chosen by size and size does not know which facet SELECT chose (show the judge the cluster label), and the rubric lacks the report-and-response and same-appearance cases. Next iteration needs a fresh run and fresh blind labels. See `docs/2026-09-03-cohesion-gate-measurement.md`. Not deployed.*
+
 **Files:** Create `newsroom/src/eval_cohesion.py`, `bin/eval-cohesion` (copy the `bin/eval-write-turns` wrapper), `docs/2026-09-03-cohesion-gate-labels.json` (blind labels, written BEFORE the judge runs), `docs/2026-09-03-cohesion-gate-measurement.md`.
 
-- [ ] Restore runs 284 and 285's `selected.json`, `clusters.json`, `articles_*.csv` from `run_artifacts`; print each selected cluster's ids and titles; write the blind labels file by hand (events count, stray ids) without running the judge.
-- [ ] Run the judge on both runs, 3 reps each (the verdict is stochastic; report agreement per rep and the modal verdict).
-- [ ] Report: per-cluster agreement on event count; stray-set Jaccard against labels; the five known cases; over-splits; cost and seconds. Verdict against a gate stated before the run: modal verdict agrees with the labels on event count for >= 80% of clusters, zero over-splits of a labelled same-event pair on the modal verdict, all five known cases separated.
-- [ ] Commit the harness, then the labels and measurement doc.
+- [x] Restore runs 284 and 285's `selected.json`, `clusters.json`, `articles_*.csv` from `run_artifacts`; print each selected cluster's ids and titles; write the blind labels file by hand (events count, stray ids) without running the judge.
+- [x] Run the judge on both runs, 3 reps each (the verdict is stochastic; report agreement per rep and the modal verdict).
+- [x] Report: per-cluster agreement on event count; stray-set Jaccard against labels; the five known cases; over-splits; cost and seconds. Verdict against a gate stated before the run: modal verdict agrees with the labels on event count for >= 80% of clusters, zero over-splits of a labelled same-event pair on the modal verdict, all five known cases separated.
+- [x] Commit the harness, then the labels and measurement doc.
 
 Deploy is a separate decision after the measurement; it is one terraform variable.
