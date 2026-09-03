@@ -1103,6 +1103,22 @@ class TestSingleTurnCoherenceBody:
         assert "A1,First" in corpus
 
 
+class TestParseJsonObject:
+    """The shape-agnostic half of parse_coherence_report: the outermost {...} of a reply,
+    tolerant of fences and preamble. The WRITE single-turn arm replies with
+    {"must_know": [...], "should_know": [...]}, which the report parser rejects for lacking
+    "results" -- the harness's first review caught it parsing nothing, every branch."""
+
+    def test_write_shaped_reply(self):
+        text = 'Sure:\n```json\n{"must_know": [], "should_know": [{"headline": "h"}]}\n```'
+        assert orchestrate.parse_json_object(text) == {"must_know": [], "should_know": [{"headline": "h"}]}
+
+    def test_no_object_is_none(self):
+        assert orchestrate.parse_json_object("no json here") is None
+        assert orchestrate.parse_json_object('{"truncated": ') is None
+        assert orchestrate.parse_json_object("[1, 2]") is None
+
+
 class TestParseCoherenceReport:
     def test_plain_object(self):
         assert orchestrate.parse_coherence_report('{"results": []}') == {"results": []}

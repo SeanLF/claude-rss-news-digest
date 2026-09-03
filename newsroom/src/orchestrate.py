@@ -561,13 +561,12 @@ def build_per_story_body(body: str) -> str:
     return out.replace("- Check EVERY story (must_know and should_know).", "- Check the one story.")
 
 
-def parse_coherence_report(text: str) -> dict | None:
-    """Pull the report object out of a single-turn reply, tolerant of fences and preamble.
+def parse_json_object(text: str) -> dict | None:
+    """The outermost JSON object in a single-turn reply, tolerant of fences and preamble.
 
     Same shape as `cluster_extractjoin.parse_extract_items`, which has carried the only
-    non-file-handoff stage in this pipeline. None means unparseable -- the caller fails the
-    stage rather than writing a partial report, because a missing entry reads downstream as
-    "keep unchecked".
+    non-file-handoff stage in this pipeline. Shape-agnostic: callers that need a particular
+    key check it themselves. None means unparseable.
     """
     start, end = text.find("{"), text.rfind("}")
     if not (0 <= start < end):
@@ -576,7 +575,15 @@ def parse_coherence_report(text: str) -> dict | None:
         obj = json.loads(text[start : end + 1])
     except ValueError:
         return None
-    if isinstance(obj, dict) and isinstance(obj.get("results"), list):
+    return obj if isinstance(obj, dict) else None
+
+
+def parse_coherence_report(text: str) -> dict | None:
+    """A coherence report out of a single-turn reply. None means unparseable -- the caller
+    fails the stage rather than writing a partial report, because a missing entry reads
+    downstream as "keep unchecked"."""
+    obj = parse_json_object(text)
+    if obj is not None and isinstance(obj.get("results"), list):
         return obj
     return None
 

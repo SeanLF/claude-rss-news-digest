@@ -112,9 +112,7 @@ async def write_branch(
         )
         if not res.ok:
             raise RuntimeError(f"[S {branch.name}] {res.error_summary()}")
-        # A generic fenced-JSON extractor despite its name; the same one the single-turn
-        # COHERENCE arm uses.
-        payload = orchestrate.parse_coherence_report(res.text)
+        payload = orchestrate.parse_json_object(res.text)
         if payload is None:
             raise RuntimeError(f"[S {branch.name}] reply held no JSON object")
         draft_path.write_text(json.dumps(payload), encoding="utf-8")
