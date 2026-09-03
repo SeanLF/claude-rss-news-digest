@@ -727,7 +727,14 @@ class TestCohesionGateHook:
                     {
                         "outcome": "completed",
                         "verdicts": [
-                            {"cluster_index": 0, "applied": True, "dominant": ["A1"], "strays": ["A2"], "reason": None}
+                            {
+                                "group": 0,
+                                "cluster_index": 0,
+                                "applied": True,
+                                "dominant": ["A1"],
+                                "strays": ["A2"],
+                                "reason": None,
+                            }
                         ],
                     }
                 )

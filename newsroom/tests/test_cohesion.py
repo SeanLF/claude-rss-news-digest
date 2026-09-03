@@ -228,3 +228,16 @@ def test_groups_follow_the_citations_not_the_drifted_index():
     groups = cohesion.selected_groups(selected, clusters)
     assert groups[0]["cluster_index"] == 1
     assert groups[0]["article_ids"] == ["A3", "A4"]
+
+
+def test_verdicts_carry_the_story_position():
+    selected = {
+        "must_know": [{"cluster_index": 0, "article_ids": ["A1"]}],
+        "should_know": [{"cluster_index": 0, "article_ids": ["A3"]}],
+    }
+    clusters = [{"story": "s", "article_ids": ["A1", "A2", "A3"]}]
+    groups = cohesion.selected_groups(selected, clusters)
+    doc = cohesion.judge_selected(
+        selected, clusters, {0: [["A1"], ["A2"], ["A3"]], 1: [["A1"], ["A2"], ["A3"]]}, groups
+    )
+    assert [v["group"] for v in doc["verdicts"]] == [0, 1]

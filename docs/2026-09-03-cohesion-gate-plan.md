@@ -43,7 +43,7 @@ The dominant event is the largest group; ties go to the group holding the earlie
   "outcome": "completed",
   "judged": 17, "split": 4, "strays_removed": 7,
   "verdicts": [
-    {"cluster_index": 33, "article_ids": ["A44", "A70", "A666"],
+    {"group": 10, "cluster_index": 33, "article_ids": ["A44", "A70", "A666"],
      "events": [["A44"], ["A70"], ["A666"]], "dominant": ["A44"], "strays": ["A70", "A666"],
      "applied": true, "reason": null}
   ]

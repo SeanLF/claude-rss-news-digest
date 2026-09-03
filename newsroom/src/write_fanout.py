@@ -181,11 +181,13 @@ COHESION_ARTIFACT_NAME = "cluster_cohesion.json"
 
 
 def _load_cohesion(claude_input_dir: Path) -> dict[int, list[str]]:
-    """cluster_index -> the dominant event's ids, for APPLIED verdicts only.
+    """story position in SELECT's order -> the dominant event's ids, for APPLIED verdicts only.
 
-    Written by cohesion.py; read here as a file so this module stays a leaf. Anything
-    missing or malformed is an empty map: the gate is additive, and no verdict means no
-    change to what a branch sees.
+    Keyed by the verdict's ``group`` (the story's position, which is the branch index), not
+    by cluster_index: two selected stories can share a cluster and get different dominants,
+    and a cluster-keyed map would let the second overwrite the first. Written by cohesion.py;
+    read here as a file so this module stays a leaf. Anything missing or malformed is an
+    empty map: the gate is additive, and no verdict means no change to what a branch sees.
     """
     path = claude_input_dir / COHESION_ARTIFACT_NAME
     if not path.exists():
@@ -199,9 +201,9 @@ def _load_cohesion(claude_input_dir: Path) -> dict[int, list[str]]:
     for v in (doc.get("verdicts") if isinstance(doc, dict) else None) or []:
         if not isinstance(v, dict) or v.get("applied") is not True:
             continue
-        ci, dominant = v.get("cluster_index"), v.get("dominant")
-        if isinstance(ci, int) and isinstance(dominant, list) and dominant:
-            out[ci] = [i for i in dominant if isinstance(i, str)]
+        group, dominant = v.get("group"), v.get("dominant")
+        if isinstance(group, int) and isinstance(dominant, list) and dominant:
+            out[group] = [i for i in dominant if isinstance(i, str)]
     return out
 
 
@@ -333,7 +335,7 @@ def build_branches(claude_input_dir: Path) -> FanOut:
                 cluster_index = resolved
             context = _cluster_ids(clusters, cluster_index, story_ids, name)
             strays_removed = 0
-            dominant = cohesion.get(cluster_index) if cluster_index is not None else None
+            dominant = cohesion.get(index - 1)  # this story's position in SELECT's order
             if dominant:
                 kept_cited = [i for i in story_ids if i in dominant]
                 if story_ids and not kept_cited:

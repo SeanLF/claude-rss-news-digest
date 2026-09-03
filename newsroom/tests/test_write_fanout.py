@@ -624,6 +624,7 @@ class TestCohesionNarrowsTheBranch:
                     "outcome": "completed",
                     "verdicts": [
                         {
+                            "group": 0,
                             "cluster_index": 0,
                             "article_ids": ["A1", "A2"],
                             "events": [["A1"], ["A2"]],
@@ -650,7 +651,9 @@ class TestCohesionNarrowsTheBranch:
             json.dumps(
                 {
                     "outcome": "completed",
-                    "verdicts": [{"cluster_index": 0, "applied": False, "reason": "one event", "dominant": ["A1"]}],
+                    "verdicts": [
+                        {"group": 0, "cluster_index": 0, "applied": False, "reason": "one event", "dominant": ["A1"]}
+                    ],
                 }
             )
         )
@@ -672,7 +675,10 @@ class TestCohesionNarrowsTheBranch:
         _seed(tmp_path, selected=sel)
         (tmp_path / "cluster_cohesion.json").write_text(
             json.dumps(
-                {"outcome": "completed", "verdicts": [{"cluster_index": 0, "applied": True, "dominant": ["A1"]}]}
+                {
+                    "outcome": "completed",
+                    "verdicts": [{"group": 0, "cluster_index": 0, "applied": True, "dominant": ["A1"]}],
+                }
             )
         )
         branch = write_fanout.build_branches(tmp_path).branches[0]
@@ -710,3 +716,40 @@ class TestClusterIndexDrift:
         branch = write_fanout.build_branches(tmp_path).branches[0]
         assert branch.cluster_index == 1
         assert set(branch.context_article_ids) == {"A3", "A4", "A9"}
+
+
+class TestCohesionVerdictsAreKeyedByStory:
+    """Two selected stories can share a cluster and get different dominants. A verdict keyed
+    only by cluster_index would let the second overwrite the first; it is keyed by the
+    story's position in SELECT's order (the artifact's `group`), which is the branch index."""
+
+    def test_two_stories_on_one_cluster_each_get_their_own_verdict(self, tmp_path):
+        sel = {
+            "must_know": [{"cluster_index": 0, "article_ids": ["A1"]}],
+            "should_know": [{"cluster_index": 0, "article_ids": ["A2"]}],
+        }
+        _seed(tmp_path, selected=sel)  # cluster 0 = A1, A2
+        (tmp_path / "cluster_cohesion.json").write_text(
+            json.dumps(
+                {
+                    "outcome": "completed",
+                    "verdicts": [
+                        {"group": 0, "cluster_index": 0, "applied": True, "dominant": ["A1"], "strays": ["A2"]},
+                        {"group": 1, "cluster_index": 0, "applied": True, "dominant": ["A2"], "strays": ["A1"]},
+                    ],
+                }
+            )
+        )
+        b0, b1 = write_fanout.build_branches(tmp_path).branches
+        assert b0.context_article_ids == ("A1",) and b1.context_article_ids == ("A2",)
+
+    def test_a_verdict_without_a_group_is_ignored(self, tmp_path):
+        sel = {"must_know": [{"cluster_index": 0, "article_ids": ["A1", "A2"]}], "should_know": []}
+        _seed(tmp_path, selected=sel)
+        (tmp_path / "cluster_cohesion.json").write_text(
+            json.dumps(
+                {"outcome": "completed", "verdicts": [{"cluster_index": 0, "applied": True, "dominant": ["A1"]}]}
+            )
+        )
+        branch = write_fanout.build_branches(tmp_path).branches[0]
+        assert set(branch.context_article_ids) == {"A1", "A2"} and branch.strays_removed == 0

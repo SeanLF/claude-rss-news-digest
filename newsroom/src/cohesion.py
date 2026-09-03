@@ -200,6 +200,9 @@ def judge_selected(
             story = stories[n] if 0 <= n < len(stories) else {}
             cited = [i for i in (story.get("article_ids") or []) if isinstance(i, str)]
         entry: dict[str, Any] = {
+            # The story's position in SELECT's order: the fan-out's branch index, and the
+            # key a verdict is applied by. Two stories can share a cluster_index.
+            "group": g["group"],
             "cluster_index": g["cluster_index"],
             "article_ids": ids,
             "events": None,
