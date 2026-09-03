@@ -199,6 +199,56 @@ async def run_single_turn_to_file(out_path: Path, model: str, body: str, thinkin
     )
 
 
+async def run_per_story_to_file(out_path: Path, model: str, body: str, thinking: dict, fixtures: Path) -> None:
+    """Per-story single-turn arm: one call per story, each seeing only its cited sources.
+
+    Results are merged in draft order so score() maps them like the multi-turn report.
+    At most 4 stories in flight, the same width as the WRITE fan-out.
+    """
+    if out_path.exists():
+        out_path.unlink()
+    draft = json.loads((fixtures / "draft_selections.json").read_text(encoding="utf-8"))
+    stories = [s for tier in ("must_know", "should_know") for s in draft.get(tier, [])]
+    system_prompt = orchestrate.build_per_story_body(body)
+    sem = asyncio.Semaphore(4)
+    totals = {"input": 0, "cache_write": 0, "cache_read": 0, "output": 0, "cost": 0.0}
+
+    async def one(story: dict) -> dict:
+        async with sem:
+            res = await claude_cli.run_agent(
+                orchestrate.build_story_corpus(fixtures, story),
+                model=model,
+                system_prompt=system_prompt,
+                permission_mode="acceptEdits",
+                allowed_tools="",
+                tools=[],
+                cwd="/app",
+                idle_timeout=180.0,
+                thinking=thinking,
+                max_turns=1,
+            )
+        if not res.ok:
+            raise RuntimeError(f"per-story run failed on {story.get('headline')!r}: {res.error_summary()}")
+        report = orchestrate.parse_coherence_report(res.text)
+        results = (report or {}).get("results") or []
+        if len(results) != 1:
+            raise RuntimeError(f"per-story run returned {len(results)} results for {story.get('headline')!r}")
+        u = res.usage or {}
+        totals["input"] += u.get("input_tokens", 0)
+        totals["cache_write"] += u.get("cache_creation_input_tokens", 0)
+        totals["cache_read"] += u.get("cache_read_input_tokens", 0)
+        totals["output"] += u.get("output_tokens", 0)
+        totals["cost"] += res.total_cost_usd or 0.0
+        return results[0]
+
+    merged = await asyncio.gather(*(one(s) for s in stories))
+    out_path.write_text(json.dumps({"results": list(merged)}), encoding="utf-8")
+    print(
+        f"  [per-story x{len(stories)}] input={totals['input']} cache_write={totals['cache_write']} "
+        f"cache_read={totals['cache_read']} output={totals['output']} cost=${totals['cost']:.4f}"
+    )
+
+
 async def run_agent_to_file(
     label: str, out_path: Path, model: str, body: str, thinking: dict, tools: list[str]
 ) -> None:
@@ -230,6 +280,7 @@ def main() -> int:
     ap.add_argument("--fixtures", default=str(FIXTURES))
     ap.add_argument("--runs", type=int, default=2)
     ap.add_argument("--single-turn", action="store_true", help="inline the corpus, tools=[], parse result.text")
+    ap.add_argument("--per-story", action="store_true", help="one single-turn call per story, cited sources only")
     ap.add_argument("--model", default=None, help="override coherence.md's frontmatter model")
     args = ap.parse_args()
 
@@ -246,7 +297,9 @@ def main() -> int:
 
     scores = []
     for i in range(runs):
-        if args.single_turn:
+        if args.per_story:
+            asyncio.run(run_per_story_to_file(fixtures / REPORT_NAME, model, body, thinking, fixtures))
+        elif args.single_turn:
             asyncio.run(run_single_turn_to_file(fixtures / REPORT_NAME, model, body, thinking, fixtures))
         else:
             asyncio.run(run_agent_to_file("coherence", fixtures / REPORT_NAME, model, body, thinking, tools))

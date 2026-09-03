@@ -1043,6 +1043,35 @@ class TestSingleTurnCoherenceBody:
         assert "Read tool" not in single
         assert "Write tool" not in single
 
+    def test_story_corpus_holds_only_the_cited_rows_and_their_fulltext(self, tmp_path):
+        """Per-story COHERENCE sees one story and its cited sources, nothing else: the
+        absence probe has a bounded corpus to exhaust, which the 82k-token inline lost
+        (idx 4: 4/5 -> 1/8 on 2026-08-31)."""
+        (tmp_path / "articles_1.csv").write_text("article_id,title,summary\nA1,First,about one\nA2,Second,about two\n")
+        (tmp_path / "articles_2.csv").write_text("article_id,title,summary\nA3,Third,about three\n")
+        (tmp_path / "article_fulltext.json").write_text(json.dumps({"A1": "full one", "A3": "full three"}))
+        story = {
+            "headline": "H",
+            "summary": "S",
+            "why_it_matters": "W",
+            "sources": [{"article_id": "A3"}, {"article_id": "A1"}],
+        }
+        corpus = orchestrate.build_story_corpus(tmp_path, story)
+        assert "A1,First" in corpus and "A3,Third" in corpus
+        assert "A2" not in corpus
+        assert "full one" in corpus and "full three" in corpus
+        assert '"headline": "H"' in corpus
+        assert "article_id,title,summary" in corpus
+
+    def test_per_story_body_scopes_the_instruction_to_one_story_and_keeps_the_probes(self):
+        multi = orchestrate.parse_agent_spec(COHERENCE_SPEC).body
+        single = orchestrate.build_per_story_body(multi)
+        start = multi.index("**For each field, run all three probes")
+        end = multi.index("**Output schema")
+        assert multi[start:end] in single
+        assert "the one story" in single
+        assert "every story" not in single.lower()
+
     def test_the_system_prompt_stays_under_the_single_argv_limit(self):
         """The SDK ships system_prompt as ONE argv entry and Linux caps a single argument at
         MAX_ARG_STRLEN (128 KiB). Putting the ~289 KB corpus here fails as `[Errno 7] Argument

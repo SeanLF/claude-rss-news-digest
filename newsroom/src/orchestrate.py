@@ -31,7 +31,9 @@ Per-stage usage is captured directly from the StageResult: token counts from its
 from __future__ import annotations
 
 import asyncio
+import csv
 import datetime
+import io
 import json
 import logging
 import re
@@ -507,6 +509,55 @@ def build_single_turn_body(body: str) -> str:
         "3. Use the Write tool to write the result to `/app/data/claude_input/coherence_report.json`\n", ""
     )
     return out.replace("- DO NOT use Bash. Use Read and Write tools only.\n", "")
+
+
+def build_story_corpus(claude_input_dir: Path, story: dict) -> str:
+    """One story and only its cited sources, inlined.
+
+    The 2026-08-31 single-turn arm inlined the whole corpus and lost absence detection
+    (idx 4: 4/5 -> 1/8). A checker that has to exhaust a negative needs a corpus it can
+    exhaust; a story's own cited articles are that corpus. The CSV header is kept so the
+    columns stay named.
+    """
+    cited = {s.get("article_id") for s in story.get("sources", []) if isinstance(s, dict)}
+    header: list[str] | None = None
+    rows: list[list[str]] = []
+    for csv_path in sorted(claude_input_dir.glob("articles_*.csv")):
+        with open(csv_path, newline="", encoding="utf-8") as f:
+            reader = csv.reader(f)
+            head = next(reader, None)
+            if head is None:
+                continue
+            header = header or head
+            id_column = head.index("article_id")
+            rows.extend(r for r in reader if len(r) > id_column and r[id_column] in cited)
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    if header:
+        writer.writerow(header)
+    writer.writerows(rows)
+    parts = [
+        "## draft_selections.json\n\n" + json.dumps({"must_know": [story], "should_know": []}, indent=2),
+        "## articles_1.csv\n\n" + buf.getvalue(),
+    ]
+    fulltext_path = claude_input_dir / "article_fulltext.json"
+    if fulltext_path.exists():
+        fulltext = json.loads(fulltext_path.read_text(encoding="utf-8"))
+        if isinstance(fulltext, dict):
+            scoped = {k: v for k, v in fulltext.items() if k in cited}
+            parts.append("## article_fulltext.json\n\n" + json.dumps(scoped, indent=2))
+    return "\n\n".join(parts)
+
+
+def build_per_story_body(body: str) -> str:
+    """The single-turn body, scoped to one story. Derived, not rewritten: the probe block is
+    asserted byte for byte by the same test that guards build_single_turn_body."""
+    out = build_single_turn_body(body)
+    out = out.replace(
+        "2. For each story in draft_selections.json (must_know and should_know), check",
+        "2. draft_selections.json holds the one story to check. Check",
+    )
+    return out.replace("- Check EVERY story (must_know and should_know).", "- Check the one story.")
 
 
 def parse_coherence_report(text: str) -> dict | None:
