@@ -4,3 +4,4 @@ repair_requests.json
 repaired_fields.json
 recheck_draft.json
 recheck_report.json
+coherence_report.*.json
