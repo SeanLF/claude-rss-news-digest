@@ -34,7 +34,7 @@ Python assigns opaque ids and resolves them after the models are done; CLUSTER i
 |---|---|---|---|
 | 1 | Per-story single-turn COHERENCE (cited sources only, no tools) | none: this is the first measurement | recall on the 6 hard positives, idx 4 (absence) rate, false drops, tokens per story |
 | 2 | Per-story single-turn WRITE (branch files inlined, no tools) | none: second measurement, independent of 1 | COHERENCE flag rate on the outputs, L1 graders, tokens per story, with the within-arm spread first |
-| A | Tool-free invocation for WRITE, COHERENCE, REPAIR, recheck, PREHEADER, RECAP | Phase 1 and 2 pass their gates | per-run tokens and cost, coherence flag rate, blank rate, unchanged or better |
+| A | Tool-free invocation for WRITE, REPAIR, PREHEADER, RECAP (COHERENCE and the re-check stay on the tool loop: Phase 1 failed its precision gate on 2026-09-03) | Phase 2 passes its gate | per-run tokens and cost, coherence flag rate, blank rate, unchanged or better |
 | B | Prompts rendered from data: tier sections, present files, thread state; the negative rules added on 2026-09-03 come out | Phase A shipped (single-turn makes the prompt a string Python owns end to end) | eval floor unchanged; the L1 `summary_bolt_on` count |
 | C | One cohesion judgement per multi-event cluster, before SELECT | independent of A and B; can start any time | strays per run against hand labels; `summary_bolt_on`; two-event headlines |
 | D | One verifier over what renders: the thread delta goes through COHERENCE with the story | Phase A (per-story COHERENCE exists) | flags on delta text; the thread audit retires if redundant |
@@ -53,7 +53,7 @@ The join fuses articles on entity and keyword overlap and labels the cluster by 
 
 ### Task 1: Per-story single-turn COHERENCE arm in the coherence eval
 
-*Landed 2026-09-03 as 499dfd8 + a777a29; Step 10 (the measurement) is in progress.*
+*Landed 2026-09-03 as 499dfd8 + a777a29. Step 10 run the same day: **gate failed on precision** (recall 5.0 vs 4.8, idx 4 5/5, but false drops in 4 of 5 runs). COHERENCE stays on the tool loop; see `docs/2026-09-03-per-story-coherence-measurement.md`.*
 
 **Files:**
 - Modify: `newsroom/src/orchestrate.py` (add `build_story_corpus`, `build_per_story_body` next to `build_coherence_corpus` and `build_single_turn_body`, around lines 472-510)
@@ -282,7 +282,7 @@ git commit -m "feat(eval): a per-story single-turn arm for the coherence eval"
 
 The commit body states the hypothesis (bounded corpus restores absence detection) and cites the 2026-08-31 numbers it is measured against.
 
-- [ ] **Step 10: Run the measurement**
+- [x] **Step 10: Run the measurement** (done 2026-09-03; verdict above)
 
 Run, in order, and keep the full output in `docs/2026-09-03-per-story-coherence-measurement.md`:
 
