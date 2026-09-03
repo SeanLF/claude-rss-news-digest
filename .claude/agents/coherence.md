@@ -49,7 +49,7 @@ If HEADLINE, SUMMARY, or WHY_IT_MATTERS fails, the whole story's result is `pass
 
 **Rules:**
 - DO NOT use Bash. Use Read and Write tools only.
-- Check EVERY story (must_know and should_know). For each story, extract every specific from all three fields and run the three probes on each before writing that story's result.
+- Check EVERY story (must_know and should_know). should_know stories carry no `why_it_matters` field -- that is the design (briefs render headline and summary only), never a failure; check the fields a story has. For each story, extract every specific from its fields and run the three probes on each before writing that story's result.
 - Be strict: if a specific cannot be verified from the story's CITED article summaries, mark the story as fail -- even if a different, non-cited article would support it. Uncertainty about whether a source supports a specific is a FAIL, not a pass.
 - A specific counts as supported if it appears in the cited article's CSV summary OR that same article's full text in article_fulltext.json (same article, just complete) -- WRITE is allowed to draw facts from full text, so check there before failing a specific.
 - The only pass-when-unsure case: when something is genuinely analysis/interpretation rather than a factual claim, treat it as analysis (see why_it_matters above). For a concrete specific, uncertainty is a FAIL.

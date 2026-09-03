@@ -1409,3 +1409,63 @@ class TestPreheaderNeverBlocksDelivery:
         _write(tmp_path, draft, _coherence())
         assembled = json.loads(assemble_selections(tmp_path).read_text())
         assert 0 < len(assembled["preheader"]) <= SELECTIONS_SCHEMA["properties"]["preheader"]["maxLength"]
+
+
+class TestShouldKnowCarriesNoWhyItMatters:
+    """Briefs render headline + summary only, so the field is a must_know field: assembly strips
+    it from should_know (a draft written before the change, or a WRITE that ignored the
+    prompt) and the schema stops requiring it there."""
+
+    def test_assembly_strips_why_it_matters_from_should_know(self, tmp_path):
+        draft = _draft(must_know=[_article("a")], should_know=[_article("b", "A2")])
+        _write(tmp_path, draft, _coherence())
+        assembled = json.loads(assemble_selections(tmp_path).read_text())
+        assert "why_it_matters" not in assembled["should_know"][0]
+        assert assembled["must_know"][0]["why_it_matters"] == "Why."
+
+    def test_schema_accepts_should_know_without_it_and_still_requires_it_for_must_know(self):
+        sel = {"must_know": [_article("a")], "should_know": [_article("b", "A2")], "preheader": "p"}
+        del sel["should_know"][0]["why_it_matters"]
+        assert validate_selections(sel) == []
+        del sel["must_know"][0]["why_it_matters"]
+        assert any("why_it_matters" in e for e in validate_selections(sel))
+
+    def test_a_why_only_flag_on_should_know_is_moot(self, tmp_path, caplog):
+        """The flagged field never ships, so there is nothing to blank and nothing to count:
+        the story is kept as-is and the blanking rate stays a must_know rate."""
+        draft = _draft(must_know=[_article("a")], should_know=[_article("b", "A2")])
+        coherence = _coherence(
+            {"headline": "b", "pass": False, "reason": "why_it_matters: uncited", "failed_fields": ["why_it_matters"]}
+        )
+        _write(tmp_path, draft, coherence)
+        with caplog.at_level("WARNING"):
+            assembled = json.loads(assemble_selections(tmp_path).read_text())
+        assert [a["headline"] for a in assembled["should_know"]] == ["b"]
+        assert "why_it_matters" not in assembled["should_know"][0]
+        assert not any("why_it_matters" in r.getMessage() for r in caplog.records)
+
+    def test_a_repair_patch_cannot_put_why_it_matters_back_on_should_know(self, tmp_path):
+        """--resume with a stale coherence report and resolution from before the change:
+        the patch names why_it_matters on a should_know story. The field still does not ship."""
+        draft = _draft(must_know=[_article("a")], should_know=[_article("b", "A2")])
+        coherence = _coherence(
+            {"headline": "b", "pass": False, "reason": "why_it_matters: uncited", "failed_fields": ["why_it_matters"]}
+        )
+        _write(tmp_path, draft, coherence)
+        (tmp_path / "repair_resolution.json").write_text(
+            json.dumps(
+                {
+                    "results": [
+                        {
+                            "article_ids": ["A2"],
+                            "status": "repaired",
+                            "recheck_pass": True,
+                            "patched_fields": {"why_it_matters": "Patched why."},
+                        }
+                    ]
+                }
+            )
+        )
+        assembled = json.loads(assemble_selections(tmp_path).read_text())
+        assert [a["headline"] for a in assembled["should_know"]] == ["b"]
+        assert "why_it_matters" not in assembled["should_know"][0]

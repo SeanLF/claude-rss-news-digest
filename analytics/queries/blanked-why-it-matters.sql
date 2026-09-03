@@ -21,12 +21,13 @@
 -- CAVEAT: why_it_matters became repairable on 2026-08-30; runs before that had NO repair path for
 --   this field at all, so a non-zero rate there is expected -- it is the baseline this change is
 --   measured against, not a regression.
+-- CAVEAT: must_know only. Briefs never rendered the field, and from 2026-09-03 (run 286) WRITE
+--   no longer produces it for should_know, so counting that tier would read every brief as
+--   blanked. Runs before 286 therefore show a SMALLER population here than they shipped with the
+--   field -- the reader-facing number was always the must_know one. db.get_run_health counts
+--   the same way.
 
 WITH shipped AS (
-  -- Both tiers are read with a UNION ALL of two json_each calls, not by
-  -- concatenating the two arrays: `json_extract(...) || json_extract(...)` is a
-  -- STRING concatenation of two JSON texts ("[...][...]"), which json_each then
-  -- rejects as malformed.
   SELECT
     ra.run_id,
     DATE(r.run_at) AS run_date,
@@ -35,21 +36,12 @@ WITH shipped AS (
   JOIN digest_runs r ON r.id = ra.run_id
   JOIN json_each(json_extract(ra.content, '$.must_know')) AS j
   WHERE ra.artifact_name = 'selections.json'
-  UNION ALL
-  SELECT
-    ra.run_id,
-    DATE(r.run_at) AS run_date,
-    TRIM(COALESCE(j.value ->> '$.why_it_matters', '')) AS wim
-  FROM run_artifacts ra
-  JOIN digest_runs r ON r.id = ra.run_id
-  JOIN json_each(json_extract(ra.content, '$.should_know')) AS j
-  WHERE ra.artifact_name = 'selections.json'
 ),
 per_run AS (
   SELECT
     run_id,
     run_date,
-    COUNT(*) AS stories_shipped,
+    COUNT(*) AS must_know_shipped,
     SUM(CASE WHEN wim = '' THEN 1 ELSE 0 END) AS blanked
   FROM shipped
   GROUP BY run_id, run_date
@@ -57,9 +49,9 @@ per_run AS (
 SELECT
   run_id,
   run_date,
-  stories_shipped,
+  must_know_shipped,
   blanked,
-  ROUND(100.0 * blanked / NULLIF(stories_shipped, 0), 1) AS pct_of_digest_blanked,
+  ROUND(100.0 * blanked / NULLIF(must_know_shipped, 0), 1) AS pct_of_must_know_blanked,
   ROUND(AVG(blanked) OVER (ORDER BY run_id ROWS BETWEEN 6 PRECEDING AND CURRENT ROW), 2)
     AS blanked_7run_avg
 FROM per_run

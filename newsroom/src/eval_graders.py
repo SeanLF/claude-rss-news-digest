@@ -39,6 +39,13 @@ ARTICLE_TIERS = ("must_know", "should_know")
 # whole blurb rather than editing it, so nothing carrying a leak survives to here.
 LEAK_CHECKED_ARTICLE_FIELDS = ("headline", "summary", "why_it_matters")
 
+# The reader-facing text a story of each tier must carry. Briefs render headline + summary
+# only (render.py), so why_it_matters is a must_know field.
+_REQUIRED_TEXT_FIELDS = {
+    "must_know": ("headline", "summary", "why_it_matters"),
+    "should_know": ("headline", "summary"),
+}
+
 
 @dataclass(frozen=True)
 class GraderLimits:
@@ -245,10 +252,11 @@ def _check_required_fields_present(selections: dict, report: GradeReport) -> Non
 
 
 def _check_no_empty_strings(selections: dict, report: GradeReport) -> None:
-    """No story has an empty/whitespace headline, summary, or why_it_matters."""
+    """No story has an empty/whitespace headline or summary, and no must_know an empty
+    why_it_matters. Briefs render headline + summary only, so should_know carries none."""
     offenders: list[str] = []
     for tier, item in _iter_articles(selections):
-        for fld in ("headline", "summary", "why_it_matters"):
+        for fld in _REQUIRED_TEXT_FIELDS[tier]:
             val = item.get(fld, "")
             if not isinstance(val, str) or not val.strip():
                 offenders.append(f"{tier}.{fld}")

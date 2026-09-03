@@ -276,8 +276,18 @@ def _draft(story=None, tier="must_know"):
     return out
 
 
+def _seed_branch(branch_dir, tier="must_know"):
+    """The Python-written half of a branch dir: SELECT's tier for the one story."""
+    selected = {"must_know": [], "should_know": [], "not_covered_blurb": ""}
+    selected[tier] = [{"cluster_index": 0, "article_ids": ["A1"]}]
+    (branch_dir / "selected.json").write_text(json.dumps(selected))
+
+
 class TestValidateBranchDraft:
     def _write(self, tmp_path, payload):
+        _seed_branch(
+            tmp_path, "should_know" if payload.get("should_know") and not payload.get("must_know") else "must_know"
+        )
         (tmp_path / "draft_selections.json").write_text(json.dumps(payload))
         return tmp_path
 
@@ -307,6 +317,7 @@ class TestValidateBranchDraft:
             write_fanout.validate_branch_draft(self._write(tmp_path, _draft(story)))
 
     def test_rejects_missing_file(self, tmp_path):
+        _seed_branch(tmp_path)
         with pytest.raises(ValueError, match=r"draft_selections\.json"):
             write_fanout.validate_branch_draft(tmp_path)
 
@@ -496,3 +507,57 @@ class TestBranchBody:
         out = write_fanout.branch_body(self._body(), Path("/tmp/b/s00"))
         schema_text = out[out.index("**Output schema:**") :]
         assert json.loads(schema_text[schema_text.index("{") : schema_text.rindex("}") + 1].replace("...", "x"))
+
+
+# --------------------------------------------------------------------------- #
+# why_it_matters is a must_know field
+# --------------------------------------------------------------------------- #
+
+
+class TestShouldKnowCarriesNoWhyItMatters:
+    """Briefs render headline + summary only (render.py), so a should_know branch writes no
+    why_it_matters, and one it writes anyway is dropped here -- before COHERENCE can flag it
+    and repair can spend on it (run 285: 3 of 4 flags, 2 of 3 repairs, on the invisible field)."""
+
+    def test_a_should_know_branch_draft_needs_no_why_it_matters(self, tmp_path):
+        _seed_branch(tmp_path, "should_know")
+        story = {"headline": "h", "summary": "s", "sources": [{"article_id": "A1"}]}
+        (tmp_path / "draft_selections.json").write_text(json.dumps(_draft(story, tier="should_know")))
+        write_fanout.validate_branch_draft(tmp_path)
+
+    def test_a_must_know_branch_draft_still_needs_one(self, tmp_path):
+        _seed_branch(tmp_path, "must_know")
+        story = {"headline": "h", "summary": "s", "sources": [{"article_id": "A1"}]}
+        (tmp_path / "draft_selections.json").write_text(json.dumps(_draft(story, tier="must_know")))
+        with pytest.raises(ValueError, match="why_it_matters"):
+            write_fanout.validate_branch_draft(tmp_path)
+
+    def test_the_tier_that_decides_the_required_fields_is_selects_not_the_key_the_model_chose(self, tmp_path):
+        """assemble_draft already refuses to let a mis-filed story move tier; validation
+        must read the same authority. Keyed on the model's choice, a must_know story filed
+        under should_know without its why_it_matters passes here and kills the run at
+        assembly, after COHERENCE and repair have been paid for."""
+        _seed_branch(tmp_path, "must_know")
+        story = {"headline": "h", "summary": "s", "sources": [{"article_id": "A1"}]}
+        (tmp_path / "draft_selections.json").write_text(json.dumps(_draft(story, tier="should_know")))
+        with pytest.raises(ValueError, match="why_it_matters"):
+            write_fanout.validate_branch_draft(tmp_path)
+
+    def test_a_should_know_story_misfiled_under_must_know_is_still_complete(self, tmp_path):
+        _seed_branch(tmp_path, "should_know")
+        story = {"headline": "h", "summary": "s", "sources": [{"article_id": "A1"}]}
+        (tmp_path / "draft_selections.json").write_text(json.dumps(_draft(story, tier="must_know")))
+        write_fanout.validate_branch_draft(tmp_path)
+
+    def test_a_branch_without_its_selected_json_is_not_a_branch(self, tmp_path):
+        (tmp_path / "draft_selections.json").write_text(json.dumps(_draft()))
+        with pytest.raises(ValueError, match=r"selected\.json"):
+            write_fanout.validate_branch_draft(tmp_path)
+
+    def test_fan_in_drops_a_why_it_matters_a_should_know_branch_wrote_anyway(self, tmp_path):
+        branches = write_fanout.build_branches(_seed(tmp_path)).branches
+        for branch in branches:
+            (branch.dir / "draft_selections.json").write_text(json.dumps(_draft(tier=branch.tier)))
+        draft = write_fanout.assemble_draft(branches)
+        assert "why_it_matters" not in draft["should_know"][0]
+        assert draft["must_know"][0]["why_it_matters"] == "Because."

@@ -35,7 +35,13 @@ BRANCH_DRAFT_NAME = "draft_selections.json"
 BRANCH_SELECTED_NAME = "selected.json"
 BRANCH_ARTICLES_NAME = "articles_1.csv"
 
-_REQUIRED_STORY_FIELDS = ("headline", "summary", "why_it_matters", "sources")
+# why_it_matters is a must_know field: briefs render headline + summary only (render.py), so
+# a should_know branch does not write it, and one written anyway is dropped at fan-in
+# before COHERENCE can flag it and repair can spend on it.
+_REQUIRED_STORY_FIELDS = {
+    "must_know": ("headline", "summary", "why_it_matters", "sources"),
+    "should_know": ("headline", "summary", "sources"),
+}
 
 # Token-Jaccard above which two headlines are reported as near-duplicate WORDING. This
 # measures shared vocabulary, not story identity: two branches describing one event in
@@ -309,18 +315,36 @@ def build_branches(claude_input_dir: Path) -> FanOut:
 # --------------------------------------------------------------------------- #
 
 
+def _branch_tier(branch_dir: Path) -> str:
+    """SELECT's tier for the branch's one story, from the selected.json Python wrote there.
+
+    The authority for what the story must carry -- not the key the model filed it under,
+    which assemble_draft already refuses to trust for the digest tier. Keyed on the model's
+    choice, a must_know story filed under should_know without its why_it_matters would pass
+    here and kill the run at assembly, after COHERENCE and repair had been paid for.
+    """
+    selected = _load_json(branch_dir / BRANCH_SELECTED_NAME)
+    if not isinstance(selected, dict):
+        raise ValueError(f"{BRANCH_SELECTED_NAME}: not an object")
+    tiers = [tier for tier in TIERS if selected.get(tier)]
+    if len(tiers) != 1:
+        raise ValueError(f"{BRANCH_SELECTED_NAME}: expected exactly 1 populated tier, found {tiers}")
+    return tiers[0]
+
+
 def branch_story(branch_dir: Path) -> dict:
     """The single story a branch wrote. Raises ValueError if the branch's draft is not
     exactly one well-formed story -- the branch then retries from a clean slate rather
     than letting the fan-in silently ship a story with a missing field or drop one."""
+    tier = _branch_tier(branch_dir)
     draft = _load_json(branch_dir / BRANCH_DRAFT_NAME)
     if not isinstance(draft, dict):
         raise ValueError(f"{BRANCH_DRAFT_NAME}: not an object")
-    stories = [s for tier in TIERS for s in (draft.get(tier) or []) if isinstance(s, dict)]
+    stories = [s for t in TIERS for s in (draft.get(t) or []) if isinstance(s, dict)]
     if len(stories) != 1:
         raise ValueError(f"{BRANCH_DRAFT_NAME}: expected exactly 1 story, found {len(stories)}")
     story = stories[0]
-    for field_name in _REQUIRED_STORY_FIELDS:
+    for field_name in _REQUIRED_STORY_FIELDS[tier]:
         if not story.get(field_name):
             raise ValueError(f"{BRANCH_DRAFT_NAME}: story is missing {field_name}")
     if not isinstance(story["sources"], list):
@@ -343,7 +367,10 @@ def assemble_draft(branches: list[Branch]) -> dict:
     draft: dict = {tier: [] for tier in TIERS}
     draft["preheader"] = ""
     for branch in branches:
-        draft[branch.tier].append(branch_story(branch.dir))
+        story = branch_story(branch.dir)
+        if branch.tier == "should_know":
+            story.pop("why_it_matters", None)
+        draft[branch.tier].append(story)
     return draft
 
 

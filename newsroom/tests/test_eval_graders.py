@@ -805,3 +805,21 @@ class TestWhyItMattersRestatesSummary:
         sel = _good_selections()
         sel["must_know"][0].update(_RUN_233_STORY)
         assert self._overlap_check(sel).passed
+
+
+class TestWhyItMattersIsAMustKnowField:
+    """Briefs render headline + summary only, so should_know carries no why_it_matters."""
+
+    def test_should_know_without_why_it_matters_is_clean(self):
+        sel = _good_selections()
+        for item in sel["should_know"]:
+            del item["why_it_matters"]
+        report = grade_selections(sel)
+        assert report.passed, f"unexpected failures: {_names_failed(report)}"
+
+    def test_must_know_without_why_it_matters_fails(self):
+        sel = _good_selections()
+        del sel["must_know"][0]["why_it_matters"]
+        report = grade_selections(sel)
+        assert not _check(report, "no_empty_strings").passed
+        assert "must_know.why_it_matters" in _check(report, "no_empty_strings").detail

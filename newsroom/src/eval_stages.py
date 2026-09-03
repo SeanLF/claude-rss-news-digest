@@ -374,7 +374,8 @@ def grade_write(draft: dict, article_index: dict, limits: GraderLimits | None = 
     # Non-empty text fields.
     empties: list[str] = []
     for tier, item in items:
-        for fld in ("headline", "summary", "why_it_matters"):
+        # why_it_matters is a must_know field: briefs render headline + summary only.
+        for fld in ("headline", "summary") + (("why_it_matters",) if tier == "must_know" else ()):
             if not _nonempty_str(item.get(fld)):
                 empties.append(f"{tier}.{fld}")
     report.add(

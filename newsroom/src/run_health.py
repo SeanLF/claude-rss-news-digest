@@ -94,15 +94,17 @@ _RULES: list[tuple[str, Callable[[dict], bool], str | Callable[[dict], str]]] = 
         "BLANKED_WHY_IT_MATTERS",
         # Blanking SHIPS: nothing is dropped, the story count is unchanged, and every
         # other invariant reads clean -- which is why run 280 lost the field on 38% of
-        # its digest and nothing fired. None is "not recorded", not a clean run. The
-        # floor is a rate, not a count, because one blanked story is the designed
-        # fallback working, and a rule that fires on it gets ignored.
+        # its digest and nothing fired. None is "not recorded", not a clean run. One
+        # blanked story is the designed fallback working, and a rule that fires on it
+        # gets ignored -- so the floor is two. A count, not a rate: only must_know renders
+        # the field now, a digest carries 2-6 of those (4 or fewer on 37 of the first 79
+        # runs), and at that size no rate separates one story from half the lead stories.
+        # must_know_shipped decorates the message; it is not a trigger.
+        lambda h: (h.get("blanked_why") or 0) >= 2,
         lambda h: (
-            h.get("blanked_why") is not None and h.get("shipped", 0) > 0 and h["blanked_why"] / h["shipped"] >= 0.25
-        ),
-        lambda h: (
-            f"{h.get('blanked_why')} of {h.get('shipped')} shipped stories "
-            f"({100.0 * h['blanked_why'] / h['shipped']:.0f}%) went out with no why_it_matters"
+            f"{h.get('blanked_why')} of {h.get('must_know_shipped')} must_know stories"
+            + (f" ({100.0 * h['blanked_why'] / h['must_know_shipped']:.0f}%)" if h.get("must_know_shipped") else "")
+            + " went out with no why_it_matters"
         ),
     ),
     (
@@ -202,6 +204,10 @@ REQUIRED_KEYS = frozenset(
         # this to a rule once there is a number.
         "dropped_continuations",
         "linker_ok",
+        # The blanking rule's trigger and the count its message is read against. Both
+        # default the rule to silent-off when missing.
+        "blanked_why",
+        "must_know_shipped",
     }
 )
 

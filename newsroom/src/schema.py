@@ -60,11 +60,19 @@ ARTICLE_SCHEMA = {
     "additionalProperties": False,
 }
 
+# Briefs render headline + summary only (render.py), so why_it_matters is a must_know field.
+# Tolerated rather than forbidden on should_know: every selections.json archived before
+# 2026-09-03 carries one, and --write-only / --resume re-render those.
+SHOULD_KNOW_ARTICLE_SCHEMA = {
+    **ARTICLE_SCHEMA,
+    "required": ["headline", "summary", "sources"],
+}
+
 SELECTIONS_SCHEMA = {
     "type": "object",
     "properties": {
         "must_know": {"type": "array", "items": ARTICLE_SCHEMA},
-        "should_know": {"type": "array", "items": ARTICLE_SCHEMA},
+        "should_know": {"type": "array", "items": SHOULD_KNOW_ARTICLE_SCHEMA},
         # 150 is the editorial target WRITE is given; the schema tolerates a small
         # (<=5%) overshoot so a couple extra chars never abort a delivered digest.
         # This maxLength is the single source of truth for the cap --

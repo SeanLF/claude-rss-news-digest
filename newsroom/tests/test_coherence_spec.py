@@ -156,3 +156,10 @@ def test_body_carries_the_current_date_token():
     """coherence.md auto-fails a STALE WORLD-STATE assertion and tells the model to check
     "the cited articles and today's date" -- so it has to be given the date."""
     assert orchestrate._CURRENT_DATE_TOKEN in _spec().body
+
+
+def test_body_says_should_know_carries_no_why_it_matters():
+    """The field is must_know only now. An auditor told to check 'all three fields' of every
+    story would otherwise read the missing one as a defect."""
+    body = _spec().body.lower()
+    assert "should_know stories carry no `why_it_matters`" in body

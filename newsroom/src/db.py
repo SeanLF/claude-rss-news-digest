@@ -524,11 +524,9 @@ def get_run_health(run_id: int) -> dict:
                     WHERE run_id = :r AND artifact_name = 'fulltext_health.json'),
                   (SELECT CASE WHEN json_valid(content)
                                 AND json_type(content, '$.must_know') = 'array'
-                               THEN (SELECT COUNT(*) FROM (
-                                 SELECT value FROM json_each(json_extract(content, '$.must_know'))
-                                 UNION ALL
-                                 SELECT value FROM json_each(json_extract(content, '$.should_know'))
-                               ) WHERE TRIM(COALESCE(value ->> '$.why_it_matters', '')) = '') END
+                               THEN (SELECT COUNT(*)
+                                       FROM json_each(json_extract(content, '$.must_know'))
+                                      WHERE TRIM(COALESCE(value ->> '$.why_it_matters', '')) = '') END
                      FROM run_artifacts
                     WHERE run_id = :r AND artifact_name = 'selections.json'),
                   (SELECT CASE WHEN json_valid(content)
@@ -559,7 +557,12 @@ def get_run_health(run_id: int) -> dict:
                                 AND json_type(content, '$.dropped') = 'array'
                                THEN json_array_length(json_extract(content, '$.dropped')) END
                      FROM run_artifacts
-                    WHERE run_id = :r AND artifact_name = 'write_branches.json')
+                    WHERE run_id = :r AND artifact_name = 'write_branches.json'),
+                  (SELECT CASE WHEN json_valid(content)
+                                AND json_type(content, '$.must_know') = 'array'
+                               THEN json_array_length(json_extract(content, '$.must_know')) END
+                     FROM run_artifacts
+                    WHERE run_id = :r AND artifact_name = 'selections.json')
                 """,
                 {"r": run_id},
             ).fetchone()
@@ -604,7 +607,10 @@ def get_run_health(run_id: int) -> dict:
         "fulltext_outcome": row[10],
         # Counted from the SHIPPED artifact, not merge's own tally: SELECTIONS_SCHEMA permits
         # an empty why_it_matters, so a WRITE that emits "" never passes the blanking path.
+        # must_know only: briefs never render the field, so a should_know without one is
+        # the design. The rate's denominator is must_know_shipped, not shipped.
         "blanked_why": row[11],
+        "must_know_shipped": row[17],
         # Read out of the link trace rather than a column of its own: the trace already
         # records every refusal, and a second copy in thread_runs is a second thing to
         # keep in step.

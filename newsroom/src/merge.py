@@ -606,7 +606,12 @@ def assemble_selections(claude_input_dir: Path) -> Path:
                             sorted(patch),
                             sorted(required) if required else None,
                         )
-                    if all(_why_it_matters_only_failure(failed[i]) for i in hits):
+                    if all(_why_it_matters_only_failure(failed[i]) for i in hits) and tier == "should_know":
+                        # The flagged field is popped from every should_know story below
+                        # and never ships: nothing to blank, nothing to count.
+                        _attach_cluster_id(item, item.get("sources", []), cluster_map)
+                        kept.append(item)
+                    elif all(_why_it_matters_only_failure(failed[i]) for i in hits):
                         # Graceful degradation: if EVERY matching failure is a
                         # usable why_it_matters-only failure, keep the story and
                         # blank just that field. Any other case (mixed fields,
@@ -626,6 +631,12 @@ def assemble_selections(claude_input_dir: Path) -> Path:
             else:
                 _attach_cluster_id(item, item.get("sources", []), cluster_map)
                 kept.append(item)
+        if tier == "should_know":
+            # A must_know field (briefs render headline + summary only). After the repair
+            # ladder, so a stale resolution on --resume cannot patch it back; drafts written
+            # before 2026-09-03 still carry it, and a WRITE that ignores the prompt might.
+            for item in kept:
+                item.pop("why_it_matters", None)
         draft[tier] = kept
         shipped += len(kept)
 

@@ -314,3 +314,17 @@ def test_loader_fails_loudly_on_missing(tmp_path):
     (tmp_path / "clusters.json").write_text("{}", encoding="utf-8")
     with pytest.raises(MissingArtifactError):
         load_stage_artifacts_from_dir(tmp_path)
+
+
+def test_write_should_know_needs_no_why_it_matters(draft, article_index):
+    """Briefs render headline + summary only; the field is written for must_know alone."""
+    trimmed = copy.deepcopy(draft)
+    for item in trimmed["should_know"]:
+        del item["why_it_matters"]
+    assert _check(grade_write(trimmed, article_index), "write_text_fields_nonempty").passed
+
+
+def test_write_must_know_without_why_it_matters_fails(draft, article_index):
+    broken = copy.deepcopy(draft)
+    del broken["must_know"][0]["why_it_matters"]
+    assert not _check(grade_write(broken, article_index), "write_text_fields_nonempty").passed

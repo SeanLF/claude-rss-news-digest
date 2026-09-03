@@ -17,7 +17,7 @@ Claude never sees URLs. Python assigns opaque article IDs (A1, A2...) and builds
 1. **CLUSTER** -- group articles by story
 2. **RECAP** -- summarise recent RSS titles (Haiku)
 3. **SELECT** -- editorial judgment: tiers, regions, representative articles
-4. **WRITE** -- one call per selected story: headline, summary, why_it_matters (references article IDs only)
+4. **WRITE** -- one call per selected story: headline, summary, and for must_know a why_it_matters (references article IDs only; briefs render no why_it_matters)
 5. **PREHEADER** -- the one cross-story field, from the assembled headlines (Haiku)
 6. **COHERENCE** -- verify headlines vs source articles
 7. **REPAIR** -- regenerate and re-check a flagged field instead of dropping the story

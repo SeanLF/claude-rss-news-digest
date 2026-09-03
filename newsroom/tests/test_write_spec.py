@@ -218,3 +218,16 @@ def test_read_step_names_the_branch_articles_file_not_a_glob():
     text = _body()
     assert "articles_*.csv" not in text
     assert "articles_1.csv" in _section("**Instructions:**")
+
+
+def test_why_it_matters_is_written_for_must_know_only():
+    """Briefs render headline + summary only (render.py), so a should_know why_it_matters is
+    written, fact-checked and repaired for nobody. On run 285 that was 3 of 4 coherence flags
+    and 2 of 3 repairs."""
+    body = _body()
+    assert "**Why it matters (must_know only" in body
+    schema_text = body[body.index("**Output schema:**") :]
+    should_know = schema_text[schema_text.index('"should_know"') :]
+    assert '"why_it_matters"' not in should_know
+    must_know = schema_text[schema_text.index('"must_know"') : schema_text.index('"should_know"')]
+    assert '"why_it_matters"' in must_know

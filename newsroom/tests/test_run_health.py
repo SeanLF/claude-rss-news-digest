@@ -39,6 +39,7 @@ def _healthy(**overrides):
         "dropped_continuations": 0,
         "linker_ok": True,
         "blanked_why": 0,
+        "must_know_shipped": 5,
         "fulltext_outcome": "completed",
         "fulltext_tasks": 40,
         "fulltext_extracted": 31,
@@ -87,22 +88,40 @@ class TestThreadContinuity:
         assert run_health.violations(_healthy()) == []
 
 
-def test_blanked_why_it_matters_fires_on_a_broad_blanking():
+def test_blanked_why_it_matters_fires_on_two_blanked_lead_stories():
     """Run 280 shipped 6 of 16 stories (38%) with an empty why_it_matters and NOTHING fired:
-    nothing is dropped, the story count is unchanged, so every other invariant reads clean."""
-    assert "BLANKED_WHY_IT_MATTERS" in _codes(_healthy(shipped=16, blanked_why=6))
+    nothing is dropped, the story count is unchanged, so every other invariant reads clean.
+    Only must_know renders the field now, and a digest carries 2-6 of those (4 or fewer on
+    37 of the first 79 runs), so a rate floor cannot separate "one story, the designed
+    fallback" from "half the lead stories": 1 of 4 is 25%. The floor is a count."""
+    assert "BLANKED_WHY_IT_MATTERS" in _codes(_healthy(shipped=16, must_know_shipped=4, blanked_why=2))
 
 
-def test_one_blanked_story_is_not_an_alert():
+def test_one_blanked_story_is_not_an_alert_however_few_lead_stories_there_are():
     """Blanking is the designed fallback. A single story must not page anyone, or the rule
-    trains the reader to ignore it."""
-    assert "BLANKED_WHY_IT_MATTERS" not in _codes(_healthy(shipped=16, blanked_why=1))
+    trains the reader to ignore it (run 285: 1 of 5 must_know, Leipzig)."""
+    for must_know in (2, 4, 5):
+        assert "BLANKED_WHY_IT_MATTERS" not in _codes(_healthy(must_know_shipped=must_know, blanked_why=1))
 
 
 def test_blanking_rule_cannot_judge_without_the_artifact():
     """None is 'not recorded' -- a run archived before the field existed, or a failed archive
     write. Absence of evidence is not a clean run, and it is not an alert either."""
     assert "BLANKED_WHY_IT_MATTERS" not in _codes(_healthy(blanked_why=None))
+
+
+def test_blanking_rule_fires_on_the_count_even_when_the_rate_cannot_be_computed():
+    """The count is the trigger; must_know_shipped only decorates the message. A message
+    that cannot show the rate must still say how many stories shipped bare."""
+    lines = [v for v in run_health.violations(_healthy(must_know_shipped=None, blanked_why=3)) if "BLANKED" in v]
+    assert len(lines) == 1
+    assert "3" in lines[0]
+
+
+def test_the_blanking_rule_inputs_are_required_keys():
+    """Both guarded inputs default the rule to silent-off when missing (see the REQUIRED_KEYS
+    comment): a renamed key would leave every rule test green and the rule dead."""
+    assert {"blanked_why", "must_know_shipped"} <= run_health.REQUIRED_KEYS
 
 
 def test_fulltext_total_loss_fires_when_every_extraction_failed():

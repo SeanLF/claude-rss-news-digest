@@ -333,7 +333,10 @@ class TestFulltextAndBlankingArtifactJoin:
 
         health = db.get_run_health(db._state.run_id)
 
-        assert health["blanked_why"] == 3
+        # must_know only: briefs never render the field, so a should_know without one is
+        # the design, not a blanking. The rate's denominator is the must_know count.
+        assert health["blanked_why"] == 2
+        assert health["must_know_shipped"] == 3
 
 
 class TestDroppedContinuations:
