@@ -34,12 +34,12 @@ Python assigns opaque ids and resolves them after the models are done; CLUSTER i
 |---|---|---|---|
 | 1 | Per-story single-turn COHERENCE (cited sources only, no tools) | none: this is the first measurement | recall on the 6 hard positives, idx 4 (absence) rate, false drops, tokens per story |
 | 2 | Per-story single-turn WRITE (branch files inlined, no tools) | none: second measurement, independent of 1 | COHERENCE flag rate on the outputs, L1 graders, tokens per story, with the within-arm spread first |
-| A | Tool-free invocation for WRITE, REPAIR, PREHEADER, RECAP (COHERENCE and the re-check stay on the tool loop: Phase 1 failed its precision gate on 2026-09-03) | Phase 2 passes its gate | per-run tokens and cost, coherence flag rate, blank rate, unchanged or better |
-| B | Prompts rendered from data: tier sections, present files, thread state; the negative rules added on 2026-09-03 come out | Phase A shipped (single-turn makes the prompt a string Python owns end to end) | eval floor unchanged; the L1 `summary_bolt_on` count |
+| A | ~~Tool-free invocation~~ **Closed 2026-09-03**: Phase 1 failed on precision and Phase 2 on quality. The tool loop earns its price for checker and writer at the current prompts. One follow-up left open: an arm S with a matched thinking budget (arm S used 38% of the output tokens) | reopen only on that follow-up | per-run tokens and cost, coherence flag rate, blank rate, unchanged or better |
+| B | Prompts rendered from data: tier sections, present files, thread state; the negative rules added on 2026-09-03 come out | none now: `branch_body` already renders the per-branch prompt inside the tool loop, so this no longer waits on A | eval floor unchanged; the L1 `summary_bolt_on` count |
 | C | One cohesion judgement per multi-event cluster, before SELECT | independent of A and B; can start any time | strays per run against hand labels; `summary_bolt_on`; two-event headlines |
-| D | One verifier over what renders: the thread delta goes through COHERENCE with the story | Phase A (per-story COHERENCE exists) | flags on delta text; the thread audit retires if redundant |
+| D | One verifier over what renders: the thread delta goes through COHERENCE with the story | none now: the delta joins the story's fields in draft_selections.json for the existing multi-turn checker | flags on delta text; the thread audit retires if redundant |
 
-Phases A to D each get their own plan once their gate reports. This file specifies Phases 1 and 2 to the step, because they decide the shape of everything after them.
+Phases A to D each get their own plan once their gate reports. This file specifies Phases 1 and 2 to the step, because they decide the shape of everything after them. **Both reported on 2026-09-03 and both failed; A is closed and B, C, D proceed inside the tool loop.** Recommended order now: C (fixes a reader-visible defect), then B, then D.
 
 ### Why Phase 1 might pass where the 2026-08-31 attempt failed
 
@@ -299,7 +299,7 @@ Read the scorecard as: mean recall over 6; how many of 5 runs caught idx 4 (`(4,
 
 ### Task 2: Per-story single-turn WRITE arm
 
-*Landed 2026-09-03 as 23df49c + 44fe45c; Step 6 (the measurement) not yet run.*
+*Landed 2026-09-03 as 23df49c + 44fe45c. Step 6 run the same day: **gate failed on quality** (single-turn flagged 2.6 per digest against the tool loop's 0-2, at a third of the cost and 38% of the output tokens). WRITE stays on the tool loop; see `docs/2026-09-03-per-story-write-measurement.md`.*
 
 **Files:**
 - Create: `newsroom/src/eval_write_turns.py`
@@ -397,7 +397,7 @@ Expected: PASS
 
 Concurrency 4 per arm; arms run sequentially so the container cache does not favour the second.
 
-- [ ] **Step 6: Run it once with `--reps 1` to prove both arms complete, then `--reps 5`**
+- [x] **Step 6: Run it once with `--reps 1` to prove both arms complete, then `--reps 5`** (done 2026-09-03; verdict above)
 
 ```bash
 bin/eval-write-turns --run 285 --reps 1
