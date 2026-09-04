@@ -782,8 +782,14 @@ mcp_smoke() {
     # about to probe it. No fallback -- a smoke that cannot name prod must say so, not skip.
     local domain
     domain=$(echo 'var.news_digest_domain' | "$INFRA_DIR/bin/tf" console 2>/dev/null | tr -d '"[:space:]') || domain=""
-    if [ -z "$domain" ]; then
-      log_error "could not resolve var.news_digest_domain from terraform -- MCP contract unverified"
+    # The capture must LOOK like a hostname, not merely be non-empty. On 2026-09-04 a
+    # terraform "value for undeclared variable" warning came back on stdout, survived
+    # 2>/dev/null, and was whitespace-stripped into the domain -- so the smoke curled a URL
+    # built from the warning text and reported "circulation is not answering" while the site
+    # was serving 200s. A smoke that cannot tell "prod is down" from "I built a bad URL" is
+    # worse than no smoke, because it is believed.
+    if [ -z "$domain" ] || ! printf '%s' "$domain" | grep -qE '^[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?)+$'; then
+      log_error "var.news_digest_domain did not resolve to a hostname -- MCP contract unverified (got: '$(printf '%.60s' "${domain:-<empty>}")')"
       return 1
     fi
     url="https://$domain"
