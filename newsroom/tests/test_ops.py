@@ -163,6 +163,18 @@ def test_journal_grep_is_quoted():
     assert "; rm -rf /" not in cmd.replace("'a; rm -rf /'", "")
 
 
+def test_the_deployed_image_is_preferred_over_the_latest_tag():
+    """`:latest` on the box is not what the unit runs -- it was `8ffdb88` while production ran
+    a pinned digest at `c276c83`. Nothing here needs project code (stdlib sqlite3 reads the
+    volume), but resolving the unit's own reference means this works exactly when prod does,
+    and does not break if `:latest` is pruned."""
+    cmd = ops.remote_command()
+    unit_at = cmd.index("news-digest.service")
+    latest_at = cmd.index("digest-newsroom:latest")
+    assert unit_at < latest_at, "the unit's pinned digest must be tried first"
+    assert "digest-newsroom@sha256:" in cmd
+
+
 def test_remote_command_never_writes_to_the_volume_and_picks_the_project_image():
     cmd = ops.remote_command()
     assert "digest-newsroom" in cmd

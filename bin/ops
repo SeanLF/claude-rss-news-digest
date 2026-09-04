@@ -101,13 +101,21 @@ else:
 
 
 def remote_command(env: dict[str, str] | None = None) -> str:
-    """The shell command sent over bin/ssh. Resolves the image on the box rather than pinning a
-    registry host, so this survives a change of registry."""
+    """The shell command sent over bin/ssh.
+
+    Resolves the image on the box rather than pinning a registry host, so this survives a
+    change of registry -- preferring the digest the systemd unit runs, falling back to the
+    `:latest` tag."""
     flags = "".join(f" -e {k}={shlex.quote(v)}" for k, v in sorted((env or {}).items()) if v)
     return (
         "set -e; "
-        f"IMG=$(docker images --format '{{{{.Repository}}}}:{{{{.Tag}}}}' | grep -m1 {shlex.quote(IMAGE_MATCH)}); "
-        '[ -n "$IMG" ] || { echo "digest-newsroom image not found on host" >&2; exit 1; }; '
+        # The image the digest unit actually runs, by digest. `:latest` on the box is not it
+        # (8ffdb88 while production ran c276c83), and it can be pruned while prod is healthy.
+        f"IMG=$(systemctl cat {shlex.quote(UNIT)} 2>/dev/null "
+        "| grep -oE '[^ ]+/digest-newsroom@sha256:[a-f0-9]+' | head -1); "
+        f"[ -n \"$IMG\" ] || IMG=$(docker images --format '{{{{.Repository}}}}:{{{{.Tag}}}}' "
+        f"| grep -m1 {shlex.quote(IMAGE_MATCH)}); "
+        '[ -n "$IMG" ] || { echo "no digest-newsroom image on host" >&2; exit 1; }; '
         f"docker run --rm -i{flags} -v {VOLUME}:/d:ro "
         '--entrypoint /app/.venv/bin/python3 "$IMG" -'
     )
