@@ -534,29 +534,50 @@ def _check_summary_bolt_on(selections: dict, report: GradeReport) -> None:
     connective, or a "X; Y" headline.
 
     A cluster is a model's grouping and about one in four bundles a second event, and WRITE
-    ships the stray behind a connective. Across the first 79 archived runs 68 of 1241
-    stories (5.5%) do -- 64 of them "Separately" -- at 0.86 a run and a max of 3 until run
-    285, the first per-story WRITE run, shipped 4 (one led by a White House helipad). The
-    headline form is commoner: 16% of archived headlines are "X; Y". One run above the
-    archive maximum is not a cause; this is the per-run count that lets the "one story per
-    cluster" rule in write.md be judged on numbers rather than on that run.
+    ships the stray behind a connective. Across the first 79 archived runs (1241 stories, all
+    BEFORE the "one story per cluster" rule landed in write.md on 2026-09-03):
+
+        237 stories flagged (19.1%), 3.00 a run -- but the two signals are very different sizes
+          170  headline only ("X; Y")
+           34  summary only (a connective)
+           33  both
+        67 connectives in total, 0.85 a run, and 64 of them are the single word "Separately".
+
+    **The counts are reported separately because they measure different things, and each has
+    its own baseline.** Watch both:
+
+        summary connective   0.85 a run   -- what the write.md "one story per cluster" rule
+                                             addresses; run 285 shipped 4, the outlier that
+                                             prompted the rule
+        two-event headline   2.57 a run   -- the LARGER signal (72% of all flags) and the one
+                                             nothing in the pipeline currently addresses
+
+    Reading a combined number against the connective baseline looks like a 3x regression and is
+    not one. Reading only the connective number is the opposite mistake: it retires the bigger
+    defect by not looking at it.
     """
     offenders: list[str] = []
+    connectives = headlines = 0
     for tier, item in _iter_articles(selections):
         summary = item.get("summary")
         headline = item.get("headline")
         in_summary = isinstance(summary, str) and bool(_BOLT_ON_CONNECTIVE.search(summary))
         in_headline = isinstance(headline, str) and bool(_TWO_EVENT_HEADLINE.search(headline))
+        connectives += in_summary
+        headlines += in_headline
         if in_summary or in_headline:
             head = (headline or "")[:50]
             where = "+".join(w for w, hit in (("summary", in_summary), ("headline", in_headline)) if hit)
             offenders.append(f"{tier} ({where}): {head!r}")
+    # A story hit by both counts in both signals, so the two numbers need not sum to the
+    # story count -- each is the per-run figure for its own baseline.
+    split = f"{connectives} summary connective, {headlines} two-event headline"
     report.add(
         "summary_bolt_on",
         passed=not offenders,
-        detail="ok"
+        detail=f"ok ({split})"
         if not offenders
-        else f"{len(offenders)} summary(ies) bolt on a second event: " + " | ".join(offenders[:5]),
+        else f"{len(offenders)} bolting on a second event ({split}): " + " | ".join(offenders[:5]),
     )
 
 

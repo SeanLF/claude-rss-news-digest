@@ -828,11 +828,10 @@ class TestWhyItMattersIsAMustKnowField:
 
 class TestSummaryBoltOn:
     """A cluster is a model's grouping and about one in four bundles a second event, and WRITE
-    ships the stray behind a connective. Across the first 79 archived runs 68 of 1241
-    stories (5.5%) open a sentence with one -- 64 of them "Separately" -- at 0.86 a run and a
-    max of 3 until run 285 shipped 4. Headlines carry the same defect as "X; Y" on 16% of
-    stories. This is the per-run count that lets the "one story per cluster" rule in
-    write.md be judged on numbers rather than on one run."""
+    ships the stray behind a connective. The archive figures live in one place --
+    ``eval_graders._check_summary_bolt_on``'s docstring -- so they cannot drift apart; the
+    short version is that the connective and semicolon-headline signals are different sizes
+    and each needs its own baseline."""
 
     @pytest.mark.parametrize(
         "summary",
@@ -870,6 +869,44 @@ class TestSummaryBoltOn:
         sel = _good_selections()
         sel["must_know"][0]["summary"] = "The court separately ruled on the ad exchange, part of the same case."
         assert _check(grade_selections(sel), "summary_bolt_on").passed
+
+    def test_the_detail_splits_the_two_signals(self):
+        """The check fires on a connective OR a semicolon headline, and across 79 archived runs
+        the headline half is 170 of 237 flags. A single combined number cannot be read against
+        the connective-only baseline (0.85/run), so the detail names both."""
+        sel = _good_selections()
+        # Asymmetric on purpose: 2 connectives against 1 headline. With 1 and 1 the test
+        # cannot tell the two counters apart, and a swapped pair passes it.
+        sel["should_know"][0]["summary"] = "The court ruled. Separately, a nonprofit sued four agencies."
+        sel["should_know"][1]["summary"] = "Ministers met. Separately, the envoy flew to Cairo."
+        sel["must_know"][0]["headline"] = "Xi to attend SCO summit; Gates seeks meeting on AI"
+        check = _check(grade_selections(sel), "summary_bolt_on")
+        assert not check.passed
+        assert "2 summary connective" in check.detail
+        assert "1 two-event headline" in check.detail
+
+    def test_a_story_hit_by_both_signals_is_one_offender(self):
+        """The leading count is stories, not signals. Review found that double-appending a
+        both-signal story passed the whole suite: nothing asserted this number."""
+        sel = _good_selections()
+        sel["must_know"][0]["summary"] = "A ruling landed. Separately, a suit was filed."
+        sel["must_know"][0]["headline"] = "Ruling lands; suit filed"
+        check = _check(grade_selections(sel), "summary_bolt_on")
+        assert check.detail.startswith("1 bolting on a second event"), check.detail
+
+    def test_a_story_hit_by_both_signals_counts_in_each(self):
+        sel = _good_selections()
+        sel["must_know"][0]["summary"] = "A ruling landed. Separately, a suit was filed."
+        sel["must_know"][0]["headline"] = "Ruling lands; suit filed"
+        check = _check(grade_selections(sel), "summary_bolt_on")
+        assert "1 summary connective" in check.detail
+        assert "1 two-event headline" in check.detail
+
+    def test_the_passing_detail_states_both_counts(self):
+        check = _check(grade_selections(_good_selections()), "summary_bolt_on")
+        assert check.passed
+        assert "0 summary connective" in check.detail
+        assert "0 two-event headline" in check.detail
 
     def test_known_good_has_none(self):
         assert _check(grade_selections(_good_selections()), "summary_bolt_on").passed
