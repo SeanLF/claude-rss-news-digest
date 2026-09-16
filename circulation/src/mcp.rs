@@ -31,7 +31,7 @@ use rmcp::handler::server::wrapper::Parameters;
 use rmcp::model::{
     ErrorData, Implementation, ListPromptsRequestMethod, ListPromptsResult,
     ListResourceTemplatesRequestMethod, ListResourceTemplatesResult, ListResourcesRequestMethod,
-    ListResourcesResult, PaginatedRequestParams, ProtocolVersion, ServerCapabilities, ServerInfo,
+    ListResourcesResult, PaginatedRequestParams, ProtocolVersion, ServerCapabilities, ServerConfig,
     Tool,
 };
 use rmcp::service::RequestContext;
@@ -451,7 +451,7 @@ impl DigestTools {
 
 #[tool_handler(router = self.tool_router)]
 impl ServerHandler for DigestTools {
-    fn get_info(&self) -> ServerInfo {
+    fn get_info(&self) -> ServerConfig {
         let mut implementation = Implementation::new(SERVER_NAME, env!("CARGO_PKG_VERSION"));
         implementation.title = Some(format!("{} - reader tools", self.ctx.digest_name));
         implementation.description = Some(DESCRIPTION.to_string());
@@ -460,7 +460,7 @@ impl ServerHandler for DigestTools {
         }
         // Tools, and nothing else. In MCP absence is the claim of non-support, so this is the
         // whole honest answer; the card copies it rather than restating it.
-        ServerInfo::new(ServerCapabilities::builder().enable_tools().build())
+        ServerConfig::new(ServerCapabilities::builder().enable_tools().build())
             .with_protocol_version(ProtocolVersion::LATEST)
             .with_server_info(implementation)
             .with_instructions(INSTRUCTIONS)
