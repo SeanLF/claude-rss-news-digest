@@ -1,30 +1,10 @@
-"""Does SELECT's pick depend on the ORDER clusters are listed in, or only on sampling noise?
+"""SELECT order-dependence harness: N reps of the real select.md per arm (archived order,
+uniform permutation, size-descending), answers mapped back to original cluster indices by
+citations, within-arm and cross-arm Jaccard with exact permutation tests.
 
-arXiv 2608.26762 (2026-08-27) measured that an LLM scorer's retained set moves by 16-34% under
-a permutation of the candidates alone, and that no prompt-time change removed it. Our own
-number for SELECT (rep-to-rep Jaccard 0.24-0.34, docs/2026-09-03-clustering-pocs.md) was taken
-with the input in a fixed order, so it conflates the two. This harness separates them:
-
-  arm ``fixed``     N reps of the real select.md on the archived clusters.json as shipped
-  arm ``shuffled``  N reps, each on a fresh uniform permutation of the ``clusters`` array
-  arm ``sorted``    N reps, clusters in size-descending order (stable), the explicit version of
-                    the order the join happens to emit (by first article id, which front-loads
-                    big clusters: run 298's size>=10 clusters all sit in the first 105 of 289)
-
-Everything else (articles_*.csv, recap.txt, sources.csv, yesterday_headlines.txt) is identical
-across reps. Each rep's answer is mapped back to ORIGINAL cluster indices -- through the
-permutation, and by the story's citations rather than the positional ``cluster_index`` it
-wrote, because that index drifts on ~14% of stories (write_fanout.resolve_cluster_index) --
-and the within-arm pairwise Jaccard is the measurement. The fixed arm is the reference's
-self-agreement band; if the shuffled arm is not materially below it, order is not a component
-and order-averaging (k permutations, vote) has nothing to buy.
-
-Makes REAL model calls on the subscription (~$0.4 a rep): opt-in, never in CI.
-``bin/eval-select-order`` runs it through the production agent-sdk path in Docker.
-
-Negative control (no model call): ``--check`` pushes the ARCHIVED selected.json through a
-permutation as if a model had answered in the permuted space and requires it to canonicalise
-to the same clusters. A mapping bug fails there before a cent is spent.
+Makes REAL model calls (~$0.4 a rep); run through ``bin/eval-select-order``. ``--check`` is
+the model-free negative control; ``--rescore`` re-derives the statistics from a stored
+summary.json.
 """
 
 from __future__ import annotations
@@ -44,7 +24,7 @@ AGENT = Path("/app/.claude/agents/select.md")
 FIXTURES = Path("/app/eval-fixtures")
 WORK = Path("/app/eval-work")
 ARMS = ("fixed", "shuffled", "sorted")
-# What SELECT reads. The archived selected.json is deliberately NOT copied into a rep.
+# The archived selected.json must never be copied into a rep.
 _INPUT_GLOBS = (
     "clusters.json",
     "recap.txt",
@@ -53,11 +33,6 @@ _INPUT_GLOBS = (
     "weekly_recap.txt",
     "yesterday_headlines.txt",
 )
-
-
-# --------------------------------------------------------------------------- #
-# Pure parts (tested without model calls).
-# --------------------------------------------------------------------------- #
 
 
 def permute_clusters(clusters: list, rng: random.Random | None) -> tuple[list, list[int]]:
@@ -187,16 +162,10 @@ def _cross(a: list[frozenset], b: list[frozenset]) -> float:
 
 
 def permutation_tests(a: list[frozenset], b: list[frozenset]) -> dict:
-    """Two exact tests over every equal split of the pooled reps (exchangeable under the null
-    that the arm does not matter).
-
-    ``gap``: |within(a) - within(b)|, two-sided. Sees an arm that adds VARIANCE to the pick.
-    ``shift``: mean within minus cross, one-sided. Sees an arm that MOVES the pick to different
-    clusters even when each arm is as self-consistent as the other; the gap test is blind to
-    that, which is how the second write-up of run 298 concluded "no order effect" from a data
-    set in which order moved about one of 16 picks (review of 4e73378).
-    Also reports the smallest |gap| that reaches p <= 0.05, so a null result comes with what it
-    could have seen."""
+    """Exact permutation tests over every equal split of the pooled reps: ``gap`` (two-sided,
+    |within(a) - within(b)|, sees added variance) and ``shift`` (one-sided, mean within minus
+    cross, sees picks moving to other clusters at equal self-consistency), each with the
+    smallest value that reaches p <= 0.05."""
     pool = a + b
     n = len(a)
     obs_gap = abs(_within(a) - _within(b))
@@ -215,7 +184,6 @@ def permutation_tests(a: list[frozenset], b: list[frozenset]) -> dict:
     gaps.sort()
     shifts.sort()
 
-    # Smallest observed value whose p would be <= 0.05: what a null result could have seen.
     def _threshold(values: list[float]) -> float | None:
         return next((v for v in values if sum(1 for h in values if h >= v - 1e-12) / total <= 0.05), None)
 
@@ -246,7 +214,6 @@ def prepare_workdir(fixtures: Path, work: Path, perm: list[int] | None) -> list[
             if src.name != "clusters.json":
                 shutil.copy2(src, work / src.name)
                 if pattern == "articles_*.csv":
-                    # Data rows, not files: a header-only CSV is the same broken input as none.
                     article_rows += max(0, len(src.read_text(encoding="utf-8").splitlines()) - 1)
     if not article_rows:
         raise RuntimeError(
@@ -258,12 +225,11 @@ def prepare_workdir(fixtures: Path, work: Path, perm: list[int] | None) -> list[
         perm = list(range(len(clusters)))
     if sorted(perm) != list(range(len(clusters))):
         raise ValueError("perm is not a permutation of the cluster positions")
-    # Byte-for-byte the production writer (cluster_extractjoin: ``json.dumps(out, indent=2)``,
-    # ASCII escapes and all), so the fixed arm reads exactly what SELECT reads in prod.
+    # Must match cluster_extractjoin's json.dumps(out, indent=2) byte for byte.
     (work / "clusters.json").write_text(
         json.dumps({**data, "clusters": [clusters[i] for i in perm]}, indent=2), encoding="utf-8"
     )
-    # Beside the input dir, not inside it, so a listing of what the model reads does not name the arm.
+    # Not inside the input dir: the model must not be able to read the arm.
     work.with_name(work.name + ".permutation.json").write_text(json.dumps(perm), encoding="utf-8")
     return perm
 
@@ -274,8 +240,7 @@ def negative_control(fixtures: Path, seed: int) -> dict:
     form to equal the unpermuted one."""
     clusters = json.loads((fixtures / "clusters.json").read_text(encoding="utf-8"))["clusters"]
     archived = json.loads((fixtures / "selected.json").read_text(encoding="utf-8"))
-    # The unpermuted answer is read WITHOUT the inverse mapping, so a broken to_original cannot
-    # cancel out of both sides of the comparison.
+    # Must not go through to_original, or a broken inverse cancels out of both sides.
     direct = _resolve_picks(archived, clusters)
     original = {"all": direct["must_know"] | direct["should_know"], "must_know": frozenset(direct["must_know"])}
     permuted, perm = permute_clusters(clusters, random.Random(seed))
@@ -290,14 +255,8 @@ def negative_control(fixtures: Path, seed: int) -> dict:
     }
     round_trip = canonical_selection(as_if, permuted, perm)
     o, r = sorted(original["all"]), sorted(round_trip["all"])
-    # An archived answer with nothing resolvable would pass vacuously; that is a broken fixture.
     ok = bool(o) and o == r and original["must_know"] == round_trip["must_know"]
     return {"ok": ok, "original": o, "round_trip": r}
-
-
-# --------------------------------------------------------------------------- #
-# Model-calling parts (Docker, production SDK path).
-# --------------------------------------------------------------------------- #
 
 
 async def _run_rep(
@@ -351,7 +310,7 @@ def parse_arms(spec: str) -> list[str]:
     if unknown or not arms:
         raise SystemExit(f"--arms: unknown {unknown or 'empty'}; choose from {','.join(ARMS)}")
     if len(set(arms)) != len(arms):
-        # Two reps of one arm would share a work dir and score Jaccard 1.0 against themselves.
+        # Duplicates would share a work dir and score 1.0 against themselves.
         raise SystemExit(f"--arms: duplicate arm in {spec!r}")
     return arms
 
@@ -387,8 +346,6 @@ def main() -> int:
     args = ap.parse_args()
 
     if args.rescore:
-        # Default is read-only: the stored file is the evidence a doc cites, and re-checking
-        # evidence must not rewrite it. A changed summarise() shows up as a printed difference.
         stored = json.loads(Path(args.rescore).read_text(encoding="utf-8"))
         reps = {
             arm: [{**r, "all": frozenset(r["all"]), "must_know": frozenset(r["must_know"])} for r in rows]

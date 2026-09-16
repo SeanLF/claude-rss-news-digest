@@ -83,9 +83,6 @@ def load_agent_for_eval(
 
 
 KNOWN_FIELDS = schema.COHERENCE_FIELDS
-# The optional two-way failure label (VeriGray's out-dependent split, docs/2026-09-16-sota-and-
-# competitor-recheck.md §1.2): a cited source says otherwise, or no cited source says it at all.
-# One spelling source: the schema leaf.
 FAILURE_KINDS = schema.FAILURE_KINDS
 
 
@@ -181,13 +178,10 @@ def score(report_path: Path, labels: dict) -> dict:
                     malformed.append(f"unknown failure_kinds value {kind!r} (headline={h!r})")
                     continue
                 if (idx, c) not in flags:
-                    # A kind on a field the checker did not flag is schema noise, and crediting it
-                    # would let a MISSED hallucination count as an agreement.
+                    # Crediting a kind on an unflagged field would count a missed positive as agreement.
                     malformed.append(f"failure_kinds names unflagged field {c!r} (headline={h!r})")
                     continue
                 kinds[(idx, c)] = kind
-    # Hard AND borderline labels carry a judged type; both are a base for the kind agreement
-    # (a kind on a borderline field is still a kind on a labelled failure).
     labelled = labels["hard_positives"] + labels.get("borderline", [])
     type_of = {(f["idx"], f["field"]): f.get("type", "") for f in labelled}
     if len(type_of) != len(labelled):
@@ -199,10 +193,7 @@ def score(report_path: Path, labels: dict) -> dict:
         for k, v in kinds.items()
         if expected.get(k) is not None and v in FAILURE_KINDS and v != expected[k]
     )
-    # Kinds on labelled fields whose type the mapping does not recognise: reported, so a
-    # relabelled fixture cannot silently turn "4 agree" into "0 agree, 0 disagree".
     kind_unscored = sorted((k[0], k[1], type_of[k]) for k in kinds if k in type_of and expected.get(k) is None)
-    # Kinds on unlabelled fields: counted in kind_labelled, judged nowhere.
     kind_other = sum(1 for k in kinds if k not in type_of)
     return {
         "kinds": {f"{i}:{f}": v for (i, f), v in sorted(kinds.items())},

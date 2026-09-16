@@ -23,13 +23,7 @@ from jsonschema import Draft7Validator
 # distribution climbs toward 500, fix the prompt rather than the cap.
 PREHEADER_MAX_CHARS = 157
 
-# The two ways COHERENCE labels a failed field: a cited source says otherwise, or nothing
-# cited says it at all. The prompt names them; the validator only requires the label to be an
-# object (an unrecognised spelling is counted as unlabelled, never rejected, because a label
-# that "changes nothing about pass/fail" must not be able to fail a run).
 FAILURE_KINDS = ("contradicted", "unsupported")
-# The fields COHERENCE checks; the only names a failed_fields or failure_kinds entry can refer
-# to. Anything else in a report is model noise and is not counted anywhere.
 COHERENCE_FIELDS = ("headline", "summary", "why_it_matters")
 NOT_COVERED_BLURB_MAX_LEN = 500
 

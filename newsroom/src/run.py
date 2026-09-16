@@ -166,14 +166,9 @@ def _attribute_repair_log() -> None:
 
 
 def _log_coherence_kinds() -> None:
-    """One INFO line per curation run: how this run's COHERENCE failures split between
-    contradicted and unsupported fields. Logged, not alerted (base rates unmeasured). Lives
-    here, on the path only a full run or a same-day --resume takes, because --write-only
-    re-renders old selections and would otherwise log the previous run's report under a new
-    run id. Read before archive_run_artifacts sweeps the working dir. A --resume after a
-    failure past this point logs the same report a second time under the new run id, the same
-    way the archival it sits beside re-runs; the journal reader must key on run id. Best-effort:
-    a report this cannot parse is a count of nothing, never a failed run."""
+    """One INFO line per curation run with this run's COHERENCE failure kinds. Must run before
+    archive_run_artifacts sweeps the working dir and never on --write-only (that would log the
+    previous run's report under a new run id). Best-effort."""
     try:
         kinds = run_health.coherence_kind_counts(_read_text_if_exists(CLAUDE_INPUT_DIR / "coherence_report.json"))
     except Exception:
