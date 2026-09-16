@@ -1,0 +1,40 @@
+
+
+
+
+
+
+
+
+negative control: ok  archived picks [0, 5, 10, 26, 38, 45, 46, 58, 62, 64, 90, 93, 95, 104, 150, 157, 163]
+SELECT order-dependence  reps=5/arm  arms=fixed,shuffled,sorted  clusters=261  seed=2026
+  shuffled rep 0: 17 picks (5 must_know), drifted 3, unresolved 0, $0.286
+  fixed rep 0: 15 picks (5 must_know), drifted 8, unresolved 0, $0.369
+  sorted rep 0: 16 picks (4 must_know), drifted 2, unresolved 0, $0.276
+  fixed rep 1: 14 picks (4 must_know), drifted 9, unresolved 0, $0.353
+  shuffled rep 1: 15 picks (4 must_know), drifted 0, unresolved 0, $0.302
+  fixed rep 2: 16 picks (4 must_know), drifted 11, unresolved 0, $0.248
+  shuffled rep 2: 16 picks (5 must_know), drifted 11, unresolved 0, $0.232
+  sorted rep 1: 16 picks (4 must_know), drifted 1, unresolved 0, $0.676
+  sorted rep 2: 17 picks (5 must_know), drifted 2, unresolved 0, $0.225
+  fixed rep 3: 14 picks (4 must_know), drifted 9, unresolved 0, $0.287
+  sorted rep 3: 16 picks (4 must_know), drifted 0, unresolved 0, $0.226
+  shuffled rep 3: 17 picks (5 must_know), drifted 11, unresolved 0, $0.533
+  fixed rep 4: 15 picks (4 must_know), drifted 0, unresolved 0, $0.360
+  sorted rep 4: 15 picks (4 must_know), drifted 0, unresolved 0, $0.274
+  shuffled rep 4: 16 picks (4 must_know), drifted 0, unresolved 0, $0.356
+
+  fixed    all Jaccard mean 0.569 [0.45-0.71]  must_know 0.660  picks [15, 14, 16, 14, 15]  always 6  ever 23  drifted 37/74  unresolved 0  $1.62
+  shuffled all Jaccard mean 0.443 [0.32-0.57]  must_know 0.680  picks [17, 15, 16, 17, 16]  always 7  ever 34  drifted 25/81  unresolved 0  $1.71
+  sorted   all Jaccard mean 0.543 [0.41-0.74]  must_know 0.573  picks [16, 16, 17, 16, 15]  always 8  ever 28  drifted 5/80  unresolved 0  $1.68
+  cross_fixed_shuffled all Jaccard mean 0.488
+  cross_fixed_sorted all Jaccard mean 0.499
+  cross_shuffled_sorted all Jaccard mean 0.454
+  fixed_vs_shuffled    all       gap +0.126 (two-sided p 0.151, p<=0.05 needs 0.1683)  shift +0.018 (one-sided p 0.191)  over 252 splits
+  fixed_vs_shuffled    must_know gap -0.020 (two-sided p 0.881, p<=0.05 needs 0.2038)  shift +0.010 (one-sided p 0.333)  over 252 splits
+  fixed_vs_sorted      all       gap +0.026 (two-sided p 0.675, p<=0.05 needs 0.0924)  shift +0.057 (one-sided p 0.040)  over 252 splits
+  fixed_vs_sorted      must_know gap +0.087 (two-sided p 0.476, p<=0.05 needs 0.2267)  shift -0.045 (one-sided p 1.000)  over 252 splits
+  shuffled_vs_sorted   all       gap -0.100 (two-sided p 0.111, p<=0.05 needs 0.1238)  shift +0.039 (one-sided p 0.064)  over 252 splits
+  shuffled_vs_sorted   must_know gap +0.107 (two-sided p 0.452, p<=0.05 needs 0.2533)  shift -0.037 (one-sided p 0.936)  over 252 splits
+
+  wrote /app/eval-work/summary.json

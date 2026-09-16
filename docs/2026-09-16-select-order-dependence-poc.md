@@ -1,4 +1,4 @@
-# SELECT order dependence: real but small, about one pick in 16; sampling noise is the larger term (2026-09-16)
+# SELECT order dependence: not replicated across two days; both mitigations dropped (2026-09-16)
 
 Follow-up to `docs/2026-09-16-sota-and-competitor-recheck.md` §1.1, which asked one question of
 [arXiv 2608.26762](https://arxiv.org/abs/2608.26762) (order alone moves an LLM scorer's retained
@@ -11,9 +11,15 @@ the mistakes are the reusable part.
 
 ## TL;DR
 
-**Order moves about one of SELECT's 16 picks on run 298 (0.6 to 1.3 depending on which
+**Two days, no consistent order effect. Run 298 showed a small shift (about one pick of 16,
+p = 0.008) and a size-sorted must_know advantage; run 291, a second day, showed neither
+(shift p = 0.19, sorted must_know 0.57 against 0.66 archived and 0.68 shuffled). Nothing here
+survives replication, so order-averaging and the size sort are both dropped, not deferred.**
+The run 298 section below is kept as measured; the second day is in "Run 291" further down.
+
+**Run 298 alone:** order moves about one of SELECT's 16 picks (0.6 to 1.3 depending on which
 arm's self-agreement you count from, 4 to 8% of the set), well under the paper's 16 to 34%,
-and it does not change how self-consistent SELECT is.** Five reps of the
+and it does not change how self-consistent SELECT is. Five reps of the
 shipped `select.md` per arm:
 
 | arm | cluster order the model read | within-arm Jaccard, all picks | must_know |
@@ -151,9 +157,55 @@ clusters were picked by all fifteen reps (Thaci's sentence, the Houthi drone nea
   the fixed arm, whose picks sat at the lowest read positions, drifted most). No mechanism is
   claimed. The citations decide in prod, so this is not reader-facing.
 
+## Run 291, the second day (683 articles, 261 clusters, 5 reps per arm, $5.00)
+
+A second day rather than a busier one: 683 articles against run 298's 672, and fewer clusters.
+
+| | fixed | shuffled | sorted |
+|---|---|---|---|
+| all-picks Jaccard, mean [min, max] | **0.569** [0.45, 0.71] | **0.443** [0.32, 0.57] | **0.543** [0.41, 0.74] |
+| must_know Jaccard, mean | 0.660 | 0.680 | 0.573 |
+| picks per rep | 15, 14, 16, 14, 15 | 17, 15, 16, 17, 16 | 16, 16, 17, 16, 15 |
+| clusters picked by all 5 / by any | 6 / 23 | 7 / 34 | 8 / 28 |
+| mean size of a picked cluster | 11.5 | 11.0 | 11.9 |
+| cluster_index drift per rep | 8, 9, 11, 9, 0 | 3, 0, 11, 11, 0 | 2, 1, 2, 0, 0 |
+
+| comparison | metric | gap | two-sided p | shift | one-sided p |
+|---|---|---|---|---|---|
+| fixed vs shuffled | all | +0.126 | 0.15 | +0.018 | 0.19 |
+| fixed vs shuffled | must_know | −0.020 | 0.88 | +0.010 | 0.33 |
+| fixed vs sorted | all | +0.026 | 0.68 | +0.057 | 0.040 |
+| fixed vs sorted | must_know | +0.087 | 0.48 | −0.045 | 1.00 |
+| shuffled vs sorted | all | −0.100 | 0.11 | +0.039 | 0.064 |
+| shuffled vs sorted | must_know | +0.107 | 0.45 | −0.037 | 0.94 |
+
+Evidence: `docs/proposed/2026-09-16-select-order/run291/` (summary, clusters, permutations,
+console), `bin/eval-select-order rescore` reproduces the table.
+
+**Reading, both days together.**
+
+- The run 298 shift (fixed vs shuffled p = 0.008) did not recur (p = 0.19). Run 291 had the
+  power to see it: a shift of 0.031 would have reached p ≤ 0.05 there (run 298's was 0.063,
+  and the largest shift any relabelling of run 291's ten reps can produce is 0.053), and the
+  observed 0.018 is a third of run 298's. One of six comparisons at p = 0.04 on run 291
+  (fixed vs sorted shift) is what six comparisons at n = 5 produce by chance; it is a
+  different pair from run 298's and not pre-registered.
+- The size-sorted must_know advantage reversed: 0.57 on run 291, the lowest of the three
+  arms, where run 298 had it at 0.75, the highest. A one-day, one-of-six result did what
+  such results do.
+- The one pattern present both days is that the shuffled arm's within-arm agreement is the
+  lowest (0.47 then 0.44 against 0.51 then 0.57 archived). Neither day makes that gap
+  significant at n = 5 (p = 0.36, then 0.15), and on run 291 the shuffled arm's picked
+  clusters were no smaller (11.0 vs 11.5 articles), so the "random order degrades toward
+  small clusters" reading from the first review does not hold either. It argues for keeping
+  the order we have, not for changing anything.
+- Sampling noise remains the whole first-order story on both days: 0.51 to 0.57 agreement
+  between identical reruns in the archived order.
+
 ## What this changes
 
-- **Order-averaging is a costed option, not a recommendation.** k permuted SELECT runs with a
+- **Order-averaging is dropped.** The component it would remove did not replicate.
+  (Costing kept for the record:) k permuted SELECT runs with a
   majority vote would remove the one-pick order component and, as a side effect, some of the
   sampling noise. At run 298's recorded $0.42 a call that is about $1.25 a run for k = 3
   against a $6 run, to stabilise roughly one should_know pick a day. Stability is not validity
@@ -161,7 +213,8 @@ clusters were picked by all fifteen reps (Thaci's sentence, the Houthi drone nea
   consensus clusters and shrinks the should_know tail toward the conventional. Whether a
   reader wants a stabler tail or a more varied one is editorial; the price is the number
   above.
-- **A canonical size-descending order is the free follow-up.** It is a sort in
+- **The size sort is dropped too.** Its only signal reversed on the second day. (The original
+  note follows for the record; its "needs a second run" condition was met and failed.) It is a sort in
   `cluster_extractjoin` before `clusters.json` is written, and this harness measures it
   directly. Before it ships it needs a second run on a busier day (the must_know 0.75 is five
   reps on one day and does not survive correction over six comparisons) and the same
@@ -173,6 +226,8 @@ clusters were picked by all fifteen reps (Thaci's sentence, the Houthi drone nea
 
 ## Open
 
-- Second run of the three arms on a busier day (run 291 or 292, ~700 articles) before either
-  the sort or a vote is proposed for prod; `make eval-select-order RUN=291` runs all three.
-- The per-rep drift pattern is free to re-measure on that run; it is recorded, not explained.
+- Nothing on order. The harness stays for the next order-shaped hypothesis, if one comes with
+  a mechanism; the two days' evidence is in the tree.
+- The per-rep `cluster_index` drift is again lowest in the sorted arm (0 to 2 per rep against
+  0 to 11 in the other two), for the second day. Still recorded, not explained, and not
+  reader-facing.

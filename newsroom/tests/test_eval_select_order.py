@@ -246,6 +246,9 @@ def test_permutation_tests_gap_and_shift_on_known_sets():
     t = eso.permutation_tests(a, noisy)
     assert t["gap"] == 1.0 and t["gap_p_two_sided"] == pytest.approx(2 / 20)
     assert t["gap_threshold_p05"] is None or t["gap_threshold_p05"] <= 1.0
+    # The shift test reports the same "what could it have seen" pair as the gap test.
+    assert t["shift_threshold_p05"] is None or t["shift_threshold_p05"] <= t["shift_max"]
+    assert t["shift_max"] >= t["shift"]
 
 
 def test_summary_runs_the_tests_for_every_pair():

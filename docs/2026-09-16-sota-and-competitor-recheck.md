@@ -73,14 +73,13 @@ intersection or a vote. At $0.38 a SELECT call (run 298's prod row; the harness'
 Do not build the mitigation before the measurement; the 2026-07-26 delta PoC showed control
 noise can exceed every claimed effect here.
 
-**Measured the same day: real but small.** Three arms (archived, shuffled, size-sorted), five
-reps each, on run 298. Order does not change SELECT's self-consistency (within-arm Jaccard
-0.51 / 0.47 / 0.55, no gap significant, power adequate for a paper-sized effect) but it does
-move about one of 16 picks (0.6 to 1.3) to different clusters (within-minus-cross shift test,
-p = 0.008), well under the paper's 16-34%. Order-averaging would cost ~$1.25/run at k = 3 to stabilise
-roughly one should_know pick; recorded as a costed option. A size-sorted order is free and
-matched or beat the archived order on every measure on one day. Harness `bin/eval-select-order`
-(gap and shift tests built in); write-up `docs/2026-09-16-select-order-dependence-poc.md`.
+**Measured on two days: not replicated, dropped.** Run 298 showed a small order shift (about
+one of 16 picks, p = 0.008) and a size-sorted must_know advantage; run 291 showed neither
+(p = 0.19; the sorted advantage reversed). Self-consistency in a fixed order is 0.51 to 0.57
+on both days, so sampling noise is the story. Order-averaging and a canonical sort are both
+off the list. Harness `bin/eval-select-order` (gap and shift tests built in, evidence for both
+days under `docs/proposed/2026-09-16-select-order/`); write-up
+`docs/2026-09-16-select-order-dependence-poc.md`.
 
 Related, search-summarised only: [Majority Rules](https://arxiv.org/pdf/2511.15714) (LLM
 ensembles for content categorisation reach or exceed human-annotator consistency),
@@ -291,8 +290,7 @@ anywhere a reader can see. For the builder-recognition goal that is the lead, ah
 
 1. The Kagi story-page sections are from prior knowledge; open one story and check before
    the thread-page design borrows from it.
-2. ~~The SELECT order-dependence PoC needs a harness~~ Built and run twice the same day
-   (`bin/eval-select-order`, `docs/2026-09-16-select-order-dependence-poc.md`): a small
-   real order component (about one of 16 picks), no change in self-consistency. Order-averaging
-   is a costed option at ~$1.25/run; a size-sorted order is the free follow-up; both need a
-   second day.
+2. ~~The SELECT order-dependence PoC needs a harness~~ Built and run on two days
+   (`bin/eval-select-order`, `docs/2026-09-16-select-order-dependence-poc.md`): run 298's
+   small order shift and sorted-order signal did not replicate on run 291. Order-averaging and
+   the size sort are both dropped.

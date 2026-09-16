@@ -70,6 +70,8 @@ positions in `docs/2026-09-16-select-order-dependence-poc.md` and the scores in
 `docs/2026-09-16-coherence-failure-kind-poc.md` re-derive from the tree. Not in the tree: file
 mtimes and wall-clock durations, which those docs say rest on the session record.
 
+- `select-order/run291/`: the second day, same layout (summary, clusters, permutations, console);
+  the run on which run 298's signals did not replicate.
 - `select-order/run298/summary.json`: the fifteen reps' canonical picks and the `summarise()`
   output including the exact permutation tests. `bin/eval-select-order rescore <this file>`
   recomputes the summary block with no model call and reports whether it matches (read-only

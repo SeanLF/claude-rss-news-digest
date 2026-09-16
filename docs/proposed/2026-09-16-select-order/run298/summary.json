@@ -89,6 +89,8 @@
           "gap_threshold_p05": 0.0715,
           "shift": 0.0629,
           "shift_p_one_sided": 0.0079,
+          "shift_threshold_p05": 0.038,
+          "shift_max": 0.0629,
           "splits": 252
         },
         "must_know": {
@@ -97,6 +99,8 @@
           "gap_threshold_p05": 0.1821,
           "shift": 0.023,
           "shift_p_one_sided": 0.3095,
+          "shift_threshold_p05": 0.0832,
+          "shift_max": 0.1374,
           "splits": 252
         }
       },
@@ -107,6 +111,8 @@
           "gap_threshold_p05": 0.1351,
           "shift": 0.03,
           "shift_p_one_sided": 0.1032,
+          "shift_threshold_p05": 0.0375,
+          "shift_max": 0.0607,
           "splits": 252
         },
         "must_know": {
@@ -115,6 +121,8 @@
           "gap_threshold_p05": 0.2895,
           "shift": 0.07,
           "shift_p_one_sided": 0.0873,
+          "shift_threshold_p05": 0.1189,
+          "shift_max": 0.187,
           "splits": 252
         }
       },
@@ -125,6 +133,8 @@
           "gap_threshold_p05": 0.1582,
           "shift": 0.0401,
           "shift_p_one_sided": 0.0476,
+          "shift_threshold_p05": 0.0401,
+          "shift_max": 0.0647,
           "splits": 252
         },
         "must_know": {
@@ -133,6 +143,8 @@
           "gap_threshold_p05": 0.2745,
           "shift": 0.1377,
           "shift_p_one_sided": 0.0317,
+          "shift_threshold_p05": 0.1098,
+          "shift_max": 0.2292,
           "splits": 252
         }
       }

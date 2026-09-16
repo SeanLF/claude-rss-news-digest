@@ -201,24 +201,33 @@ def permutation_tests(a: list[frozenset], b: list[frozenset]) -> dict:
     n = len(a)
     obs_gap = abs(_within(a) - _within(b))
     obs_shift = (_within(a) + _within(b)) / 2 - _cross(a, b)
-    gaps, ge_gap, ge_shift, total = [], 0, 0, 0
+    gaps, shifts, ge_gap, ge_shift, total = [], [], 0, 0, 0
     for comb in itertools.combinations(range(len(pool)), n):
         x = [pool[i] for i in comb]
         y = [pool[i] for i in range(len(pool)) if i not in comb]
         g = abs(_within(x) - _within(y))
+        sh = (_within(x) + _within(y)) / 2 - _cross(x, y)
         gaps.append(g)
+        shifts.append(sh)
         total += 1
         ge_gap += g >= obs_gap - 1e-12
-        ge_shift += ((_within(x) + _within(y)) / 2 - _cross(x, y)) >= obs_shift - 1e-12
+        ge_shift += sh >= obs_shift - 1e-12
     gaps.sort()
-    # Smallest observed gap whose two-sided p would be <= 0.05.
-    threshold = next((g for g in gaps if sum(1 for h in gaps if h >= g - 1e-12) / total <= 0.05), None)
+    shifts.sort()
+
+    # Smallest observed value whose p would be <= 0.05: what a null result could have seen.
+    def _threshold(values: list[float]) -> float | None:
+        return next((v for v in values if sum(1 for h in values if h >= v - 1e-12) / total <= 0.05), None)
+
+    gap_t, shift_t = _threshold(gaps), _threshold(shifts)
     return {
         "gap": round(_within(a) - _within(b), 4),
         "gap_p_two_sided": round(ge_gap / total, 4),
-        "gap_threshold_p05": round(threshold, 4) if threshold is not None else None,
+        "gap_threshold_p05": round(gap_t, 4) if gap_t is not None else None,
         "shift": round(obs_shift, 4),
         "shift_p_one_sided": round(ge_shift / total, 4),
+        "shift_threshold_p05": round(shift_t, 4) if shift_t is not None else None,
+        "shift_max": round(shifts[-1], 4),
         "splits": total,
     }
 
@@ -435,7 +444,8 @@ def _print_summary(summary: dict) -> None:
             print(
                 f"  {pair:20s} {metric:9s} gap {t['gap']:+.3f} (two-sided p {t['gap_p_two_sided']:.3f}, "
                 f"p<=0.05 needs {t['gap_threshold_p05']})  shift {t['shift']:+.3f} "
-                f"(one-sided p {t['shift_p_one_sided']:.3f})  over {t['splits']} splits"
+                f"(one-sided p {t['shift_p_one_sided']:.3f}, p<=0.05 needs {t['shift_threshold_p05']}, "
+                f"max {t['shift_max']})  over {t['splits']} splits"
             )
 
 
