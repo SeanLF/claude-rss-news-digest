@@ -190,3 +190,20 @@ apps can stay in `main.rs` until roughly 1000 lines.
 These are general language conventions rather than lessons from this codebase.
 
 </details>
+
+## /ask provider (circulation)
+
+`ASK_ENABLED=true` plus `ASK_API_KEY` switch the question box on; either alone leaves it off
+and the page says so. `ASK_OPENROUTER_MODELS` (comma list, walked in order) selects
+OpenRouter: the base defaults to `https://openrouter.ai/api/v1`, the key is an OpenRouter key,
+every request carries the whole list (`models`) so the gateway fails over inside the call,
+sends `provider.data_collection=deny` so no host that trains on prompts is routed to, and
+circulation retries from the next leg when a leg fails before any answer text (HTTP 429, 5xx,
+an error object inside a 200 stream, or no first token within 30 s). The SSE `model` event
+and `/ask.json`'s `model` field name the leg that answered. Without the list, `ASK_MODEL`
+against Mistral works as before. Change legs with the env, not a code edit; model ids expire.
+
+`make ask-eval` (`bin/ask-eval`) gates a candidate list on the planted-injection archive with
+real calls: `ASK_OPENROUTER_MODELS=a,b bin/ask-eval`; the key comes from `OPENROUTER_API_KEY`
+or 1Password's "OpenRouter" item.
+

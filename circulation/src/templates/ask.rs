@@ -25,6 +25,8 @@ pub struct AskParams<'a> {
     /// The answering model, or `None` when no provider is configured (the box is then read-only).
     pub model: Option<&'a str>,
     pub provider: Option<&'a str>,
+    /// The request carries the no-training routing rule; the promise below is shown only then.
+    pub openrouter: bool,
 }
 
 /// Example questions.
@@ -276,10 +278,16 @@ pub fn render_ask(p: &AskParams) -> String {
         .map(|s| format!(r#"<button class="chip" type="button">{s}</button>"#))
         .collect();
 
-    let provider = p
-        .provider
-        .map(|name| format!(" served by {}", escape_html(name)))
-        .unwrap_or_default();
+    let provider = match (p.openrouter, p.provider) {
+        (true, _) => concat!(
+            ", routed through <a href=\"https://openrouter.ai/\">OpenRouter</a> (US) only to hosts",
+            " that do not train on your question. If the first model is rate-limited the next",
+            " one answers, and the name above changes to match; if all fail it tells you"
+        )
+        .to_string(),
+        (false, Some(name)) => format!(" served by {}", escape_html(name)),
+        (false, None) => String::new(),
+    };
 
     format!(
         r#"{head}
@@ -350,6 +358,7 @@ mod tests {
             origin: "https://digest.example",
             model,
             provider: Some("Mistral"),
+            openrouter: false,
         }
     }
 
@@ -366,6 +375,33 @@ mod tests {
             assert!(html.contains(s), "missing suggestion: {s}");
         }
         assert!(html.contains(r#"href="/connect""#), "{html}");
+    }
+
+    #[test]
+    fn an_openrouter_box_discloses_the_gateway_and_the_fallback() {
+        let mut p = params(Some("inclusionai/ling-3.0-flash-vl:free"));
+        p.provider = Some("OpenRouter");
+        p.openrouter = true;
+        let html = render_ask(&p);
+        assert!(
+            html.contains(r#"<code id="askmodel">inclusionai/ling-3.0-flash-vl:free</code>"#),
+            "{html}"
+        );
+        assert!(html.contains(r#"href="https://openrouter.ai/""#), "{html}");
+        assert!(html.contains("do not train on your question"), "{html}");
+        assert!(html.contains("the next one answers"), "{html}");
+        assert!(!html.contains("served by"), "{html}");
+        p.provider = Some("OpenRouter (US)");
+        assert!(
+            render_ask(&p).contains("do not train"),
+            "relabelled gateway keeps the promise"
+        );
+        p.openrouter = false;
+        p.provider = Some("OpenRouter");
+        assert!(
+            !render_ask(&p).contains("do not train"),
+            "the label alone never earns it"
+        );
     }
 
     /// Without a provider the page must not ship a box that can only fail.

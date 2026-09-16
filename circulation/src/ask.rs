@@ -3,9 +3,8 @@
 //! The model does not know anything about this briefing. It is handed the same eight
 //! read-only tools the MCP endpoint publishes, and every claim in an answer has to come from
 //! what those tools returned. This is the same design as the sibling site's `/ask`, ported to
-//! Rust and deliberately smaller: one provider instead of a failover chain, and no circuit
-//! breaker, because a chain that has to be maintained against dying free tiers is the part of
-//! that system its own comments record as expensive.
+//! Rust: one gateway (OpenRouter) fronting an ordered model list that the gateway and this
+//! module both walk, and no circuit breaker.
 //!
 //! Shape of a request: the client POSTs the question plus the running history it holds, and
 //! the server keeps nothing. Assistant turns in that history are HMAC-signed by us, so a
@@ -94,18 +93,30 @@ const IP_LIMIT_PER_MINUTE: u32 = 3;
 /// a reader cannot tell it from a fault of ours.
 const GLOBAL_LIMIT_PER_MINUTE: u32 = 6;
 
+const OPENROUTER_BASE: &str = "https://openrouter.ai/api/v1";
+const MISTRAL_BASE: &str = "https://api.mistral.ai/v1";
+const MISTRAL_MODEL: &str = "mistral-medium-2508";
+
 /// Provider configuration. Absent key -> the endpoint is disabled.
 #[derive(Clone)]
 pub struct AskConfig {
-    /// OpenAI-compatible base, e.g. `https://api.mistral.ai/v1`.
+    /// OpenAI-compatible base, e.g. `https://openrouter.ai/api/v1`.
     pub api_base: String,
-    pub model: String,
+    /// Ordered, never empty: the first is named on the page, the rest are the fallback legs.
+    pub models: Vec<String>,
     pub api_key: String,
-    /// Shown in the page's fine print so the disclosure names the model actually answering.
+    /// Shown in the page's fine print so the disclosure names who is serving the answer.
     pub provider_label: String,
+    pub openrouter: bool,
+    pub referer: Option<String>,
+    pub title: String,
 }
 
 impl AskConfig {
+    pub fn model(&self) -> &str {
+        &self.models[0]
+    }
+
     /// Read from the environment. BOTH an explicit `ASK_ENABLED=true` and a key are
     /// required: a key is a credential that can arrive in an environment for unrelated
     /// reasons, and it must never be the thing that arms an endpoint which spends money on
@@ -113,24 +124,69 @@ impl AskConfig {
     /// same reason -- `MISTRAL_API_KEY` exists in a sibling project's environment, and
     /// inheriting it would switch this on with nobody deciding to.
     pub fn from_env() -> Option<Self> {
-        let enabled = std::env::var("ASK_ENABLED")
+        Self::from_lookup(|k| std::env::var(k).ok())
+    }
+
+    /// Empty means unset: docker-compose forwards every optional override as `${VAR:-}`.
+    pub fn from_lookup(get: impl Fn(&str) -> Option<String>) -> Option<Self> {
+        let enabled = get("ASK_ENABLED")
             .map(|v| matches!(v.trim().to_ascii_lowercase().as_str(), "1" | "true" | "yes"))
             .unwrap_or(false);
         if !enabled {
             return None;
         }
-        let api_key = std::env::var("ASK_API_KEY")
-            .ok()
-            .filter(|k| !k.trim().is_empty())?;
+        let api_key = get("ASK_API_KEY").filter(|k| !k.trim().is_empty())?;
+        let non_empty = |k: &str| {
+            get(k)
+                .map(|v| v.trim().to_string())
+                .filter(|v| !v.is_empty())
+        };
+        let mut listed: Vec<String> = Vec::new();
+        for m in non_empty("ASK_OPENROUTER_MODELS")
+            .unwrap_or_default()
+            .split(',')
+        {
+            let m = m.trim();
+            if !m.is_empty() && !listed.iter().any(|seen| seen == m) {
+                listed.push(m.to_string());
+            }
+        }
+        let via_openrouter = !listed.is_empty();
+        let models = if via_openrouter {
+            listed
+        } else {
+            vec![non_empty("ASK_MODEL").unwrap_or_else(|| MISTRAL_MODEL.to_string())]
+        };
+        let api_base = non_empty("ASK_API_BASE").unwrap_or_else(|| {
+            (if via_openrouter {
+                OPENROUTER_BASE
+            } else {
+                MISTRAL_BASE
+            })
+            .to_string()
+        });
+        let openrouter = api_base.contains("openrouter.ai");
+        let provider_label = non_empty("ASK_PROVIDER_LABEL")
+            .unwrap_or_else(|| (if openrouter { "OpenRouter" } else { "Mistral" }).to_string());
+        let referer = non_empty("DIGEST_DOMAIN").map(|d| format!("https://{d}"));
+        let title = format!(
+            "{} /ask",
+            non_empty("DIGEST_NAME").unwrap_or_else(|| "News Digest".to_string())
+        );
         Some(Self {
-            api_base: std::env::var("ASK_API_BASE")
-                .unwrap_or_else(|_| "https://api.mistral.ai/v1".to_string()),
-            model: std::env::var("ASK_MODEL").unwrap_or_else(|_| "mistral-medium-2508".to_string()),
+            api_base,
+            models,
             api_key,
-            provider_label: std::env::var("ASK_PROVIDER_LABEL")
-                .unwrap_or_else(|_| "Mistral".to_string()),
+            provider_label,
+            openrouter,
+            referer,
+            title,
         })
     }
+}
+
+fn next_leg(start: usize, total: usize, retryable: bool) -> Option<usize> {
+    (retryable && start + 1 < total).then_some(start + 1)
 }
 
 /// The endpoint's runtime state: config, limiters, and the counters that bound the bill.
@@ -368,6 +424,8 @@ fn tool_label(name: &str) -> &'static str {
 pub struct AskError {
     pub status: StatusCode,
     pub message: String,
+    /// Failed before any answer text: the next leg may still answer.
+    pub retryable: bool,
 }
 
 impl AskError {
@@ -375,6 +433,14 @@ impl AskError {
         Self {
             status,
             message: message.into(),
+            retryable: false,
+        }
+    }
+
+    fn retryable(status: StatusCode, message: impl Into<String>) -> Self {
+        Self {
+            retryable: true,
+            ..Self::new(status, message)
         }
     }
 
@@ -448,9 +514,89 @@ fn truncate_tool_result(text: String) -> String {
 /// single chunk -- but the protocol allows splitting one across chunks, so arguments are
 /// concatenated by index rather than assumed whole. A provider that fragments them must not
 /// silently yield truncated JSON.
+/// `leg` persists across the rounds of one answer: a leg that failed this question is not
+/// offered it again, or every round would spend a request re-failing on the first model.
+async fn stream_with_fallback(
+    client: &reqwest::Client,
+    cfg: &AskConfig,
+    messages: &[Value],
+    with_tools: bool,
+    on_token: &mut (dyn FnMut(&str) + Send),
+    leg: &mut usize,
+) -> Result<ModelTurn, AskError> {
+    loop {
+        let start = *leg;
+        let legs = &cfg.models[start..];
+        let attempt = stream_turn(client, cfg, legs, messages, with_tools, on_token).await;
+        match attempt.and_then(|turn| reject_non_answer(turn, with_tools)) {
+            Ok(turn) => return Ok(turn),
+            Err(e) => match next_leg(start, cfg.models.len(), e.retryable) {
+                Some(next) => {
+                    tracing::warn!(leg = %legs[0], status = %e.status, "ask: leg failed before answering; trying the next model");
+                    *leg = next;
+                }
+                None if e.retryable && cfg.models.len() > 1 => {
+                    return Err(AskError::new(
+                        e.status,
+                        "None of the assistant's models could answer just now. Try again in a minute.",
+                    ));
+                }
+                None => return Err(e),
+            },
+        }
+    }
+}
+
+/// Markers a model emits when it writes a tool call as text instead of calling one.
+const TRANSCRIPT_MARKERS: [&str; 5] = [
+    "<tool_call>",
+    "[TOOL_CALLS]",
+    "<function=",
+    "<|python_tag|>",
+    "<tool\u{2581}call>",
+];
+
+/// A reply that IS a transcribed tool call, or is empty while tools were offered, is a failed
+/// leg. Only a reply that starts with a marker counts: one that mentions the markup mid-sentence
+/// is quoting the archive. The wrap-up turn keeps an empty reply (it means "nothing found").
+fn reject_non_answer(turn: ModelTurn, with_tools: bool) -> Result<ModelTurn, AskError> {
+    if !turn.tool_calls.is_empty() {
+        return Ok(turn);
+    }
+    let text = turn.content.trim_start();
+    if TRANSCRIPT_MARKERS.iter().any(|m| text.starts_with(m)) {
+        tracing::warn!("ask: leg transcribed its tool calls as text; treating as a failed leg");
+        return Err(AskError::retryable(
+            StatusCode::BAD_GATEWAY,
+            "The assistant's model could not use the archive's tools.",
+        ));
+    }
+    if with_tools && text.is_empty() {
+        tracing::warn!("ask: leg returned an empty completion; treating as a failed leg");
+        return Err(AskError::retryable(
+            StatusCode::BAD_GATEWAY,
+            "The assistant's model returned nothing.",
+        ));
+    }
+    Ok(turn)
+}
+
+/// The first-content bound for one leg: `FIRST_CONTENT_TIMEOUT`, or less when the list is
+/// long enough that stalled legs would otherwise eat the whole answer deadline before the
+/// last leg gets its turn.
+fn leg_deadline(n_models: usize) -> Duration {
+    let share = ANSWER_TIMEOUT / (n_models as u32 + 1);
+    FIRST_CONTENT_TIMEOUT.min(share)
+}
+
+/// Wall-clock, not per-read: the gateway's keepalive comments keep the socket busy while an
+/// upstream stalls, so a per-read timeout never fires.
+const FIRST_CONTENT_TIMEOUT: Duration = Duration::from_secs(30);
+
 async fn stream_turn(
     client: &reqwest::Client,
     cfg: &AskConfig,
+    legs: &[String],
     messages: &[Value],
     with_tools: bool,
     on_token: &mut (dyn FnMut(&str) + Send),
@@ -458,29 +604,58 @@ async fn stream_turn(
     use tokio_stream::StreamExt;
 
     let mut body = json!({
-        "model": cfg.model,
+        "model": legs[0],
         "messages": messages,
         "temperature": 0.2,
         "stream": true,
     });
+    if cfg.openrouter {
+        // `deny` is what the page's fine print promises; the account toggle is not enough.
+        body["models"] = json!(legs);
+        body["provider"] = json!({"data_collection": "deny"});
+    }
     if with_tools {
         body["tools"] = Value::Array(tool_schemas());
         body["tool_choice"] = json!("auto");
     }
 
-    let response = client
+    let mut request = client
         .post(format!(
             "{}/chat/completions",
             cfg.api_base.trim_end_matches('/')
         ))
         .bearer_auth(&cfg.api_key)
-        .json(&body)
-        .send()
-        .await
-        .map_err(|e| {
+        .json(&body);
+    if cfg.openrouter {
+        if let Some(referer) = &cfg.referer {
+            request = request.header("HTTP-Referer", referer);
+        }
+        request = request
+            .header("X-OpenRouter-Title", &cfg.title)
+            .header("X-Title", &cfg.title);
+    }
+    let started_at = Instant::now();
+    let deadline = leg_deadline(cfg.models.len());
+    let response = match tokio::time::timeout(deadline, request.send()).await {
+        Ok(sent) => sent.map_err(|e| {
             tracing::error!(error = %e, "ask: provider request failed");
-            AskError::upstream("The assistant is unreachable right now.")
-        })?;
+            if e.is_connect() || e.is_timeout() {
+                AskError::retryable(
+                    StatusCode::BAD_GATEWAY,
+                    "The assistant is unreachable right now.",
+                )
+            } else {
+                AskError::upstream("The assistant is unreachable right now.")
+            }
+        })?,
+        Err(_) => {
+            tracing::warn!(leg = %legs[0], "ask: no response headers within the leg deadline");
+            return Err(AskError::retryable(
+                StatusCode::GATEWAY_TIMEOUT,
+                "The assistant took too long to start answering.",
+            ));
+        }
+    };
 
     let status = response.status();
     if !status.is_success() {
@@ -489,7 +664,7 @@ async fn stream_turn(
         tracing::error!(%status, body = %detail.chars().take(400).collect::<String>(), "ask: provider error");
         return Err(match status.as_u16() {
             // The provider's cap is the caller's "wait a moment", not our failure.
-            429 => AskError::new(
+            429 => AskError::retryable(
                 StatusCode::TOO_MANY_REQUESTS,
                 "The assistant is busy right now. Try again in a minute.",
             ),
@@ -497,12 +672,18 @@ async fn stream_turn(
                 StatusCode::SERVICE_UNAVAILABLE,
                 "The assistant is not configured correctly.",
             ),
+            408 | 500..=599 => AskError::retryable(
+                StatusCode::BAD_GATEWAY,
+                "The assistant could not answer that.",
+            ),
             _ => AskError::upstream("The assistant could not answer that."),
         });
     }
 
     let mut turn = ModelTurn::default();
     let mut partial: Vec<ToolCall> = Vec::new();
+    // Before any answer text a failure is retryable; after it, a retry would repeat text.
+    let mut started = false;
     // BYTES, not a String. Decoding each chunk with `from_utf8_lossy` independently turns any
     // multi-byte character straddling a chunk boundary into two U+FFFD -- and the archive is
     // news, so accented names and typographic dashes are in nearly every answer. The
@@ -511,10 +692,33 @@ async fn stream_turn(
     let mut buf: Vec<u8> = Vec::new();
     let mut stream = response.bytes_stream();
 
-    while let Some(chunk) = stream.next().await {
+    loop {
+        let next = if started {
+            stream.next().await
+        } else {
+            let left = deadline.saturating_sub(started_at.elapsed());
+            match tokio::time::timeout(left, stream.next()).await {
+                Ok(next) => next,
+                Err(_) => {
+                    tracing::warn!(leg = %legs[0], "ask: no answer within the first-content deadline");
+                    return Err(AskError::retryable(
+                        StatusCode::GATEWAY_TIMEOUT,
+                        "The assistant took too long to start answering.",
+                    ));
+                }
+            }
+        };
+        let Some(chunk) = next else { break };
         let bytes = chunk.map_err(|e| {
             tracing::error!(error = %e, "ask: provider stream broke");
-            AskError::upstream("The assistant stopped mid-answer.")
+            if started {
+                AskError::upstream("The assistant stopped mid-answer.")
+            } else {
+                AskError::retryable(
+                    StatusCode::BAD_GATEWAY,
+                    "The assistant stopped before answering.",
+                )
+            }
         })?;
         buf.extend_from_slice(&bytes);
         if buf.len() > MAX_STREAM_BUFFER {
@@ -540,6 +744,18 @@ async fn stream_turn(
                     tracing::warn!(frame = %data.chars().take(120).collect::<String>(), "ask: unparseable chunk");
                     continue;
                 };
+                // A 200 is not success through a gateway: errors arrive inside the stream.
+                if let Some(err) = parsed.get("error") {
+                    tracing::error!(error = %err.to_string().chars().take(400).collect::<String>(), "ask: provider error in stream");
+                    return Err(if started {
+                        AskError::upstream("The assistant stopped mid-answer.")
+                    } else {
+                        AskError::retryable(
+                            StatusCode::BAD_GATEWAY,
+                            "The assistant's model was unavailable.",
+                        )
+                    });
+                }
                 if turn.model.is_none() {
                     turn.model = parsed
                         .get("model")
@@ -556,6 +772,7 @@ async fn stream_turn(
                 if let Some(text) = delta.get("content").and_then(Value::as_str)
                     && !text.is_empty()
                 {
+                    started = true;
                     turn.content.push_str(text);
                     on_token(text);
                 }
@@ -565,6 +782,7 @@ async fn stream_turn(
                     .into_iter()
                     .flatten()
                 {
+                    started = true;
                     let index = call.get("index").and_then(Value::as_u64).unwrap_or(0) as usize;
                     if partial.len() <= index {
                         partial.resize(index + 1, ToolCall::default());
@@ -602,13 +820,14 @@ async fn wrap_up(
     client: &reqwest::Client,
     cfg: &AskConfig,
     messages: &mut Vec<Value>,
+    leg: &mut usize,
 ) -> Result<String, AskError> {
     messages.push(json!({
         "role": "user",
         "content": "Answer now, from the tool results above. Do not request any more tools. If those results do not settle the question, say so plainly.",
     }));
     let mut sink = |_: &str| {};
-    let turn = stream_turn(client, cfg, messages, false, &mut sink).await?;
+    let turn = stream_with_fallback(client, cfg, messages, false, &mut sink, leg).await?;
     let text = turn.content.trim().to_string();
     if text.is_empty() {
         return Ok("I could not find anything about that in the briefing's archive.".to_string());
@@ -639,6 +858,7 @@ pub async fn answer(
 
     let mut named_model = false;
     let mut tool_calls_made = 0usize;
+    let mut leg = 0usize;
     for round in 0..MAX_TOOL_ROUNDS {
         // No tools on the last round, or once the conversation has grown past what one
         // question may cost: either way the model has to answer from what it already has
@@ -661,7 +881,8 @@ pub async fn answer(
         let mut pending = String::new();
         let turn = {
             let mut on_token = |t: &str| pending.push_str(t);
-            stream_turn(&client, cfg, &messages, with_tools, &mut on_token).await?
+            stream_with_fallback(&client, cfg, &messages, with_tools, &mut on_token, &mut leg)
+                .await?
         };
 
         if !named_model && let Some(model) = turn.model.clone() {
@@ -700,7 +921,7 @@ pub async fn answer(
             // The budget is spent and the model is still asking. Looping made no progress --
             // it keeps asking whether or not tools are offered -- so ask outright instead.
             tracing::info!("ask: tool budget spent; asking for the answer outright");
-            let text = wrap_up(&client, cfg, &mut messages).await?;
+            let text = wrap_up(&client, cfg, &mut messages, &mut leg).await?;
             report(Progress::Answer(text));
             return Ok(());
         }
@@ -751,7 +972,7 @@ pub async fn answer(
     // saying so is the right answer, where an error told the reader the machine broke when it
     // had in fact worked and found nothing.
     tracing::info!("ask: rounds exhausted; asking for the answer outright");
-    let text = wrap_up(&client, cfg, &mut messages).await?;
+    let text = wrap_up(&client, cfg, &mut messages, &mut leg).await?;
     report(Progress::Answer(text));
     Ok(())
 }
@@ -782,8 +1003,9 @@ pub async fn page(State(state): State<Arc<AppState>>) -> Html<String> {
         footer_html: &footer_html,
         connect_url: routes::CONNECT,
         origin: &canonical_url,
-        model: ask.config.as_ref().map(|c| c.model.as_str()),
+        model: ask.config.as_ref().map(|c| c.model()),
         provider: ask.config.as_ref().map(|c| c.provider_label.as_str()),
+        openrouter: ask.config.as_ref().is_some_and(|c| c.openrouter),
     }))
 }
 
@@ -1094,20 +1316,40 @@ mod tests {
     /// A key on its own must never arm an endpoint that spends money per request.
     #[test]
     fn config_needs_an_explicit_switch_as_well_as_a_key() {
-        // Not asserted through the environment (tests share one process); this pins the
-        // contract the code reads, so the two cannot drift apart silently.
+        let with = |vars: &[(&str, &str)]| {
+            let map: std::collections::HashMap<String, String> = vars
+                .iter()
+                .map(|(k, v)| (k.to_string(), v.to_string()))
+                .collect();
+            AskConfig::from_lookup(move |k| map.get(k).cloned())
+        };
+        assert!(
+            with(&[("ASK_API_KEY", "k")]).is_none(),
+            "a key alone must not arm it"
+        );
+        assert!(
+            with(&[("ASK_ENABLED", "true")]).is_none(),
+            "the switch alone has nothing to spend"
+        );
+        assert!(
+            with(&[("ASK_ENABLED", "true"), ("ASK_API_KEY", " ")]).is_none(),
+            "blank key"
+        );
+        assert!(with(&[("ASK_ENABLED", "true"), ("ASK_API_KEY", "k")]).is_some());
+        // A provider-named key in a sibling project's environment must not arm this.
         let src = include_str!("ask.rs");
-        // Read only the reader, so this test cannot match its own assertion text.
-        let from_env = src
-            .split("pub fn from_env()")
+        let reader = src
+            .split("pub fn from_lookup(")
             .nth(1)
             .and_then(|rest| rest.split("\n    }\n").next())
-            .expect("from_env is still here");
-        assert!(from_env.contains(r#"var("ASK_ENABLED")"#), "{from_env}");
-        // `unwrap_or_else` for a DEFAULT is fine; chaining a second env var for the KEY is not.
+            .expect("from_lookup is still here");
         assert!(
-            !from_env.contains(".or_else(|| std::env::var("),
-            "no fallback key: a provider-named variable must not arm this on its own\n{from_env}"
+            !reader.contains("_API_KEY\")") || reader.matches("_API_KEY\")").count() == 1,
+            "{reader}"
+        );
+        assert!(
+            !reader.contains("MISTRAL_API_KEY") && !reader.contains("OPENROUTER_API_KEY"),
+            "{reader}"
         );
     }
 }
@@ -1195,9 +1437,12 @@ mod loop_tests {
     pub(super) fn config(base: String) -> AskConfig {
         AskConfig {
             api_base: base,
-            model: "stub".to_string(),
+            models: vec!["stub".to_string()],
             api_key: "stub".to_string(),
             provider_label: "Stub".to_string(),
+            openrouter: false,
+            referer: None,
+            title: "Test /ask".to_string(),
         }
     }
 
@@ -1298,5 +1543,357 @@ mod budget_tests {
             "spent {} provider calls",
             provider_calls.load(Ordering::SeqCst)
         );
+    }
+}
+
+#[cfg(test)]
+mod openrouter_tests {
+    //! The model-list walk, against stubs that fail the first leg the ways a gateway does.
+    use super::loop_tests::state;
+    use super::*;
+    use axum::Router;
+    use axum::routing::post;
+    use std::collections::HashMap;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    fn lookup(vars: &[(&'static str, &'static str)]) -> impl Fn(&str) -> Option<String> {
+        let map: HashMap<&'static str, String> =
+            vars.iter().map(|(k, v)| (*k, v.to_string())).collect();
+        move |k: &str| map.get(k).cloned()
+    }
+
+    #[test]
+    fn an_openrouter_list_selects_the_gateway_and_keeps_its_order() {
+        let cfg = AskConfig::from_lookup(lookup(&[
+            ("ASK_ENABLED", "true"),
+            ("ASK_API_KEY", "k"),
+            (
+                "ASK_OPENROUTER_MODELS",
+                " a/one:free , b/two:free,, c/three ",
+            ),
+            ("DIGEST_DOMAIN", "digest.example"),
+            ("DIGEST_NAME", "Test Digest"),
+        ]))
+        .expect("configured");
+        assert_eq!(cfg.models, vec!["a/one:free", "b/two:free", "c/three"]);
+        let dup = AskConfig::from_lookup(lookup(&[
+            ("ASK_ENABLED", "1"),
+            ("ASK_API_KEY", "k"),
+            ("ASK_OPENROUTER_MODELS", "a,b,a"),
+        ]))
+        .unwrap();
+        assert_eq!(
+            dup.models,
+            vec!["a", "b"],
+            "a failed leg must not be walked twice"
+        );
+        assert_eq!(cfg.model(), "a/one:free");
+        assert_eq!(cfg.api_base, OPENROUTER_BASE);
+        assert!(cfg.openrouter);
+        assert_eq!(cfg.provider_label, "OpenRouter");
+        assert_eq!(cfg.referer.as_deref(), Some("https://digest.example"));
+        assert_eq!(cfg.title, "Test Digest /ask");
+    }
+
+    #[test]
+    fn without_a_list_nothing_changes() {
+        let cfg =
+            AskConfig::from_lookup(lookup(&[("ASK_ENABLED", "1"), ("ASK_API_KEY", "k")])).unwrap();
+        assert_eq!(cfg.models, vec![MISTRAL_MODEL]);
+        assert_eq!(cfg.api_base, MISTRAL_BASE);
+        assert!(!cfg.openrouter);
+        assert_eq!(cfg.provider_label, "Mistral");
+        // ASK_MODEL still works as a one-entry list.
+        let cfg = AskConfig::from_lookup(lookup(&[
+            ("ASK_ENABLED", "1"),
+            ("ASK_API_KEY", "k"),
+            ("ASK_MODEL", "mistral-small"),
+        ]))
+        .unwrap();
+        assert_eq!(cfg.models, vec!["mistral-small"]);
+        // An empty list (compose forwards `${VAR:-}`) is unset, not a one-entry list of "".
+        let cfg = AskConfig::from_lookup(lookup(&[
+            ("ASK_ENABLED", "1"),
+            ("ASK_API_KEY", "k"),
+            ("ASK_OPENROUTER_MODELS", " , "),
+        ]))
+        .unwrap();
+        assert_eq!(cfg.models, vec![MISTRAL_MODEL]);
+        assert!(!cfg.openrouter);
+    }
+
+    #[test]
+    fn an_explicit_base_naming_openrouter_turns_the_routing_on_too() {
+        let cfg = AskConfig::from_lookup(lookup(&[
+            ("ASK_ENABLED", "1"),
+            ("ASK_API_KEY", "k"),
+            ("ASK_API_BASE", "https://openrouter.ai/api/v1/"),
+            ("ASK_MODEL", "x/y"),
+        ]))
+        .unwrap();
+        assert!(cfg.openrouter);
+        assert_eq!(cfg.provider_label, "OpenRouter");
+    }
+
+    #[test]
+    fn the_walk_moves_on_only_for_a_retryable_failure_and_only_while_legs_remain() {
+        assert_eq!(next_leg(0, 3, true), Some(1));
+        assert_eq!(next_leg(1, 3, true), Some(2));
+        assert_eq!(next_leg(2, 3, true), None, "the list is exhausted");
+        assert_eq!(
+            next_leg(0, 3, false),
+            None,
+            "a final failure does not move on"
+        );
+        assert_eq!(next_leg(0, 1, true), None, "one model has no next leg");
+    }
+
+    /// Leg "a" fails the way `first` names; any other leg answers and names itself.
+    async fn stub_gateway(
+        first: &'static str,
+    ) -> (String, Arc<Mutex<Vec<Value>>>, Arc<AtomicUsize>) {
+        let bodies: Arc<Mutex<Vec<Value>>> = Arc::new(Mutex::new(Vec::new()));
+        let calls = Arc::new(AtomicUsize::new(0));
+        let seen = bodies.clone();
+        let counted = calls.clone();
+        let app = Router::new().route(
+            "/chat/completions",
+            post(move |body: String| {
+                let seen = seen.clone();
+                let counted = counted.clone();
+                async move {
+                    counted.fetch_add(1, Ordering::SeqCst);
+                    let parsed: Value = serde_json::from_str(&body).unwrap();
+                    seen.lock().unwrap().push(parsed.clone());
+                    let leg = parsed["model"].as_str().unwrap().to_string();
+                    // "transcribed-then-tool": b asks for a tool on its first call, answers after.
+                    let b_should_call_tool = first == "transcribed-then-tool"
+                        && leg == "b"
+                        && !parsed["messages"].as_array().unwrap().iter().any(|m| m["role"] == "tool");
+                    if b_should_call_tool {
+                        let frame = json!({
+                            "model": "b",
+                            "choices": [{"index": 0, "delta": {"tool_calls": [{
+                                "index": 0, "id": "c0", "type": "function",
+                                "function": {"name": "get_latest_issue", "arguments": "{}"}
+                            }]}, "finish_reason": "tool_calls"}]
+                        });
+                        return (StatusCode::OK, format!("data: {frame}\n\ndata: [DONE]\n\n"));
+                    }
+                    if leg == "a" {
+                        return match first {
+                            "429" => (StatusCode::TOO_MANY_REQUESTS, "{\"error\":{\"code\":429}}".to_string()),
+                            "stream-error" => (
+                                StatusCode::OK,
+                                "data: {\"error\":{\"code\":502,\"message\":\"upstream\"}}\n\n".to_string(),
+                            ),
+                            "401" => (StatusCode::UNAUTHORIZED, "{}".to_string()),
+                            "hang" => {
+                                tokio::time::sleep(Duration::from_secs(12)).await;
+                                (StatusCode::OK, "data: [DONE]\n\n".to_string())
+                            }
+                            "empty" => {
+                                let frame = json!({"model": "a", "choices": [{"index": 0, "delta": {"content": ""}}]});
+                                (StatusCode::OK, format!("data: {frame}\n\ndata: [DONE]\n\n"))
+                            }
+                            "transcribed" | "transcribed-then-tool" => {
+                                let frame = json!({
+                                    "model": "a",
+                                    "choices": [{"index": 0, "delta": {"content": "<tool_call>get_issue\n<arg_key>id</arg_key></tool_call>"}}]
+                                });
+                                (StatusCode::OK, format!("data: {frame}\n\ndata: [DONE]\n\n"))
+                            }
+                            _ => unreachable!(),
+                        };
+                    }
+                    let frame = json!({
+                        "model": leg,
+                        "choices": [{"index": 0, "delta": {"content": format!("answered by {leg}")}}]
+                    });
+                    (StatusCode::OK, format!("data: {frame}\n\ndata: [DONE]\n\n"))
+                }
+            }),
+        );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let base = format!("http://{}", listener.local_addr().unwrap());
+        tokio::spawn(async move {
+            let _ = axum::serve(listener, app).await;
+        });
+        (base, bodies, calls)
+    }
+
+    fn openrouter_config(base: String) -> AskConfig {
+        AskConfig {
+            api_base: base,
+            models: vec!["a".to_string(), "b".to_string(), "c".to_string()],
+            api_key: "k".to_string(),
+            provider_label: "OpenRouter".to_string(),
+            openrouter: true,
+            referer: Some("https://digest.example".to_string()),
+            title: "Test /ask".to_string(),
+        }
+    }
+
+    async fn ask_through(
+        first: &'static str,
+    ) -> (
+        Result<(), AskError>,
+        Option<String>,
+        Vec<String>,
+        Vec<Value>,
+        usize,
+    ) {
+        let (base, bodies, calls) = stub_gateway(first).await;
+        let state = state();
+        let mut model = None;
+        let mut answers = Vec::new();
+        let mut report = |p: Progress| {
+            match p {
+                Progress::Model(m) => model = Some(m),
+                Progress::Answer(t) => answers.push(t),
+                Progress::Tool(_) => {}
+            }
+            true
+        };
+        let out = answer(&state, &openrouter_config(base), "q", &[], &mut report).await;
+        let bodies = bodies.lock().unwrap().clone();
+        (out, model, answers, bodies, calls.load(Ordering::SeqCst))
+    }
+
+    #[tokio::test]
+    async fn a_429_on_the_first_leg_is_answered_by_the_second_and_named() {
+        let (out, model, answers, bodies, calls) = ask_through("429").await;
+        assert!(out.is_ok(), "{out:?}");
+        assert_eq!(
+            model.as_deref(),
+            Some("b"),
+            "the page must name the leg that answered"
+        );
+        assert_eq!(answers, vec!["answered by b"]);
+        assert_eq!(calls, 2);
+        assert_eq!(bodies[0]["models"], json!(["a", "b", "c"]));
+        assert_eq!(bodies[1]["models"], json!(["b", "c"]));
+        assert_eq!(bodies[1]["model"], json!("b"));
+        assert_eq!(bodies[0]["provider"]["data_collection"], json!("deny"));
+    }
+
+    #[tokio::test]
+    async fn an_error_object_inside_a_200_stream_moves_to_the_next_leg() {
+        let (out, model, answers, _, calls) = ask_through("stream-error").await;
+        assert!(out.is_ok(), "{out:?}");
+        assert_eq!(model.as_deref(), Some("b"));
+        assert_eq!(answers, vec!["answered by b"]);
+        assert_eq!(calls, 2);
+    }
+
+    #[tokio::test]
+    async fn a_leg_that_writes_its_tool_calls_as_text_is_walked_past() {
+        let (out, model, answers, _, calls) = ask_through("transcribed").await;
+        assert!(out.is_ok(), "{out:?}");
+        assert_eq!(model.as_deref(), Some("b"));
+        assert_eq!(
+            answers,
+            vec!["answered by b"],
+            "the transcript must not reach the reader"
+        );
+        assert_eq!(calls, 2);
+    }
+
+    fn turn(content: &str) -> ModelTurn {
+        ModelTurn {
+            content: content.to_string(),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn a_reply_that_is_a_transcribed_tool_call_is_a_failed_leg_in_any_markup() {
+        for t in [
+            "<tool_call>get_issue</tool_call>",
+            "  [TOOL_CALLS] get_issue{\"date\": \"2026-09-01\"}",
+            "<function=get_issue>{\"date\":\"2026-09-01\"}</function>",
+            "<|python_tag|>get_issue(date=\"2026-09-01\")",
+            "<tool\u{2581}call>get_issue",
+        ] {
+            assert!(reject_non_answer(turn(t), true).is_err(), "{t}");
+            assert!(reject_non_answer(turn(t), false).is_err(), "wrap-up: {t}");
+        }
+    }
+
+    #[test]
+    fn a_reply_that_quotes_the_markup_is_an_answer() {
+        let quoting = "The 2026-08-14 issue reported a model emitting `<tool_call>` markup; see /issues/2026-08-14.";
+        assert!(reject_non_answer(turn(quoting), true).is_ok());
+        let mut real = turn("<tool_call>");
+        real.tool_calls.push(ToolCall::default());
+        assert!(
+            reject_non_answer(real, true).is_ok(),
+            "a real tool call beside text"
+        );
+        assert!(reject_non_answer(turn("plain answer"), true).is_ok());
+    }
+
+    #[test]
+    fn an_empty_reply_walks_when_tools_were_offered_and_stands_on_the_wrap_up() {
+        assert!(reject_non_answer(turn("  "), true).is_err());
+        assert!(reject_non_answer(turn("  "), false).is_ok());
+    }
+
+    #[test]
+    fn stalled_legs_leave_the_last_leg_time_to_answer() {
+        for n in 1..=8 {
+            let per_leg = leg_deadline(n);
+            assert!(per_leg <= FIRST_CONTENT_TIMEOUT);
+            assert!(
+                per_leg * (n as u32) < ANSWER_TIMEOUT,
+                "n={n} per_leg={per_leg:?}"
+            );
+        }
+        assert_eq!(leg_deadline(1), FIRST_CONTENT_TIMEOUT);
+    }
+
+    #[tokio::test]
+    async fn a_leg_that_never_sends_headers_is_abandoned_for_the_next() {
+        let (base, _bodies, calls) = stub_gateway("hang").await;
+        let state = state();
+        let mut cfg = openrouter_config(base);
+        // Eight legs: leg_deadline is ANSWER_TIMEOUT / 9 = 10 s, and the hang stub sleeps 12 s.
+        cfg.models = ["a", "b", "c", "d", "e", "f", "g", "h"]
+            .map(String::from)
+            .to_vec();
+        let mut model = None;
+        let mut report = |p: Progress| {
+            if let Progress::Model(m) = p {
+                model = Some(m);
+            }
+            true
+        };
+        let started = Instant::now();
+        let out = answer(&state, &cfg, "q", &[], &mut report).await;
+        assert!(out.is_ok(), "{out:?}");
+        assert_eq!(model.as_deref(), Some("b"));
+        assert_eq!(calls.load(Ordering::SeqCst), 2);
+        assert!(
+            started.elapsed() < Duration::from_secs(20),
+            "{:?}",
+            started.elapsed()
+        );
+    }
+
+    #[tokio::test]
+    async fn an_empty_completion_from_the_first_leg_is_answered_by_the_second() {
+        let (out, model, answers, _, calls) = ask_through("empty").await;
+        assert!(out.is_ok(), "{out:?}");
+        assert_eq!(model.as_deref(), Some("b"));
+        assert_eq!(answers, vec!["answered by b"]);
+        assert_eq!(calls, 2);
+    }
+
+    #[tokio::test]
+    async fn a_key_failure_is_final_not_walked() {
+        let (out, _, _, _, calls) = ask_through("401").await;
+        let err = out.expect_err("a bad key must not be masked by the next leg");
+        assert_eq!(err.status, StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(calls, 1, "no point re-sending a bad key to the next model");
     }
 }
