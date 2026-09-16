@@ -1,0 +1,38 @@
+
+Claude configuration file not found at: /home/appuser/.claude.json
+A backup file exists at: /home/appuser/.claude/backups/.claude.json.backup.1789568967905
+You can manually restore it by running: cp "/home/appuser/.claude/backups/.claude.json.backup.1789568967905" "/home/appuser/.claude.json"
+
+
+Claude configuration file not found at: /home/appuser/.claude.json
+A backup file exists at: /home/appuser/.claude/backups/.claude.json.backup.1789568967905
+You can manually restore it by running: cp "/home/appuser/.claude/backups/.claude.json.backup.1789568967905" "/home/appuser/.claude.json"
+
+
+Claude configuration file not found at: /home/appuser/.claude.json
+A backup file exists at: /home/appuser/.claude/backups/.claude.json.backup.1789568967905
+You can manually restore it by running: cp "/home/appuser/.claude/backups/.claude.json.backup.1789568967905" "/home/appuser/.claude.json"
+
+
+Claude configuration file not found at: /home/appuser/.claude.json
+A backup file exists at: /home/appuser/.claude/backups/.claude.json.backup.1789568967905
+You can manually restore it by running: cp "/home/appuser/.claude/backups/.claude.json.backup.1789568967905" "/home/appuser/.claude.json"
+
+negative control: ok  archived picks [0, 6, 8, 12, 13, 14, 16, 17, 18, 22, 24, 39, 60, 86, 221, 223]
+SELECT order-dependence  reps=5/arm  arms=fixed,shuffled  clusters=289  seed=2026
+  fixed rep 0: 15 picks (5 must_know), drifted 0, unresolved 0
+  fixed rep 1: 16 picks (5 must_know), drifted 7, unresolved 0
+  fixed rep 2: 17 picks (5 must_know), drifted 8, unresolved 0
+  fixed rep 3: 17 picks (5 must_know), drifted 7, unresolved 0
+  fixed rep 4: 17 picks (5 must_know), drifted 9, unresolved 0
+  shuffled rep 1: 18 picks (4 must_know), drifted 17, unresolved 0
+  shuffled rep 0: 17 picks (5 must_know), drifted 4, unresolved 0
+  shuffled rep 3: 17 picks (5 must_know), drifted 17, unresolved 0
+  shuffled rep 2: 17 picks (5 must_know), drifted 3, unresolved 0
+  shuffled rep 4: 17 picks (5 must_know), drifted 0, unresolved 0
+
+  fixed    all Jaccard mean 0.510 [0.36-0.65]  must_know 0.551  picks [15, 16, 17, 17, 17]  always 7  ever 29  drifted 31  unresolved 0
+  shuffled all Jaccard mean 0.385 [0.26-0.52]  must_know 0.478  picks [17, 18, 17, 17, 17]  always 4  ever 33  drifted 41  unresolved 0
+  cross-arm all Jaccard mean 0.410
+
+  wrote /app/eval-work/summary.json

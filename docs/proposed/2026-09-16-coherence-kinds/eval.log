@@ -1,0 +1,19 @@
+
+
+
+
+COHERENCE eval  model=claude-sonnet-5  thinking=adaptive  runs=2  fixtures=eval-fixtures
+  labels: 6 hard, 8 borderline, 35 clean
+
+  run 0: recall 5/6  false-drops 0/35  borderline 0/8  unmapped 0  malformed 0
+          missed: [(3, 'headline')]
+          kinds: {'0:summary': 'contradicted', '2:why_it_matters': 'contradicted', '4:summary': 'unsupported', '8:headline': 'contradicted', '12:why_it_matters': 'contradicted', '15:summary': 'unsupported'}
+          kind agreement on hard positives: 4 agree, 1 disagree [(12, 'why_it_matters', 'unsupported', 'contradicted')]
+  run 1: recall 5/6  false-drops 0/35  borderline 1/8  unmapped 0  malformed 0
+          missed: [(3, 'headline')]
+          kinds: {'0:summary': 'contradicted', '2:why_it_matters': 'contradicted', '4:summary': 'unsupported', '7:why_it_matters': 'unsupported', '8:headline': 'contradicted', '12:why_it_matters': 'contradicted', '15:summary': 'unsupported'}
+          kind agreement on hard positives: 4 agree, 1 disagree [(12, 'why_it_matters', 'unsupported', 'contradicted')]
+
+  best recall 5/6  worst false-drops 0
+
+  OK (no egregious regression; review the scorecard for recall changes)

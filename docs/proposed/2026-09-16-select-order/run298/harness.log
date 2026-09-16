@@ -1,0 +1,34 @@
+
+
+
+
+
+
+
+
+negative control: ok  archived picks [0, 6, 8, 12, 13, 14, 16, 17, 18, 22, 24, 39, 60, 86, 221, 223]
+SELECT order-dependence  reps=5/arm  arms=fixed,shuffled,sorted  clusters=289  seed=2026
+  shuffled rep 0: 17 picks (5 must_know), drifted 0, unresolved 0, $0.309
+  sorted rep 0: 14 picks (4 must_know), drifted 0, unresolved 0, $0.261
+  fixed rep 0: 17 picks (5 must_know), drifted 3, unresolved 0, $0.473
+  fixed rep 1: 16 picks (4 must_know), drifted 8, unresolved 0, $0.260
+  shuffled rep 1: 17 picks (5 must_know), drifted 0, unresolved 0, $0.507
+  sorted rep 1: 17 picks (5 must_know), drifted 0, unresolved 0, $0.447
+  fixed rep 2: 16 picks (5 must_know), drifted 0, unresolved 0, $0.419
+  shuffled rep 2: 16 picks (4 must_know), drifted 0, unresolved 0, $0.405
+  sorted rep 2: 16 picks (4 must_know), drifted 0, unresolved 0, $0.582
+  fixed rep 3: 17 picks (5 must_know), drifted 3, unresolved 0, $0.408
+  sorted rep 3: 16 picks (5 must_know), drifted 0, unresolved 0, $0.416
+  shuffled rep 3: 17 picks (5 must_know), drifted 0, unresolved 0, $0.424
+  shuffled rep 4: 16 picks (4 must_know), drifted 12, unresolved 0, $0.454
+  fixed rep 4: 16 picks (4 must_know), drifted 5, unresolved 0, $0.386
+  sorted rep 4: 16 picks (5 must_know), drifted 0, unresolved 0, $0.486
+
+  fixed    all Jaccard mean 0.514 [0.42-0.60]  must_know 0.512  picks [17, 16, 16, 17, 16]  always 7  ever 29  drifted 19/82  unresolved 0  $1.95
+  shuffled all Jaccard mean 0.467 [0.32-0.57]  must_know 0.464  picks [17, 17, 16, 17, 16]  always 4  ever 29  drifted 12/83  unresolved 0  $2.10
+  sorted   all Jaccard mean 0.554 [0.39-0.78]  must_know 0.750  picks [14, 17, 16, 16, 16]  always 7  ever 28  drifted 0/79  unresolved 0  $2.19
+  cross_fixed_shuffled all Jaccard mean 0.427
+  cross_fixed_sorted all Jaccard mean 0.504
+  cross_shuffled_sorted all Jaccard mean 0.470
+
+  wrote /app/eval-work/summary.json

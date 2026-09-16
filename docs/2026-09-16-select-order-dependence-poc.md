@@ -62,8 +62,9 @@ gap comparisons at p = 0.016, Bonferroni 0.095). Both need a second day before a
 3. **This version.** The shift test (mean within-arm agreement minus cross-arm agreement,
    one-sided over the same 252 splits) is added to the harness with unit tests, including the
    case that fooled version 2 (two perfectly self-consistent arms on disjoint clusters: gap
-   0, shift 1). Its negative control on this data: over all 252 relabellings of the pooled
-   fixed and shuffled reps, 12 (4.8%) reach p ≤ 0.05.
+   0, shift 1). Calibration check on this data, near-guaranteed for an exact test and so a
+   check of the p-value function rather than of the study: over all 252 relabellings of the
+   pooled fixed and shuffled reps, 12 (4.8%) reach p ≤ 0.05.
 
 One residue in the second pass's data: it ran with non-ASCII characters unescaped, so five of
 289 labels (accented names, a pound sign) differed from the production artifact; none of the
