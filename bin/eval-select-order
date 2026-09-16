@@ -7,15 +7,27 @@
 # Usage:
 #   bin/eval-select-order fetch RUN_ID            pull one prod run's SELECT inputs (via bin/ops)
 #   bin/eval-select-order run RUN_ID [args...]    e.g. --reps 5 --arms fixed,shuffled,sorted; --check = negative control only
+#   bin/eval-select-order rescore SUMMARY_JSON     recompute a stored run's statistics, no model calls (--in-place to rewrite)
 # Fixtures and per-rep answers live under gitignored scratch/select-order/.
 set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 
 cmd="${1:-}"; run_id="${2:-}"
-[[ -n "$cmd" && -n "$run_id" ]] || { sed -n '2,10p' "$0"; exit 2; }
+[[ -n "$cmd" && -n "$run_id" ]] || { sed -n '2,11p' "$0"; exit 2; }
 fx="scratch/select-order/run$run_id"
 
 case "$cmd" in
+  rescore)
+    summary="$run_id"; shift 2
+    [[ -f "$summary" ]] || { echo "no such file: $summary" >&2; exit 2; }
+    dir="$(cd "$(dirname "$summary")" && pwd)"
+    exec docker compose run --rm \
+      -v "$dir:/app/rescore" \
+      -v "$(pwd)/newsroom/src:/app/src" \
+      -e PYTHONPATH=/app/src \
+      --entrypoint /app/.venv/bin/python3 \
+      digest-newsroom /app/src/eval_select_order.py --rescore "/app/rescore/$(basename "$summary")" "$@"
+    ;;
   fetch)
     mkdir -p "$fx"
     rm -f "$fx/.fetched"   # a half-finished fetch must not pass as a fixture
@@ -59,5 +71,5 @@ PY
       --entrypoint /app/.venv/bin/python3 \
       digest-newsroom /app/src/eval_select_order.py "$@"
     ;;
-  *) sed -n '2,10p' "$0"; exit 2 ;;
+  *) sed -n '2,11p' "$0"; exit 2 ;;
 esac

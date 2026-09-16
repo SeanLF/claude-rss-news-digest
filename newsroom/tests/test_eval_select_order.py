@@ -138,7 +138,8 @@ def test_prepare_workdir_writes_permuted_clusters_as_production_does(tmp_path):
     # included: the fixed arm reads exactly what prod reads.
     assert text == json.dumps({"clusters": [CLUSTERS_ACCENTED[i] for i in perm]}, indent=2)
     assert "\\u00f3" in text and "ó" not in text
-    assert json.loads((work / "permutation.json").read_text()) == perm
+    assert not (work / "permutation.json").exists()  # the arm is not readable from the input dir
+    assert json.loads((tmp_path / "work.permutation.json").read_text()) == perm
 
 
 def test_prepare_workdir_refuses_a_fixture_with_no_article_rows(tmp_path):
@@ -211,3 +212,45 @@ def test_require_picks_refuses_an_empty_tier():
     for bad in ({"all": frozenset(), "must_know": frozenset()}, {"all": frozenset({1}), "must_know": frozenset()}):
         with pytest.raises(RuntimeError, match="picked nothing"):
             eso.require_picks(bad, "x")
+
+
+def test_permutation_tests_gap_and_shift_on_known_sets():
+    same = [frozenset({1, 2, 3}), frozenset({1, 2, 4}), frozenset({1, 3, 4})]
+    # Identical arms: no gap, and no split is more "shifted" than the true one (p at the top).
+    # (shift itself is slightly negative here because cross pairs include each set with its
+    # own copy, which within pairs never do; the p-value, not the raw statistic, is the reading.)
+    t = eso.permutation_tests(same, list(same))
+    assert t["gap"] == 0 and t["gap_p_two_sided"] == 1.0
+    assert t["shift_p_one_sided"] == 1.0
+    assert t["splits"] == 20
+    # Two arms each perfectly self-consistent but on DISJOINT clusters: the gap test sees
+    # nothing, the shift test sees the maximum shift (at 3v3 the p floor is 2/20) -- the case
+    # that fooled the second write-up.
+    a = [frozenset({1, 2, 3})] * 3
+    b = [frozenset({7, 8, 9})] * 3
+    t = eso.permutation_tests(a, b)
+    assert t["gap"] == 0 and t["gap_p_two_sided"] == 1.0
+    assert t["shift"] == 1.0 and t["shift_p_one_sided"] == pytest.approx(2 / 20)  # the two true splits
+    # Unequal self-consistency: shift is the MEAN within minus cross, not either arm's within.
+    tight = [frozenset({1, 2, 3})] * 3  # within 1.0
+    loose = [frozenset({7, 8}), frozenset({7, 9}), frozenset({8, 9})]  # within 1/3, disjoint from tight
+    t = eso.permutation_tests(tight, loose)
+    assert t["shift"] == pytest.approx((1.0 + 1 / 3) / 2 - 0.0, abs=1e-4)
+    assert t["gap"] == pytest.approx(1.0 - 1 / 3, abs=1e-4)
+    assert t["shift_p_one_sided"] == pytest.approx(2 / 20)
+    # Asymmetric sizes: the split enumerates len(a), so a 2-vs-4 pool has C(6,2)=15 splits.
+    t = eso.permutation_tests(tight[:2], [*loose, frozenset({7, 8})])
+    assert t["splits"] == 15
+    # One arm noisy, the other not: the gap test sees it.
+    noisy = [frozenset({1}), frozenset({2}), frozenset({3})]
+    t = eso.permutation_tests(a, noisy)
+    assert t["gap"] == 1.0 and t["gap_p_two_sided"] == pytest.approx(2 / 20)
+    assert t["gap_threshold_p05"] is None or t["gap_threshold_p05"] <= 1.0
+
+
+def test_summary_runs_the_tests_for_every_pair():
+    rep = lambda *c: {"all": frozenset(c), "must_know": frozenset(c[:1]), "drifted": 0, "unresolved": 0}  # noqa: E731
+    s = eso.summarise({"fixed": [rep(1, 2), rep(1, 3)], "sorted": [rep(1, 2), rep(2, 3)]}, n_clusters=4)
+    assert set(s["tests"]) == {"fixed_vs_sorted"}
+    assert set(s["tests"]["fixed_vs_sorted"]) == {"all", "must_know"}
+    assert s["tests"]["fixed_vs_sorted"]["all"]["splits"] == 6

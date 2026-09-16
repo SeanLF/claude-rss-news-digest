@@ -1,0 +1,118 @@
+{
+  "results": [
+    {
+      "headline": "US strikes Iran for tenth consecutive night as tankers burn in Hormuz",
+      "article_ids": ["A5","A28","A33","A49","A88","A136","A241","A264","A273","A299","A329","A347","A355","A368","A413","A439","A440","A457","A495","A572","A573","A574","A581","A586"],
+      "pass": false,
+      "reason": "summary: claims the toll of 17 US troop deaths is 'since its resumption' of the war, but cited source A574 states only 'at least three U.S. service members' have died 'since the resumption of hostilities a week ago', while the 17 figure (per A28/A457) is the cumulative toll for the entire war since February -- a scope/time-window mismatch",
+      "failed_fields": ["summary"],
+      "failure_kinds": {"summary": "contradicted"}
+    },
+    {
+      "headline": "Houthis declare naval blockade on Saudi Arabia, threatening Red Sea oil route",
+      "article_ids": ["A36","A51","A99","A147","A159","A174","A243","A265","A311","A342","A345","A446"],
+      "pass": true,
+      "reason": "Matches source articles"
+    },
+    {
+      "headline": "Zelensky faces street protests and calls to sack top general after firing defence minister",
+      "article_ids": ["A1","A22","A76","A111","A119","A154","A245","A270","A312","A339","A465","A500","A576","A579"],
+      "pass": false,
+      "reason": "why_it_matters: attributes the public accusation against General Syrskiy to 'Fedorov's ousted deputy', but cited source A579 (and the story's own reporting_varies note) states it was the outgoing defence minister Fedorov himself who publicly blamed Syrskiy for blocking reforms -- a fabricated entity substitution",
+      "failed_fields": ["why_it_matters"],
+      "failure_kinds": {"why_it_matters": "contradicted"}
+    },
+    {
+      "headline": "Trump imposes 50% tariffs on most Canadian goods, citing discrimination",
+      "article_ids": ["A24","A48","A66","A70","A89","A149","A152","A153","A210","A315","A414","A452","A496","A529","A587"],
+      "pass": true,
+      "reason": "Matches source articles"
+    },
+    {
+      "headline": "Andy Burnham takes office as UK's seventh prime minister in a decade",
+      "article_ids": ["A77","A127","A129","A135","A140","A144","A150","A161","A163","A181","A209","A246","A247","A251","A267","A297","A340","A346","A372","A403","A421","A436","A442","A448","A458","A468","A469","A471","A497","A512","A517","A540","A575","A590","A592","A596"],
+      "pass": false,
+      "reason": "summary: states Burnham replaced Starmer 'after barely two years in office', but no cited source states the length of Starmer's tenure -- an absent specific",
+      "failed_fields": ["summary"],
+      "failure_kinds": {"summary": "unsupported"}
+    },
+    {
+      "headline": "Hamas elects hardline negotiator Khalil al-Hayya as new leader",
+      "article_ids": ["A14","A60","A168","A173","A255","A353","A423"],
+      "pass": true,
+      "reason": "Matches source articles"
+    },
+    {
+      "headline": "Lebanese army deploys to first 'pilot zone' as Aoun meets Trump in Washington",
+      "article_ids": ["A18","A26","A30","A32","A50","A120","A176","A178","A295","A430","A455","A473","A578"],
+      "pass": true,
+      "reason": "Matches source articles"
+    },
+    {
+      "headline": "Philippine sailor injured as China coast guard clashes at Second Thomas Shoal",
+      "article_ids": ["A17","A278","A290","A371","A394","A406","A479","A487"],
+      "pass": true,
+      "reason": "Matches source articles"
+    },
+    {
+      "headline": "Israel believes Iran moved nuclear centrifuges underground as Iran election looms",
+      "article_ids": ["A172","A432","A580"],
+      "pass": false,
+      "reason": "headline: says 'as Iran election looms' but the story's own summary and cited source A432 make clear the October 27 election set is Israel's, not Iran's -- a headline/summary contradiction",
+      "failed_fields": ["headline"],
+      "failure_kinds": {"headline": "contradicted"}
+    },
+    {
+      "headline": "Trump says Netanyahu will not be arrested in US; New York mayor presses ICC question",
+      "article_ids": ["A6","A34","A253","A275","A327","A460","A585","A597"],
+      "pass": true,
+      "reason": "Matches source articles"
+    },
+    {
+      "headline": "EU fines AliExpress a record €550 million under Digital Services Act",
+      "article_ids": ["A44","A110","A139","A360","A425"],
+      "pass": true,
+      "reason": "Matches source articles"
+    },
+    {
+      "headline": "Nicaragua's Ortega declares elections will never be held again",
+      "article_ids": ["A156","A258","A334","A412","A467","A498"],
+      "pass": true,
+      "reason": "Matches source articles"
+    },
+    {
+      "headline": "Congo Ebola toll reaches 930 dead as outbreak spreads faster than health workers can track",
+      "article_ids": ["A116","A204","A242"],
+      "pass": false,
+      "reason": "why_it_matters: claims 'armed conflict has triggered at least 12 attacks on health facilities', but cited source A242 states the 12 attacks were 'mostly fueled by skepticism and rumors', not armed conflict -- a fabricated causal link",
+      "failed_fields": ["why_it_matters"],
+      "failure_kinds": {"why_it_matters": "contradicted"}
+    },
+    {
+      "headline": "India's 'Cockroach' youth movement marches on parliament; police use tear gas and batons",
+      "article_ids": ["A58","A64","A169","A170","A239","A272","A307","A370","A475","A545","A602"],
+      "pass": true,
+      "reason": "Matches source articles"
+    },
+    {
+      "headline": "Chinese warship fires live rounds inside Japan's claimed exclusive economic zone",
+      "article_ids": ["A303","A396","A530"],
+      "pass": true,
+      "reason": "Matches source articles"
+    },
+    {
+      "headline": "China considers tighter export controls on AI models and chips, FT reports",
+      "article_ids": ["A293"],
+      "pass": false,
+      "reason": "summary: the sole cited source A293 is a one-line wire brief whose available text is essentially identical to its headline; the claims that the move 'would mirror US restrictions on advanced chip exports to China' and comes 'as Chinese AI companies have rapidly expanded global reach' are not supported by any text accessible from the cited source",
+      "failed_fields": ["summary"],
+      "failure_kinds": {"summary": "unsupported"}
+    },
+    {
+      "headline": "France records 2,025 excess deaths in June heatwave; parliament to vote on social media ban for under-15s",
+      "article_ids": ["A81","A95","A427","A434","A459"],
+      "pass": true,
+      "reason": "Matches source articles"
+    }
+  ]
+}

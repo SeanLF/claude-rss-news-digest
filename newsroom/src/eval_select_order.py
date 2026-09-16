@@ -167,15 +167,66 @@ def summarise(reps: dict[str, list[dict]], n_clusters: int) -> dict:
             "cost_usd": round(sum(r.get("cost_usd", 0.0) for r in rows), 4),
         }
     arms = [a for a in ARMS if a in reps]
+    out["tests"] = {}
     for a, b in itertools.combinations(arms, 2):
-        cross = [pairwise_jaccard([x["all"], y["all"]])[0] for x in reps[a] for y in reps[b]]
-        out[f"cross_{a}_{b}_all_jaccard_mean"] = _mean(cross)
+        out[f"cross_{a}_{b}_all_jaccard_mean"] = _cross([r["all"] for r in reps[a]], [r["all"] for r in reps[b]])
+        if len(reps[a]) >= 2 and len(reps[b]) >= 2:
+            out["tests"][f"{a}_vs_{b}"] = {
+                metric: permutation_tests([r[metric] for r in reps[a]], [r[metric] for r in reps[b]])
+                for metric in ("all", "must_know")
+            }
     return out
+
+
+def _within(sets: list[frozenset]) -> float:
+    return statistics.fmean(pairwise_jaccard(sets))
+
+
+def _cross(a: list[frozenset], b: list[frozenset]) -> float:
+    return statistics.fmean(pairwise_jaccard([x, y])[0] for x in a for y in b)
+
+
+def permutation_tests(a: list[frozenset], b: list[frozenset]) -> dict:
+    """Two exact tests over every equal split of the pooled reps (exchangeable under the null
+    that the arm does not matter).
+
+    ``gap``: |within(a) - within(b)|, two-sided. Sees an arm that adds VARIANCE to the pick.
+    ``shift``: mean within minus cross, one-sided. Sees an arm that MOVES the pick to different
+    clusters even when each arm is as self-consistent as the other; the gap test is blind to
+    that, which is how the second write-up of run 298 concluded "no order effect" from a data
+    set in which order moved about one of 16 picks (review of 4e73378).
+    Also reports the smallest |gap| that reaches p <= 0.05, so a null result comes with what it
+    could have seen."""
+    pool = a + b
+    n = len(a)
+    obs_gap = abs(_within(a) - _within(b))
+    obs_shift = (_within(a) + _within(b)) / 2 - _cross(a, b)
+    gaps, ge_gap, ge_shift, total = [], 0, 0, 0
+    for comb in itertools.combinations(range(len(pool)), n):
+        x = [pool[i] for i in comb]
+        y = [pool[i] for i in range(len(pool)) if i not in comb]
+        g = abs(_within(x) - _within(y))
+        gaps.append(g)
+        total += 1
+        ge_gap += g >= obs_gap - 1e-12
+        ge_shift += ((_within(x) + _within(y)) / 2 - _cross(x, y)) >= obs_shift - 1e-12
+    gaps.sort()
+    # Smallest observed gap whose two-sided p would be <= 0.05.
+    threshold = next((g for g in gaps if sum(1 for h in gaps if h >= g - 1e-12) / total <= 0.05), None)
+    return {
+        "gap": round(_within(a) - _within(b), 4),
+        "gap_p_two_sided": round(ge_gap / total, 4),
+        "gap_threshold_p05": round(threshold, 4) if threshold is not None else None,
+        "shift": round(obs_shift, 4),
+        "shift_p_one_sided": round(ge_shift / total, 4),
+        "splits": total,
+    }
 
 
 def prepare_workdir(fixtures: Path, work: Path, perm: list[int] | None) -> list[int]:
     """A rep's private input dir: SELECT's inputs copied, clusters reordered by ``perm``
-    (identity when None), the permutation recorded, the archived answer left behind. The file
+    (identity when None), the permutation recorded beside the dir, the archived answer left
+    behind. Every file INSIDE the dir is then identical across reps except clusters.json. The file
     is serialised exactly as ``cluster_extractjoin`` serialises it."""
     if work.exists():
         shutil.rmtree(work)
@@ -203,7 +254,8 @@ def prepare_workdir(fixtures: Path, work: Path, perm: list[int] | None) -> list[
     (work / "clusters.json").write_text(
         json.dumps({**data, "clusters": [clusters[i] for i in perm]}, indent=2), encoding="utf-8"
     )
-    (work / "permutation.json").write_text(json.dumps(perm), encoding="utf-8")
+    # Beside the input dir, not inside it, so a listing of what the model reads does not name the arm.
+    work.with_name(work.name + ".permutation.json").write_text(json.dumps(perm), encoding="utf-8")
     return perm
 
 
@@ -259,7 +311,7 @@ async def _run_rep(
     canon = canonical_selection(selected, work_clusters, perm)
     require_picks(canon, f"{arm} rep {i}")
     canon["stories"] = sum(len(selected.get(t) or []) for t in ("must_know", "should_know"))
-    canon["cost_usd"] = float(getattr(res, "total_cost_usd", 0.0) or 0.0)
+    canon["cost_usd"] = float(res.total_cost_usd)  # StageResult field; an SDK rename must fail loudly
     print(
         f"  {arm} rep {i}: {len(canon['all'])} picks ({len(canon['must_know'])} must_know), "
         f"drifted {canon['drifted']}, unresolved {canon['unresolved']}, ${canon['cost_usd']:.3f}",
@@ -319,7 +371,30 @@ def main() -> int:
     ap.add_argument("--concurrency", type=int, default=2, help="the OAuth token rate-limits under burst")
     ap.add_argument("--model", default=None, help="override select.md's frontmatter model")
     ap.add_argument("--check", action="store_true", help="negative control only: no model calls")
+    ap.add_argument("--rescore", default=None, help="recompute the summary from a stored summary.json; no model calls")
+    ap.add_argument(
+        "--in-place", action="store_true", help="with --rescore: overwrite the stored file (default: print only)"
+    )
     args = ap.parse_args()
+
+    if args.rescore:
+        # Default is read-only: the stored file is the evidence a doc cites, and re-checking
+        # evidence must not rewrite it. A changed summarise() shows up as a printed difference.
+        stored = json.loads(Path(args.rescore).read_text(encoding="utf-8"))
+        reps = {
+            arm: [{**r, "all": frozenset(r["all"]), "must_know": frozenset(r["must_know"])} for r in rows]
+            for arm, rows in stored["reps"].items()
+        }
+        n_clusters = max((i for rows in reps.values() for r in rows for i in r["all"]), default=0) + 1
+        summary = _jsonable(summarise(reps, n_clusters))
+        _print_summary(summary)
+        same = summary == stored.get("summary")
+        print(f"\n  stored summary block {'matches' if same else 'DIFFERS FROM'} the recomputed one")
+        if args.in_place and not same:
+            stored["summary"] = summary
+            Path(args.rescore).write_text(json.dumps(stored, indent=2), encoding="utf-8")
+            print(f"  rewrote {args.rescore}")
+        return 0 if same or args.in_place else 1
 
     fixtures = Path(args.fixtures)
     nc = negative_control(fixtures, args.seed)
@@ -336,6 +411,12 @@ def main() -> int:
     summary = summarise(reps, n_clusters)
     out = Path(args.work) / "summary.json"
     out.write_text(json.dumps({"summary": _jsonable(summary), "reps": _jsonable(reps)}, indent=2), encoding="utf-8")
+    _print_summary(summary)
+    print(f"\n  wrote {out}")
+    return 0
+
+
+def _print_summary(summary: dict) -> None:
     print()
     for arm in (a for a in ARMS if a in summary):
         s = summary[arm]
@@ -349,8 +430,13 @@ def main() -> int:
     for key, val in summary.items():
         if key.startswith("cross_"):
             print(f"  {key.replace('_all_jaccard_mean', '')} all Jaccard mean {val:.3f}")
-    print(f"\n  wrote {out}")
-    return 0
+    for pair, by_metric in summary["tests"].items():
+        for metric, t in by_metric.items():
+            print(
+                f"  {pair:20s} {metric:9s} gap {t['gap']:+.3f} (two-sided p {t['gap_p_two_sided']:.3f}, "
+                f"p<=0.05 needs {t['gap_threshold_p05']})  shift {t['shift']:+.3f} "
+                f"(one-sided p {t['shift_p_one_sided']:.3f})  over {t['splits']} splits"
+            )
 
 
 if __name__ == "__main__":

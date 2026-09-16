@@ -15,12 +15,14 @@ object, values `contradicted` or `unsupported`) on the frozen labelled fixture: 
 field carried a valid kind (13 of 13), zero malformed entries, and recall and false-drops were
 exactly the shipped prompt's (5 of 6 hard positives, 0 of 35 clean fields, the same idx-3
 miss the prompt has never caught). Against the label-type mapping written BEFORE the runs, the
-kind agreed on 4 of 5 hard positives on both runs (`eval.log`: "4 agree, 1 disagree"); the one
-disagreement is a fabricated causal link the model called "contradicted" because the cited
-source gives a different cause. That is defensible under VeriGray's definition, so the mapping
-now abstains on LinkE, which makes the post-hoc score 4 of 4. Both numbers are reported
-because the exclusion was decided after seeing the result; it is n = 1. The label is an
-instrument, ready to adopt.
+kind agreed on 4 of 5 hard positives on both runs (`eval.log`: "4 agree, 1 disagree"; that
+log predates borderline scoring and re-running the eval on the same reports now prints more);
+the one disagreement is a fabricated causal link the model called "contradicted" because the
+cited source gives a different cause. That is defensible under VeriGray's definition, so the
+mapping now abstains on LinkE, and the shipped scorer, which also judges borderline labels,
+gives 4 of 4 and 5 of 5 (run 1 flagged one borderline field, correctly labelled). Both numbers
+are reported because the exclusion was decided after seeing the result; it is n = 1, on a
+base of at most five judged fields. The label is an instrument, ready to adopt.
 
 ## Method
 
@@ -38,7 +40,8 @@ Sonnet 5 adaptive) against a scratch copy of `newsroom/tests/fixtures/coherence_
   `contradicted`; the label changes nothing about pass/fail.
 
 `eval_coherence.score` now tallies `failure_kinds` per flagged field, rejects unknown values as
-malformed, and compares each kind with what the label's `type` prefix implies (`OutE-`,
+malformed, and compares each kind on a hard-positive or borderline field with what the label's
+`type` prefix implies (`OutE-`,
 `unsupported-`, `invented-` mean unsupported; `EntE-`, `CircE-`, `quantifier-`, `quote-` mean
 contradicted; `LinkE-` and any other prefix are not judged, and the unjudged ones are printed
 as `unscored` so a relabelled fixture cannot silently empty the agreement count). The
@@ -58,8 +61,8 @@ by the stage's prod price.
 | borderline caught | 0/8 | 1/8 | 0-2/8 |
 | failed fields carrying a kind | 6/6 | 7/7 | n/a |
 | malformed kinds | 0 | 0 | n/a |
-| kind agrees with label type, mapping as written before the run | 4/5 | 4/5 | n/a |
-| same, after abstaining on LinkE (post hoc) | 4/4 | 4/4 | n/a |
+| kind agrees with label type, mapping as written before the run, hard positives only (what `eval.log` printed) | 4/5 | 4/5 | n/a |
+| same with the shipped scorer: LinkE abstains (post hoc), hard + borderline judged | 4/4 | 5/5 | n/a |
 
 The kinds themselves, both runs identical where the same field was flagged:
 
@@ -86,8 +89,8 @@ Adopt the label as an instrument, which is three small changes and no policy cha
 or fetched article text" requires):
 
 1. `.claude/agents/coherence.md`: the two additions above, verbatim from
-   `scratch/coherence-kinds/coherence.md`. Rebuild the image before verifying; agents are
-   COPY'd at build.
+   `docs/proposed/2026-09-16-coherence-kinds/coherence.md` (the two runs' reports and log sit
+   beside it). Rebuild the image before verifying; agents are COPY'd at build.
 2. `orchestrate.validate_coherence`: when `failure_kinds` is present it must be an object whose
    values are in `{contradicted, unsupported}`; absent is fine (the field is optional, so a
    model that omits it degrades to today's behaviour, never to a stage failure).
@@ -103,9 +106,11 @@ labelling scheme for the planted-error fixtures, nothing else.
 
 ## Open
 
-- Two runs on one fixture. The planted fixtures (`docs/proposed/coherence-planted/`) carry
-  their own error types; relabelling them with the two-way kind and running once each would
-  put the agreement number on a bigger base before it is quoted anywhere.
+- Two runs on one fixture, five judged fields. The planted fixtures
+  (`docs/proposed/coherence-planted/`) carry their own error types; relabelling them with the
+  two-way kind and running once each would put the agreement number on a bigger base before
+  it is quoted anywhere. Types must use the exact hyphenated prefixes or they land in
+  `unscored`, which the eval prints.
 - Whether repair's keep rate differs by kind is the first question the count can answer, and
   the one that would change something (an unsupported claim regenerated from its own cited
   sources should vanish; a contradicted one should be corrected). Needs the prod count first.

@@ -62,3 +62,23 @@ by default: idx 0 summary (scope + event-participant) and idx 3 headline ("most"
 **Recall only.** The 48 `clean_fields` are model-passed, not human-cleared, so the false-positive
 rate computed against them is an upper bound. `planted278_key.json`'s own `_doc` says so. Anything
 optimising against these must not treat the clean side as ground truth.
+
+## `2026-09-16-select-order/` and `2026-09-16-coherence-kinds/` — raw outputs of the two SOTA PoCs
+
+Rescued 2026-09-16 from gitignored `scratch/`, so the statistics, sizes, labels and read
+positions in `docs/2026-09-16-select-order-dependence-poc.md` and the scores in
+`docs/2026-09-16-coherence-failure-kind-poc.md` re-derive from the tree. Not in the tree: file
+mtimes and wall-clock durations, which those docs say rest on the session record.
+
+- `select-order/run298/summary.json`: the fifteen reps' canonical picks and the `summarise()`
+  output including the exact permutation tests. `bin/eval-select-order rescore <this file>`
+  recomputes the summary block with no model call and reports whether it matches (read-only
+  unless `--in-place`). `clusters.json` is the archived input (sizes, labels);
+  `permutations/` holds each rep's read order. `harness.log` is the run's console. The
+  `-v1-superseded` pair is the first pass the doc retracts (arm confounded with time, compact
+  JSON); kept so the retraction is checkable.
+- `coherence-kinds/coherence.md`: the prompt variant (two additions to `.claude/agents/coherence.md`)
+  the doc's adoption step copies from; the two reports are the runs it scores. `eval.log` is the
+  console at the time, BEFORE the scorer judged borderline labels; re-scoring the reports with
+  the current code prints a larger agreement line, as the doc's table says.
+

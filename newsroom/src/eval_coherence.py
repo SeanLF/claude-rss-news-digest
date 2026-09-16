@@ -184,7 +184,12 @@ def score(report_path: Path, labels: dict) -> dict:
                     malformed.append(f"failure_kinds names unflagged field {c!r} (headline={h!r})")
                     continue
                 kinds[(idx, c)] = kind
-    type_of = {(f["idx"], f["field"]): f.get("type", "") for f in labels["hard_positives"]}
+    # Hard AND borderline labels carry a judged type; both are a base for the kind agreement
+    # (a kind on a borderline field is still a kind on a labelled failure).
+    labelled = labels["hard_positives"] + labels.get("borderline", [])
+    type_of = {(f["idx"], f["field"]): f.get("type", "") for f in labelled}
+    if len(type_of) != len(labelled):
+        raise RuntimeError("labels.json lists a field as both hard positive and borderline; its type is ambiguous")
     expected = {k: expected_kind(t) for k, t in type_of.items()}
     kind_agree = sorted(k for k, v in kinds.items() if expected.get(k) is not None and v == expected[k])
     kind_disagree = sorted(
@@ -192,10 +197,10 @@ def score(report_path: Path, labels: dict) -> dict:
         for k, v in kinds.items()
         if expected.get(k) is not None and v in FAILURE_KINDS and v != expected[k]
     )
-    # Kinds on hard positives whose label type the mapping does not recognise: reported, so a
+    # Kinds on labelled fields whose type the mapping does not recognise: reported, so a
     # relabelled fixture cannot silently turn "4 agree" into "0 agree, 0 disagree".
     kind_unscored = sorted((k[0], k[1], type_of[k]) for k in kinds if k in type_of and expected.get(k) is None)
-    # Kinds on borderline or unlabelled fields: counted in kind_labelled, judged nowhere.
+    # Kinds on unlabelled fields: counted in kind_labelled, judged nowhere.
     kind_other = sum(1 for k in kinds if k not in type_of)
     return {
         "kinds": {f"{i}:{f}": v for (i, f), v in sorted(kinds.items())},
@@ -381,7 +386,7 @@ def main() -> int:
                 f"          kind agreement on hard positives: {len(s['kind_agree'])} agree, "
                 f"{len(s['kind_disagree'])} disagree {s['kind_disagree']}, "
                 f"{len(s['kind_unscored'])} unscored (label type not mapped) {s['kind_unscored']}, "
-                f"{s['kind_other']} on borderline/unlabelled fields"
+                f"{s['kind_other']} on unlabelled fields"
             )
 
     best_recall = max(len(s["hard_caught"]) for s in scores)

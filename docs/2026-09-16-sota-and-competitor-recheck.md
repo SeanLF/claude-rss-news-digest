@@ -69,18 +69,18 @@ third. The experiment is one harness run: N reps in a fixed cluster order versus
 `clusters.json` shuffled, same run artifact, compare within-arm Jaccard. If the shuffled arm is
 materially worse than the fixed arm, order is a real component and the mitigation the paper
 points at is order-averaging at inference: run SELECT k times over permuted input and take the
-intersection or a vote. At $0.38 a SELECT call (run 298) that is about $1.15 a run for k=3.
+intersection or a vote. At $0.38 a SELECT call (run 298's prod row; the harness's own fifteen calls averaged $0.42) that is about $1.15 to $1.25 a run for k=3.
 Do not build the mitigation before the measurement; the 2026-07-26 delta PoC showed control
 noise can exceed every claimed effect here.
 
-**Measured the same day: not demonstrated.** A first pass showed fixed-order 0.51 vs shuffled
-0.39, but it confounded arm with wall-clock time and did not use the production file format;
-the clean three-arm rerun (fixed 0.51, shuffled 0.47, size-sorted 0.55, n = 5 each) has no
-pair beyond noise (two-sided p 0.33 to 0.63). Reruns in the same order already disagree on
-half their picks. Five reps per arm had the power to see a paper-sized effect (critical gap 0.07 vs an
-expected 0.2). Order-averaging is off the list; a size-sorted order is the one cheap
-follow-up (must_know 0.75 vs 0.46 shuffled, p = 0.016, one of six comparisons, one run). Harness
-`bin/eval-select-order`; write-up `docs/2026-09-16-select-order-dependence-poc.md`.
+**Measured the same day: real but small.** Three arms (archived, shuffled, size-sorted), five
+reps each, on run 298. Order does not change SELECT's self-consistency (within-arm Jaccard
+0.51 / 0.47 / 0.55, no gap significant, power adequate for a paper-sized effect) but it does
+move about one of 16 picks (0.6 to 1.3) to different clusters (within-minus-cross shift test,
+p = 0.008), well under the paper's 16-34%. Order-averaging would cost ~$1.25/run at k = 3 to stabilise
+roughly one should_know pick; recorded as a costed option. A size-sorted order is free and
+matched or beat the archived order on every measure on one day. Harness `bin/eval-select-order`
+(gap and shift tests built in); write-up `docs/2026-09-16-select-order-dependence-poc.md`.
 
 Related, search-summarised only: [Majority Rules](https://arxiv.org/pdf/2511.15714) (LLM
 ensembles for content categorisation reach or exceed human-annotator consistency),
@@ -292,6 +292,7 @@ anywhere a reader can see. For the builder-recognition goal that is the lead, ah
 1. The Kagi story-page sections are from prior knowledge; open one story and check before
    the thread-page design borrows from it.
 2. ~~The SELECT order-dependence PoC needs a harness~~ Built and run twice the same day
-   (`bin/eval-select-order`, `docs/2026-09-16-select-order-dependence-poc.md`): no order
-   effect beyond sampling noise on the clean run. Order-averaging is dropped; a size-sorted
-   cluster order is the only follow-up, and it needs a second day.
+   (`bin/eval-select-order`, `docs/2026-09-16-select-order-dependence-poc.md`): a small
+   real order component (about one of 16 picks), no change in self-consistency. Order-averaging
+   is a costed option at ~$1.25/run; a size-sorted order is the free follow-up; both need a
+   second day.

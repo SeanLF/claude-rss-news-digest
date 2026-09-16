@@ -6,6 +6,8 @@ import sys
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 import eval_coherence
@@ -123,7 +125,7 @@ def test_score_reports_failure_kinds_against_the_label_type(tmp_path):
             {"idx": 1, "field": "summary", "type": "OutE-absence"},
             {"idx": 2, "field": "headline", "type": "LinkE-fabricated-causal"},
         ],
-        "borderline": [],
+        "borderline": [{"idx": 1, "field": "headline", "type": "invented-precision"}],
         "clean_fields": [{"idx": 0, "field": "headline"}],
     }
     report = tmp_path / "r.json"
@@ -195,8 +197,10 @@ def test_score_reports_failure_kinds_against_the_label_type(tmp_path):
     )
     s = eval_coherence.score(report, labels)
     assert s["hard_missed"] == [(0, "summary"), (1, "summary"), (2, "headline")]
+    # Beta:headline is a BORDERLINE label (invented-precision -> unsupported): judged, and wrong here.
     assert s["kinds"] == {"1:headline": "contradicted"} and s["kind_agree"] == []
-    assert s["kind_other"] == 1  # Beta:headline is flagged but not a hard positive: counted, judged nowhere
+    assert s["kind_disagree"] == [(1, "headline", "unsupported", "contradicted")]
+    assert s["kind_other"] == 0
     assert s["malformed"] == ["failure_kinds names unflagged field 'summary' (headline='Beta')"]
 
     report.write_text(json.dumps({"results": [{"headline": "Alpha", "pass": False, "failed_fields": ["summary"]}]}))
@@ -214,3 +218,16 @@ def test_expected_kind_follows_the_label_type_prefix_and_never_defaults():
     # An unknown, typo'd, empty or missing type must not be scored as either side.
     for t in ("", "out-dependent", "OuteE-typo", "overstatement", None, 3):
         assert eval_coherence.expected_kind(t) is None, t
+
+
+def test_score_refuses_a_field_labelled_both_hard_and_borderline(tmp_path):
+    labels = {
+        "idx_headlines": {"0": "Alpha"},
+        "hard_positives": [{"idx": 0, "field": "summary", "type": "EntE-wrong-entity"}],
+        "borderline": [{"idx": 0, "field": "summary", "type": "OutE-absence"}],
+        "clean_fields": [],
+    }
+    report = tmp_path / "r.json"
+    report.write_text(json.dumps({"results": [{"headline": "Alpha", "pass": False, "failed_fields": ["summary"]}]}))
+    with pytest.raises(RuntimeError, match="both hard positive and borderline"):
+        eval_coherence.score(report, labels)
