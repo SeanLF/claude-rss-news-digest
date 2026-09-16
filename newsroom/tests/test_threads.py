@@ -277,7 +277,13 @@ def test_merge_thread_folds_duplicate_history_into_the_real_thread(conn):
     assert [i[0] for i in installments] == [1, 2]  # arc has no hole -> day count = 2
     assert installments[0][2] == '{"whats_new": ["fire reaches Cap Ferret"]}'  # content preserved
     assert len(questions) == 2  # open ledger from both sides
-    assert conn.execute("SELECT COUNT(*) FROM threads WHERE id = ?", (dup,)).fetchone()[0] == 0
+    # The duplicate's row survives as a pointer: a sent email may link to /thread/{dup}.
+    assert conn.execute("SELECT status, merged_into FROM threads WHERE id = ?", (dup,)).fetchone() == ("merged", target)
+    # Merged rows are invisible to the linker and re-merging is a no-op; merging INTO one is refused.
+    assert dup not in [t.thread_id for t in store.active_threads(before_run_id=3, dormant_after=3)]
+    assert store.merge_thread(dup, target) is None
+    with pytest.raises(ValueError, match="itself merged"):
+        store.merge_thread(target, dup)
 
 
 def test_merge_thread_day_count_matches_installments(conn):
@@ -413,14 +419,15 @@ def test_merge_thread_is_idempotent_and_refuses_self_merge(conn):
 
 
 class _FailOnDeleteThreads:
-    """Connection proxy that raises on the final `DELETE FROM threads`. sqlite3.Connection
-    is a C type whose `execute` cannot be monkeypatched, so wrap it instead."""
+    """Connection proxy that raises on the final statement of a merge (the one that retires the
+    duplicate as a `merged` pointer). sqlite3.Connection is a C type whose `execute` cannot be
+    monkeypatched, so wrap it instead."""
 
     def __init__(self, conn):
         self._conn = conn
 
     def execute(self, sql, *a):
-        if sql.strip().upper().startswith("DELETE FROM THREADS"):
+        if "SET STATUS = 'MERGED'" in " ".join(sql.split()).upper():
             raise sqlite3.OperationalError("boom")
         return self._conn.execute(sql, *a)
 
@@ -441,7 +448,8 @@ def test_merge_thread_rolls_back_completely_on_failure(conn):
         store.merge_thread(dup, target)
     store.conn = conn
 
-    assert conn.execute("SELECT COUNT(*) FROM threads WHERE id = ?", (dup,)).fetchone()[0] == 1
+    # Rolled back: the duplicate is still a live thread, not a merged pointer.
+    assert conn.execute("SELECT status, merged_into FROM threads WHERE id = ?", (dup,)).fetchone() == ("active", None)
     _, installments, _ = _thread_state(conn, target)
     assert [i[0] for i in installments] == [1]  # nothing moved
     dup_rows = conn.execute("SELECT run_id FROM thread_installments WHERE thread_id = ?", (dup,)).fetchall()

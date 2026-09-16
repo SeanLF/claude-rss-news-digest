@@ -529,7 +529,7 @@ class ThreadStore:
             """
             UPDATE threads
             SET last_run_id = ?, label = ?, status = 'active', updated_at = datetime('now', 'utc')
-            WHERE id = ?
+            WHERE id = ? AND merged_into IS NULL
             """,
             (run_id, label, thread_id),
         )
@@ -555,8 +555,9 @@ class ThreadStore:
 
         Moves the source's installments and open questions onto the target, advances the target's
         label/last_run_id if the source is newer, backdates first_run_id to the earlier origin,
-        and deletes the source. Atomic (partial merges are worse than none) and idempotent, so a
-        repair script can be re-run. Returns what moved, or None if the source is already gone.
+        and marks the source ``merged`` with ``merged_into`` = target (the row is kept: sent
+        links resolve through it). Atomic and idempotent. Returns what moved, or None if the
+        source is already gone or already merged.
 
         Does NOT touch `digests` -- published issues are immutable HTML blobs and stay exactly as
         they were sent. This reconciles story IDENTITY going forward, it does not rewrite history.
@@ -564,18 +565,20 @@ class ThreadStore:
         if source_id == target_id:
             raise ValueError(f"cannot merge thread {source_id} into itself")
         src = self.conn.execute(
-            "SELECT label, first_run_id, last_run_id FROM threads WHERE id = ?", (source_id,)
+            "SELECT label, first_run_id, last_run_id, status FROM threads WHERE id = ?", (source_id,)
         ).fetchone()
-        if src is None:
+        if src is None or src[3] == "merged":
             return None  # already merged
         tgt = self.conn.execute(
-            "SELECT label, first_run_id, last_run_id FROM threads WHERE id = ?", (target_id,)
+            "SELECT label, first_run_id, last_run_id, status FROM threads WHERE id = ?", (target_id,)
         ).fetchone()
         if tgt is None:
             raise ValueError(f"merge target thread {target_id} does not exist")
+        if tgt[3] == "merged":
+            raise ValueError(f"merge target thread {target_id} was itself merged; merge into its survivor")
 
-        src_label, src_first, src_last = src
-        tgt_label, tgt_first, tgt_last = tgt
+        src_label, src_first, src_last, _ = src
+        tgt_label, tgt_first, tgt_last, _ = tgt
 
         with self.transaction():
             moved = self.conn.execute(
@@ -639,7 +642,13 @@ class ThreadStore:
                     target_id,
                 ),
             )
-            self.conn.execute("DELETE FROM threads WHERE id = ?", (source_id,))
+            self.conn.execute(
+                """
+                UPDATE threads SET status = 'merged', merged_into = ?, updated_at = datetime('now', 'utc')
+                WHERE id = ?
+                """,
+                (target_id, source_id),
+            )
 
         logger.info(
             "merged thread %d into %d: %d installment(s) moved, %d dropped, %d question(s) moved",

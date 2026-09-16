@@ -4,7 +4,7 @@
 use axum::{
     extract::{Path, Query, State},
     http::StatusCode,
-    response::Html,
+    response::{Html, IntoResponse, Redirect, Response},
 };
 use rusqlite::{Connection, OpenFlags, OptionalExtension};
 use serde::Deserialize;
@@ -26,9 +26,13 @@ pub struct ThreadEntry {
     pub facts: Vec<String>, // top-3 "what's new" facts, article-ids stripped; empty if none
 }
 
+const MAX_MERGE_HOPS: usize = 8;
+
 pub struct ThreadDetail {
     pub label: String,
     pub status: String,
+    /// The survivor's id when the requested id was merged; the detail is the survivor's.
+    pub merged_into: Option<i64>,
     pub entries: Vec<ThreadEntry>,
     /// Open "still watching" questions (from `thread_questions`), for the ledger.
     pub open_questions: Vec<String>,
@@ -44,6 +48,10 @@ pub struct ThreadSummary {
     pub update_count: i64,
     /// The latest installment's story headline (the running-order "what's the state now" line).
     pub summary: String,
+}
+
+fn is_missing_column(e: &rusqlite::Error) -> bool {
+    e.to_string().contains("no such column")
 }
 
 /// True when the error is SQLite's "no such table" -- the shape a stale DB clone takes (e.g.
@@ -83,6 +91,52 @@ pub fn fetch_thread(
 ) -> Result<Option<ThreadDetail>, (StatusCode, String)> {
     let conn = Connection::open_with_flags(db_path, OpenFlags::SQLITE_OPEN_READ_ONLY)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {e}")))?;
+
+    let requested = thread_id;
+    let mut thread_id = thread_id;
+    for _hop in 0..MAX_MERGE_HOPS {
+        let next: Option<Option<i64>> = match conn
+            .query_row(
+                "SELECT merged_into FROM threads WHERE id = ?1",
+                [thread_id],
+                |row| row.get(0),
+            )
+            .optional()
+        {
+            Ok(v) => v,
+            Err(e) if is_missing_table(&e) || is_missing_column(&e) => None,
+            Err(e) => {
+                return Err((
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    format!("Query error: {e}"),
+                ));
+            }
+        };
+        match next {
+            Some(Some(target)) if target != thread_id => thread_id = target,
+            Some(Some(_)) => {
+                tracing::warn!(
+                    "thread {thread_id}: merged_into points at itself; treating as unknown"
+                );
+                return Ok(None);
+            }
+            _ => break,
+        }
+    }
+    if let Ok(Some(Some(_))) = conn
+        .query_row(
+            "SELECT merged_into FROM threads WHERE id = ?1",
+            [thread_id],
+            |row| row.get::<_, Option<i64>>(0),
+        )
+        .optional()
+    {
+        tracing::warn!(
+            "thread {requested}: merge chain longer than {MAX_MERGE_HOPS} hops; treating as unknown"
+        );
+        return Ok(None);
+    }
+    let merged_into = (thread_id != requested).then_some(thread_id);
 
     let head: Option<(String, String)> = match conn
         .query_row(
@@ -154,6 +208,7 @@ pub fn fetch_thread(
     Ok(Some(ThreadDetail {
         label,
         status,
+        merged_into,
         entries,
         open_questions,
     }))
@@ -362,7 +417,7 @@ pub fn fetch_thread_index(
     let mut stmt = conn
         .prepare(&format!(
             "SELECT {SUMMARY_COLS} FROM threads t
-             WHERE t.status <> 'active'
+             WHERE t.status NOT IN ('active', 'merged')
                AND (?1 IS NULL OR (COALESCE(t.updated_at, ''), t.id) < (?1, ?2))
              ORDER BY COALESCE(t.updated_at, '') DESC, t.id DESC LIMIT ?3"
         ))
@@ -391,7 +446,7 @@ pub fn fetch_thread_index(
 
     let older_total: i64 = conn
         .query_row(
-            "SELECT COUNT(*) FROM threads WHERE status <> 'active'",
+            "SELECT COUNT(*) FROM threads WHERE status NOT IN ('active', 'merged')",
             [],
             |r| r.get(0),
         )
@@ -575,7 +630,7 @@ fn collapse_whitespace_runs(text: &str) -> String {
 pub async fn thread_page(
     Path(id): Path<String>,
     State(state): State<Arc<AppState>>,
-) -> Result<Html<String>, (StatusCode, &'static str)> {
+) -> Result<Response, (StatusCode, &'static str)> {
     let thread_id: i64 = id
         .parse()
         .map_err(|_| (StatusCode::NOT_FOUND, "Thread not found"))?;
@@ -586,6 +641,10 @@ pub async fn thread_page(
             (StatusCode::SERVICE_UNAVAILABLE, "Thread unavailable")
         })?
         .ok_or((StatusCode::NOT_FOUND, "Thread not found"))?;
+
+    if let Some(target) = detail.merged_into {
+        return Ok(Redirect::permanent(&format!("{}/{target}", routes::THREAD)).into_response());
+    }
 
     // Detail pages keep every section in the nav (no current-section omission).
     let (topbar_html, footer_html) = sub_chrome(
@@ -606,7 +665,8 @@ pub async fn thread_page(
         topbar_html: &topbar_html,
         footer_html: &footer_html,
         detail: &detail,
-    })))
+    }))
+    .into_response())
 }
 
 /// Thread index -- `GET /threads`, active threads first.
@@ -1104,7 +1164,8 @@ mod tests {
                     first_run_id INTEGER,
                     last_run_id INTEGER,
                     created_at TEXT,
-                    updated_at TEXT
+                    updated_at TEXT,
+                    merged_into INTEGER
                 );
                 CREATE TABLE thread_installments (
                     id INTEGER PRIMARY KEY,
@@ -1309,14 +1370,67 @@ mod tests {
         );
         let state = Arc::new(test_state(&db.path));
 
-        let Ok(Html(html)) = thread_page(Path("1".to_string()), State(state)).await else {
-            panic!("expected 200");
-        };
+        let html = page_body(thread_page(Path("1".to_string()), State(state)).await).await;
         assert!(!html.contains("<script>alert(1)</script>"));
         assert!(html.contains("&lt;script&gt;alert(1)&lt;/script&gt;"));
         assert!(!html.contains("<b>Bold</b> story"));
         assert!(html.contains("&lt;b&gt;Bold&lt;/b&gt; story"));
         assert!(html.contains("/issues/2026-06-28")); // links to the day's digest
+    }
+
+    async fn page_body(res: Result<Response, (StatusCode, &'static str)>) -> String {
+        let res = res.expect("expected 200");
+        assert_eq!(res.status(), StatusCode::OK);
+        let bytes = axum::body::to_bytes(res.into_body(), usize::MAX)
+            .await
+            .expect("body");
+        String::from_utf8(bytes.to_vec()).expect("utf-8")
+    }
+
+    #[tokio::test]
+    async fn thread_page_redirects_a_merged_id_to_its_survivor() {
+        let db = TempDb::new();
+        db.seed(
+            "INSERT INTO threads (id, label, status, updated_at) VALUES (7, 'Real thread', 'active', '2026-06-30 10:00:00');
+             INSERT INTO threads (id, label, status, updated_at, merged_into) VALUES (9, 'Dup', 'merged', '2026-06-30 10:00:00', 7);",
+        );
+        let state = Arc::new(test_state(&db.path));
+
+        let res = thread_page(Path("9".to_string()), State(state))
+            .await
+            .expect("expected a redirect, not an error");
+        assert_eq!(res.status(), StatusCode::PERMANENT_REDIRECT);
+        assert_eq!(res.headers().get("location").unwrap(), "/thread/7");
+    }
+
+    #[tokio::test]
+    async fn merged_chain_collapses_to_the_survivor_and_a_self_pointer_is_unknown() {
+        let db = TempDb::new();
+        db.seed(
+            "INSERT INTO threads (id, label, status, updated_at) VALUES (7, 'Real thread', 'active', '2026-06-30 10:00:00');
+             INSERT INTO threads (id, label, status, updated_at, merged_into) VALUES (8, 'Mid', 'merged', '2026-06-30 10:00:00', 7);
+             INSERT INTO threads (id, label, status, updated_at, merged_into) VALUES (9, 'Dup', 'merged', '2026-06-30 10:00:00', 8);
+             INSERT INTO threads (id, label, status, updated_at, merged_into) VALUES (4, 'Loop', 'merged', '2026-06-30 10:00:00', 4);",
+        );
+        let d = fetch_thread(&db.path, 9).unwrap().expect("resolved");
+        assert_eq!((d.label.as_str(), d.merged_into), ("Real thread", Some(7)));
+        let d = fetch_thread(&db.path, 7).unwrap().expect("direct");
+        assert_eq!(d.merged_into, None);
+        assert!(
+            fetch_thread(&db.path, 4).unwrap().is_none(),
+            "self-pointer is unknown, not a loop"
+        );
+
+        let state = Arc::new(test_state(&db.path));
+        let res = thread_page(Path("9".to_string()), State(state.clone()))
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::PERMANENT_REDIRECT);
+        assert_eq!(res.headers().get("location").unwrap(), "/thread/7");
+        let err = thread_page(Path("4".to_string()), State(state))
+            .await
+            .expect_err("404");
+        assert_eq!(err.0, StatusCode::NOT_FOUND);
     }
 
     #[tokio::test]

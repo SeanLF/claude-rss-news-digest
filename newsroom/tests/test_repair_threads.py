@@ -121,6 +121,21 @@ class TestPlanIsReadOnly:
         rows = repair_threads.plan(conn, [(9999, real)])
         assert rows[0]["status"] == "already merged"
 
+    def test_plan_treats_a_merged_pointer_row_as_already_merged(self, conn):
+        dup = _thread(conn, "dup", runs=[244])
+        real = _thread(conn, "real", runs=[242, 243])
+        repair_threads.apply_merges(conn, [(dup, real)])
+        rows = repair_threads.plan(conn, [(dup, real)])
+        assert rows[0]["status"] == "already merged"
+
+    def test_plan_names_the_survivor_when_the_target_was_merged(self, conn):
+        a = _thread(conn, "a", runs=[240])
+        b = _thread(conn, "b", runs=[241])
+        c = _thread(conn, "c", runs=[242, 243])
+        repair_threads.apply_merges(conn, [(b, c)])
+        with pytest.raises(ValueError, match=f"merged into {c}"):
+            repair_threads.plan(conn, [(a, b)])
+
     def test_plan_rejects_a_missing_target(self, conn):
         dup = _thread(conn, "dup", runs=[244])
         with pytest.raises(ValueError, match="target"):
@@ -220,7 +235,7 @@ class TestPredictedDayCount:
 
 
 class TestApply:
-    def test_merges_and_deletes_the_duplicate(self, conn):
+    def test_merges_and_retires_the_duplicate_as_a_pointer(self, conn):
         dup = _thread(conn, "dup", runs=[244], questions=["Still open?"])
         real = _thread(conn, "real", runs=[241, 242, 243])
 
@@ -228,7 +243,10 @@ class TestApply:
 
         assert applied == 1
         assert _installments(conn, real) == 4
-        assert conn.execute("SELECT COUNT(*) FROM threads WHERE id = ?", (dup,)).fetchone()[0] == 0
+        assert conn.execute("SELECT status, merged_into FROM threads WHERE id = ?", (dup,)).fetchone() == (
+            "merged",
+            real,
+        )
 
     def test_is_idempotent(self, conn):
         dup = _thread(conn, "dup", runs=[244])
@@ -264,8 +282,8 @@ class TestCli:
         assert repair_threads.main([f"--db={_path(conn)}"]) == 2
 
     def test_apply_snapshots_the_database_first(self, conn, tmp_path):
-        """The delete is irreversible and merge_thread records nothing that could
-        undo it, so a wrong-but-plausible pair (a typo'd target that happens to
+        """The installment move is irreversible and merge_thread records nothing that
+        could undo it, so a wrong-but-plausible pair (a typo'd target that happens to
         exist) is unrecoverable. One VACUUM INTO before the first write is the net."""
         dup = _thread(conn, "dup", runs=[244])
         real = _thread(conn, "real", runs=[242, 243])
@@ -276,7 +294,7 @@ class TestCli:
         snaps = list(Path(_path(conn)).parent.glob("*.pre-repair-*"))
         assert len(snaps) == 1, f"expected one snapshot, got {snaps}"
         restored = sqlite3.connect(snaps[0])
-        assert restored.execute("SELECT COUNT(*) FROM threads WHERE id = ?", (dup,)).fetchone()[0] == 1
+        assert restored.execute("SELECT status FROM threads WHERE id = ?", (dup,)).fetchone() == ("active",)
         restored.close()
 
     def test_dry_run_takes_no_snapshot(self, conn):

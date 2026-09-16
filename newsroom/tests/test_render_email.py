@@ -94,9 +94,10 @@ def test_thread_delta_and_reporting_varies(html):
 
 
 def test_thread_eyebrow_links_to_the_thread_page(html):
-    eyebrow = html[html.index("day 13") - 300 : html.index("day 13") + 60]
+    # The first "day 13" is inside the aria-label; take enough after it to reach the link text.
+    eyebrow = html[html.index("day 13") - 300 : html.index("day 13") + 400]
     assert 'href="https://example.test/thread/7"' in eyebrow
-    assert "how it developed" in eyebrow
+    assert "\u2197" in eyebrow
 
 
 def test_thread_eyebrow_does_not_link_a_relative_url():
@@ -115,7 +116,7 @@ def test_thread_eyebrow_does_not_link_a_relative_url():
         "should_know": [],
     }
     out = render_email.render_email(sel)
-    assert "day 3" in out and 'href="/thread/3"' not in out and "how it developed" not in out
+    assert "day 3" in out and 'href="/thread/3"' not in out and "\u2197" not in out
 
 
 def test_thread_eyebrow_sits_below_headline(html):

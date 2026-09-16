@@ -602,6 +602,7 @@ mod tests {
         let d = ThreadDetail {
             label: "Ceasefire talks".into(),
             status: "active".into(),
+            merged_into: None,
             entries: vec![
                 entry(
                     "2026-07-03",
@@ -636,6 +637,7 @@ mod tests {
         let d = ThreadDetail {
             label: "Quiet".into(),
             status: "dormant".into(),
+            merged_into: None,
             entries: vec![entry("2026-06-28", None, "", &[])],
             open_questions: vec![],
         };
@@ -651,6 +653,7 @@ mod tests {
         let d = ThreadDetail {
             label: "A & <b>".into(),
             status: "active".into(),
+            merged_into: None,
             entries: vec![entry("2026-07-03", None, "H & <i>", &["fact <x>"])],
             open_questions: vec!["q & <y>".into()],
         };

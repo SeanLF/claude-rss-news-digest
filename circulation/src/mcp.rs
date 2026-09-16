@@ -350,6 +350,7 @@ impl DigestTools {
         let Some(t) = detail else {
             return Err(format!("There is no thread with id {id}."));
         };
+        let shown_id = t.merged_into.unwrap_or(id);
         let mut out = format!(
             "# {}\n\nStatus: {} · {} installment",
             t.label,
@@ -361,8 +362,13 @@ impl DigestTools {
         }
         out.push_str(&format!(
             " · {}\n\n",
-            self.ctx.link(&format!("{}/{id}", routes::THREAD))
+            self.ctx.link(&format!("{}/{shown_id}", routes::THREAD))
         ));
+        if let Some(target) = t.merged_into {
+            out.push_str(&format!(
+                "Thread {id} was merged into thread {target}; this is thread {target}.\n\n"
+            ));
+        }
         if !t.open_questions.is_empty() {
             out.push_str("## Still watching\n\n");
             for q in &t.open_questions {

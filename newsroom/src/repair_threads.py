@@ -48,10 +48,10 @@ def parse_pair(spec: str) -> tuple[int, int]:
 
 
 def _row(conn: sqlite3.Connection, tid: int) -> tuple[str, int, int] | None:
-    """(label, installment count, first_run_id) for a thread, or None if it is gone."""
+    """(label, installment count, first_run_id) for a thread, or None if it is gone or merged."""
     got = conn.execute(
         "SELECT t.label, (SELECT COUNT(*) FROM thread_installments i WHERE i.thread_id = t.id), "
-        "t.first_run_id FROM threads t WHERE t.id = ?",
+        "t.first_run_id FROM threads t WHERE t.id = ? AND t.status <> 'merged' AND t.merged_into IS NULL",
         (tid,),
     ).fetchone()
     return (got[0], got[1], got[2]) if got else None
@@ -102,6 +102,11 @@ def plan(conn: sqlite3.Connection, pairs: list[tuple[int, int]], *, force: bool 
     for source_id, target_id in pairs:
         target = _row(conn, target_id)
         if target is None:
+            survivor = conn.execute("SELECT merged_into FROM threads WHERE id = ?", (target_id,)).fetchone()
+            if survivor and survivor[0] is not None:
+                raise ValueError(
+                    f"merge target thread {target_id} was itself merged into {survivor[0]}; merge into its survivor"
+                )
             raise ValueError(f"merge target thread {target_id} does not exist")
         target_label, target_count, target_first = target
 

@@ -187,10 +187,12 @@ def _eyebrow_thread(thread: dict, pad: str = "0 0 12px") -> str:
         return ""
     label = f'<span style="color:{ACCENT_INK};font-weight:600;">Ongoing</span> · day {thread["day"]}'
     url = thread.get("url")
-    # Only an absolute URL is usable from a mail client; a site-relative one (no DIGEST_DOMAIN)
-    # would resolve against the mail provider's origin, so the email keeps the plain badge.
+    # A relative URL resolves against the mail client's origin.
     if isinstance(url, str) and url.startswith(("https://", "http://")):
-        label = f'<a href="{html.escape(url, quote=True)}" style="color:{MUTED};text-decoration:none;">{label} · how it developed</a>'
+        label = (
+            f'<a href="{html.escape(url, quote=True)}" aria-label="Ongoing · day {thread["day"]} \u2197 how this story developed" '
+            f'style="color:{MUTED};text-decoration:none;">{label} \u2197</a>'
+        )
     return _txt(
         label,
         size=11,

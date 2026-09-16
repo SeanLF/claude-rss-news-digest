@@ -347,8 +347,8 @@ def render_article(
         label = f'<span class="loc">Ongoing</span> · day {thread["day"]}'
         url = thread.get("url")
         if isinstance(url, str) and url:
-            # The thread page already links back to each issue; this is the other direction.
-            eyebrow = f'<p class="eyebrow"><a href="{html.escape(url, quote=True)}">{label} · how it developed</a></p>'
+            aria = f'aria-label="Ongoing · day {thread["day"]} \u2197 how this story developed"'
+            eyebrow = f'<p class="eyebrow"><a href="{html.escape(url, quote=True)}" {aria}>{label} \u2197</a></p>'
         else:
             eyebrow = f'<p class="eyebrow">{label}</p>'
     delta = (thread.get("delta") or "").strip()
