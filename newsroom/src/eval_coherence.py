@@ -82,6 +82,23 @@ def load_agent_for_eval(
 
 
 KNOWN_FIELDS = ("headline", "summary", "why_it_matters")
+# The optional two-way failure label (VeriGray's out-dependent split, docs/2026-09-16-sota-and-
+# competitor-recheck.md §1.2): a cited source says otherwise, or no cited source says it at all.
+FAILURE_KINDS = ("contradicted", "unsupported")
+
+
+def expected_kind(label_type: object) -> str | None:
+    """What a label's error type implies: absence, padding, premise and invented specifics can
+    only be checked outside the cited text; wrong entity, scope, quantifier and quote are a
+    cited source saying otherwise. A fabricated LINK (LinkE) is either -- the source may give a
+    different cause or none at all -- and an unknown or missing type says nothing, so both are
+    None (not scored) rather than defaulting to one side."""
+    t = label_type.lower() if isinstance(label_type, str) else ""
+    if t.startswith(("oute-", "unsupported-", "invented-")):
+        return "unsupported"
+    if t.startswith(("ente-", "circe-", "quantifier-", "quote-")):
+        return "contradicted"
+    return None
 
 
 def _norm(s: str) -> str:
@@ -125,6 +142,7 @@ def score(report_path: Path, labels: dict) -> dict:
         )
 
     flags: set[tuple[int, str]] = set()
+    kinds: dict[tuple[int, str], str] = {}
     unmapped: list[str] = []
     malformed: list[str] = []
     for r in results:
@@ -150,7 +168,42 @@ def score(report_path: Path, labels: dict) -> dict:
             fields = list(KNOWN_FIELDS)
         for field in fields:
             flags.add((idx, field))
+        fk = r.get("failure_kinds")
+        if isinstance(fk, dict):
+            for f, kind in fk.items():
+                c = _canon_field(f)
+                if c is None or not isinstance(kind, str):
+                    malformed.append(f"unknown failure_kinds entry {f!r}: {kind!r} (headline={h!r})")
+                    continue
+                if kind not in FAILURE_KINDS:
+                    malformed.append(f"unknown failure_kinds value {kind!r} (headline={h!r})")
+                    continue
+                if (idx, c) not in flags:
+                    # A kind on a field the checker did not flag is schema noise, and crediting it
+                    # would let a MISSED hallucination count as an agreement.
+                    malformed.append(f"failure_kinds names unflagged field {c!r} (headline={h!r})")
+                    continue
+                kinds[(idx, c)] = kind
+    type_of = {(f["idx"], f["field"]): f.get("type", "") for f in labels["hard_positives"]}
+    expected = {k: expected_kind(t) for k, t in type_of.items()}
+    kind_agree = sorted(k for k, v in kinds.items() if expected.get(k) is not None and v == expected[k])
+    kind_disagree = sorted(
+        (k[0], k[1], expected[k], v)
+        for k, v in kinds.items()
+        if expected.get(k) is not None and v in FAILURE_KINDS and v != expected[k]
+    )
+    # Kinds on hard positives whose label type the mapping does not recognise: reported, so a
+    # relabelled fixture cannot silently turn "4 agree" into "0 agree, 0 disagree".
+    kind_unscored = sorted((k[0], k[1], type_of[k]) for k in kinds if k in type_of and expected.get(k) is None)
+    # Kinds on borderline or unlabelled fields: counted in kind_labelled, judged nowhere.
+    kind_other = sum(1 for k in kinds if k not in type_of)
     return {
+        "kinds": {f"{i}:{f}": v for (i, f), v in sorted(kinds.items())},
+        "kind_labelled": len(kinds),
+        "kind_agree": kind_agree,
+        "kind_disagree": kind_disagree,
+        "kind_unscored": kind_unscored,
+        "kind_other": kind_other,
         "hard_caught": sorted(flags & hard),
         "hard_missed": sorted(hard - flags),
         "border_caught": len(flags & border),
@@ -250,9 +303,7 @@ async def run_per_story_to_file(out_path: Path, model: str, body: str, thinking:
     )
 
 
-async def run_agent_to_file(
-    label: str, out_path: Path, model: str, body: str, thinking: dict, tools: list[str]
-) -> None:
+async def run_agent_to_file(label: str, out_path: Path, model: str, body: str, thinking: dict, tools: list[str]):
     """Run an agent through the production claude-agent-sdk path and require it to
     (re)write out_path. Shared by the coherence/repair evals so both exercise the
     exact same harness (model, system prompt, tools, thinking) production uses."""
@@ -273,6 +324,7 @@ async def run_agent_to_file(
         raise RuntimeError(f"{label} run failed: {res.error_summary()}")
     if not out_path.exists():
         raise RuntimeError(f"{label} run wrote no {out_path.name}")
+    return res
 
 
 def main() -> int:
@@ -323,6 +375,14 @@ def main() -> int:
             print(f"          UNMAPPED headlines: {s['unmapped']}")
         if s["malformed"]:
             print(f"          MALFORMED entries: {s['malformed']}")
+        if s["kind_labelled"]:
+            print(
+                f"          kinds: {s['kinds']}\n"
+                f"          kind agreement on hard positives: {len(s['kind_agree'])} agree, "
+                f"{len(s['kind_disagree'])} disagree {s['kind_disagree']}, "
+                f"{len(s['kind_unscored'])} unscored (label type not mapped) {s['kind_unscored']}, "
+                f"{s['kind_other']} on borderline/unlabelled fields"
+            )
 
     best_recall = max(len(s["hard_caught"]) for s in scores)
     worst_fd = max(len(s["false_drops"]) for s in scores)
@@ -334,7 +394,7 @@ def main() -> int:
     if any(s["unmapped"] for s in scores):
         fail.append("a report headline did not map to a labelled story (fixtures drifted?)")
     if any(s["malformed"] for s in scores):
-        fail.append("a report entry had a malformed pass/failed_fields shape (schema drift?)")
+        fail.append("a report entry had a malformed pass/failed_fields/failure_kinds shape (schema drift?)")
     if worst_fd > 2:
         fail.append(f"false-drops {worst_fd} > 2 (precision regression)")
     if best_recall == 0:

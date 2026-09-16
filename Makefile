@@ -2,7 +2,7 @@
 # Run `make` or `make help` to see available targets
 
 .DEFAULT_GOAL := help
-.PHONY: ci ci-fix ci-full test eval eval-stages eval-coherence eval-repair a11y lighthouse web-check deploy deploy-dry migrate migrate-status \
+.PHONY: ci ci-fix ci-full test eval eval-stages eval-coherence eval-repair eval-select-order a11y lighthouse web-check deploy deploy-dry migrate migrate-status \
         ssh db-clone usage usage-daily analytics analytics-list analytics-q versions circulation preview anatomy prompt ask-eval help
 
 # Default window for the analytics queries; override with RUNS=N
@@ -29,6 +29,8 @@ ask-eval: ## Behavioural eval for /ask (MAKES model calls; seeds a planted-injec
 	bin/ask-eval
 eval-repair: ## Harness-faithful REPAIR error-removal/preservation eval (MAKES model calls; opt-in)
 	bin/eval-repair
+eval-select-order: ## SELECT order-dependence harness on one archived run (MAKES model calls; usage: make eval-select-order RUN=298)
+	bin/eval-select-order fetch $(RUN) && bin/eval-select-order run $(RUN) --reps 5 --arms fixed,shuffled,sorted
 a11y: ## Fast structural a11y invariant check (no browser; suitable per-commit)
 	bin/a11y-check
 lighthouse: ## Lighthouse a11y/BP/SEO gate on the design mockups (pre-deploy; needs headless Chrome)
