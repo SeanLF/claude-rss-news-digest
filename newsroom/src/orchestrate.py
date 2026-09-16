@@ -414,6 +414,20 @@ def validate_coherence(claude_input_dir: Path) -> None:
                     f"coherence_report.json: results[{i}] (headline={r.get('headline')!r}) "
                     "'failed_fields' must be a list of strings"
                 )
+        # failure_kinds is the same kind of OPTIONAL metadata: which WAY each field failed
+        # (a cited source says otherwise, or nothing cited says it at all). Only the SHAPE is
+        # enforced (an object of strings); an unrecognised spelling is counted as unlabelled
+        # downstream, never rejected -- a label that changes nothing about pass/fail must not
+        # be able to fail the run twice and cost the day's digest.
+        if r.get("pass") is False and "failure_kinds" in r:
+            kinds = r["failure_kinds"]
+            if not isinstance(kinds, dict) or not all(
+                isinstance(k, str) and isinstance(v, str) for k, v in kinds.items()
+            ):
+                raise ValueError(
+                    f"coherence_report.json: results[{i}] (headline={r.get('headline')!r}) "
+                    "'failure_kinds' must be an object mapping field names to strings"
+                )
 
     import json
 

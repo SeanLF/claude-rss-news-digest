@@ -795,6 +795,69 @@ class TestValidateCoherenceFailedFields:
         orchestrate.validate_coherence(tmp_path)  # no raise
 
 
+class TestValidateCoherenceFailureKinds:
+    """failure_kinds is OPTIONAL on a pass:false entry: an object mapping a failed field
+    to exactly 'contradicted' or 'unsupported' (the VeriGray split, shipped 2026-09-16).
+    Absent is fine -- a model that omits it degrades to the pre-label behaviour. Present
+    and malformed is a stage failure like a malformed failed_fields, so the per-run count
+    downstream never reads a typo as a third kind."""
+
+    def _write(self, tmp_path, entry):
+        (tmp_path / "coherence_report.json").write_text(json.dumps({"results": [entry]}))
+
+    def test_absent_failure_kinds_passes(self, tmp_path):
+        self._write(tmp_path, {"headline": "h", "pass": False, "reason": "r", "failed_fields": ["summary"]})
+        orchestrate.validate_coherence(tmp_path)  # no raise
+
+    def test_valid_failure_kinds_passes(self, tmp_path):
+        self._write(
+            tmp_path,
+            {
+                "headline": "h",
+                "pass": False,
+                "reason": "r",
+                "failed_fields": ["summary", "why_it_matters"],
+                "failure_kinds": {"summary": "contradicted", "why_it_matters": "unsupported"},
+            },
+        )
+        orchestrate.validate_coherence(tmp_path)  # no raise
+
+    @pytest.mark.parametrize(
+        "kinds",
+        [
+            "contradicted",  # not an object
+            ["contradicted"],  # a list
+            {"summary": None},  # a non-string value
+            {"summary": ["contradicted"]},
+        ],
+    )
+    def test_malformed_failure_kinds_shape_raises(self, tmp_path, kinds):
+        entry = {"headline": "h", "pass": False, "reason": "r", "failed_fields": ["summary"], "failure_kinds": kinds}
+        self._write(tmp_path, entry)
+        with pytest.raises(ValueError, match="failure_kinds"):
+            orchestrate.validate_coherence(tmp_path)
+
+    @pytest.mark.parametrize("kinds", [{"summary": "out-dependent"}, {"summary": "Contradicted"}, {"summary": ""}])
+    def test_unrecognised_spelling_is_not_a_stage_failure(self, tmp_path, kinds):
+        """The label changes nothing about pass/fail, so a typo in it must not be able to fail
+        the stage twice and cost the day's digest; run_health counts it as unlabelled instead."""
+        entry = {"headline": "h", "pass": False, "reason": "r", "failed_fields": ["summary"], "failure_kinds": kinds}
+        self._write(tmp_path, entry)
+        orchestrate.validate_coherence(tmp_path)  # no raise
+
+    def test_unknown_field_name_as_key_still_passes(self, tmp_path):
+        # Forward-compat, as for failed_fields: the key set is not policed here.
+        self._write(
+            tmp_path,
+            {"headline": "h", "pass": False, "reason": "r", "failure_kinds": {"mystery_field": "unsupported"}},
+        )
+        orchestrate.validate_coherence(tmp_path)  # no raise
+
+    def test_failure_kinds_on_passing_entry_ignored(self, tmp_path):
+        self._write(tmp_path, {"headline": "h", "pass": True, "reason": "ok", "failure_kinds": "oops"})
+        orchestrate.validate_coherence(tmp_path)  # no raise
+
+
 # --------------------------------------------------------------------------- #
 # orchestrate_selections (happy path)
 # --------------------------------------------------------------------------- #

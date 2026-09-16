@@ -84,20 +84,23 @@ right and the label-derived expectation was too coarse. `expected_kind` returns 
 
 ## What this changes
 
-Adopt the label as an instrument, which is three small changes and no policy change
-(unsupported still fails, as the project rule "don't fabricate details not in the RSS summary
-or fetched article text" requires):
+**Shipped 2026-09-16, pending deploy** (no policy change: unsupported still fails, as the
+project rule "don't fabricate details not in the RSS summary or fetched article text"
+requires):
 
-1. `.claude/agents/coherence.md`: the two additions above, verbatim from
-   `docs/proposed/2026-09-16-coherence-kinds/coherence.md` (the two runs' reports and log sit
-   beside it). Rebuild the image before verifying; agents are COPY'd at build.
-2. `orchestrate.validate_coherence`: when `failure_kinds` is present it must be an object whose
-   values are in `{contradicted, unsupported}`; absent is fine (the field is optional, so a
-   model that omits it degrades to today's behaviour, never to a stage failure).
-3. `run_health` / `bin/eval-stages`: count kinds per run, so the 2026-08-30 question
-   ("absence or contradiction?") has a per-run number, and the repair log can be joined to it
-   to see whether repair-from-cited-sources keeps unsupported fields at a different rate from
-   contradicted ones.
+- `.claude/agents/coherence.md` carries the two additions verbatim (agents are COPY'd at
+  image build; rebuild before verifying).
+- `orchestrate.validate_coherence` accepts an optional `failure_kinds` object of string keys
+  to string values and fails the stage only on a wrong SHAPE, never on an unrecognised
+  spelling: a label that changes nothing about pass/fail must not be able to cost the day's
+  digest. `schema.FAILURE_KINDS` and `schema.COHERENCE_FIELDS` are the one place the
+  spellings live; the count and the eval scorer read them from the leaf (the validator
+  checks shape only and reads neither).
+- `run_health.coherence_kind_counts` counts failed fields by kind (plus `unlabelled` for
+  a report without the label) and `run.py` logs one line per run, so the count the
+  2026-08-30 health check asked for is in the journal from the first prod run. Not an
+  alert rule; the base rates are unmeasured. Joining it to the repair log is the next
+  question.
 
 What it does not do, so nobody reads more into it: it does not catch more (recall unchanged,
 and the 2026-08-30 lesson that naming an error class in a prompt does not fix it still holds;

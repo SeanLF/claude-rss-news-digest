@@ -11,6 +11,7 @@ the end of a successful run and feed the alert path.
 Each invariant is a decision rule with a citable trigger, not a tuned score.
 """
 
+import json
 import sys
 from pathlib import Path
 
@@ -310,3 +311,88 @@ class TestRepairSpecError:
 
     def test_no_fault_recorded_is_silent(self):
         assert not [v for v in run_health.violations(_healthy()) if v.startswith("REPAIR_SPEC_ERROR")]
+
+
+class TestCoherenceKindCounts:
+    """The per-field split of COHERENCE failures (shipped 2026-09-16), counted from the
+    report so the number exists in the journal from the first run that carries the label."""
+
+    def test_counts_fields_by_kind_and_unlabelled(self):
+        report = json.dumps(
+            {
+                "results": [
+                    {"headline": "a", "pass": True},
+                    {
+                        "headline": "b",
+                        "pass": False,
+                        "failed_fields": ["summary", "why_it_matters"],
+                        "failure_kinds": {"summary": "contradicted", "why_it_matters": "unsupported"},
+                    },
+                    {"headline": "c", "pass": False, "failed_fields": ["headline"]},  # pre-label report
+                    {"headline": "d", "pass": False},  # whole-story failure, no fields named
+                ]
+            }
+        )
+        assert run_health.coherence_kind_counts(report) == {"contradicted": 1, "unsupported": 1, "unlabelled": 2}
+
+    def test_a_kind_on_a_field_failed_fields_forgot_still_counts(self):
+        """merge.py drops the whole story when failed_fields is absent, but the label the checker
+        DID write is still a label; the union of the two lists is what gets counted."""
+        report = json.dumps(
+            {
+                "results": [
+                    {"headline": "a", "pass": False, "failure_kinds": {"summary": "contradicted"}},
+                    {"headline": "b", "pass": False, "failed_fields": [], "failure_kinds": {"headline": "unsupported"}},
+                    {
+                        "headline": "c",
+                        "pass": False,
+                        "failed_fields": ["summary"],
+                        "failure_kinds": {"summary": "typo"},
+                    },
+                ]
+            }
+        )
+        assert run_health.coherence_kind_counts(report) == {"contradicted": 1, "unsupported": 1, "unlabelled": 1}
+
+    def test_names_that_are_not_fields_count_nowhere(self):
+        """The validator accepts any string keys; the count applies the closed field set, so one
+        brief cannot report five failures out of one flagged field."""
+        report = json.dumps(
+            {
+                "results": [
+                    {
+                        "headline": "a",
+                        "pass": False,
+                        "failed_fields": ["summary", "lede"],
+                        "failure_kinds": {"summary": "contradicted", "reason": "unsupported", "body": "contradicted"},
+                    }
+                ]
+            }
+        )
+        assert run_health.coherence_kind_counts(report) == {"contradicted": 1, "unsupported": 0, "unlabelled": 0}
+
+    def test_field_names_are_normalised_before_the_closed_set(self):
+        report = json.dumps(
+            {
+                "results": [
+                    {
+                        "headline": "a",
+                        "pass": False,
+                        "failed_fields": ["summary", "Headline"],
+                        "failure_kinds": {"summary": "contradicted", " HEADLINE ": "unsupported"},
+                    }
+                ]
+            }
+        )
+        assert run_health.coherence_kind_counts(report) == {"contradicted": 1, "unsupported": 1, "unlabelled": 0}
+
+    def test_no_failures_is_all_zero_not_none(self):
+        assert run_health.coherence_kind_counts(json.dumps({"results": [{"headline": "a", "pass": True}]})) == {
+            "contradicted": 0,
+            "unsupported": 0,
+            "unlabelled": 0,
+        }
+
+    @pytest.mark.parametrize("text", [None, "", "{not json", json.dumps({"results": "nope"}), json.dumps([]), "null"])
+    def test_unreadable_report_is_none(self, text):
+        assert run_health.coherence_kind_counts(text) is None

@@ -817,3 +817,50 @@ class TestSlugify:
     def test_no_trailing_hyphen_after_truncation(self):
         result = slugify("a" * 59 + " b")
         assert not result.endswith("-")
+
+
+def test_coherence_kinds_are_logged_on_the_archive_path_only():
+    """The kinds line must come from _archive_run_and_threads (full run, same-day --resume) and
+    never reach --write-only, which would log the PREVIOUS run's report under a new run id.
+    _render_record_deliver reaches it only through ``archive=True``, so the invariant is the
+    dispatch: the --write-only call must not pass archive, and only the --resume branch may.
+    Pinned on run.py's AST so a later edit to either call site cannot move it silently."""
+    import ast
+    import inspect
+
+    import run
+
+    assert "_log_coherence_kinds()" in inspect.getsource(run._archive_run_and_threads)
+    assert "_log_coherence_kinds" not in inspect.getsource(run._alert_on_run_health)
+
+    tree = ast.parse(inspect.getsource(run))
+    calls: list[tuple[str, bool]] = []  # (enclosing if-test source, passes archive=True)
+
+    class V(ast.NodeVisitor):
+        def __init__(self):
+            self.tests: list[str] = []
+
+        def visit_If(self, node):
+            self.tests.append(ast.unparse(node.test))
+            for child in node.body:
+                self.visit(child)
+            self.tests.pop()
+            for child in node.orelse:
+                self.visit(child)
+
+        def visit_Call(self, node):
+            if getattr(node.func, "id", None) == "_render_record_deliver":
+                archived = any(
+                    k.arg == "archive" and isinstance(k.value, ast.Constant) and k.value.value is True
+                    for k in node.keywords
+                )
+                calls.append((" / ".join(self.tests), archived))
+            self.generic_visit(node)
+
+    V().visit(tree)
+    assert len(calls) == 2, calls
+    for tests, archived in calls:
+        if "write_only" in tests:
+            assert not archived, f"--write-only must not archive (and so must not log kinds): {tests}"
+        if archived:
+            assert "resume" in tests, f"archive=True only on the --resume path: {tests}"

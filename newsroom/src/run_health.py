@@ -15,7 +15,10 @@ Each rule is a decision rule with a citable trigger, not a weighted score: it
 fires on a count being zero, never on a threshold someone tuned to taste.
 """
 
+import json
 from collections.abc import Callable
+
+from schema import COHERENCE_FIELDS, FAILURE_KINDS
 
 # (code, predicate, message). A rule fires when its predicate returns True.
 # Keep predicates total -- a missing key means the caller built the health dict
@@ -225,3 +228,49 @@ def violations(health: dict) -> list[str]:
         for code, predicate, message in _RULES
         if predicate(health)
     ]
+
+
+def coherence_kind_counts(report_text: str | None) -> dict[str, int] | None:
+    """How the run's COHERENCE failures split: a cited source said otherwise
+    (``contradicted``) or nothing cited said it at all (``unsupported``), plus the
+    failed fields the checker left unlabelled. None when there is no readable report.
+
+    Not a rule: the base rates are unmeasured, so this is the count the 2026-08-30 health
+    check asked for ("absence or contradiction?") and nothing more. Fields, not stories:
+    one story can fail two fields two different ways. The fields counted are those the checker
+    NAMED in either ``failed_fields`` or ``failure_kinds`` (their union, restricted to the
+    three real fields), which is not necessarily the set merge.py acted on when the two lists
+    disagree.
+    """
+    if not report_text:
+        return None
+    try:
+        results = json.loads(report_text).get("results")
+    except ValueError, AttributeError:
+        return None
+    if not isinstance(results, list):
+        return None
+    counts = {"contradicted": 0, "unsupported": 0, "unlabelled": 0}
+    for r in results:
+        if not isinstance(r, dict) or r.get("pass") is not False:
+            continue
+        failed = r.get("failed_fields")
+        fields = [f for f in failed if isinstance(f, str)] if isinstance(failed, list) else []
+        raw_kinds = r.get("failure_kinds")
+        kinds: dict = raw_kinds if isinstance(raw_kinds, dict) else {}
+        # A REAL field named in either list is a failed field; a kind on a field failed_fields
+        # forgot is still a label. A name that is not one of the three fields is model noise
+        # and counts nowhere (the validator accepts any string, on purpose, so this is where
+        # the closed set is applied).
+        # Names are normalised (case, whitespace) before the closed set is applied, so a
+        # "Headline" is the headline, not junk.
+        norm = {f: f.strip().lower() for f in [*fields, *kinds] if isinstance(f, str)}
+        named = [f for f in dict.fromkeys(norm.values()) if f in COHERENCE_FIELDS]
+        kinds = {norm[k]: v for k, v in kinds.items() if k in norm}
+        for f in named:
+            kind = kinds.get(f)
+            counts[kind if kind in FAILURE_KINDS else "unlabelled"] += 1
+        # A story that failed without naming any field is one unlabelled failure, not zero.
+        if not named:
+            counts["unlabelled"] += 1
+    return counts

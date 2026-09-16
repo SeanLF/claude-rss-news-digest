@@ -29,6 +29,7 @@ from pathlib import Path
 
 import claude_cli  # /app/src
 import orchestrate
+import schema
 
 # Default paths inside the container (bin/eval-coherence mounts the fixture dir).
 AGENT = Path("/app/.claude/agents/coherence.md")
@@ -81,10 +82,11 @@ def load_agent_for_eval(
     return model, body, thinking, tools
 
 
-KNOWN_FIELDS = ("headline", "summary", "why_it_matters")
+KNOWN_FIELDS = schema.COHERENCE_FIELDS
 # The optional two-way failure label (VeriGray's out-dependent split, docs/2026-09-16-sota-and-
 # competitor-recheck.md §1.2): a cited source says otherwise, or no cited source says it at all.
-FAILURE_KINDS = ("contradicted", "unsupported")
+# One spelling source: the schema leaf.
+FAILURE_KINDS = schema.FAILURE_KINDS
 
 
 def expected_kind(label_type: object) -> str | None:
