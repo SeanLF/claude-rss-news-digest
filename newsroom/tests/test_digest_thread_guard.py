@@ -96,3 +96,23 @@ def test_attach_thread_context_skips_enrichment_for_shared_cluster_id(threaded):
     assert dup_items[0]["summary"] != dup_items[1]["summary"]
     # Control: the solo cluster_id IS enriched (guard is targeted, not blanket-off).
     assert "thread" in out["should_know"][0]
+
+
+def test_thread_url_is_absolute_when_the_domain_is_known(monkeypatch):
+    monkeypatch.setenv("DIGEST_DOMAIN", "news.example.test")
+    assert digest.thread_url(12) == "https://news.example.test/thread/12"
+    monkeypatch.delenv("DIGEST_DOMAIN")
+    assert digest.thread_url(12) == "/thread/12"
+
+
+def test_attach_thread_context_hands_the_renderer_a_thread_url(threaded, monkeypatch):
+    monkeypatch.setenv("DIGEST_DOMAIN", "news.example.test")
+    selections = {
+        "must_know": [],
+        "should_know": [
+            {"headline": "Zelensky fires minister", "summary": "reshuffle", "cluster_id": "Ukraine reshuffle"}
+        ],
+    }
+    out = digest.attach_thread_context(selections)
+    thread = out["should_know"][0]["thread"]
+    assert thread["url"] == f"https://news.example.test/thread/{thread['thread_id']}"

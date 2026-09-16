@@ -496,14 +496,19 @@ class ThreadStore:
         return [d for d in deltas if d]
 
     def render_context(self, thread_id: int, run_id: int) -> dict:
-        """The thread facts the renderer (sub-project C) needs: the day count (for the
-        "Ongoing · day N" badge) and `delta` -- this run's verified whats_new facts joined as the
+        """The thread facts the renderer (sub-project C) needs: the thread id (for the link to
+        its page), the day count (for the "Ongoing · day N" badge) and `delta` -- this run's
+        verified whats_new facts joined as the
         "what's new today" summary that REPLACES the generic summary for a returning reader (blank
         on a quiet day, so the renderer falls back to the WRITE summary)."""
         day = self.conn.execute(
             "SELECT COUNT(*) FROM thread_installments WHERE thread_id = ?", (thread_id,)
         ).fetchone()[0]
-        return {"day": day, "delta": delta_from_facts(self._installment_facts(thread_id, run_id))}
+        return {
+            "thread_id": thread_id,
+            "day": day,
+            "delta": delta_from_facts(self._installment_facts(thread_id, run_id)),
+        }
 
     # --- writes (identity / aging) ---
 

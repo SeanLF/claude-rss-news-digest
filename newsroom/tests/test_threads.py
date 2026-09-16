@@ -596,7 +596,11 @@ def test_render_context_returns_day_and_delta(conn):
     store.set_installment_content(
         tid, 2, json.dumps({"whats_new": [{"fact": "The US struck 10 targets."}, {"fact": "Iran retaliated."}]})
     )
-    assert store.render_context(tid, 2) == {"day": 2, "delta": "The US struck 10 targets. Iran retaliated."}
+    assert store.render_context(tid, 2) == {
+        "thread_id": tid,
+        "day": 2,
+        "delta": "The US struck 10 targets. Iran retaliated.",
+    }
 
 
 def test_delta_from_facts_joins_top_n_in_order():

@@ -36,7 +36,11 @@ SELECTIONS = {
         {
             "headline": "Ongoing thread story",
             "summary": "Base summary.",
-            "thread": {"day": 13, "delta": "Day 13 delta replaces the summary."},
+            "thread": {
+                "day": 13,
+                "delta": "Day 13 delta replaces the summary.",
+                "url": "https://example.test/thread/7",
+            },
             "sources": [{"name": "Jacobin", "bias": "far-left", "url": "https://jacobin.com/x/d"}],
         },
         {
@@ -87,6 +91,31 @@ def test_thread_delta_and_reporting_varies(html):
     assert "Day 13 delta replaces the summary." in html
     assert "Base summary." not in html  # delta replaced it
     assert "How reporting varies" in html.replace("&#160;", " ").upper() or "REPORTING VARIES" in html.upper()
+
+
+def test_thread_eyebrow_links_to_the_thread_page(html):
+    eyebrow = html[html.index("day 13") - 300 : html.index("day 13") + 60]
+    assert 'href="https://example.test/thread/7"' in eyebrow
+    assert "how it developed" in eyebrow
+
+
+def test_thread_eyebrow_does_not_link_a_relative_url():
+    """No DIGEST_DOMAIN means a site-relative url; in a mail client that would resolve against
+    the provider's origin, so the email keeps the plain badge and only the web archive links."""
+    sel = {
+        "must_know": [
+            {
+                "headline": "Relative",
+                "summary": "s",
+                "why_it_matters": "w",
+                "sources": [],
+                "thread": {"day": 3, "url": "/thread/3"},
+            }
+        ],
+        "should_know": [],
+    }
+    out = render_email.render_email(sel)
+    assert "day 3" in out and 'href="/thread/3"' not in out and "how it developed" not in out
 
 
 def test_thread_eyebrow_sits_below_headline(html):

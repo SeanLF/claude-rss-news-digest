@@ -76,3 +76,26 @@ def test_first_story_gets_first_class_others_dont():
     # every other story is a plain <article> that gets the border+margin.
     assert render.render_article(BASE, slug="x", is_first=True).startswith('<article class="first" id="x">')
     assert render.render_article(BASE, slug="x").startswith('<article id="x">')
+
+
+def test_eyebrow_links_to_the_thread_page_when_the_url_is_known():
+    article = {**BASE, "thread": {"day": 4, "url": "https://example.test/thread/12"}}
+    out = render.render_article(article, slug="x")
+    assert (
+        '<p class="eyebrow"><a href="https://example.test/thread/12">'
+        '<span class="loc">Ongoing</span> · day 4 · how it developed</a></p>'
+    ) in out
+    # briefs get the same link
+    assert 'href="https://example.test/thread/12"' in render.render_article(article, slug="x", is_brief=True)
+
+
+def test_eyebrow_without_a_url_is_plain_text():
+    out = render.render_article({**BASE, "thread": {"day": 4}}, slug="x")
+    assert '<p class="eyebrow"><span class="loc">Ongoing</span> · day 4</p>' in out
+    assert "how it developed" not in out
+
+
+def test_thread_url_is_escaped_in_the_link():
+    article = {**BASE, "thread": {"day": 2, "url": '/thread/1?a=1&b="x"'}}
+    out = render.render_article(article, slug="x")
+    assert 'href="/thread/1?a=1&amp;b=&quot;x&quot;"' in out

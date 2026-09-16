@@ -592,7 +592,7 @@ pub async fn thread_page(
         &state,
         "",
         &format!("{}/{thread_id}", routes::THREAD),
-        "An automated daily briefing. Curated by Claude, filed by a human. &copy; Sean Floyd",
+        "An automated daily briefing. Curated and fact-checked by Claude; no human edits any issue. &copy; Sean Floyd",
     );
     let brand = brand_html(&state.digest_name);
     let canonical_url = state.base_url();

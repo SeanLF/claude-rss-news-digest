@@ -344,7 +344,13 @@ def render_article(
     thread = article.get("thread") or {}
     eyebrow = ""
     if thread.get("day", 0) >= 2:
-        eyebrow = f'<p class="eyebrow"><span class="loc">Ongoing</span> · day {thread["day"]}</p>'
+        label = f'<span class="loc">Ongoing</span> · day {thread["day"]}'
+        url = thread.get("url")
+        if isinstance(url, str) and url:
+            # The thread page already links back to each issue; this is the other direction.
+            eyebrow = f'<p class="eyebrow"><a href="{html.escape(url, quote=True)}">{label} · how it developed</a></p>'
+        else:
+            eyebrow = f'<p class="eyebrow">{label}</p>'
     delta = (thread.get("delta") or "").strip()
     body = html.escape(delta) if delta else summary
 

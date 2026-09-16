@@ -376,7 +376,7 @@ pub async fn index(
     }
     let footer_html = chrome_footer(
         &footer_links,
-        "An automated daily briefing. Curated by Claude, filed by a human. &copy; Sean Floyd",
+        "An automated daily briefing. Curated and fact-checked by Claude; no human edits any issue. &copy; Sean Floyd",
     );
 
     let subscribe_band = if subscriptions_enabled {

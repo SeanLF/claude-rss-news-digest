@@ -2,6 +2,7 @@
 
 import json
 import logging
+import os
 import re
 import time
 from collections import Counter
@@ -328,6 +329,14 @@ def _shared_cluster_ids(selections: dict) -> set[str]:
     return {cid for cid, n in counts.items() if n > 1}
 
 
+def thread_url(thread_id: int) -> str:
+    """Where circulation serves this thread's history page. Absolute when the digest's domain is
+    known, else site-relative: the web archive is served by circulation so a relative link
+    works there, and the email renderer links only absolute URLs."""
+    domain = os.environ.get("DIGEST_DOMAIN", "")
+    return f"https://{domain}/thread/{thread_id}" if domain else f"/thread/{thread_id}"
+
+
 def attach_thread_context(selections: dict) -> dict:
     """Enrich continuing-thread stories with their badge day-count + delta (today's verified
     what's-new, which replaces the summary) so the renderer can show the living-thread treatment.
@@ -371,7 +380,9 @@ def attach_thread_context(selections: dict) -> dict:
                         continue
                     assignment = by_story.get(cluster_id)
                     if assignment:
-                        item["thread"] = store.render_context(assignment["thread_id"], run_id)
+                        ctx = store.render_context(assignment["thread_id"], run_id)
+                        ctx["url"] = thread_url(assignment["thread_id"])
+                        item["thread"] = ctx
         finally:
             conn.close()
     except Exception:

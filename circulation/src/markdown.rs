@@ -238,7 +238,7 @@ pub fn index_markdown(
     out.push_str(
         "> An automated daily news briefing: geopolitics, tech, and privacy, from sources across \
          the political spectrum, each labelled by bias and factuality. Curated and written by \
-         Claude, fact-checked against its sources, filed by a human.\n\n",
+         Claude, fact-checked against its sources; no human edits any issue.\n\n",
     );
     if let (Some(first), Some(newest)) = (&meta.first_date, &meta.newest_date) {
         let issue_s = if meta.total == 1 { "" } else { "s" };
