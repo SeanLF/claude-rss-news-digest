@@ -2,7 +2,7 @@
 # Run `make` or `make help` to see available targets
 
 .DEFAULT_GOAL := help
-.PHONY: ci ci-fix ci-full test eval eval-stages eval-coherence eval-repair eval-select-order a11y lighthouse web-check deploy deploy-dry migrate migrate-status \
+.PHONY: ci ci-fix ci-full test eval eval-stages eval-coherence eval-repair eval-select-order replay digest a11y lighthouse web-check deploy deploy-dry migrate migrate-status \
         ssh db-clone usage usage-daily analytics analytics-list analytics-q versions circulation preview anatomy prompt ask-eval help
 
 # Default window for the analytics queries; override with RUNS=N
@@ -31,6 +31,14 @@ eval-repair: ## Harness-faithful REPAIR error-removal/preservation eval (MAKES m
 	bin/eval-repair
 eval-select-order: ## SELECT order-dependence harness on one archived run (MAKES model calls; usage: make eval-select-order RUN=298)
 	bin/eval-select-order fetch $(RUN) && bin/eval-select-order run $(RUN) --reps 5 --arms fixed,shuffled,sorted
+replay: ## Replay a finished run's render tail from its archived artifacts (no model calls; usage: make replay RUN=285)
+	bin/replay $(RUN)
+# --build, because `docker compose run digest-newsroom` on its own runs whatever the image was
+# last built from: on 2026-09-17 that was a day-old tree, and it reported a working feature as
+# broken. The pipeline keeps src BAKED (no mount) so a local run stays prod-faithful; --build
+# only makes the bake current.
+digest: ## Run the pipeline locally against the CURRENT tree (usage: make digest ARGS="--dry-run")
+	docker compose run --rm --build digest-newsroom $(ARGS)
 a11y: ## Fast structural a11y invariant check (no browser; suitable per-commit)
 	bin/a11y-check
 lighthouse: ## Lighthouse a11y/BP/SEO gate on the design mockups (pre-deploy; needs headless Chrome)

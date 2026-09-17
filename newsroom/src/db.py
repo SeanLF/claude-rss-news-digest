@@ -1,5 +1,6 @@
 """Database operations for digest runs, headlines, and source health."""
 
+import contextlib
 import logging
 import os
 import re
@@ -60,6 +61,32 @@ def is_recording() -> bool:
 def current_run_id() -> int | None:
     """The active run's id, or None if no run has started."""
     return _state.run_id
+
+
+def current_db_path() -> Path | None:
+    """The database init() was pointed at, or None if it has not been called.
+
+    Unlike ``_db_path()`` this asks rather than asserts, so a caller that may be first in the
+    process (a replay, a one-off tool) can initialise instead of crashing.
+    """
+    return _state.db_path
+
+
+@contextlib.contextmanager
+def borrowed_run_id(run_id: int):
+    """Present ``run_id`` as the current run for the duration of the block, then restore.
+
+    For tools that re-run a FINISHED run's code (a replay) against code that reads
+    ``current_run_id()``. Recording is untouched -- a borrower does not become a run -- so
+    nothing new is written under the borrowed id. Lives here because ``_state`` is this module's
+    to own: the alternative is every caller reaching past the accessors.
+    """
+    previous = _state.run_id
+    _state.run_id = run_id
+    try:
+        yield
+    finally:
+        _state.run_id = previous
 
 
 def init(db_path: Path, migrations_dir: Path, *, apply_migrations: bool = True):

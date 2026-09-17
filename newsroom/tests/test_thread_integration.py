@@ -159,7 +159,9 @@ def test_failed_trace_write_is_surfaced_to_the_caller(staged, monkeypatch):
     monkeypatch.setattr(threads, "link_threads", lambda active, labels, **k: [None for _ in labels])
     monkeypatch.setattr(thread_synthesis, "synthesize_threads", lambda *a, **k: ([], 0))
     monkeypatch.setattr(db, "record_run_artifact", lambda *a, **k: False)
-    assert run._process_story_threads() == ["thread_links"]
+    # Both archived artifacts report their own failure: the assignments (which a replay needs to
+    # reproduce the render) and the link trace (which explains the identity decisions).
+    assert run._process_story_threads() == ["thread_assignments", "thread_links"]
 
 
 def test_process_story_threads_disabled_is_noop(staged, monkeypatch):

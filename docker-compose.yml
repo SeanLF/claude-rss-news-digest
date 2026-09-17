@@ -96,6 +96,20 @@ services:
     # front of readers.
     mem_limit: 256m
     cpus: 2
+    # `docker compose up --watch digest-circulation` rebuilds on a source change, so a long-lived
+    # local server cannot drift behind the tree it was built from. Rust needs a rebuild rather
+    # than a sync: there is no interpreter to pick up a changed file. Templates and assets are
+    # compiled in (askama, include_str!), so they rebuild too.
+    develop:
+      watch:
+        - path: ./circulation/src
+          action: rebuild
+        - path: ./circulation/Cargo.toml
+          action: rebuild
+        - path: ./circulation/Cargo.lock
+          action: rebuild
+        - path: ./circulation/assets
+          action: rebuild
     labels:
       - dev.orbstack.domains=${ORBSTACK_DOMAIN:-}
 

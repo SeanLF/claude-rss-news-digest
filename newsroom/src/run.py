@@ -270,12 +270,18 @@ def _process_story_threads() -> list[str]:
         finally:
             conn.close()
         db.record_usage(usage_rows)  # attribute B's Sonnet spend in run_usage like every other stage
-        (CLAUDE_INPUT_DIR / "thread_assignments.json").write_text(
-            json.dumps(
-                [{"thread_id": a.thread_id, "is_new": a.is_new, "story": a.cluster_story} for a in assignments],
-                indent=2,
-            )
+        assignments_json = json.dumps(
+            [{"thread_id": a.thread_id, "is_new": a.is_new, "story": a.cluster_story} for a in assignments],
+            indent=2,
         )
+        (CLAUDE_INPUT_DIR / "thread_assignments.json").write_text(assignments_json)
+        # Recorded rather than swept, for the same reason as thread_links.json below:
+        # archive_run_artifacts already walked claude_input/ before this function ran. Without it
+        # in run_artifacts, replaying a run's render has to infer the assignments from the link
+        # trace, which can only recover CONTINUED stories -- a refused proposal's real thread id
+        # was never written down.
+        if not db.record_run_artifact("thread_assignments.json", assignments_json):
+            failed.append("thread_assignments")
         (CLAUDE_INPUT_DIR / "thread_installments.json").write_text(json.dumps(installments, indent=2))
         continued = sum(1 for a in assignments if not a.is_new)
         logger.info(

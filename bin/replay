@@ -1,0 +1,28 @@
+#!/bin/bash
+# Replay a finished run's TAIL from its archived artifacts: resolve ids, attach thread context,
+# render web + email, and report the invariants. No model calls, no database writes.
+#
+# The surface that was missing on 2026-09-17: a deployed render change could only be verified by
+# waiting for the next scheduled run, so it shipped unchecked. This replays a real archived run
+# against the working tree instead.
+#
+# Usage:
+#   bin/replay RUN_ID [--out DIR]     e.g. bin/replay 285
+#
+# Renders land in data/replay/run<ID>/ (visible on the host through the ./data mount).
+# THREADS_ENABLED is forced on: replaying without it renders no thread context, which reads like
+# a run that had no threads rather than a switch being off.
+set -euo pipefail
+cd "$(dirname "${BASH_SOURCE[0]}")/.."
+
+[[ $# -ge 1 ]] || { sed -n '2,13p' "$0"; exit 2; }
+
+# --build, plus the src mount below, is the whole point: on 2026-09-17 a local check ran a
+# day-old image and reported a working feature as broken. A verification surface that can run
+# stale code is worse than none, because its green is believed.
+exec docker compose run --rm --build \
+  -v "$(pwd)/newsroom/src:/app/src:ro" \
+  -e PYTHONPATH=/app/src \
+  -e THREADS_ENABLED=true \
+  --entrypoint /app/.venv/bin/python3 \
+  digest-newsroom /app/src/replay.py "$@"

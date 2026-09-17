@@ -124,7 +124,7 @@ def load_selections(selections_file: Path) -> dict:
     return selections
 
 
-def resolve_article_ids(selections: dict) -> dict:
+def resolve_article_ids(selections: dict, *, claude_input_dir: Path | None = None) -> dict:
     """Resolve article_id references to full source metadata.
 
     Reads article_index.json, replaces {article_id} with {name, url, bias}
@@ -133,9 +133,12 @@ def resolve_article_ids(selections: dict) -> dict:
 
     Falls back gracefully when article_index.json is missing (--write-only mode).
     Drops entries with unresolved article_ids.
+
+    ``claude_input_dir`` overrides where the index is read from, so a replay can point at a
+    run's materialised artifacts instead of today's working directory.
     """
     # Try CLAUDE_INPUT_DIR first, fall back to OUTPUT_DIR (for --write-only)
-    index_path = CLAUDE_INPUT_DIR / "article_index.json"
+    index_path = (claude_input_dir or CLAUDE_INPUT_DIR) / "article_index.json"
     if not index_path.exists():
         index_path = OUTPUT_DIR / "article_index.json"
     if not index_path.exists():
@@ -337,11 +340,14 @@ def thread_url(thread_id: int) -> str:
     return f"https://{domain}/thread/{thread_id}" if domain else f"/thread/{thread_id}"
 
 
-def attach_thread_context(selections: dict) -> dict:
+def attach_thread_context(selections: dict, *, claude_input_dir: Path | None = None) -> dict:
     """Enrich continuing-thread stories with their badge day-count + delta (today's verified
     what's-new, which replaces the summary) so the renderer can show the living-thread treatment.
     Gated on THREADS_ENABLED; best-effort (the thread layer is additive -- a failure here must not
-    break rendering)."""
+    break rendering).
+
+    ``claude_input_dir`` overrides where the assignments are read from, for replaying an
+    archived run's artifacts rather than today's working directory."""
     import config
 
     if not config.THREADS_ENABLED:
@@ -353,7 +359,7 @@ def attach_thread_context(selections: dict) -> dict:
         import threads
 
         run_id = db.current_run_id()
-        assignments_path = CLAUDE_INPUT_DIR / "thread_assignments.json"
+        assignments_path = (claude_input_dir or CLAUDE_INPUT_DIR) / "thread_assignments.json"
         if run_id is None or not assignments_path.exists():
             return selections
         by_story = {a["story"]: a for a in json.loads(assignments_path.read_text()) if not a.get("is_new")}

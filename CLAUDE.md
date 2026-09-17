@@ -41,7 +41,8 @@ Run `make help` for the full list. Key commands:
 - **Migrate**: `make migrate`, `make migrate-status`
 - **Database**: `make db-clone` (pull prod DB), `make usage` / `make usage-daily`
 - **Server**: `make ssh`
-- **Run digest**: `docker compose run --rm digest-newsroom` (entrypoint passes flags to `run.py`, e.g. `--dry-run`)
+- **Run digest**: `make digest ARGS="--dry-run"` (uses `--build`, so it cannot run a stale image; a bare `docker compose run digest-newsroom` runs whatever the image was last built from)
+- **Replay a run**: `make replay RUN=285` — re-renders a finished run's tail from its archived artifacts (thread links, coherence kinds, invariants) with no model calls and no DB writes
 - **Test prompts**: `make prompt NAME=baseline`
 - **Versions**: `make versions`
 
@@ -68,6 +69,7 @@ SQLite at `data/digest.db`. Schema managed by migrations in `migrations/`.
 - `newsroom/src/` - modules: config, feeds, prepare, claude, digest, render, broadcast, db, usage, utils
 - `newsroom/src/orchestrate.py` - Python orchestration of the 5 curation stages (replaced the old `/news-digest-select` LLM dispatcher); reads `.claude/agents/*.md`
 - `newsroom/src/write_fanout.py` - per-story WRITE branch inputs and fan-in
+- `newsroom/src/replay.py` - replays a finished run's render tail from `run_artifacts` (`bin/replay`)
 - `newsroom/src/merge.py` - post-orchestration assembly (drop coherence-failed entries, validate, write selections.json)
 - `newsroom/src/schema.py` - SELECTIONS_SCHEMA used to validate the assembled output
 - `newsroom/templates/digest-template.html` - HTML template for digest output
@@ -81,9 +83,12 @@ SQLite at `data/digest.db`. Schema managed by migrations in `migrations/`.
 
 ```
 config, schema, write_fanout    no internal imports — keep them leaf modules
+  -> run_health         schema only
   -> db, feeds, utils
   -> render, merge, repair
+  -> render_email       db + render
   -> prepare, digest, orchestrate
+  -> replay             config, db, digest, render, render_email, run_health
   -> claude
   -> run                entry point; the only module that may import broadly
 ```
