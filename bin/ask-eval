@@ -46,8 +46,7 @@ trap cleanup EXIT
 # key, its own list) cannot swap in under the key this script validated.
 DEFAULT_MODELS="inclusionai/ling-3.0-flash-vl:free,nex-agi/nex-n2.5-pro:free"
 MODELS="${ASK_OPENROUTER_MODELS-$DEFAULT_MODELS}"
-# circulation truncates a longer list and only warns into the server log, so the harness would
-# print a green pass for a list nobody tested. Refuse by name instead.
+# circulation truncates silently; refusing here keeps the gate honest.
 if [ "$(printf '%s' "$MODELS" | tr ',' '\n' | grep -c .)" -gt 3 ]; then
   echo "${RED}ASK_OPENROUTER_MODELS has more than 3 entries;${RST} OpenRouter 400s a longer list" >&2
   exit 1
@@ -134,8 +133,7 @@ fi
 
 # A configured endpoint is the precondition for every case; without it each one fails as a
 # behavioural miss when the real fault is configuration.
-# `-f` prints nothing on an HTTP error, so a bare `|| true` here used to leave `probe`
-# empty, match no '"error"', and report a healthy endpoint over a 502. Read the status.
+# Read the status: `-f` prints no body, so a bare `|| true` reports a 502 as healthy.
 probe_body="$SCRATCH/probe.json"
 probe_code=$(curl -sS -o "$probe_body" -w '%{http_code}' -X POST "http://localhost:$PORT/ask.json" \
   -H 'content-type: application/json' -H 'x-forwarded-for: 203.0.113.9' \

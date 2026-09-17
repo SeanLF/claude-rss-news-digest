@@ -96,8 +96,6 @@ const GLOBAL_LIMIT_PER_MINUTE: u32 = 6;
 const OPENROUTER_BASE: &str = "https://openrouter.ai/api/v1";
 const MISTRAL_BASE: &str = "https://api.mistral.ai/v1";
 
-/// OpenRouter rejects a longer `models` array with 400 "'models' array must have 3 items or
-/// fewer", which fails every request rather than one leg.
 const MAX_OPENROUTER_MODELS: usize = 3;
 
 /// Provider configuration. Absent key -> the endpoint is disabled.
@@ -184,9 +182,6 @@ impl AskConfig {
         let openrouter = api_base.contains("openrouter.ai");
         let provider_label = non_empty("ASK_PROVIDER_LABEL")
             .unwrap_or_else(|| (if openrouter { "OpenRouter" } else { "Mistral" }).to_string());
-        // Attribution is what OpenRouter groups its activity log by, so it gets its own
-        // knobs: deriving it from DIGEST_DOMAIN alone left every run with that unset (the
-        // eval harness) reporting no app at all.
         let referer = non_empty("ASK_REFERER")
             .or_else(|| non_empty("DIGEST_DOMAIN").map(|d| format!("https://{d}")));
         let title = non_empty("ASK_TITLE").unwrap_or_else(|| {
