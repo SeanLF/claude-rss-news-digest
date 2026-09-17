@@ -89,6 +89,8 @@ services:
       - ASK_OPENROUTER_MODELS
       - ASK_API_BASE
       - ASK_PROVIDER_LABEL
+      - ASK_REFERER
+      - ASK_TITLE
     # Production runs this container at --memory=256m on a 2-core box (see the terraform for
     # digest_server). Matching it locally means a memory problem shows up here rather than in
     # front of readers.

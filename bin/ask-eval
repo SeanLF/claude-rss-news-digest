@@ -13,11 +13,10 @@
 #   --keep   leave the scratch DB and server running for poking at
 #
 # Environment:
-#   ASK_OPENROUTER_MODELS optional; the ordered OpenRouter list to gate (default: the
-#                         endpoint's own default list). Set it to "" to exercise the
-#                         direct-Mistral path instead.
+#   ASK_OPENROUTER_MODELS optional; the ordered OpenRouter list to gate, at most 3 (default:
+#                         the list below). There is no direct-Mistral path any more.
 #   ASK_API_KEY           the provider key; falls back to OPENROUTER_API_KEY, then to
-#                         1Password's "OpenRouter" item (Mistral's key when the list is "").
+#                         1Password's OpenRouter item.
 #   ASK_EVAL_PORT         optional; defaults to 8188
 set -euo pipefail
 
@@ -45,19 +44,25 @@ trap cleanup EXIT
 
 # The caller's choices are read BEFORE .env is sourced, so a .env written for prod (a Mistral
 # key, its own list) cannot swap in under the key this script validated.
-DEFAULT_MODELS="inclusionai/ling-3.0-flash-vl:free,nex-agi/nex-n2.5-pro:free,google/gemma-4-31b-it"
-MODELS="${ASK_OPENROUTER_MODELS-$DEFAULT_MODELS}"   # "" means the direct-Mistral path
+DEFAULT_MODELS="inclusionai/ling-3.0-flash-vl:free,nex-agi/nex-n2.5-pro:free"
+MODELS="${ASK_OPENROUTER_MODELS-$DEFAULT_MODELS}"
+# circulation truncates a longer list and only warns into the server log, so the harness would
+# print a green pass for a list nobody tested. Refuse by name instead.
+if [ "$(printf '%s' "$MODELS" | tr ',' '\n' | grep -c .)" -gt 3 ]; then
+  echo "${RED}ASK_OPENROUTER_MODELS has more than 3 entries;${RST} OpenRouter 400s a longer list" >&2
+  exit 1
+fi
+if [ -z "$MODELS" ]; then
+  echo "${RED}ASK_OPENROUTER_MODELS is empty${RST} -- /ask has no model and stays off" >&2
+  exit 1
+fi
 RESOLVED_KEY="${ASK_API_KEY:-}"
 set -a; [ -f .env ] && . ./.env; set +a
 
 # The key is what this costs money with, so refuse early and by name rather than letting
 # promptfoo report a whole suite of behavioural failures that are really one missing secret.
 if [ -z "$RESOLVED_KEY" ]; then
-  if [ -n "$MODELS" ]; then
-    RESOLVED_KEY="${OPENROUTER_API_KEY:-$(op item get OpenRouter --vault Private --fields label='API Key' --reveal 2>/dev/null || true)}"
-  else
-    RESOLVED_KEY="$(op item get 'seanfloyd.dev' --fields label=MISTRAL_API_KEY --reveal 2>/dev/null || true)"
-  fi
+  RESOLVED_KEY="${OPENROUTER_API_KEY:-$(op item get OpenRouter --vault Private --fields label='News Digest API Key' --reveal 2>/dev/null || true)}"
 fi
 if [ -z "$RESOLVED_KEY" ]; then
   echo "${RED}ASK_API_KEY is not set and 1Password could not supply one.${RST}" >&2
@@ -110,6 +115,8 @@ ASK_ENABLED=true \
 ASK_API_KEY="$RESOLVED_KEY" \
 ASK_OPENROUTER_MODELS="$MODELS" \
 DIGEST_DOMAIN="" \
+ASK_REFERER="https://news-digest.seanfloyd.dev" \
+ASK_TITLE="News Digest /ask (bin/ask-eval)" \
 DATABASE_PATH="./data/ask-eval-scratch.db" \
 PORT="$PORT" \
   ./circulation/target/release/digest-circulation >"$SCRATCH/server.log" 2>&1 &
@@ -127,11 +134,16 @@ fi
 
 # A configured endpoint is the precondition for every case; without it each one fails as a
 # behavioural miss when the real fault is configuration.
-probe=$(curl -fsS -X POST "http://localhost:$PORT/ask.json" \
+# `-f` prints nothing on an HTTP error, so a bare `|| true` here used to leave `probe`
+# empty, match no '"error"', and report a healthy endpoint over a 502. Read the status.
+probe_body="$SCRATCH/probe.json"
+probe_code=$(curl -sS -o "$probe_body" -w '%{http_code}' -X POST "http://localhost:$PORT/ask.json" \
   -H 'content-type: application/json' -H 'x-forwarded-for: 203.0.113.9' \
-  -d '{"question":"What was in the latest issue?"}' || true)
-if printf '%s' "$probe" | grep -q '"error"'; then
-  echo "${RED}the endpoint is not answering:${RST} $probe" >&2
+  -d '{"question":"What was in the latest issue?"}' || echo 000)
+probe=$(cat "$probe_body" 2>/dev/null || true)
+if [ "$probe_code" != "200" ] || [ -z "$probe" ] || printf '%s' "$probe" | grep -q '"error"'; then
+  echo "${RED}the endpoint is not answering (HTTP $probe_code):${RST} $probe" >&2
+  tail -20 "$SCRATCH/server.log" >&2
   exit 1
 fi
 echo "${GRN}✓ endpoint answering${RST}"

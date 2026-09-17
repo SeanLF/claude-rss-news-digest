@@ -200,8 +200,19 @@ every request carries the whole list (`models`) so the gateway fails over inside
 sends `provider.data_collection=deny` so no host that trains on prompts is routed to, and
 circulation retries from the next leg when a leg fails before any answer text (HTTP 429, 5xx,
 an error object inside a 200 stream, or no first token within 30 s). The SSE `model` event
-and `/ask.json`'s `model` field name the leg that answered. Without the list, `ASK_MODEL`
-against Mistral works as before. Change legs with the env, not a code edit; model ids expire.
+and `/ask.json`'s `model` field name the leg that answered. Change legs with the env, not a
+code edit; model ids expire.
+
+At most 3 legs: OpenRouter 400s a longer `models` array, which fails every request rather
+than one leg, so circulation truncates and warns. Nothing in code checks price — a paid id
+here WILL be billed; the guard is the key's own OpenRouter spend cap. There is no built-in
+model list: ids expire, so they live in the deploy env (`news_digest_ask_openrouter_models`)
+and an unset list leaves `/ask` off. `ASK_REFERER`/`ASK_TITLE` set the OpenRouter activity-log
+attribution independently of `DIGEST_DOMAIN`.
+
+Free-model quota is per ACCOUNT, not per key (1000 req/day), so news-digest and seanfloyd.dev
+share one bucket and a burst on either rate-limits the other. Each has its own key for
+attribution, revocation and spend caps only.
 
 `make ask-eval` (`bin/ask-eval`) gates a candidate list on the planted-injection archive with
 real calls: `ASK_OPENROUTER_MODELS=a,b bin/ask-eval`; the key comes from `OPENROUTER_API_KEY`

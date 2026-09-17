@@ -95,7 +95,10 @@ const GLOBAL_LIMIT_PER_MINUTE: u32 = 6;
 
 const OPENROUTER_BASE: &str = "https://openrouter.ai/api/v1";
 const MISTRAL_BASE: &str = "https://api.mistral.ai/v1";
-const MISTRAL_MODEL: &str = "mistral-medium-2508";
+
+/// OpenRouter rejects a longer `models` array with 400 "'models' array must have 3 items or
+/// fewer", which fails every request rather than one leg.
+const MAX_OPENROUTER_MODELS: usize = 3;
 
 /// Provider configuration. Absent key -> the endpoint is disabled.
 #[derive(Clone)]
@@ -151,12 +154,25 @@ impl AskConfig {
                 listed.push(m.to_string());
             }
         }
-        let via_openrouter = !listed.is_empty();
-        let models = if via_openrouter {
-            listed
+        let (models, via_openrouter) = if !listed.is_empty() {
+            (listed, true)
+        } else if let Some(m) = non_empty("ASK_MODEL") {
+            (vec![m], false)
         } else {
-            vec![non_empty("ASK_MODEL").unwrap_or_else(|| MISTRAL_MODEL.to_string())]
+            (Vec::new(), false)
         };
+        if models.is_empty() {
+            tracing::warn!("ask: no model configured; endpoint stays off");
+            return None;
+        }
+        let mut models = models;
+        if via_openrouter && models.len() > MAX_OPENROUTER_MODELS {
+            tracing::warn!(
+                dropped = ?&models[MAX_OPENROUTER_MODELS..],
+                "ask: OpenRouter accepts at most {MAX_OPENROUTER_MODELS} models; extra legs dropped"
+            );
+            models.truncate(MAX_OPENROUTER_MODELS);
+        }
         let api_base = non_empty("ASK_API_BASE").unwrap_or_else(|| {
             (if via_openrouter {
                 OPENROUTER_BASE
@@ -168,11 +184,17 @@ impl AskConfig {
         let openrouter = api_base.contains("openrouter.ai");
         let provider_label = non_empty("ASK_PROVIDER_LABEL")
             .unwrap_or_else(|| (if openrouter { "OpenRouter" } else { "Mistral" }).to_string());
-        let referer = non_empty("DIGEST_DOMAIN").map(|d| format!("https://{d}"));
-        let title = format!(
-            "{} /ask",
-            non_empty("DIGEST_NAME").unwrap_or_else(|| "News Digest".to_string())
-        );
+        // Attribution is what OpenRouter groups its activity log by, so it gets its own
+        // knobs: deriving it from DIGEST_DOMAIN alone left every run with that unset (the
+        // eval harness) reporting no app at all.
+        let referer = non_empty("ASK_REFERER")
+            .or_else(|| non_empty("DIGEST_DOMAIN").map(|d| format!("https://{d}")));
+        let title = non_empty("ASK_TITLE").unwrap_or_else(|| {
+            format!(
+                "{} /ask",
+                non_empty("DIGEST_NAME").unwrap_or_else(|| "News Digest".to_string())
+            )
+        });
         Some(Self {
             api_base,
             models,
@@ -1335,7 +1357,18 @@ mod tests {
             with(&[("ASK_ENABLED", "true"), ("ASK_API_KEY", " ")]).is_none(),
             "blank key"
         );
-        assert!(with(&[("ASK_ENABLED", "true"), ("ASK_API_KEY", "k")]).is_some());
+        assert!(
+            with(&[("ASK_ENABLED", "true"), ("ASK_API_KEY", "k")]).is_none(),
+            "a switch and a key with no model list has nothing to answer with"
+        );
+        assert!(
+            with(&[
+                ("ASK_ENABLED", "true"),
+                ("ASK_API_KEY", "k"),
+                ("ASK_OPENROUTER_MODELS", "a/one:free"),
+            ])
+            .is_some()
+        );
         // A provider-named key in a sibling project's environment must not arm this.
         let src = include_str!("ask.rs");
         let reader = src
@@ -1569,22 +1602,22 @@ mod openrouter_tests {
             ("ASK_API_KEY", "k"),
             (
                 "ASK_OPENROUTER_MODELS",
-                " a/one:free , b/two:free,, c/three ",
+                " a/one:free , b/two:free,, c/three:free ",
             ),
             ("DIGEST_DOMAIN", "digest.example"),
             ("DIGEST_NAME", "Test Digest"),
         ]))
         .expect("configured");
-        assert_eq!(cfg.models, vec!["a/one:free", "b/two:free", "c/three"]);
+        assert_eq!(cfg.models, vec!["a/one:free", "b/two:free", "c/three:free"]);
         let dup = AskConfig::from_lookup(lookup(&[
             ("ASK_ENABLED", "1"),
             ("ASK_API_KEY", "k"),
-            ("ASK_OPENROUTER_MODELS", "a,b,a"),
+            ("ASK_OPENROUTER_MODELS", "a:free,b:free,a:free"),
         ]))
         .unwrap();
         assert_eq!(
             dup.models,
-            vec!["a", "b"],
+            vec!["a:free", "b:free"],
             "a failed leg must not be walked twice"
         );
         assert_eq!(cfg.model(), "a/one:free");
@@ -1596,30 +1629,55 @@ mod openrouter_tests {
     }
 
     #[test]
-    fn without_a_list_nothing_changes() {
-        let cfg =
-            AskConfig::from_lookup(lookup(&[("ASK_ENABLED", "1"), ("ASK_API_KEY", "k")])).unwrap();
-        assert_eq!(cfg.models, vec![MISTRAL_MODEL]);
+    fn an_explicit_free_model_still_selects_its_own_base() {
+        let cfg = AskConfig::from_lookup(lookup(&[
+            ("ASK_ENABLED", "1"),
+            ("ASK_API_KEY", "k"),
+            ("ASK_MODEL", "vendor/small:free"),
+        ]))
+        .unwrap();
+        assert_eq!(cfg.models, vec!["vendor/small:free"]);
         assert_eq!(cfg.api_base, MISTRAL_BASE);
         assert!(!cfg.openrouter);
-        assert_eq!(cfg.provider_label, "Mistral");
-        // ASK_MODEL still works as a one-entry list.
-        let cfg = AskConfig::from_lookup(lookup(&[
-            ("ASK_ENABLED", "1"),
-            ("ASK_API_KEY", "k"),
-            ("ASK_MODEL", "mistral-small"),
-        ]))
-        .unwrap();
-        assert_eq!(cfg.models, vec!["mistral-small"]);
         // An empty list (compose forwards `${VAR:-}`) is unset, not a one-entry list of "".
+        assert!(
+            AskConfig::from_lookup(lookup(&[
+                ("ASK_ENABLED", "1"),
+                ("ASK_API_KEY", "k"),
+                ("ASK_OPENROUTER_MODELS", " , "),
+            ]))
+            .is_none(),
+            "an empty list is unset, and unset leaves /ask off"
+        );
+    }
+
+    #[test]
+    fn attribution_can_be_set_without_a_public_domain() {
         let cfg = AskConfig::from_lookup(lookup(&[
             ("ASK_ENABLED", "1"),
             ("ASK_API_KEY", "k"),
-            ("ASK_OPENROUTER_MODELS", " , "),
+            ("ASK_OPENROUTER_MODELS", "a:free"),
+            ("ASK_REFERER", "https://news-digest.example"),
+            ("ASK_TITLE", "News Digest /ask (eval)"),
         ]))
-        .unwrap();
-        assert_eq!(cfg.models, vec![MISTRAL_MODEL]);
-        assert!(!cfg.openrouter);
+        .expect("configured");
+        assert_eq!(cfg.referer.as_deref(), Some("https://news-digest.example"));
+        assert_eq!(cfg.title, "News Digest /ask (eval)");
+    }
+
+    #[test]
+    fn an_openrouter_list_is_capped_at_the_gateways_limit() {
+        let cfg = AskConfig::from_lookup(lookup(&[
+            ("ASK_ENABLED", "1"),
+            ("ASK_API_KEY", "k"),
+            ("ASK_OPENROUTER_MODELS", "a:free,b:free,c:free,d:free"),
+        ]))
+        .expect("configured");
+        assert_eq!(
+            cfg.models,
+            vec!["a:free", "b:free", "c:free"],
+            "a 4th leg 400s the whole request, so it must never be sent"
+        );
     }
 
     #[test]
@@ -1628,7 +1686,7 @@ mod openrouter_tests {
             ("ASK_ENABLED", "1"),
             ("ASK_API_KEY", "k"),
             ("ASK_API_BASE", "https://openrouter.ai/api/v1/"),
-            ("ASK_MODEL", "x/y"),
+            ("ASK_MODEL", "x/y:free"),
         ]))
         .unwrap();
         assert!(cfg.openrouter);
