@@ -66,10 +66,10 @@ if [ -z "$RESOLVED_KEY" ]; then
 fi
 if [ -z "$RESOLVED_KEY" ]; then
   echo "${RED}ASK_API_KEY is not set and 1Password could not supply one.${RST}" >&2
-  echo "  export OPENROUTER_API_KEY=\$(op item get OpenRouter --vault Private --fields label='API Key' --reveal)" >&2
+  echo "  export OPENROUTER_API_KEY=\$(op item get OpenRouter --vault Private --fields label='News Digest API Key' --reveal)" >&2
   exit 1
 fi
-echo "→ provider under test: ${MODELS:-Mistral (direct)}"
+echo "→ provider under test: $MODELS"
 
 if [ ! -f "$ROOT/data/digest.db" ]; then
   echo "${RED}data/digest.db is missing.${RST} Run 'make db-clone' first." >&2
