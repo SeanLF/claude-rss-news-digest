@@ -28,6 +28,11 @@ services:
       - bash-history:/home/appuser/.bash_history_dir
       - ./newsroom/templates/digest.css:/app/templates/digest.css:ro
       - ./prompts:/app/prompts:ro
+      # migrations/ is COPY'd at image build, so without this a migration added since the
+      # last build is invisible: `bin/migrate --status` lists it as neither applied nor
+      # pending, and a local run silently skips it. Prod is unaffected -- it runs the image
+      # it deployed, where the baked copy IS the artifact.
+      - ./migrations:/app/migrations:ro
 
   ci:
     build:
