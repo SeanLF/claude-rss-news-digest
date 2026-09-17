@@ -25,6 +25,7 @@ thread whose id the trace never recorded.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import logging
 import re
@@ -44,6 +45,9 @@ logger = logging.getLogger(__name__)
 
 ASSIGNMENTS_ARTIFACT = "thread_assignments.json"
 LINKS_ARTIFACT = "thread_links.json"
+# Sidecar recording that a derivation in the output dir is ours, so a later pass can replace it
+# without having to guess whether it is overwriting someone's hand-written file.
+DERIVED_MARKER = ".thread_assignments.replay-derived"
 SELECTIONS_ARTIFACT = "selections.json"
 COHERENCE_ARTIFACT = "coherence_report.json"
 INDEX_ARTIFACT = "article_index.json"
@@ -110,13 +114,28 @@ def assignments_from_trace(trace: object) -> list[dict]:
     return out
 
 
-def _unarchived(dest: Path) -> str | None:
-    """Provenance for an assignments file that is in ``dest`` but was never archived.
+def _write_derived(dest: Path, derived: list[dict]) -> None:
+    """Write reconstructed assignments, and record that THIS module wrote them.
 
-    Left by an earlier replay, or put there by hand to test a hypothesis. It is still USED -- that
-    is what someone hand-placing it wants -- but it is never reported as archived evidence, and it
-    is never deleted.
+    The marker is what lets a later pass tell its own derivation (safe to replace) from a file
+    someone put here by hand (never touch). Without it, "don't delete the user's file" is not a
+    property the code can actually check.
     """
+    payload = json.dumps(derived, indent=2)
+    (dest / ASSIGNMENTS_ARTIFACT).write_text(payload)
+    (dest / DERIVED_MARKER).write_text(hashlib.sha256(payload.encode()).hexdigest())
+
+
+def _is_replay_derived(dest: Path) -> bool:
+    """True only when the assignments file in ``dest`` is byte-for-byte one we wrote."""
+    marker, existing = dest / DERIVED_MARKER, dest / ASSIGNMENTS_ARTIFACT
+    if not (marker.exists() and existing.exists()):
+        return False
+    return marker.read_text().strip() == hashlib.sha256(existing.read_text().encode()).hexdigest()
+
+
+def _unarchived(dest: Path) -> str | None:
+    """Provenance for an assignments file that is in ``dest`` but was never archived."""
     if not (dest / ASSIGNMENTS_ARTIFACT).exists():
         return None
     logger.warning(
@@ -139,6 +158,12 @@ def _resolve_assignments(dest: Path, archived: list[str]) -> str | None:
     if ASSIGNMENTS_ARTIFACT in archived:
         return ASSIGNMENTS_ARTIFACT
 
+    # A file here that we did not write is someone's hypothesis, and it wins. Deriving over it
+    # would destroy it exactly as unlinking it did -- the first version of this function swapped
+    # os.remove for write_text and called that a fix.
+    if (dest / ASSIGNMENTS_ARTIFACT).exists() and not _is_replay_derived(dest):
+        return _unarchived(dest)
+
     links = dest / LINKS_ARTIFACT
     if not links.exists():
         return _unarchived(dest)
@@ -151,7 +176,7 @@ def _resolve_assignments(dest: Path, archived: list[str]) -> str | None:
     if not derived:
         return _unarchived(dest)
 
-    (dest / ASSIGNMENTS_ARTIFACT).write_text(json.dumps(derived, indent=2))
+    _write_derived(dest, derived)
     return LINKS_ARTIFACT
 
 

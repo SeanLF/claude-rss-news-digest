@@ -197,12 +197,18 @@ def test_a_hand_placed_assignments_file_is_used_but_never_deleted_or_called_arch
     dest = tmp_path / "out"
     replay.materialize(archived["run_id"], dest)
     mine = dest / ASSIGNMENTS
-    mine.write_text(json.dumps([{"story": "Iran war", "thread_id": archived["thread_id"], "is_new": False}]))
+    # Deliberately DIFFERENT from what the trace derives. An earlier version of this test used the
+    # fixture's own thread id, so the content matched byte-for-byte and the assertions could not
+    # see the file being overwritten -- a green test guarding nothing.
+    hypothesis = json.dumps([{"story": "Iran war", "thread_id": 999, "is_new": False, "note": "MY HYPOTHESIS"}])
+    mine.write_text(hypothesis)
 
     report = replay.replay(archived["run_id"], dest)
 
     assert mine.exists(), "replay deleted a file it did not write"
-    assert report.assignments_source == LINKS, "a derivable trace still wins, and says so"
+    assert mine.read_text() == hypothesis, "replay overwrote a file it did not write"
+    assert report.assignments_source is not None
+    assert LINKS not in report.assignments_source, "someone's own file must not be reported as a derivation"
 
 
 def test_replay_does_not_write_to_the_database(archived, tmp_path):

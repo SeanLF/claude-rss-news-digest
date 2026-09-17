@@ -110,6 +110,18 @@ services:
           action: rebuild
         - path: ./circulation/assets
           action: rebuild
+        # Build inputs that do not live under circulation/: the Dockerfile COPYs both (sources.json
+        # for the bias table, design/ for the include_str!'d tokens). Watching only circulation/
+        # would leave an edit to either silently stale -- the same failure this harness exists to
+        # stop, moved one directory over.
+        - path: ./newsroom/sources.json
+          action: rebuild
+        - path: ./design
+          action: rebuild
+        - path: ./circulation/apple-touch-icon.png
+          action: rebuild
+        - path: ./circulation/og-image.png
+          action: rebuild
     labels:
       - dev.orbstack.domains=${ORBSTACK_DOMAIN:-}
 
