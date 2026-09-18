@@ -801,6 +801,18 @@ _TRACE_ARTIFACTS = (
     # evidence base than prod had -- a repair fixture rebuilt from such a trace would
     # be judged against sources the repairer never actually saw.
     "article_fulltext.json",
+    # The remaining context files, added 2026-09-17 after Probe 0 found the archive was not
+    # CLOSED under stage inputs: each of these is named by an agent prompt, and none of them
+    # survives the run. sources.csv and recent_rss_titles.csv are rebuilt into a claude_input/
+    # that is rmtree'd next run; weekly_recap.txt is a rolling file in data/ that later runs
+    # append to and trim to 6 weeks, so a past run's copy is destroyed rather than merely
+    # missing. Without them RECAP cannot be re-run from the archive at all, and SELECT/WRITE
+    # can only be re-run against a weekly recap they never saw -- a harness that does it
+    # anyway still prints a number. test_archive_closure.py holds this list against the
+    # prompts so the next prompt edit cannot silently reopen the gap.
+    "sources.csv",
+    "recent_rss_titles.csv",
+    "weekly_recap.txt",
 )
 
 
