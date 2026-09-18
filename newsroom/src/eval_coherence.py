@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import datetime
 import json
 import shutil
 from pathlib import Path
@@ -64,7 +65,11 @@ _PROD_INPUT_MARKER = "/app/data/claude_input/"
 
 
 def load_agent_for_eval(
-    agent_path: Path, fixtures: Path, model_override: str | None = None
+    agent_path: Path,
+    fixtures: Path,
+    model_override: str | None = None,
+    *,
+    today: datetime.date | None = None,
 ) -> tuple[str, str, dict, list[str]]:
     """load_agent + redirect the agent's hardcoded prod input path to the mounted
     fixture dir, applying an optional model override.
@@ -79,6 +84,12 @@ def load_agent_for_eval(
             f"{agent_path}: expected {_PROD_INPUT_MARKER!r} in body to redirect for the eval; prompt paths drifted"
         )
     body = base_body.replace(_PROD_INPUT_MARKER, f"{fixtures}/")
+    # Render the runtime tokens exactly as production does. Without this the harness ships
+    # coherence.md's literal "Today is {{CURRENT_DATE}}" to the model and then instructs it to
+    # date the world from that -- a system prompt production never sends, in the one harness
+    # whose whole claim is that it reproduces production exactly. claude_cli.run_agent now
+    # refuses an unrendered token, so this is enforced rather than remembered.
+    body = orchestrate.render_body(body, today=today)
     return model, body, thinking, tools
 
 
@@ -333,12 +344,19 @@ def main() -> int:
     ap.add_argument("--single-turn", action="store_true", help="inline the corpus, tools=[], parse result.text")
     ap.add_argument("--per-story", action="store_true", help="one single-turn call per story, cited sources only")
     ap.add_argument("--model", default=None, help="override coherence.md's frontmatter model")
+    ap.add_argument(
+        "--today",
+        default=None,
+        help="ISO date to anchor {{CURRENT_DATE}} to (default: UTC today). Set it to the date of "
+        "the run a fixture came from; the checker is told to judge world state from it.",
+    )
     args = ap.parse_args()
 
     runs = max(1, args.runs)
     fixtures = Path(args.fixtures)
     labels = json.loads((fixtures / "labels.json").read_text(encoding="utf-8"))
-    model, body, thinking, tools = load_agent_for_eval(Path(args.agent), fixtures, args.model)
+    today = datetime.date.fromisoformat(args.today) if args.today else None
+    model, body, thinking, tools = load_agent_for_eval(Path(args.agent), fixtures, args.model, today=today)
 
     print(f"COHERENCE eval  model={model}  thinking={thinking['type']}  runs={runs}  fixtures={fixtures.name}")
     print(

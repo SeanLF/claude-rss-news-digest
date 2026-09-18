@@ -197,6 +197,10 @@ def main() -> int:
     inputs = restore_inputs(conn, args.run)
     fan = write_fanout.build_branches(inputs)
     model, body, thinking, _tools = eval_coherence.load_agent(WRITE_AGENT)
+    # write.md carries {{CURRENT_DATE}}; production resolves it in orchestrate.render_body and
+    # claude_cli.run_agent now refuses an unresolved token. Both arms get the same date, so the
+    # comparison is unaffected -- it is the run date, not today's, that is unavailable here.
+    body = orchestrate.render_body(body)
     print(
         f"WRITE turns eval  run={args.run}  branches={len(fan.branches)} (dropped {len(fan.dropped)})  "
         f"model={model}  thinking={thinking['type']}  reps={args.reps}  arms={''.join(arms)}\n"

@@ -84,6 +84,27 @@ _THINKING: ThinkingConfig = {"type": "disabled"}
 # the Trump administration. Injecting the real run date (and the paired write.md
 # rule to ground office-holders in the articles, not prior knowledge) is the fix.
 _CURRENT_DATE_TOKEN = "{{CURRENT_DATE}}"
+# Substituted by PATTERN, not by exact string: render_body and claude_cli's reject-an-
+# unrendered-token guard have to agree on what counts as the token, or a prompt edit that
+# adds a space ("{{ CURRENT_DATE }}") is silently unsubstituted here and then fatal there --
+# deterministic, so the retry fails identically and the run ships no digest.
+_CURRENT_DATE_RE = re.compile(r"\{\{\s*CURRENT_DATE\s*\}\}")
+
+
+def _utc_today() -> datetime.date:
+    """The pipeline's canonical clock, as one named seam.
+
+    A run's date is a RUN input, not a per-stage one: read per stage, a run that crosses UTC
+    midnight tells WRITE it is the 17th and COHERENCE it is the 18th, and a re-run of an
+    archived run dates every stage to the day of the re-run rather than the day of the news.
+    ``orchestrate_selections`` reads this ONCE and hands the result to every stage, so the
+    curation phase is internally consistent. It is NOT yet a whole-run invariant: ``digest.py``
+    and ``render.py`` each read the clock again for the digest key and the reader-facing date,
+    so a run spanning midnight still files under the later day. ``today=`` exists for the
+    harnesses that replay an archived run and must anchor it to the day of the news; no
+    production caller passes it.
+    """
+    return datetime.datetime.now(datetime.UTC).date()
 
 
 def render_body(body: str, *, today: datetime.date | None = None) -> str:
@@ -98,10 +119,10 @@ def render_body(body: str, *, today: datetime.date | None = None) -> str:
     local time here would let the WRITE "today" disagree with the digest date by
     a full day near the UTC-midnight boundary, reintroducing a date mismatch.
     """
-    today = today or datetime.datetime.now(datetime.UTC).date()
+    today = today or _utc_today()
     # Explicit field formatting avoids the non-portable %-d (no leading zero) flag.
     formatted = f"{today:%A}, {today.day} {today:%B} {today.year}"
-    return body.replace(_CURRENT_DATE_TOKEN, formatted)
+    return _CURRENT_DATE_RE.sub(formatted, body)
 
 
 def _tool_list(spec: AgentSpec) -> list[str]:
@@ -616,6 +637,7 @@ async def _invoke_agent(
     cwd: str | Path | None,
     idle_timeout: float = _IDLE_TIMEOUT_S,
     max_budget_usd: float | None = None,
+    today: datetime.date | None = None,
 ) -> claude_cli.StageResult:
     """Drive one agent to completion and return its :class:`StageResult`.
 
@@ -631,7 +653,7 @@ async def _invoke_agent(
     result = await claude_cli.run_agent(
         _PROMPT,
         model=model,
-        system_prompt=render_body(spec.body),
+        system_prompt=render_body(spec.body, today=today),
         permission_mode=_PERMISSION_MODE,
         allowed_tools=" ".join(tool_list),
         tools=tool_list,
@@ -661,6 +683,7 @@ async def run_stage(
     run_deadline: float | None = None,
     attempt_timeout: float | None = None,
     max_budget_usd: float | None = None,
+    today: datetime.date | None = None,
 ) -> dict[str, Any]:
     """Run one subagent stage with a single retry, returning its usage row.
 
@@ -700,7 +723,7 @@ async def run_stage(
             logger.info("[%s started]%s", label.capitalize(), " (retry)" if attempt == 2 else "")
             result = await with_retry_async(
                 lambda: asyncio.wait_for(
-                    _invoke_agent(spec, model=model, cwd=cwd, max_budget_usd=max_budget_usd),
+                    _invoke_agent(spec, model=model, cwd=cwd, max_budget_usd=max_budget_usd, today=today),
                     timeout=attempt_timeout,
                 ),
                 label=label,
@@ -753,6 +776,7 @@ async def _run_write_branches(
     cwd: str | Path | None,
     run_deadline: float | None,
     rows: dict[str, dict[str, Any]],
+    today: datetime.date | None = None,
 ) -> None:
     """Drive every branch through ``run_stage``, bounded at ``_WRITE_BRANCH_CONCURRENCY``.
 
@@ -806,6 +830,7 @@ async def _run_write_branches(
                 run_deadline=run_deadline,
                 attempt_timeout=_WRITE_BRANCH_ATTEMPT_TIMEOUT_S,
                 max_budget_usd=_WRITE_BRANCH_BUDGET_USD,
+                today=today,
             )
             rows[branch.name] = row
             healthcheck.log(f"write {branch.name} done {row.get('duration_ms', 0) // 1000}s ${row['api_cost_usd']:.4f}")
@@ -924,6 +949,7 @@ async def run_write_phase(
     cwd: str | Path | None,
     run_deadline: float | None,
     on_usage: Callable[[dict[str, Any]], None],
+    today: datetime.date | None = None,
 ) -> None:
     """Run the WRITE stage, handing each usage row to ``on_usage`` as it is produced.
 
@@ -970,6 +996,7 @@ async def run_write_phase(
             cwd=cwd,
             run_deadline=run_deadline,
             rows=branch_rows,
+            today=today,
         )
         draft = write_fanout.assemble_draft(fanout.branches)
     except BaseException:
@@ -1000,6 +1027,7 @@ async def run_write_phase(
                 run_deadline=run_deadline,
                 attempt_timeout=_PREHEADER_ATTEMPT_TIMEOUT_S,
                 max_budget_usd=_PREHEADER_BUDGET_USD,
+                today=today,
             )
         )
         draft["preheader"] = read_preheader(claude_input_dir)
@@ -1286,7 +1314,11 @@ def _log_repair_events(claude_input_dir: Path, requests: dict, applied: dict, re
 
 
 async def _run_repair_phase(
-    claude_input_dir: Path, *, model_override: str | None, cwd: str | Path | None
+    claude_input_dir: Path,
+    *,
+    model_override: str | None,
+    cwd: str | Path | None,
+    today: datetime.date | None = None,
 ) -> list[dict[str, Any]]:
     """Regenerate COHERENCE-flagged repairable fields, re-check, and write
     repair_resolution.json for merge to consume. Returns the phase's usage rows.
@@ -1337,6 +1369,7 @@ async def _run_repair_phase(
             model_override=model_override,
             cwd=cwd,
             claude_input_dir=claude_input_dir,
+            today=today,
         )
     )
     repaired = _load_json(claude_input_dir / "repaired_fields.json")
@@ -1358,6 +1391,7 @@ async def _run_repair_phase(
                     model_override=model_override,
                     cwd=cwd,
                     claude_input_dir=claude_input_dir,
+                    today=today,
                 )
             )
             recheck = json.loads((claude_input_dir / _RECHECK_REPORT_NAME).read_text(encoding="utf-8"))
@@ -1373,14 +1407,18 @@ async def _run_repair_phase(
 
 
 async def _run_repair_phase_best_effort(
-    claude_input_dir: Path, *, model_override: str | None, cwd: str | Path | None
+    claude_input_dir: Path,
+    *,
+    model_override: str | None,
+    cwd: str | Path | None,
+    today: datetime.date | None = None,
 ) -> list[dict[str, Any]]:
     """Wrap the repair phase so NOTHING it does can abort the run. Any failure
     (repair agent, re-check, I/O) leaves no repair_resolution.json (or an all-fail
     one), so merge.assemble_selections drops the flagged stories exactly as before
     repair existed. Mirrors _run_fulltext_best_effort's additive stance."""
     try:
-        return await _run_repair_phase(claude_input_dir, model_override=model_override, cwd=cwd)
+        return await _run_repair_phase(claude_input_dir, model_override=model_override, cwd=cwd, today=today)
     except RepairSpecError as e:
         # NOT the same as a repair that found nothing, and not the same as a model call that
         # failed: this disables the repair path outright, on every run, until a file is
@@ -1408,6 +1446,7 @@ async def orchestrate_selections(
     cwd: str | Path | None = None,
     resume: bool = False,
     on_usage: Callable[[dict[str, Any]], None] | None = None,
+    today: datetime.date | None = None,
 ) -> list[dict[str, Any]]:
     """Run the five curation stages in order; return their usage rows.
 
@@ -1432,6 +1471,11 @@ async def orchestrate_selections(
     """
     logger.info("Selecting stories... (model=%s)", model_override or "per-agent default")
     usage_rows: list[dict[str, Any]] = []
+    # Read ONCE, here: the date every stage reasons from is an input to the RUN, not to each
+    # stage. Resolved per stage, a run spanning UTC midnight dates WRITE to one day and
+    # COHERENCE to the next, and a re-run of an archived run dates all of them to the day of
+    # the re-run instead of the day of the news.
+    today = today or _utc_today()
     run_deadline = time.monotonic() + _RUN_RETRY_BUDGET_S
 
     healthcheck.log(f"curation start: {len(_STAGES)} stages")
@@ -1477,6 +1521,7 @@ async def orchestrate_selections(
                 cwd=cwd,
                 run_deadline=run_deadline,
                 on_usage=_record,
+                today=today,
             )
         else:
             spec = parse_agent_spec(_AGENTS_DIR / spec_filename)
@@ -1489,6 +1534,7 @@ async def orchestrate_selections(
                 cwd=cwd,
                 claude_input_dir=claude_input_dir,
                 run_deadline=run_deadline,
+                today=today,
             )
             _record(row)
         # Fetch full text for the SELECTED stories before WRITE runs (whether SELECT just ran or
@@ -1512,7 +1558,9 @@ async def orchestrate_selections(
     # field and re-check it rather than let merge drop the whole story. Best-effort so
     # it can never abort the run (merge falls back to dropping the story). Runs whenever
     # the draft/report are on disk, including resume-only runs where COHERENCE was reused.
-    for row in await _run_repair_phase_best_effort(claude_input_dir, model_override=model_override, cwd=cwd):
+    for row in await _run_repair_phase_best_effort(
+        claude_input_dir, model_override=model_override, cwd=cwd, today=today
+    ):
         _record(row)
 
     total = sum(r["api_cost_usd"] for r in usage_rows)

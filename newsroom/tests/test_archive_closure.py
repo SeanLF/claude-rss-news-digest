@@ -39,9 +39,10 @@ DERIVED_FROM_ARCHIVED = {
 # Model OUTPUTS on the repair path. These are NOT derivable -- re-deriving one means paying
 # for the model call again, against inputs that are themselves unarchived -- so this is a
 # KNOWN, OPEN gap in the closure guarantee, not an exemption from it. `repair_resolution.json`
-# is the one merge.assemble_selections reads, and no agent prompt names any of the three, so
-# the prompt scan below cannot see them; they are listed here to keep them from being
-# forgotten. Closing this changes what production records, so it is a separate decision.
+# is the one merge.assemble_selections reads. Only `repaired_fields.json` is named by a prompt
+# (repair.md), so the scan below sees one of the four and the rest are listed by hand -- which
+# is the point: the scan's universe is "filenames spelled in a prompt", and the real input set
+# is strictly larger. Closing this changes what production records, so it is a separate decision.
 UNARCHIVED_REPAIR_OUTPUTS = {
     "repaired_fields.json": "repair stage output; the re-check consumes it in-process",
     "recheck_report.json": "re-check output; build_repair_resolution consumes it in-process",

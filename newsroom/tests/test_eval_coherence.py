@@ -105,7 +105,7 @@ def test_every_run_keeps_its_own_report(tmp_path, monkeypatch):
     monkeypatch.setattr(
         eval_coherence,
         "load_agent_for_eval",
-        lambda agent, fixtures, override=None: ("m", "body", {"type": "disabled"}, ["Read", "Write"]),
+        lambda agent, fixtures, override=None, **_: ("m", "body", {"type": "disabled"}, ["Read", "Write"]),
     )
     monkeypatch.setattr(sys, "argv", ["eval_coherence", "--runs", "3", "--fixtures", str(tmp_path)])
     assert eval_coherence.main() == 0

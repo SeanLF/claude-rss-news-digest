@@ -29,6 +29,7 @@ user+project+local settings as the CLI.
 
 import asyncio
 import logging
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -185,6 +186,34 @@ def _build_options(
 # ---------------------------------------------------------------------------
 
 
+# A `{{TOKEN}}` left in a system prompt is a prompt that was never rendered. Production
+# substitutes via orchestrate.render_body; a harness that reads an agent body straight off
+# disk skips that and ships the literal token, so the model is told "Today is
+# {{CURRENT_DATE}}" and then instructed to date the world from it. The harness still
+# prints a number, and the number is not about the production prompt. Every stage and
+# every harness reaches the model through run_agent -- it is the sole caller of the SDK's
+# query() -- so this is the seam that can refuse. The one exception is bin/test-prompt, which
+# shells out to the `claude` CLI directly (test_prompt.py) and is not covered here.
+_UNRENDERED_TOKEN = re.compile(r"\{\{([^{}]{0,64})\}\}")
+
+
+def assert_prompt_fully_rendered(system_prompt: str | None) -> None:
+    """Raise if a template token survived into the system prompt.
+
+    Single braces are left alone: agent bodies carry JSON examples (``{"results": []}``),
+    and only the ``{{...}}`` form is a token.
+    """
+    if not system_prompt:
+        return
+    found = _UNRENDERED_TOKEN.findall(system_prompt)
+    if found:
+        raise ValueError(
+            f"system prompt still contains unrendered token(s): {sorted(set(found))}. "
+            "Render the agent body through orchestrate.render_body(body, today=...) before "
+            "passing it as system_prompt."
+        )
+
+
 async def run_agent(
     prompt: str,
     *,
@@ -221,6 +250,7 @@ async def run_agent(
 
     Raises RuntimeError if the stream ends without a terminal ResultMessage.
     """
+    assert_prompt_fully_rendered(system_prompt)
     options = _build_options(
         model=model,
         system_prompt=system_prompt,

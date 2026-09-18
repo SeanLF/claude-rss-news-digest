@@ -33,6 +33,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import datetime
 import json
 from pathlib import Path
 
@@ -228,11 +229,13 @@ def score_recheck(recheck_path: Path, idx_by_ids: dict[frozenset, int]) -> dict[
     return passed
 
 
-def _recheck_agent(fixtures: Path, model_override: str | None) -> tuple[str, str, dict, list[str]]:
+def _recheck_agent(
+    fixtures: Path, model_override: str | None, today: datetime.date | None = None
+) -> tuple[str, str, dict, list[str]]:
     """coherence.md redirected for the eval (prod path -> fixtures) AND re-pointed at
     the recheck files (draft_selections -> recheck_draft, coherence_report ->
     recheck_report), so the no-new-error check reuses the LIVE prod checker verbatim."""
-    model, body, thinking, tools = load_agent_for_eval(COHERENCE_AGENT, fixtures, model_override)
+    model, body, thinking, tools = load_agent_for_eval(COHERENCE_AGENT, fixtures, model_override, today=today)
     for src, dst in (("draft_selections.json", RECHECK_DRAFT_NAME), ("coherence_report.json", RECHECK_REPORT_NAME)):
         if src not in body:
             raise SystemExit(f"coherence.md: expected {src!r} to re-point for the repair re-check; prompt drifted")
@@ -247,6 +250,13 @@ def main() -> int:
     ap.add_argument("--runs", type=int, default=2)
     ap.add_argument("--model", default=None, help="override repair.md's frontmatter model")
     ap.add_argument(
+        "--today",
+        default=None,
+        help="ISO date to anchor {{CURRENT_DATE}} to (default: UTC today). repair.md and "
+        "coherence.md both tell the model to date the world from it, and these fixtures come "
+        "from a past run -- set it to that run's date or the re-check judges stale news as current.",
+    )
+    ap.add_argument(
         "--recheck-runs",
         type=int,
         default=1,
@@ -257,7 +267,8 @@ def main() -> int:
     runs = max(1, args.runs)
     fixtures = Path(args.fixtures)
     labels = json.loads((fixtures / "labels.json").read_text(encoding="utf-8"))
-    model, body, thinking, tools = load_agent_for_eval(Path(args.agent), fixtures, args.model)
+    today = datetime.date.fromisoformat(args.today) if args.today else None
+    model, body, thinking, tools = load_agent_for_eval(Path(args.agent), fixtures, args.model, today=today)
 
     _, idx_by_ids, orig_by_idx = build_repair_requests(fixtures, labels)
     n = len(labels["repair"])
@@ -299,7 +310,7 @@ def main() -> int:
         draft = json.loads((fixtures / "draft_selections.json").read_text(encoding="utf-8"))
         repaired_results = json.loads((fixtures / OUTPUT_NAME).read_text(encoding="utf-8")).get("results", [])
         (fixtures / RECHECK_DRAFT_NAME).write_text(json.dumps(build_recheck_draft(draft, repaired_results), indent=2))
-        cmodel, cbody, cthinking, ctools = _recheck_agent(fixtures, args.model)
+        cmodel, cbody, cthinking, ctools = _recheck_agent(fixtures, args.model, today)
         pass_counts: dict[int, int] = dict.fromkeys(idx_by_ids.values(), 0)
         for _ in range(args.recheck_runs):
             asyncio.run(

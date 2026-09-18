@@ -611,3 +611,39 @@ class TestIdleWatchdog:
         with pytest.raises(RuntimeError, match="idle timeout"):
             claude_cli.run_sync("x", model="haiku", idle_timeout=0.05)
         assert closed["closed"] is True
+
+
+# --------------------------------------------------------------------------- #
+# Unresolved prompt tokens.
+#
+# `render_body` substitutes `{{CURRENT_DATE}}` on the production path, but an
+# eval harness that reads an agent body straight off disk bypasses it and ships
+# the literal token to the model -- so the prompt reads "Today is
+# {{CURRENT_DATE}}. Judge the present state of the world ... from this date".
+# The harness then reports a number as production-faithful when its system
+# prompt differed from production's. run_agent is the one seam every stage and
+# every harness passes through, so the check belongs here: loud, not silent.
+# --------------------------------------------------------------------------- #
+
+
+class TestUnresolvedPromptToken:
+    def test_rejects_an_unresolved_token_in_the_system_prompt(self):
+        with pytest.raises(ValueError, match=r"CURRENT_DATE"):
+            asyncio.run(
+                claude_cli.run_agent("Begin.", system_prompt="Today is {{CURRENT_DATE}}. Judge from this date.")
+            )
+
+    def test_error_names_the_seam_that_should_have_substituted(self):
+        with pytest.raises(ValueError, match="render_body"):
+            claude_cli.assert_prompt_fully_rendered("Today is {{CURRENT_DATE}}.")
+
+    def test_a_resolved_prompt_passes_the_guard(self):
+        claude_cli.assert_prompt_fully_rendered("Today is Wednesday, 1 July 2026.")
+
+    def test_no_system_prompt_passes_the_guard(self):
+        # Most callers pass none; the guard must not make that an error.
+        claude_cli.assert_prompt_fully_rendered(None)
+
+    def test_single_braces_are_not_tokens(self):
+        # Agent bodies carry JSON examples; only the {{...}} form is a template token.
+        claude_cli.assert_prompt_fully_rendered('Reply with {"results": []} and nothing else.')

@@ -1523,3 +1523,61 @@ def test_stage_output_is_valid_false_when_present_but_invalid(tmp_path):
     # Present but empty -> validator raises -> stage must re-run, not be skipped.
     (tmp_path / "clusters.json").write_text('{"clusters": []}')
     assert orchestrate._stage_output_is_valid(tmp_path, "clusters.json", orchestrate.validate_clusters) is False
+
+
+# --------------------------------------------------------------------------- #
+# One run, one date.
+#
+# `{{CURRENT_DATE}}` is the anchor WRITE/COHERENCE/REPAIR are told to reason
+# from ("Determine the present state of the world ONLY from today's articles
+# and this date"). Resolving it per stage means a run that crosses UTC midnight
+# hands one stage the 17th and the next the 18th, and a re-run of an archived
+# run silently dates every stage to the day of the re-run. The date is a RUN
+# input: fixed once, then handed to every stage.
+# --------------------------------------------------------------------------- #
+
+
+class TestOneRunOneDate:
+    def test_run_date_override_reaches_every_stage(self, tmp_path, monkeypatch):
+        from datetime import date
+
+        prompts: list[str] = []
+        base = TestOrchestrateSelections()._fake_writer(tmp_path)
+
+        async def fake_run(_prompt, *, system_prompt, **k):
+            prompts.append(system_prompt)
+            return await base(_prompt, system_prompt=system_prompt, **k)
+
+        TestOrchestrateSelections._write_articles(tmp_path)
+        monkeypatch.setattr(orchestrate.claude_cli, "run_agent", fake_run)
+        monkeypatch.setattr(orchestrate, "_AGENTS_DIR", REPO_ROOT / ".claude" / "agents")
+
+        _orchestrate(claude_input_dir=tmp_path, today=date(2026, 7, 1))
+
+        dated = [p for p in prompts if "Today is " in p]
+        assert dated, "no stage carried a date anchor -- the fixture stopped exercising the token"
+        assert all("Wednesday, 1 July 2026" in p for p in dated)
+        assert not any("{{CURRENT_DATE}}" in p for p in prompts)
+
+    def test_date_is_fixed_at_run_start_not_read_per_stage(self, tmp_path, monkeypatch):
+        # A run crossing UTC midnight must not date its later stages to the next day.
+        from datetime import date
+
+        clock = iter([date(2026, 7, 1)] + [date(2026, 7, 2)] * 50)
+        prompts: list[str] = []
+        base = TestOrchestrateSelections()._fake_writer(tmp_path)
+
+        async def fake_run(_prompt, *, system_prompt, **k):
+            prompts.append(system_prompt)
+            return await base(_prompt, system_prompt=system_prompt, **k)
+
+        TestOrchestrateSelections._write_articles(tmp_path)
+        monkeypatch.setattr(orchestrate, "_utc_today", lambda: next(clock))
+        monkeypatch.setattr(orchestrate.claude_cli, "run_agent", fake_run)
+        monkeypatch.setattr(orchestrate, "_AGENTS_DIR", REPO_ROOT / ".claude" / "agents")
+
+        _orchestrate(claude_input_dir=tmp_path)
+
+        dated = [p for p in prompts if "Today is " in p]
+        assert dated
+        assert all("Wednesday, 1 July 2026" in p for p in dated), "a later stage re-read the clock"
