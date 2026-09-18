@@ -44,9 +44,17 @@ DB = Path("/app/data/digest.db")
 WORK = Path("/app/data/eval-write-turns")
 WRITE_AGENT = Path("/app/.claude/agents/write.md")
 COHERENCE_AGENT = Path("/app/.claude/agents/coherence.md")
-# What build_branches and the shipped COHERENCE need from the archive. weekly_recap.txt is not
-# archived, so both arms run without it; the comparison is unaffected.
-INPUT_NAMES = ("selected.json", "clusters.json", "article_fulltext.json", "recap.txt", "recent_digest_headlines.txt")
+# What build_branches and the shipped COHERENCE need from the archive. Runs archived before
+# 2026-09-18 have no weekly_recap.txt; the branches then run without it, as prod does when
+# the rolling file is absent.
+INPUT_NAMES = (
+    "selected.json",
+    "clusters.json",
+    "article_fulltext.json",
+    "recap.txt",
+    "weekly_recap.txt",
+    "recent_digest_headlines.txt",
+)
 CONCURRENCY = 4
 
 

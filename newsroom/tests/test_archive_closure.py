@@ -191,3 +191,13 @@ def test_no_inline_system_prompt_is_unlisted():
     assert found, "no inline system_prompt constants found at all -- the scan drifted"
     unlisted = {c: f for c, f in found.items() if c not in listed}
     assert not unlisted, f"inline system prompts outside INLINE_SYSTEM_PROMPTS: {unlisted}"
+
+
+def test_the_write_turns_eval_restores_every_shared_context_file():
+    # build_branches copies a shared file only if it exists, so an eval that restores fewer
+    # of them than the archive holds measures WRITE against a thinner prompt than prod, silently.
+    import eval_write_turns
+    import write_fanout
+
+    assert set(write_fanout.SHARED_CONTEXT_FILES) <= set(eval_write_turns.INPUT_NAMES)
+    assert set(eval_write_turns.INPUT_NAMES) <= set(db._TRACE_ARTIFACTS)
