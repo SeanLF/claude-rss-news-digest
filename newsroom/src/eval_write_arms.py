@@ -182,6 +182,7 @@ async def main():
     work_a = build_arm("A", arts, heads, {})
     work_b = build_arm("B", arts, heads, deltas(conn, args.run))
     spec_a, spec_b = build_specs(work_a, work_b)
+    print(f"anchored: {today or 'TODAY (run date unavailable)'}")
     print(f"prior ({args.prior_run}): {prior}\n")
 
     results = {}

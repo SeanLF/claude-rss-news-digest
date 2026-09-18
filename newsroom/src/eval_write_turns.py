@@ -209,7 +209,8 @@ def main() -> int:
     today = _run_date(conn, args.run)
     body = orchestrate.render_body(body, today=today)
     print(
-        f"WRITE turns eval  run={args.run}  branches={len(fan.branches)} (dropped {len(fan.dropped)})  "
+        f"WRITE turns eval  run={args.run}  anchored={today or 'TODAY (run date unavailable)'}  "
+        f"branches={len(fan.branches)} (dropped {len(fan.dropped)})  "
         f"model={model}  thinking={thinking['type']}  reps={args.reps}  arms={''.join(arms)}\n"
     )
     results: dict[str, list[dict]] = {a: [] for a in arms}

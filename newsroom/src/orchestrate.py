@@ -1,4 +1,3 @@
-# Once per run, not per stage.
 """Deterministic Python orchestration of the curation subagents.
 
 This replaces the LLM "thin dispatcher" (`/news-digest-select`). The dispatch
@@ -112,11 +111,12 @@ def render_body(body: str, *, today: datetime.date | None = None) -> str:
     e.g. ``Wednesday, 1 July 2026``. A body without the token is returned
     unchanged, so this is a no-op for every stage that does not opt in.
 
-    The default date is UTC, matching the pipeline's canonical clock (the digest
+    The default date is UTC, matching the date the digest is filed under (the digest
     is filed under a UTC date -- see ``run.py``/``db.py``/``digest.py``). Using
     local time here would let the WRITE "today" disagree with the digest date by
     a full day near the UTC-midnight boundary, reintroducing a date mismatch.
     """
+    # Once per run, not per stage.
     today = today or _utc_today()
     # Explicit field formatting avoids the non-portable %-d (no leading zero) flag.
     formatted = f"{today:%A}, {today.day} {today:%B} {today.year}"
@@ -728,7 +728,14 @@ async def run_stage(
                 deadline=stage_deadline,
             )
             validate(claude_input_dir)
-        except (RuntimeError, ValueError) as e:
+        # TimeoutError is asyncio.wait_for's expiry, and it is an OSError -- caught by neither
+        # with_retry_async's (RuntimeError, ClaudeSDKError) nor the pair below it. Without it
+        # here, the ONE failure the attempt timeout exists to catch was the one failure that
+        # skipped the clean-slate retry every other failure gets, and aborted the run bearing
+        # no stage name. Deliberately NOT converted to a retryable RuntimeError: "timeout" is
+        # in retry._RETRYABLE_PATTERNS, so that would hand a hung stage the whole 4h stage
+        # budget in backoff and starve every stage after it.
+        except (RuntimeError, ValueError, TimeoutError) as e:
             last_err = e
             if attempt == 1:
                 logger.warning("%s failed (attempt 1/2), retrying: %s", label, e)

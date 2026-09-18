@@ -165,7 +165,7 @@ class TestRenderBody:
         assert orchestrate.render_body(body, today=date(2026, 7, 1)) == body
 
     def test_defaults_to_utc_today(self):
-        # Must anchor to UTC (the pipeline's canonical clock), not local time --
+        # Must anchor to UTC (the date the digest is filed under), not local time --
         # otherwise the WRITE "today" can disagree with the UTC digest date by a
         # full day near the UTC-midnight boundary.
         import datetime as dt
@@ -1532,7 +1532,7 @@ def test_stage_output_is_valid_false_when_present_but_invalid(tmp_path):
 class TestOneRunOneDate:
     """Covers all three dated prompts -- write.md, coherence.md and repair.md."""
 
-    _DATED = ("news writer", "fact-checking editor", "correction editor")
+    _DATED = ("news writer", "fact-checking editor", "correction editor", "recheck_report.json")
 
     def _fake(self, tmp_path, prompts):
         """The shared fixture plus a repairable coherence failure, so REPAIR runs too."""
@@ -1542,7 +1542,7 @@ class TestOneRunOneDate:
             prompts.append(system_prompt)
             if "correction editor" in system_prompt:
                 (tmp_path / "repaired_fields.json").write_text(
-                    json.dumps({"results": [{"headline": _BRANCH_HEADLINE, "summary": "Patched."}]})
+                    json.dumps({"results": [{"article_ids": ["A1"], "summary": "Patched."}]})
                 )
                 return _stage_result()
             # coherence.md re-pointed at the recheck files is still the "fact-checking editor";

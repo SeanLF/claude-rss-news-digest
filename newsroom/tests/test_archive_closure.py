@@ -155,6 +155,9 @@ INLINE_SYSTEM_PROMPTS = (
     ("threads", "LINK_SYSTEM"),
     ("thread_synthesis", "EVOLVE_SYSTEM"),
     ("thread_synthesis", "AUDIT_SYSTEM"),
+    ("eval_why_judge", "WHY_JUDGE_PROMPT"),
+    ("eval_recap_judge", "RECAP_JUDGE_PROMPT"),
+    ("eval_recap_ab", "RECAP_SYSTEM_PROMPT"),
 )
 
 
@@ -168,10 +171,23 @@ def test_inline_system_prompts_render_clean(module_name, attr):
     claude_cli.assert_prompt_fully_rendered(orchestrate.render_body(body))
 
 
-def test_cluster_md_is_still_dead():
-    # A canary on the blind spot above: if CLUSTER ever goes back to parsing cluster.md, the
-    # list stops being the exception and this test should be deleted along with it.
-    import orchestrate
+def test_no_inline_system_prompt_is_unlisted():
+    """A constant passed as system_prompt= must be on the list above.
 
-    src = Path(orchestrate.__file__).read_text(encoding="utf-8")
-    assert 'elif label == "cluster":' in src, "CLUSTER no longer bypasses its .md -- revisit INLINE_SYSTEM_PROMPTS"
+    The list is hand-maintained, so without this a new one added tomorrow is silently
+    outside every prompt-level guarantee -- which is how cluster.md's replacement escaped
+    in the first place.
+
+    Bounded, and the bound matters: this sees `system_prompt=CONSTANT` only. A constant
+    assigned to a local first (thread_synthesis passes `system_prompt=system`) is invisible
+    here, which is why EVOLVE_SYSTEM and AUDIT_SYSTEM are on the list but not in `found`.
+    The render check above covers them; this one cannot.
+    """
+    listed = {name for _module, name in INLINE_SYSTEM_PROMPTS}
+    found: dict[str, str] = {}
+    for path in sorted((REPO_ROOT / "newsroom" / "src").glob("*.py")):
+        for const in re.findall(r"system_prompt=([A-Z][A-Z0-9_]+)", path.read_text(encoding="utf-8")):
+            found[const] = path.name
+    assert found, "no inline system_prompt constants found at all -- the scan drifted"
+    unlisted = {c: f for c, f in found.items() if c not in listed}
+    assert not unlisted, f"inline system prompts outside INLINE_SYSTEM_PROMPTS: {unlisted}"
