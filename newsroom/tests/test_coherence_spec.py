@@ -155,7 +155,7 @@ def test_no_effort_override():
 def test_body_carries_the_current_date_token():
     """coherence.md auto-fails a STALE WORLD-STATE assertion and tells the model to check
     "the cited articles and today's date" -- so it has to be given the date."""
-    assert orchestrate._CURRENT_DATE_TOKEN in _spec().body
+    assert orchestrate._CURRENT_DATE_RE.search(_spec().body)
 
 
 def test_body_says_should_know_carries_no_why_it_matters():

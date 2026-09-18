@@ -613,17 +613,7 @@ class TestIdleWatchdog:
         assert closed["closed"] is True
 
 
-# --------------------------------------------------------------------------- #
-# Unresolved prompt tokens.
-#
-# `render_body` substitutes `{{CURRENT_DATE}}` on the production path, but an
-# eval harness that reads an agent body straight off disk bypasses it and ships
-# the literal token to the model -- so the prompt reads "Today is
-# {{CURRENT_DATE}}. Judge the present state of the world ... from this date".
-# The harness then reports a number as production-faithful when its system
-# prompt differed from production's. run_agent is the one seam every stage and
-# every harness passes through, so the check belongs here: loud, not silent.
-# --------------------------------------------------------------------------- #
+# Production renders agent bodies; a harness reading one off disk does not.
 
 
 class TestUnresolvedPromptToken:

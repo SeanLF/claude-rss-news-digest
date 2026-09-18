@@ -1,3 +1,4 @@
+# Once per run, not per stage.
 """Deterministic Python orchestration of the curation subagents.
 
 This replaces the LLM "thin dispatcher" (`/news-digest-select`). The dispatch
@@ -83,16 +84,13 @@ _THINKING: ThinkingConfig = {"type": "disabled"}
 # naming "the Biden administration" as current when the day's stories are all about
 # the Trump administration. Injecting the real run date (and the paired write.md
 # rule to ground office-holders in the articles, not prior knowledge) is the fix.
-_CURRENT_DATE_TOKEN = "{{CURRENT_DATE}}"
-# Substituted by PATTERN, not by exact string: render_body and claude_cli's reject-an-
-# unrendered-token guard have to agree on what counts as the token, or a prompt edit that
-# adds a space ("{{ CURRENT_DATE }}") is silently unsubstituted here and then fatal there --
-# deterministic, so the retry fails identically and the run ships no digest.
+# Whitespace-tolerant so render_body and claude_cli's guard agree on what the token is;
+# an exact-string replace made "{{ CURRENT_DATE }}" unsubstituted here and fatal there.
 _CURRENT_DATE_RE = re.compile(r"\{\{\s*CURRENT_DATE\s*\}\}")
 
 
 def _utc_today() -> datetime.date:
-    """The pipeline's canonical clock, as one named seam.
+    """The CURATION PHASE's clock, read once per run.
 
     A run's date is a RUN input, not a per-stage one: read per stage, a run that crosses UTC
     midnight tells WRITE it is the 17th and COHERENCE it is the 18th, and a re-run of an

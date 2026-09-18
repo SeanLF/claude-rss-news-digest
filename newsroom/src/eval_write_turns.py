@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import datetime
 import json
 import shutil
 import sqlite3
@@ -47,6 +48,12 @@ COHERENCE_AGENT = Path("/app/.claude/agents/coherence.md")
 # archived, so both arms run without it; the comparison is unaffected.
 INPUT_NAMES = ("selected.json", "clusters.json", "article_fulltext.json", "recap.txt", "recent_digest_headlines.txt")
 CONCURRENCY = 4
+
+
+def _run_date(conn: sqlite3.Connection, run: int) -> datetime.date | None:
+    """The date the run happened, for anchoring {{CURRENT_DATE}}."""
+    row = conn.execute("SELECT date(run_at) FROM digest_runs WHERE id=?", (run,)).fetchone()
+    return datetime.date.fromisoformat(row[0]) if row and row[0] else None
 
 
 def restore_inputs(conn: sqlite3.Connection, run: int) -> Path:
@@ -147,7 +154,7 @@ async def write_rep(
     return draft, totals
 
 
-def check_rep(inputs: Path, tag: str, draft: dict) -> dict:
+def check_rep(inputs: Path, tag: str, draft: dict, today: datetime.date | None = None) -> dict:
     """The shipped multi-turn COHERENCE over one assembled draft, against the full corpus."""
     coh_dir = inputs.parent / f"coherence_{tag}"
     if coh_dir.exists():
@@ -157,7 +164,7 @@ def check_rep(inputs: Path, tag: str, draft: dict) -> dict:
         if path.name.startswith("articles_") or path.name == "article_fulltext.json":
             shutil.copy2(path, coh_dir / path.name)
     (coh_dir / "draft_selections.json").write_text(json.dumps(draft, indent=1), encoding="utf-8")
-    model, body, thinking, tools = eval_coherence.load_agent_for_eval(COHERENCE_AGENT, coh_dir)
+    model, body, thinking, tools = eval_coherence.load_agent_for_eval(COHERENCE_AGENT, coh_dir, today=today)
     report_path = coh_dir / "coherence_report.json"
     asyncio.run(eval_coherence.run_agent_to_file("coherence", report_path, model, body, thinking, tools))
     results = json.loads(report_path.read_text(encoding="utf-8")).get("results", [])
@@ -197,10 +204,10 @@ def main() -> int:
     inputs = restore_inputs(conn, args.run)
     fan = write_fanout.build_branches(inputs)
     model, body, thinking, _tools = eval_coherence.load_agent(WRITE_AGENT)
-    # write.md carries {{CURRENT_DATE}}; production resolves it in orchestrate.render_body and
-    # claude_cli.run_agent now refuses an unresolved token. Both arms get the same date, so the
-    # comparison is unaffected -- it is the run date, not today's, that is unavailable here.
-    body = orchestrate.render_body(body)
+    # Anchor the archived run to the day of ITS news, not the day of the eval: write.md and
+    # coherence.md both tell the model to date the world from this.
+    today = _run_date(conn, args.run)
+    body = orchestrate.render_body(body, today=today)
     print(
         f"WRITE turns eval  run={args.run}  branches={len(fan.branches)} (dropped {len(fan.dropped)})  "
         f"model={model}  thinking={thinking['type']}  reps={args.reps}  arms={''.join(arms)}\n"
@@ -220,7 +227,7 @@ def main() -> int:
                 f"out={totals['output']}  cost=${totals['cost']:.2f}"
                 + (f"  FAILED {totals['failures']}" if totals["failures"] else "")
             )
-            coherence = check_rep(inputs, tag, draft)
+            coherence = check_rep(inputs, tag, draft, today)
             l1 = grade_rep(draft)
             print(
                 f"[{tag}] coherence flags {coherence['flags']}/{coherence['checked']} {coherence['flagged_fields']}  L1 failures {l1}"

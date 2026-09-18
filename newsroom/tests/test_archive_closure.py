@@ -110,15 +110,8 @@ def test_the_code_that_rebuilds_a_derived_file_exists(name, target):
     assert hasattr(module, attr), f"{name}: {module_name}.{attr} does not exist -- the exemption is unfounded"
 
 
-# --------------------------------------------------------------------------- #
-# Every shipped agent prompt renders clean.
-#
-# claude_cli.assert_prompt_fully_rendered refuses an unrendered `{{TOKEN}}` at the model
-# seam. That is the right place to CATCH it and the wrong place to first LEARN of it: the
-# input is deterministic, so a prompt whose token render_body does not substitute fails
-# identically on the retry and aborts curation -- discovered at 10:25Z, with no digest. This
-# is the same check one layer earlier, where a prompt edit meets it in `make ci`.
-# --------------------------------------------------------------------------- #
+# The guard in claude_cli catches an unrendered token at the model seam; these catch it in CI,
+# where a prompt edit meets it instead of a production run at 10:25Z.
 
 
 @pytest.mark.parametrize("agent_path", sorted(AGENTS_DIR.glob("*.md")), ids=lambda p: p.stem)
@@ -150,3 +143,35 @@ def test_a_whitespaced_token_is_substituted_not_rejected():
     rendered = orchestrate.render_body("Today is {{ CURRENT_DATE }}.")
     claude_cli.assert_prompt_fully_rendered(rendered)
     assert "{{" not in rendered
+
+
+# Prompts production sends that are NOT .md files. cluster.md is dead -- orchestrate routes
+# label == "cluster" to cluster_extractjoin, which uses EXTRACT_SYSTEM -- so the glob above
+# covers a prompt nothing runs and missed the one that does. Until they move into
+# .claude/agents/, they are named here so the guard still reaches them.
+INLINE_SYSTEM_PROMPTS = (
+    ("cluster_extractjoin", "EXTRACT_SYSTEM"),
+    ("cohesion", "JUDGE_SYSTEM"),
+    ("threads", "LINK_SYSTEM"),
+    ("thread_synthesis", "EVOLVE_SYSTEM"),
+    ("thread_synthesis", "AUDIT_SYSTEM"),
+)
+
+
+@pytest.mark.parametrize("module_name,attr", INLINE_SYSTEM_PROMPTS, ids=lambda v: str(v))
+def test_inline_system_prompts_render_clean(module_name, attr):
+    import claude_cli
+    import orchestrate
+
+    module = importlib.import_module(module_name)
+    body = getattr(module, attr)
+    claude_cli.assert_prompt_fully_rendered(orchestrate.render_body(body))
+
+
+def test_cluster_md_is_still_dead():
+    # A canary on the blind spot above: if CLUSTER ever goes back to parsing cluster.md, the
+    # list stops being the exception and this test should be deleted along with it.
+    import orchestrate
+
+    src = Path(orchestrate.__file__).read_text(encoding="utf-8")
+    assert 'elif label == "cluster":' in src, "CLUSTER no longer bypasses its .md -- revisit INLINE_SYSTEM_PROMPTS"

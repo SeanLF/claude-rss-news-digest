@@ -84,11 +84,7 @@ def load_agent_for_eval(
             f"{agent_path}: expected {_PROD_INPUT_MARKER!r} in body to redirect for the eval; prompt paths drifted"
         )
     body = base_body.replace(_PROD_INPUT_MARKER, f"{fixtures}/")
-    # Render the runtime tokens exactly as production does. Without this the harness ships
-    # coherence.md's literal "Today is {{CURRENT_DATE}}" to the model and then instructs it to
-    # date the world from that -- a system prompt production never sends, in the one harness
-    # whose whole claim is that it reproduces production exactly. claude_cli.run_agent now
-    # refuses an unrendered token, so this is enforced rather than remembered.
+    # Render exactly as production does, or the harness measures a prompt production never sent.
     body = orchestrate.render_body(body, today=today)
     return model, body, thinking, tools
 

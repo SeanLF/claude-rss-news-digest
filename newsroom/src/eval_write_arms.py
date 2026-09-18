@@ -29,6 +29,7 @@ Usage:
 
 import argparse
 import asyncio
+import datetime
 import json
 import math
 import re
@@ -163,6 +164,9 @@ async def main():
     args = ap.parse_args()
 
     conn = sqlite3.connect(f"file:{DB}?mode=ro", uri=True)
+    # write.md dates the world from {{CURRENT_DATE}}; anchor it to the archived run's own day.
+    _d = conn.execute("SELECT date(run_at) FROM digest_runs WHERE id=?", (args.run,)).fetchone()
+    today = datetime.date.fromisoformat(_d[0]) if _d and _d[0] else None
     arts, heads = artifacts(conn, args.run), prior_headlines(conn, args.run)
     row = conn.execute(
         "SELECT headline FROM shown_narratives WHERE run_id=? AND lower(headline) LIKE ? LIMIT 1",
@@ -192,6 +196,7 @@ async def main():
                     label="write",
                     output_path=out,
                     validate=orchestrate.validate_draft,
+                    today=today,
                     model_override=None,
                     cwd=None,
                     claude_input_dir=work,

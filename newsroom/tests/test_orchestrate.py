@@ -1525,39 +1525,72 @@ def test_stage_output_is_valid_false_when_present_but_invalid(tmp_path):
     assert orchestrate._stage_output_is_valid(tmp_path, "clusters.json", orchestrate.validate_clusters) is False
 
 
-# --------------------------------------------------------------------------- #
-# One run, one date.
-#
-# `{{CURRENT_DATE}}` is the anchor WRITE/COHERENCE/REPAIR are told to reason
-# from ("Determine the present state of the world ONLY from today's articles
-# and this date"). Resolving it per stage means a run that crosses UTC midnight
-# hands one stage the 17th and the next the 18th, and a re-run of an archived
-# run silently dates every stage to the day of the re-run. The date is a RUN
-# input: fixed once, then handed to every stage.
-# --------------------------------------------------------------------------- #
+# The date is a RUN input, not a per-stage one: read per stage, a run crossing UTC midnight
+# hands one stage the 17th and the next the 18th.
 
 
 class TestOneRunOneDate:
-    def test_run_date_override_reaches_every_stage(self, tmp_path, monkeypatch):
-        from datetime import date
+    """Covers all three dated prompts -- write.md, coherence.md and repair.md."""
 
-        prompts: list[str] = []
+    _DATED = ("news writer", "fact-checking editor", "correction editor")
+
+    def _fake(self, tmp_path, prompts):
+        """The shared fixture plus a repairable coherence failure, so REPAIR runs too."""
         base = TestOrchestrateSelections()._fake_writer(tmp_path)
 
         async def fake_run(_prompt, *, system_prompt, **k):
             prompts.append(system_prompt)
+            if "correction editor" in system_prompt:
+                (tmp_path / "repaired_fields.json").write_text(
+                    json.dumps({"results": [{"headline": _BRANCH_HEADLINE, "summary": "Patched."}]})
+                )
+                return _stage_result()
+            # coherence.md re-pointed at the recheck files is still the "fact-checking editor";
+            # the filename is what tells the two apart.
+            if "recheck_report.json" in system_prompt:
+                (tmp_path / "recheck_report.json").write_text(
+                    json.dumps({"results": [{"headline": _BRANCH_HEADLINE, "pass": True}]})
+                )
+                return _stage_result()
+            if "fact-checking editor" in system_prompt:
+                (tmp_path / "coherence_report.json").write_text(
+                    json.dumps(
+                        {
+                            "results": [
+                                {
+                                    "headline": _BRANCH_HEADLINE,
+                                    "article_ids": ["A1"],
+                                    "pass": False,
+                                    "reason": "unsupported",
+                                    "failed_fields": ["summary"],
+                                }
+                            ]
+                        }
+                    )
+                )
+                return _stage_result()
             return await base(_prompt, system_prompt=system_prompt, **k)
 
+        return fake_run
+
+    def _dated_prompts(self, prompts):
+        seen = [p for p in prompts if "Today is " in p]
+        covered = {d for d in self._DATED if any(d in p for p in seen)}
+        assert covered == set(self._DATED), f"dated prompts not exercised: {set(self._DATED) - covered}"
+        return seen
+
+    def test_run_date_override_reaches_every_dated_stage(self, tmp_path, monkeypatch):
+        from datetime import date
+
+        prompts: list[str] = []
         TestOrchestrateSelections._write_articles(tmp_path)
-        monkeypatch.setattr(orchestrate.claude_cli, "run_agent", fake_run)
+        monkeypatch.setattr(orchestrate.claude_cli, "run_agent", self._fake(tmp_path, prompts))
         monkeypatch.setattr(orchestrate, "_AGENTS_DIR", REPO_ROOT / ".claude" / "agents")
 
         _orchestrate(claude_input_dir=tmp_path, today=date(2026, 7, 1))
 
-        dated = [p for p in prompts if "Today is " in p]
-        assert dated, "no stage carried a date anchor -- the fixture stopped exercising the token"
-        assert all("Wednesday, 1 July 2026" in p for p in dated)
-        assert not any("{{CURRENT_DATE}}" in p for p in prompts)
+        assert all("Wednesday, 1 July 2026" in p for p in self._dated_prompts(prompts))
+        assert not any("{{" in p for p in prompts)
 
     def test_date_is_fixed_at_run_start_not_read_per_stage(self, tmp_path, monkeypatch):
         # A run crossing UTC midnight must not date its later stages to the next day.
@@ -1565,19 +1598,12 @@ class TestOneRunOneDate:
 
         clock = iter([date(2026, 7, 1)] + [date(2026, 7, 2)] * 50)
         prompts: list[str] = []
-        base = TestOrchestrateSelections()._fake_writer(tmp_path)
-
-        async def fake_run(_prompt, *, system_prompt, **k):
-            prompts.append(system_prompt)
-            return await base(_prompt, system_prompt=system_prompt, **k)
-
         TestOrchestrateSelections._write_articles(tmp_path)
         monkeypatch.setattr(orchestrate, "_utc_today", lambda: next(clock))
-        monkeypatch.setattr(orchestrate.claude_cli, "run_agent", fake_run)
+        monkeypatch.setattr(orchestrate.claude_cli, "run_agent", self._fake(tmp_path, prompts))
         monkeypatch.setattr(orchestrate, "_AGENTS_DIR", REPO_ROOT / ".claude" / "agents")
 
         _orchestrate(claude_input_dir=tmp_path)
 
-        dated = [p for p in prompts if "Today is " in p]
-        assert dated
+        dated = self._dated_prompts(prompts)
         assert all("Wednesday, 1 July 2026" in p for p in dated), "a later stage re-read the clock"

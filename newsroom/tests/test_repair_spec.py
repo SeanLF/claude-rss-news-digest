@@ -77,7 +77,7 @@ def test_model_is_pinned_and_recognised():
 def test_body_carries_the_current_date_token():
     """The repairer reasons about world state (who holds an office), so it needs the run
     date rather than a stale training prior -- the same fix as WRITE's."""
-    assert orchestrate._CURRENT_DATE_TOKEN in _spec().body
+    assert orchestrate._CURRENT_DATE_RE.search(_spec().body)
 
 
 def test_prompt_forbids_internal_ids_in_reader_facing_text():
