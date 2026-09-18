@@ -1313,6 +1313,29 @@ class TestStageAttemptIsBounded:
         assert seen["deadline"] <= run_deadline + 0.01, "the per-stage budget outran the run deadline"
 
 
+class TestRepairSharesTheRunDeadline:
+    def test_the_repair_phase_is_handed_the_run_deadline(self, tmp_path, monkeypatch):
+        """The deadline is computed once per run and threaded into every stage by hand.
+        Repair was the stage it was not threaded into, so a plumbing test, not a
+        constant: the phase must receive the same float the other stages did."""
+        TestOrchestrateSelections()._write_articles(tmp_path)
+        monkeypatch.setattr(orchestrate.claude_cli, "run_agent", TestOrchestrateSelections()._fake_writer(tmp_path))
+        monkeypatch.setattr(orchestrate, "_AGENTS_DIR", REPO_ROOT / ".claude" / "agents")
+        seen = {}
+
+        async def capture(_dir, **k):
+            seen.update(k)
+            return []
+
+        monkeypatch.setattr(orchestrate, "_run_repair_phase_best_effort", capture)
+        started = time.monotonic()
+
+        _orchestrate(claude_input_dir=tmp_path)
+
+        assert isinstance(seen.get("run_deadline"), float)
+        assert started < seen["run_deadline"] <= started + orchestrate._RUN_RETRY_BUDGET_S + 1
+
+
 class TestStageBoundaryHeartbeat:
     def test_each_completed_stage_reports_off_box(self, tmp_path, monkeypatch):
         """A run that never finishes is invisible to run_health, which only judges runs that
@@ -1437,7 +1460,7 @@ class TestChaosTransientOutage:
             raise RuntimeError("529 overloaded")
 
         monkeypatch.setattr(orchestrate.claude_cli, "run_agent", fake_run)
-        with pytest.raises(RuntimeError, match="failed after retry"):
+        with pytest.raises(RuntimeError, match=r"cluster.*deadline passed"):
             _run_stage(
                 self._spec(),
                 label="cluster",
@@ -1448,11 +1471,12 @@ class TestChaosTransientOutage:
                 claude_input_dir=tmp_path,
             )
         # Bounded + loud: with_retry_async rides the wall-clock budget (fake clock
-        # advances ~5min/call) then gives up, and the outer loop retries once.
-        # The budget is finite, so the invocation count is bounded -- no infinite
-        # backoff storm and no silent pass.
+        # advances ~5min/call) then gives up -- and the outer loop does NOT retry,
+        # because the budget it would ride is the one that just ran out. The old
+        # expectation here ("retries once", up to 2x the budget) was the doubled
+        # budget the deadline exists to prevent.
         budget_attempts = orchestrate._STAGE_RETRY_BUDGET_S / 300.0
-        assert 1 < calls["n"] <= (budget_attempts + 2) * 2
+        assert 1 < calls["n"] <= budget_attempts + 2
 
     def test_idle_timeout_hang_is_retryable_and_recovers(self, tmp_path, monkeypatch):
         """An SDK idle-timeout (hang) is treated as transient and the stage recovers."""

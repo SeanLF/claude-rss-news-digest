@@ -13,6 +13,7 @@ import json
 import logging
 import re
 import sys
+import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
@@ -47,11 +48,12 @@ class _FakeAgent:
     repairer writes repaired_fields.json.
     """
 
-    def __init__(self, claude_input_dir, *, repaired, recheck, repair_raises=False):
+    def __init__(self, claude_input_dir, *, repaired, recheck, repair_raises=False, repair_takes=0.0):
         self.dir = claude_input_dir
         self.repaired = repaired
         self.recheck = recheck
         self.repair_raises = repair_raises
+        self.repair_takes = repair_takes
         self.calls = []
 
     async def __call__(self, *_a, **k):
@@ -63,6 +65,7 @@ class _FakeAgent:
             self.calls.append("repair")
             if self.repair_raises:
                 raise RuntimeError("repair agent boom")
+            await asyncio.sleep(self.repair_takes)
             (self.dir / "repaired_fields.json").write_text(json.dumps(self.repaired))
         return _stage_result()
 
@@ -93,7 +96,7 @@ def _write_inputs(tmp_path, *, failed_fields=("headline",), article_id="A2"):
 
 
 def _run(tmp_path):
-    return asyncio.run(orchestrate._run_repair_phase(tmp_path, model_override=None, cwd="."))
+    return asyncio.run(orchestrate._run_repair_phase(tmp_path, model_override=None, cwd=".", run_deadline=None))
 
 
 def _resolution(tmp_path):
@@ -204,12 +207,56 @@ class TestRepairPhase:
         assert fake.calls == ["repair"]  # recheck never called
         assert _resolution(tmp_path)["results"][0]["status"] == "guard_failed"
 
+    def test_no_repair_attempt_starts_past_the_run_deadline(self, tmp_path, monkeypatch):
+        # repair and repair_recheck ran with NO run_deadline, so each took a fresh 4h budget
+        # and a 45-min attempt timeout -- and, being best-effort, their timeouts accumulated
+        # instead of ending the run: up to 3h past the run budget, outside the 5h ceiling.
+        _write_inputs(tmp_path, failed_fields=("headline",))
+        fake = _FakeAgent(tmp_path, repaired={"results": []}, recheck={"results": []})
+        monkeypatch.setattr(orchestrate.claude_cli, "run_agent", fake)
+        # --resume reuses the input dir: a resolution from an earlier run must not survive a
+        # phase that refused to run, or merge keeps a story this run never confirmed.
+        (tmp_path / "repair_resolution.json").write_text('{"results": [{"status": "repaired"}]}')
+
+        # Through the best-effort wrapper, the one hop production takes that the recheck
+        # test below skips: forwarding the deadline there is what makes the phase honour it.
+        rows = asyncio.run(
+            orchestrate._run_repair_phase_best_effort(
+                tmp_path, model_override=None, cwd=".", run_deadline=time.monotonic() - 1
+            )
+        )
+
+        assert rows == []
+        assert fake.calls == []
+        assert not (tmp_path / "repair_resolution.json").exists()
+
+    def test_no_recheck_attempt_starts_past_the_run_deadline(self, tmp_path, monkeypatch):
+        # The deadline passes while the repairer runs; the re-check must not start a fresh
+        # attempt. Fail-closed as with any re-check failure: the repair drops, the run goes on.
+        _write_inputs(tmp_path, failed_fields=("headline",))
+        fake = _FakeAgent(
+            tmp_path,
+            repaired={"results": [{"article_ids": ["A2"], "headline": "bad, corrected", "action": "corrected"}]},
+            recheck={"results": [{"headline": "bad, corrected", "article_ids": ["A2"], "pass": True}]},
+            repair_takes=0.1,
+        )
+        monkeypatch.setattr(orchestrate.claude_cli, "run_agent", fake)
+
+        asyncio.run(
+            orchestrate._run_repair_phase(tmp_path, model_override=None, cwd=".", run_deadline=time.monotonic() + 0.05)
+        )
+
+        assert fake.calls == ["repair"]
+        assert _resolution(tmp_path)["results"][0]["status"] == "recheck_failed"
+
     def test_best_effort_swallows_repair_agent_failure(self, tmp_path, monkeypatch):
         _write_inputs(tmp_path, failed_fields=("headline",))
         fake = _FakeAgent(tmp_path, repaired={"results": []}, recheck={"results": []}, repair_raises=True)
         monkeypatch.setattr(orchestrate.claude_cli, "run_agent", fake)
 
-        rows = asyncio.run(orchestrate._run_repair_phase_best_effort(tmp_path, model_override=None, cwd="."))
+        rows = asyncio.run(
+            orchestrate._run_repair_phase_best_effort(tmp_path, model_override=None, cwd=".", run_deadline=None)
+        )
 
         assert rows == []
         # No resolution written -> merge drops the flagged story exactly as today.
@@ -238,7 +285,9 @@ class TestRepairPhase:
         fake = _FakeAgent(tmp_path, repaired={"results": []}, recheck={"results": []}, repair_raises=True)
         monkeypatch.setattr(orchestrate.claude_cli, "run_agent", fake)
 
-        asyncio.run(orchestrate._run_repair_phase_best_effort(tmp_path, model_override=None, cwd="."))
+        asyncio.run(
+            orchestrate._run_repair_phase_best_effort(tmp_path, model_override=None, cwd=".", run_deadline=None)
+        )
 
         assert not (tmp_path / "repair_resolution.json").exists()
 
@@ -310,7 +359,9 @@ class TestSpecDrift:
         monkeypatch.setattr(orchestrate, "_AGENTS_DIR", self._drifted(tmp_path))
 
         with caplog.at_level("DEBUG"):
-            rows = asyncio.run(orchestrate._run_repair_phase_best_effort(claude_input, model_override=None, cwd="."))
+            rows = asyncio.run(
+                orchestrate._run_repair_phase_best_effort(claude_input, model_override=None, cwd=".", run_deadline=None)
+            )
 
         # Still best-effort: the run is not aborted and merge drops exactly as before.
         assert rows == []
@@ -335,7 +386,9 @@ class TestSpecDrift:
         (agents / "repair.md").write_text((self.REPO_ROOT / ".claude" / "agents" / "repair.md").read_text())
         monkeypatch.setattr(orchestrate, "_AGENTS_DIR", agents)
 
-        asyncio.run(orchestrate._run_repair_phase_best_effort(claude_input, model_override=None, cwd="."))
+        asyncio.run(
+            orchestrate._run_repair_phase_best_effort(claude_input, model_override=None, cwd=".", run_deadline=None)
+        )
 
         assert json.loads((claude_input / "repair_health.json").read_text())["outcome"] == "spec_error"
 
@@ -356,7 +409,9 @@ class TestSpecDrift:
         monkeypatch.setattr(orchestrate.claude_cli, "run_agent", _FakeAgent(claude_input, repaired={}, recheck={}))
 
         with caplog.at_level("DEBUG"):
-            asyncio.run(orchestrate._run_repair_phase_best_effort(claude_input, model_override=None, cwd="."))
+            asyncio.run(
+                orchestrate._run_repair_phase_best_effort(claude_input, model_override=None, cwd=".", run_deadline=None)
+            )
 
         assert not (claude_input / "repair_health.json").exists()
         assert not [r for r in caplog.records if r.levelno >= logging.ERROR], caplog.text
@@ -370,7 +425,9 @@ class TestSpecDrift:
         fake = _FakeAgent(claude_input, repaired={"results": []}, recheck={"results": []}, repair_raises=True)
         monkeypatch.setattr(orchestrate.claude_cli, "run_agent", fake)
 
-        asyncio.run(orchestrate._run_repair_phase_best_effort(claude_input, model_override=None, cwd="."))
+        asyncio.run(
+            orchestrate._run_repair_phase_best_effort(claude_input, model_override=None, cwd=".", run_deadline=None)
+        )
 
         assert not (claude_input / "repair_health.json").exists()
 
@@ -388,7 +445,9 @@ class TestSpecDrift:
         )
         monkeypatch.setattr(orchestrate.claude_cli, "run_agent", fake)
 
-        asyncio.run(orchestrate._run_repair_phase_best_effort(claude_input, model_override=None, cwd="."))
+        asyncio.run(
+            orchestrate._run_repair_phase_best_effort(claude_input, model_override=None, cwd=".", run_deadline=None)
+        )
 
         assert not (claude_input / "repair_health.json").exists()
 
@@ -406,7 +465,9 @@ class TestSpecDrift:
         monkeypatch.setattr(orchestrate.claude_cli, "run_agent", fake)
         monkeypatch.setattr(orchestrate, "_AGENTS_DIR", agents)
 
-        asyncio.run(orchestrate._run_repair_phase_best_effort(claude_input, model_override=None, cwd="."))
+        asyncio.run(
+            orchestrate._run_repair_phase_best_effort(claude_input, model_override=None, cwd=".", run_deadline=None)
+        )
 
         assert fake.calls == []
         health = json.loads((claude_input / "repair_health.json").read_text())

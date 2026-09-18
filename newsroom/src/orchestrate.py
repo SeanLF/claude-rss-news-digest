@@ -716,6 +716,19 @@ async def run_stage(
         stage_deadline = min(stage_deadline, run_deadline)
 
     for attempt in (1, 2):
+        # with_retry_async consults the deadline only after fn() raises, so without this the
+        # clean-slate retry started a fresh attempt however far past the deadline attempt 1
+        # ended. A 529 there fails in seconds; a timeout burns the whole attempt_timeout.
+        # Same check _run_write_branches makes before each branch. Applies to attempt 1 too,
+        # on purpose: a stage that starts past the deadline is refused even though it would
+        # probably finish, because that is what bounds the run's overshoot to ONE
+        # attempt_timeout (TestTheRunBudgetFitsUnderSystemd) instead of one per remaining stage.
+        if time.monotonic() >= stage_deadline:
+            if last_err is None:
+                raise RuntimeError(f"{label}: run deadline passed before the stage started")
+            raise RuntimeError(
+                f"{label} stage failed and its deadline passed before the retry: {last_err}"
+            ) from last_err
         output_path.unlink(missing_ok=True)
         try:
             logger.info("[%s started]%s", label.capitalize(), " (retry)" if attempt == 2 else "")
@@ -729,12 +742,10 @@ async def run_stage(
             )
             validate(claude_input_dir)
         # TimeoutError is asyncio.wait_for's expiry, and it is an OSError -- caught by neither
-        # with_retry_async's (RuntimeError, ClaudeSDKError) nor the pair below it. Without it
-        # here, the ONE failure the attempt timeout exists to catch was the one failure that
-        # skipped the clean-slate retry every other failure gets, and aborted the run bearing
-        # no stage name. Deliberately NOT converted to a retryable RuntimeError: "timeout" is
-        # in retry._RETRYABLE_PATTERNS, so that would hand a hung stage the whole 4h stage
-        # budget in backoff and starve every stage after it.
+        # with_retry_async's (RuntimeError, ClaudeSDKError) nor the pair below it. Deliberately
+        # NOT converted to a retryable RuntimeError: "timeout" is in retry._RETRYABLE_PATTERNS,
+        # so a hung stage would ride with_retry_async's backoff for as many 45-minute attempts
+        # as fit the deadline instead of getting the one clean retry.
         except (RuntimeError, ValueError, TimeoutError) as e:
             last_err = e
             if attempt == 1:
@@ -1037,11 +1048,9 @@ async def run_write_phase(
         )
         draft["preheader"] = read_preheader(claude_input_dir)
     except Exception as e:
-        # Broad by design, and NOT (RuntimeError, ValueError): run_stage bounds an attempt
-        # with asyncio.wait_for, whose expiry is a bare TimeoutError that neither
-        # with_retry_async nor run_stage's own handler catches (TestStageAttemptIsBounded
-        # pins that it escapes). A hung preheader call would then abort the whole curation
-        # run -- the exact outcome "nothing about the preheader may abort a digest" forbids.
+        # Broad by design: parse_agent_spec and read_preheader run inside the try and raise
+        # OSError, which is not a stage failure -- and "nothing about the preheader may abort
+        # a digest" covers it too.
         # asyncio.CancelledError is a BaseException, so real cancellation still propagates.
         logger.warning(
             "preheader stage failed (%s: %s) -- merge will fill it from the first headline",
@@ -1323,6 +1332,7 @@ async def _run_repair_phase(
     *,
     model_override: str | None,
     cwd: str | Path | None,
+    run_deadline: float | None,
     today: datetime.date | None = None,
 ) -> list[dict[str, Any]]:
     """Regenerate COHERENCE-flagged repairable fields, re-check, and write
@@ -1373,6 +1383,7 @@ async def _run_repair_phase(
             validate=validate_repaired_fields,
             model_override=model_override,
             cwd=cwd,
+            run_deadline=run_deadline,
             claude_input_dir=claude_input_dir,
             today=today,
         )
@@ -1395,6 +1406,7 @@ async def _run_repair_phase(
                     validate=validate_recheck_report,
                     model_override=model_override,
                     cwd=cwd,
+                    run_deadline=run_deadline,
                     claude_input_dir=claude_input_dir,
                     today=today,
                 )
@@ -1416,6 +1428,7 @@ async def _run_repair_phase_best_effort(
     *,
     model_override: str | None,
     cwd: str | Path | None,
+    run_deadline: float | None,
     today: datetime.date | None = None,
 ) -> list[dict[str, Any]]:
     """Wrap the repair phase so NOTHING it does can abort the run. Any failure
@@ -1423,7 +1436,9 @@ async def _run_repair_phase_best_effort(
     one), so merge.assemble_selections drops the flagged stories exactly as before
     repair existed. Mirrors _run_fulltext_best_effort's additive stance."""
     try:
-        return await _run_repair_phase(claude_input_dir, model_override=model_override, cwd=cwd, today=today)
+        return await _run_repair_phase(
+            claude_input_dir, model_override=model_override, cwd=cwd, run_deadline=run_deadline, today=today
+        )
     except RepairSpecError as e:
         # NOT the same as a repair that found nothing, and not the same as a model call that
         # failed: this disables the repair path outright, on every run, until a file is
@@ -1564,7 +1579,7 @@ async def orchestrate_selections(
     # it can never abort the run (merge falls back to dropping the story). Runs whenever
     # the draft/report are on disk, including resume-only runs where COHERENCE was reused.
     for row in await _run_repair_phase_best_effort(
-        claude_input_dir, model_override=model_override, cwd=cwd, today=today
+        claude_input_dir, model_override=model_override, cwd=cwd, run_deadline=run_deadline, today=today
     ):
         _record(row)
 

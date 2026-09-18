@@ -1,6 +1,6 @@
 """The retry layer's invariants, which had no test file.
 
-Three, in rising order of how quietly they fail:
+Four, in rising order of how quietly they fail:
 
 1. One budget is shared across a stage's attempts and across the run's stages. Per-stage
    budgets once summed to 28h under a 5h systemd ceiling, and systemd's kill has no handler,
@@ -11,6 +11,12 @@ Three, in rising order of how quietly they fail:
    with_retry_async's `except (RuntimeError, ClaudeSDKError)` nor run_stage's
    `except (RuntimeError, ValueError)`, so the documented "retried ONCE from a clean slate"
    contract did not cover the one failure the attempt timeout exists to catch.
+4. No run_stage attempt starts past the deadline. Constants (1) cannot say this: the deadline
+   was only consulted inside with_retry_async, after an attempt raised, so the clean-slate
+   retry began a fresh attempt however late -- and for a timed-out attempt that is the whole
+   attempt timeout, in every stage that ran without a run_deadline (repair, repair_recheck).
+   CLUSTER's extract loop keeps its own budget (cluster_extractjoin), started within seconds
+   of the run's, and is not covered here.
 """
 
 from __future__ import annotations
@@ -39,16 +45,64 @@ def _no_sleep(monkeypatch):
 
 
 class TestTheRunBudgetFitsUnderSystemd:
-    def test_run_budget_is_under_the_systemd_start_timeout(self):
+    def test_the_run_stage_budget_plus_one_attempt_is_under_the_systemd_start_timeout(self):
         # The real ceiling is terraform's TimeoutStartSec, outside this repo; this pins the
-        # half that lives here. If the unit's value changes, this is what to update.
-        assert orchestrate._RUN_RETRY_BUDGET_S < SYSTEMD_TIMEOUT_START_SEC
+        # half that lives here. For run_stage stages the overshoot is ONE attempt timeout: a
+        # stage that starts a second before the deadline runs its full attempt, and nothing
+        # starts after (TestNoAttemptStartsPastTheDeadline). NOT the whole run's worst case:
+        # CLUSTER's extract loop has its own budget and no attempt timeout, and fulltext
+        # runs unchecked between SELECT and WRITE.
+        assert orchestrate._RUN_RETRY_BUDGET_S + orchestrate._STAGE_ATTEMPT_TIMEOUT_S < SYSTEMD_TIMEOUT_START_SEC
 
-    def test_a_single_stage_cannot_outlast_the_run(self):
-        assert orchestrate._STAGE_RETRY_BUDGET_S <= orchestrate._RUN_RETRY_BUDGET_S
 
-    def test_one_attempt_is_bounded_well_inside_the_stage_budget(self):
-        assert orchestrate._STAGE_ATTEMPT_TIMEOUT_S < orchestrate._STAGE_RETRY_BUDGET_S
+class TestNoAttemptStartsPastTheDeadline:
+    """The aggregate the constants cannot express. `_STAGE_RETRY_BUDGET_S <= _RUN_RETRY_BUDGET_S`
+    held at 14400 == 14400 while a run could still exceed the ceiling: run_stage's outer loop
+    consulted the deadline only inside with_retry_async, i.e. AFTER an attempt raised. A 529
+    past the deadline fails in seconds; a TIMEOUT past the deadline burns the whole attempt
+    timeout by construction, and does so once per attempt in every stage that runs without a
+    run_deadline."""
+
+    @staticmethod
+    def _spec():
+        return orchestrate.AgentSpec(name="select", model="claude-sonnet-4-6", tools_str="Read, Write", body="b")
+
+    def _run(self, tmp_path, monkeypatch, invocations, *, run_deadline):
+        async def hangs(*_a, **_k):
+            invocations.append(1)
+            await asyncio.Event().wait()
+
+        monkeypatch.setattr(orchestrate, "_invoke_agent", hangs)
+        monkeypatch.setattr(orchestrate, "_STAGE_ATTEMPT_TIMEOUT_S", 0.5)
+        _no_sleep(monkeypatch)
+        return asyncio.run(
+            orchestrate.run_stage(
+                self._spec(),
+                label="select",
+                output_path=tmp_path / "selected.json",
+                validate=lambda _d: None,
+                model_override=None,
+                cwd=None,
+                claude_input_dir=tmp_path,
+                run_deadline=run_deadline,
+            )
+        )
+
+    def test_a_second_attempt_is_not_started_past_the_deadline(self, tmp_path, monkeypatch):
+        # The deadline passes DURING attempt 1 (0.1s in; the attempt times out at 0.5s). The
+        # 0.1s has to cover asyncio.run's start-up before attempt 1 begins, or nothing starts
+        # and the assertion fails for the opposite reason; measured p99 under load is 12ms.
+        invocations: list[int] = []
+        with pytest.raises(RuntimeError, match="select"):
+            self._run(tmp_path, monkeypatch, invocations, run_deadline=retry.time.monotonic() + 0.1)
+        assert len(invocations) == 1, "an attempt was started after the deadline had passed"
+
+    def test_a_second_attempt_is_started_when_the_deadline_allows(self, tmp_path, monkeypatch):
+        # Negative control: the single attempt above is the deadline's doing.
+        invocations: list[int] = []
+        with pytest.raises(RuntimeError, match="select"):
+            self._run(tmp_path, monkeypatch, invocations, run_deadline=retry.time.monotonic() + 60)
+        assert len(invocations) == 2
 
 
 class TestASharedDeadlineBeatsAFreshBudget:
