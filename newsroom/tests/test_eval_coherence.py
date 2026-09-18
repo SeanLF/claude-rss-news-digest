@@ -231,3 +231,38 @@ def test_score_refuses_a_field_labelled_both_hard_and_borderline(tmp_path):
     report.write_text(json.dumps({"results": [{"headline": "Alpha", "pass": False, "failed_fields": ["summary"]}]}))
     with pytest.raises(RuntimeError, match="both hard positive and borderline"):
         eval_coherence.score(report, labels)
+
+
+def _hangs_then_writes(out_path, fail_times):
+    calls = {"n": 0}
+
+    async def fake_run_agent(prompt, **kw):
+        calls["n"] += 1
+        if calls["n"] <= fail_times:
+            raise RuntimeError("SDK idle timeout: no event in 180.0s")
+        out_path.write_text(json.dumps({"results": []}))
+        return SimpleNamespace(ok=True, error_summary=lambda: "", total_cost_usd=0.0, usage={})
+
+    return fake_run_agent, calls
+
+
+def test_a_rep_that_hangs_once_is_retried_not_lost(tmp_path, monkeypatch):
+    # Two five-rep runs on 2026-09-18 each died on one idle timeout, losing every rep after it.
+    out = tmp_path / "coherence_report.json"
+    fake, calls = _hangs_then_writes(out, fail_times=1)
+    monkeypatch.setattr(eval_coherence.claude_cli, "run_agent", fake)
+
+    asyncio.run(eval_coherence.run_agent_to_file("coherence", out, "m", "body", {"type": "disabled"}, ["Read"]))
+
+    assert calls["n"] == 2
+    assert out.exists()
+
+
+def test_a_rep_that_hangs_twice_fails_loud(tmp_path, monkeypatch):
+    out = tmp_path / "coherence_report.json"
+    fake, calls = _hangs_then_writes(out, fail_times=2)
+    monkeypatch.setattr(eval_coherence.claude_cli, "run_agent", fake)
+
+    with pytest.raises(RuntimeError, match="idle timeout"):
+        asyncio.run(eval_coherence.run_agent_to_file("coherence", out, "m", "body", {"type": "disabled"}, ["Read"]))
+    assert calls["n"] == 2

@@ -312,24 +312,33 @@ async def run_agent_to_file(label: str, out_path: Path, model: str, body: str, t
     """Run an agent through the production claude-agent-sdk path and require it to
     (re)write out_path. Shared by the coherence/repair evals so both exercise the
     exact same harness (model, system prompt, tools, thinking) production uses."""
-    if out_path.exists():
-        out_path.unlink()
-    res = await claude_cli.run_agent(
-        "Begin.",
-        model=model,
-        system_prompt=body,
-        permission_mode="acceptEdits",
-        allowed_tools=" ".join(tools),
-        tools=tools,
-        cwd="/app",
-        idle_timeout=180.0,
-        thinking=thinking,
-    )
-    if not res.ok:
-        raise RuntimeError(f"{label} run failed: {res.error_summary()}")
-    if not out_path.exists():
-        raise RuntimeError(f"{label} run wrote no {out_path.name}")
-    return res
+    # One clean retry, as production's run_stage gives a stage: a rep that hangs is a lost
+    # call, not a measurement, and without this it took every later rep with it.
+    for attempt in (1, 2):
+        if out_path.exists():
+            out_path.unlink()
+        try:
+            res = await claude_cli.run_agent(
+                "Begin.",
+                model=model,
+                system_prompt=body,
+                permission_mode="acceptEdits",
+                allowed_tools=" ".join(tools),
+                tools=tools,
+                cwd="/app",
+                idle_timeout=180.0,
+                thinking=thinking,
+            )
+            if not res.ok:
+                raise RuntimeError(f"{label} run failed: {res.error_summary()}")
+            if not out_path.exists():
+                raise RuntimeError(f"{label} run wrote no {out_path.name}")
+            return res
+        except RuntimeError as e:
+            if attempt == 2:
+                raise
+            print(f"  {label}: attempt 1 failed ({e}), retrying once")
+    raise AssertionError("unreachable")
 
 
 def main() -> int:
