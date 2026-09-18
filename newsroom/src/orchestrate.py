@@ -716,13 +716,7 @@ async def run_stage(
         stage_deadline = min(stage_deadline, run_deadline)
 
     for attempt in (1, 2):
-        # with_retry_async consults the deadline only after fn() raises, so without this the
-        # clean-slate retry started a fresh attempt however far past the deadline attempt 1
-        # ended. A 529 there fails in seconds; a timeout burns the whole attempt_timeout.
-        # Same check _run_write_branches makes before each branch. Applies to attempt 1 too,
-        # on purpose: a stage that starts past the deadline is refused even though it would
-        # probably finish, because that is what bounds the run's overshoot to ONE
-        # attempt_timeout (TestTheRunBudgetFitsUnderSystemd) instead of one per remaining stage.
+        # Attempt 1 included -- test_repair_phase pins it.
         if time.monotonic() >= stage_deadline:
             if last_err is None:
                 raise RuntimeError(f"{label}: run deadline passed before the stage started")
@@ -741,11 +735,8 @@ async def run_stage(
                 deadline=stage_deadline,
             )
             validate(claude_input_dir)
-        # TimeoutError is asyncio.wait_for's expiry, and it is an OSError -- caught by neither
-        # with_retry_async's (RuntimeError, ClaudeSDKError) nor the pair below it. Deliberately
-        # NOT converted to a retryable RuntimeError: "timeout" is in retry._RETRYABLE_PATTERNS,
-        # so a hung stage would ride with_retry_async's backoff for as many 45-minute attempts
-        # as fit the deadline instead of getting the one clean retry.
+        # TimeoutError is an OSError: nothing else catches asyncio.wait_for's expiry. Not
+        # converted to RuntimeError -- "timeout" matches retry._RETRYABLE_PATTERNS.
         except (RuntimeError, ValueError, TimeoutError) as e:
             last_err = e
             if attempt == 1:
@@ -1048,9 +1039,7 @@ async def run_write_phase(
         )
         draft["preheader"] = read_preheader(claude_input_dir)
     except Exception as e:
-        # Broad by design: parse_agent_spec and read_preheader run inside the try and raise
-        # OSError, which is not a stage failure -- and "nothing about the preheader may abort
-        # a digest" covers it too.
+        # Broad: parse_agent_spec and read_preheader raise OSError inside this try.
         # asyncio.CancelledError is a BaseException, so real cancellation still propagates.
         logger.warning(
             "preheader stage failed (%s: %s) -- merge will fill it from the first headline",

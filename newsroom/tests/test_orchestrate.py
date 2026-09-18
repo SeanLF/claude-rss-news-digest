@@ -1315,9 +1315,6 @@ class TestStageAttemptIsBounded:
 
 class TestRepairSharesTheRunDeadline:
     def test_the_repair_phase_is_handed_the_run_deadline(self, tmp_path, monkeypatch):
-        """The deadline is computed once per run and threaded into every stage by hand.
-        Repair was the stage it was not threaded into, so a plumbing test, not a
-        constant: the phase must receive the same float the other stages did."""
         TestOrchestrateSelections()._write_articles(tmp_path)
         monkeypatch.setattr(orchestrate.claude_cli, "run_agent", TestOrchestrateSelections()._fake_writer(tmp_path))
         monkeypatch.setattr(orchestrate, "_AGENTS_DIR", REPO_ROOT / ".claude" / "agents")
@@ -1470,11 +1467,7 @@ class TestChaosTransientOutage:
                 cwd=None,
                 claude_input_dir=tmp_path,
             )
-        # Bounded + loud: with_retry_async rides the wall-clock budget (fake clock
-        # advances ~5min/call) then gives up -- and the outer loop does NOT retry,
-        # because the budget it would ride is the one that just ran out. The old
-        # expectation here ("retries once", up to 2x the budget) was the doubled
-        # budget the deadline exists to prevent.
+        # Fake clock advances ~5min/call; the budget runs out and no outer retry follows.
         budget_attempts = orchestrate._STAGE_RETRY_BUDGET_S / 300.0
         assert 1 < calls["n"] <= budget_attempts + 2
 

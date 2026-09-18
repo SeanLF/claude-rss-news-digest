@@ -208,18 +208,13 @@ class TestRepairPhase:
         assert _resolution(tmp_path)["results"][0]["status"] == "guard_failed"
 
     def test_no_repair_attempt_starts_past_the_run_deadline(self, tmp_path, monkeypatch):
-        # repair and repair_recheck ran with NO run_deadline, so each took a fresh 4h budget
-        # and a 45-min attempt timeout -- and, being best-effort, their timeouts accumulated
-        # instead of ending the run: up to 3h past the run budget, outside the 5h ceiling.
         _write_inputs(tmp_path, failed_fields=("headline",))
         fake = _FakeAgent(tmp_path, repaired={"results": []}, recheck={"results": []})
         monkeypatch.setattr(orchestrate.claude_cli, "run_agent", fake)
-        # --resume reuses the input dir: a resolution from an earlier run must not survive a
-        # phase that refused to run, or merge keeps a story this run never confirmed.
+        # --resume reuses the dir: a stale resolution would keep a story this run never checked.
         (tmp_path / "repair_resolution.json").write_text('{"results": [{"status": "repaired"}]}')
 
-        # Through the best-effort wrapper, the one hop production takes that the recheck
-        # test below skips: forwarding the deadline there is what makes the phase honour it.
+        # Through the wrapper: the forwarding hop is the one production takes.
         rows = asyncio.run(
             orchestrate._run_repair_phase_best_effort(
                 tmp_path, model_override=None, cwd=".", run_deadline=time.monotonic() - 1
@@ -231,8 +226,6 @@ class TestRepairPhase:
         assert not (tmp_path / "repair_resolution.json").exists()
 
     def test_no_recheck_attempt_starts_past_the_run_deadline(self, tmp_path, monkeypatch):
-        # The deadline passes while the repairer runs; the re-check must not start a fresh
-        # attempt. Fail-closed as with any re-check failure: the repair drops, the run goes on.
         _write_inputs(tmp_path, failed_fields=("headline",))
         fake = _FakeAgent(
             tmp_path,
