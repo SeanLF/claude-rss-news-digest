@@ -1333,6 +1333,25 @@ class TestRepairSharesTheRunDeadline:
         assert started < seen["run_deadline"] <= started + orchestrate._RUN_RETRY_BUDGET_S + 1
 
 
+class TestClusterSharesTheRunDeadline:
+    def test_the_extract_stage_is_handed_the_run_deadline(self, tmp_path, monkeypatch):
+        TestOrchestrateSelections()._write_articles(tmp_path)
+        monkeypatch.setattr(orchestrate, "_AGENTS_DIR", REPO_ROOT / ".claude" / "agents")
+        seen = {}
+
+        async def capture(_dir, **k):
+            seen.update(k)
+            raise RuntimeError("stop here")
+
+        monkeypatch.setattr(orchestrate.cluster_extractjoin, "run_extractjoin_stage", capture)
+        started = time.monotonic()
+        with pytest.raises(RuntimeError, match="stop here"):
+            _orchestrate(claude_input_dir=tmp_path)
+
+        assert isinstance(seen.get("run_deadline"), float)
+        assert started < seen["run_deadline"] <= started + orchestrate._RUN_RETRY_BUDGET_S + 1
+
+
 class TestStageBoundaryHeartbeat:
     def test_each_completed_stage_reports_off_box(self, tmp_path, monkeypatch):
         """A run that never finishes is invisible to run_health, which only judges runs that

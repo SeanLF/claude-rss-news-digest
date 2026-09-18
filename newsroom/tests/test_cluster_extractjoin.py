@@ -340,6 +340,47 @@ def test_stage_writes_valid_clusters(tmp_path, monkeypatch):
     assert row["api_cost_usd"] > 0
 
 
+def test_a_hung_batch_attempt_is_cut_off_and_falls_back(tmp_path, monkeypatch):
+    _write_articles(tmp_path, 6)
+    calls = {"n": 0}
+
+    async def hangs(prompt, **kw):
+        calls["n"] += 1
+        await asyncio.Event().wait()
+
+    monkeypatch.setattr(cej.claude_cli, "run_agent", hangs)
+    monkeypatch.setattr(cej, "_EXTRACT_ATTEMPT_TIMEOUT_S", 0.05, raising=False)
+    monkeypatch.setattr(cej, "with_retry_async", _passthrough)
+
+    async def bounded():
+        # The test's own bound: without the attempt timeout the stage never returns.
+        return await asyncio.wait_for(
+            cej.run_extractjoin_stage(tmp_path, model="claude-sonnet-4-6", cwd=None, threshold=0.80), 5
+        )
+
+    with pytest.raises(RuntimeError, match="fell back"):
+        asyncio.run(bounded())
+    assert calls["n"] >= 1
+
+
+def test_no_batch_starts_past_the_run_deadline(tmp_path, monkeypatch):
+    _write_articles(tmp_path, 6)
+    calls = {"n": 0}
+
+    async def fake_run_agent(prompt, **kw):
+        calls["n"] += 1
+        return _result(json.dumps({"items": []}))
+
+    monkeypatch.setattr(cej.claude_cli, "run_agent", fake_run_agent)
+    with pytest.raises(RuntimeError, match="fell back"):
+        asyncio.run(
+            cej.run_extractjoin_stage(
+                tmp_path, model="claude-sonnet-4-6", cwd=None, threshold=0.80, run_deadline=cej.time.monotonic() - 1
+            )
+        )
+    assert calls["n"] == 0
+
+
 async def _passthrough(fn, **_k):
     """Stand-in for with_retry_async that calls fn once (no backoff sleeps in tests)."""
     return await fn()

@@ -70,6 +70,9 @@ _MAX_FALLBACK_FRACTION = 0.25
 # Wall-clock budget for the whole extraction's transient-overload retries (mirrors the per-stage
 # budget in orchestrate); shared across batches so a real outage is ridden out, then bounded.
 _EXTRACT_RETRY_BUDGET_S = 14400
+# One batch attempt: a single-turn, tool-free call over 40 articles. The idle timeout resets on
+# every streamed event, so it does not bound a call that streams forever.
+_EXTRACT_ATTEMPT_TIMEOUT_S = 900.0
 # sklearn TfidfVectorizer's default token_pattern: a doc with no 2+-char word token vectorizes to
 # all-zeros, which collapses/merges spuriously -- such docs get a unique sentinel instead.
 _TOKEN_RE = re.compile(r"\b\w\w+\b")
@@ -479,6 +482,7 @@ async def run_extractjoin_stage(
     cwd: str | Path | None,
     threshold: float,
     batch_size: int = _EXTRACT_BATCH,
+    run_deadline: float | None = None,
 ) -> dict[str, Any]:
     """Produce clusters.json via extract→join and return a ``run_usage`` row.
 
@@ -503,14 +507,17 @@ async def run_extractjoin_stage(
         # thinking chosen per model (_thinking_for). Both used to be hard-400 guards (Haiku 400d
         # on effort, next-gen on thinking=disabled -- no longer on 0.2.110, see bin/sdk-canary),
         # now kept so CLUSTER_EXTRACT_MODEL swaps 4.6<->Haiku<->next-gen on the validated config.
-        result = await claude_cli.run_agent(
-            prompt,
-            model=model,
-            system_prompt=EXTRACT_SYSTEM,
-            tools=[],
-            max_turns=1,
-            cwd=cwd,
-            thinking=_thinking_for(model),
+        result = await asyncio.wait_for(
+            claude_cli.run_agent(
+                prompt,
+                model=model,
+                system_prompt=EXTRACT_SYSTEM,
+                tools=[],
+                max_turns=1,
+                cwd=cwd,
+                thinking=_thinking_for(model),
+            ),
+            timeout=_EXTRACT_ATTEMPT_TIMEOUT_S,
         )
         if not result.ok:  # non-success (incl. the subtype=success+is_error API-fail trap): retryable
             raise RuntimeError(result.error_summary())
@@ -521,6 +528,8 @@ async def run_extractjoin_stage(
     total_cost = 0.0
     batches = [ids[i : i + batch_size] for i in range(0, len(ids), batch_size)]
     deadline = time.monotonic() + _EXTRACT_RETRY_BUDGET_S  # shared across batches: ride out an outage, bounded
+    if run_deadline is not None:
+        deadline = min(deadline, run_deadline)
     sem = asyncio.Semaphore(_EXTRACT_CONCURRENCY)
 
     async def _run_batch(n: int, batch: list[str]) -> tuple[list[dict], list[dict], float]:
@@ -544,12 +553,18 @@ async def run_extractjoin_stage(
         usage_dicts: list[dict] = []
         cost = 0.0
         async with sem:
+            if time.monotonic() >= deadline:
+                logger.warning(
+                    "extract-join batch %d/%d: deadline passed before it started, title-fallback", n, len(batches)
+                )
+                return [], usage_dicts, cost
             for attempt in (1, 2):
                 try:
                     result = await with_retry_async(
                         partial(_extract, prompt), label="cluster-extract", deadline=deadline
                     )
-                except (RuntimeError, ValueError) as e:
+                # TimeoutError is an OSError: the attempt timeout would otherwise escape the gather.
+                except (RuntimeError, ValueError, TimeoutError) as e:
                     logger.warning(
                         "extract-join batch %d/%d failed after retries, title-fallback: %s", n, len(batches), e
                     )

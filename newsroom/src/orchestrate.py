@@ -1518,6 +1518,7 @@ async def orchestrate_selections(
                 model=config.CLUSTER_EXTRACT_MODEL,
                 cwd=cwd,
                 threshold=config.CLUSTER_JOIN_THRESHOLD,
+                run_deadline=run_deadline,
             )
             validate(claude_input_dir)
             _record(row)
