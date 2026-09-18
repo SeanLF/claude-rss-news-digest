@@ -1,0 +1,13 @@
+#!/bin/bash
+# Re-run one curation stage from a run's archived inputs and compare the outputs (Probe 0's
+# re-run half). Makes REAL model calls on the subscription -- opt-in, never in CI.
+# Usage: bin/rerun-stage --run 300 --stage recap [--reps 3] [--model MODEL]
+# Outputs land in data/rerun/run<ID>/<stage>/ (every rep kept, plus summary.json).
+set -euo pipefail
+cd "$(dirname "${BASH_SOURCE[0]}")/.."
+exec docker compose run --rm \
+  -v "$(pwd)/newsroom/src:/app/src" \
+  -v "$(pwd)/.claude/agents:/app/.claude/agents" \
+  -e PYTHONPATH=/app/src \
+  --entrypoint /app/.venv/bin/python3 \
+  digest-newsroom /app/src/rerun_stage.py "$@"
