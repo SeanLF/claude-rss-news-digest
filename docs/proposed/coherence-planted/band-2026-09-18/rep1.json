@@ -1,0 +1,140 @@
+{
+  "results": [
+    {
+      "headline": "Death toll tops 470 as barrier lake overflow halts Nepal-Bhutan rescue",
+      "article_ids": ["A2","A6","A13","A57","A70","A78","A137","A138","A140","A145","A151","A154","A157","A162","A167","A179","A201","A203","A205","A210","A218","A222","A226","A232","A236","A278","A290","A295","A313","A322","A325","A326","A342","A343","A346","A350","A351","A353","A354","A357","A361","A380","A385","A405","A420","A424","A431","A458","A490","A493","A498","A510","A511","A585","A586","A594","A618","A699","A703","A708","A713"],
+      "pass": false,
+      "reason": "headline: says the rescue is a 'Nepal-Bhutan' operation, but every cited source (e.g. A2, A6, A13) describes the disaster and rescue as occurring on the Nepal-Tibet/China border, and the story's own summary correctly says 'Nepal-Tibet border' -- Bhutan is not mentioned in any cited source",
+      "failed_fields": ["headline"],
+      "failure_kinds": {"headline": "contradicted"}
+    },
+    {
+      "headline": "Norway's King Harald V dies at 89; son Haakon takes throne",
+      "article_ids": ["A4","A74","A76","A136","A139","A156","A183","A212","A214","A215","A266","A320","A331","A341","A375","A377","A378","A465","A512","A513","A540","A541","A542","A544","A545","A546","A595","A673"],
+      "pass": true,
+      "reason": "Matches source articles: death at Oslo University Hospital on Friday morning, age 89, son Haakon's automatic succession, 35-year reign, Mette-Marit/Epstein correspondence, and Marius Borg Høiby's rape conviction are all directly supported by cited sources (A4).",
+      "failed_fields": [],
+      "failure_kinds": {}
+    },
+    {
+      "headline": "Ratko Mladić, convicted of genocide at Srebrenica, dies in Hague prison",
+      "article_ids": ["A71","A84","A115","A149","A160","A163","A213","A225","A273","A323","A358","A428","A430","A435","A528","A630","A694","A702"],
+      "pass": false,
+      "reason": "summary: states Mladić was convicted of genocide 'for the 1995 Srebrenica massacre of at least 12,000 Muslims,' but every cited source that gives a figure (A115, A225, A358) puts the toll at 'at least 8,000' Muslims -- no cited source supports 12,000",
+      "failed_fields": ["summary"],
+      "failure_kinds": {"summary": "contradicted"}
+    },
+    {
+      "headline": "US judge rules Pentagon's blacklisting of Anthropic was illegal",
+      "article_ids": ["A8","A43","A58","A244","A252","A281","A387","A399","A409","A459","A558","A601","A663"],
+      "pass": true,
+      "reason": "Matches source articles: Judge Rita Lin's 59-page order, the 'first ever' public supply-chain-risk designation of a US company, the block on military contracts, and the refusal to allow Claude for surveillance/autonomous weapons are all directly supported by A8.",
+      "failed_fields": [],
+      "failure_kinds": {}
+    },
+    {
+      "headline": "Trump says Putin will not attack NATO as Pentagon prepares European defence options",
+      "article_ids": ["A39","A144","A148","A188","A408","A410","A576","A716"],
+      "pass": true,
+      "reason": "Matches source articles: Trump's comments downplaying the Ratcliffe Moscow trip and predicting Russia won't attack NATO (A410, A148), and Colby's Brussels briefing on the four-option Europe review due to Hegseth by Nov 6 ahead of a December deadline (A39), are directly supported.",
+      "failed_fields": [],
+      "failure_kinds": {}
+    },
+    {
+      "headline": "Iran agrees to draw up Hormuz conditions list; US clears strait of mines",
+      "article_ids": ["A28","A31","A34","A231","A319","A382","A386","A390","A403","A559","A574","A603","A681","A709"],
+      "pass": false,
+      "reason": "why_it_matters: refers to 'a closure the Biden administration has so far failed to reverse,' but cited sources (e.g. A231, A31) show Trump -- not Biden -- is the sitting president dealing with the Iran war and Hormuz closure; naming Biden as the current administration is a stale/incorrect world-state claim",
+      "failed_fields": ["why_it_matters"],
+      "failure_kinds": {"why_it_matters": "contradicted"}
+    },
+    {
+      "headline": "DRC launches Ebola vaccination drive as death toll reaches 2,744",
+      "article_ids": ["A17","A20","A539","A604","A698"],
+      "pass": false,
+      "reason": "why_it_matters: claims 'renewed armed clashes in North Kivu have already forced three vaccination sites to suspend work,' but none of the cited sources (A17, A20, A539, A604, A698) mention North Kivu clashes or any vaccination-site suspensions",
+      "failed_fields": ["why_it_matters"],
+      "failure_kinds": {"why_it_matters": "unsupported"}
+    },
+    {
+      "headline": "Syria appoints Kurdish commander Abdi as presidential adviser and allows Kurdish-language schooling",
+      "article_ids": ["A36","A37","A152"],
+      "pass": true,
+      "reason": "Matches source articles: Abdi's appointment as presidential adviser, the SDF's dissolution days earlier, Kurdish-language schooling authorisation, Abdi's status on Turkey's terrorist list with an Interpol red notice, and US envoy Tom Barrack's endorsement are all directly supported by A36/A37.",
+      "failed_fields": [],
+      "failure_kinds": {}
+    },
+    {
+      "headline": "Russia strikes Kyiv for second straight day; Kherson told to evacuate",
+      "article_ids": ["A143","A220","A221","A233","A264","A444","A548","A573","A632"],
+      "pass": true,
+      "reason": "Matches source articles: the one death and damage figures (14 warehouses, 16 homes, three apartment blocks) come from A221; the Kherson governor's evacuation call, glide-bomb strike on the heating plant, and quote about no way to destroy the drones/bombs come from A220.",
+      "failed_fields": [],
+      "failure_kinds": {}
+    },
+    {
+      "headline": "Chinese executives may join Xi's September US visit; trade truce extension seen as near-certain",
+      "article_ids": ["A491","A501","A505"],
+      "pass": false,
+      "reason": "why_it_matters: asserts Washington and Beijing are managing 'a range of active disputes including Iran-related sanctions pressure,' but none of the cited sources (A491, A501, A505) mention Iran-related sanctions pressure between the US and China",
+      "failed_fields": ["why_it_matters"],
+      "failure_kinds": {"why_it_matters": "unsupported"}
+    },
+    {
+      "headline": "Bangladesh journalists jailed since 2024 remain detained as BNP fails to honour press-freedom pledge",
+      "article_ids": ["A492","A581"],
+      "pass": false,
+      "reason": "summary: says 'five journalists and a writer' were arrested, but the cited source (A581) identifies only four journalists (Farzana Rupa, Shakil Ahmed, Mozammel Babu, Shyamal Dutta) plus the writer Shahriar Kabir -- five people total, not five journalists plus a writer",
+      "failed_fields": ["summary"],
+      "failure_kinds": {"summary": "contradicted"}
+    },
+    {
+      "headline": "Taiwan parliament passes its own drone plan and backs $7bn boost for domestic builders",
+      "article_ids": ["A456","A497","A714"],
+      "pass": true,
+      "reason": "Matches source articles: parliament's rejection of the government drone plan and substitution of its own version is supported by A456; the $7bn boost for domestic drone builders is supported by A714; the why_it_matters link to typhoons/heat undermining Taiwan Strait readiness is supported by A497.",
+      "failed_fields": [],
+      "failure_kinds": {}
+    },
+    {
+      "headline": "Australia severs ties with two Chinese universities as Pacific rivalry sharpens",
+      "article_ids": ["A169","A292","A495","A661"],
+      "pass": true,
+      "reason": "Matches source articles: the two ended partnerships (ANU-Shandong University teaching link and Queensland-Chinese Academy of Sciences research collaboration) and the analyst's warning about being locked out of top-tier research are directly supported by A495; the Pacific rivalry/ICBM-test context is supported by A292.",
+      "failed_fields": [],
+      "failure_kinds": {}
+    },
+    {
+      "headline": "Trump chip tariff plan could cost $90bn in annual GDP and delay one-fifth of US data centre projects, industry warns",
+      "article_ids": ["A47","A142","A442"],
+      "pass": false,
+      "reason": "summary: says the broadest tariff approach would 'delay or cancel most data centre projects planned through 2030,' but the cited source (A47) states the CCIA estimate is that about 20 percent ('one-fifth,' as correctly stated in this story's own headline) of such projects would be delayed or cancelled -- 'most' contradicts the cited figure",
+      "failed_fields": ["summary"],
+      "failure_kinds": {"summary": "contradicted"}
+    },
+    {
+      "headline": "Fed chair Warsh's Jackson Hole debut scrutinised for rate signals as inflation persists above target",
+      "article_ids": ["A29","A303","A383","A388","A393","A423","A427","A437","A453","A468"],
+      "pass": false,
+      "reason": "summary: names Michelle Bowman, Christopher Waller and Lisa Cook as the three governors who dissented in favour of a rate hike, but the cited source (A29) only states that 'three of them' dissented without naming any governors -- no cited source names these individuals",
+      "failed_fields": ["summary"],
+      "failure_kinds": {"summary": "unsupported"}
+    },
+    {
+      "headline": "Zambia opposition leader detained on treason charges ahead of president's inauguration",
+      "article_ids": ["A161","A577"],
+      "pass": false,
+      "reason": "summary: states Mundubile 'finished second... by fewer than 40,000 votes,' but neither cited source (A161, A577) gives a vote margin -- A161 only states Hichilema won 'around 60%' of the vote",
+      "failed_fields": ["summary"],
+      "failure_kinds": {"summary": "unsupported"}
+    },
+    {
+      "headline": "Japan's births rise for first time in 11 years",
+      "article_ids": ["A289"],
+      "pass": false,
+      "reason": "summary: gives specific figures -- '731,000 babies born,' 'a 1.8 percent increase,' and attribution to 'a post-pandemic rebound in marriages' -- none of which appear in the only cited source (A289), whose available text is just a repetition of its headline with no supporting detail",
+      "failed_fields": ["summary"],
+      "failure_kinds": {"summary": "unsupported"}
+    }
+  ]
+}

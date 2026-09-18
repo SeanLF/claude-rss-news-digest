@@ -1,0 +1,130 @@
+{
+  "results": [
+    {
+      "headline": "Death toll tops 470 as barrier lake overflow halts Nepal-Bhutan rescue",
+      "article_ids": ["A2","A6","A13","A57","A70","A78","A137","A138","A140","A145","A151","A154","A157","A162","A167","A179","A201","A203","A205","A210","A218","A222","A226","A232","A236","A278","A290","A295","A313","A322","A325","A326","A342","A343","A346","A350","A351","A353","A354","A357","A361","A380","A385","A405","A420","A424","A431","A458","A490","A493","A498","A510","A511","A585","A586","A594","A618","A699","A703","A708","A713"],
+      "pass": false,
+      "reason": "headline: says the rescue was a 'Nepal-Bhutan' operation, but every cited source describes a disaster and rescue effort on the Nepal-Tibet/Nepal-China border; Bhutan appears nowhere in the cited sources, and this also contradicts the story's own summary which correctly says 'Nepal-Tibet border'.",
+      "failed_fields": ["headline"],
+      "failure_kinds": {"headline": "contradicted"}
+    },
+    {
+      "headline": "Norway's King Harald V dies at 89; son Haakon takes throne",
+      "article_ids": ["A4","A74","A76","A136","A139","A156","A183","A212","A214","A215","A266","A320","A331","A341","A375","A377","A378","A465","A512","A513","A540","A541","A542","A544","A545","A546","A595","A673"],
+      "pass": true,
+      "reason": "Matches cited source articles: death at 89 at Oslo University Hospital on Friday morning, automatic succession by Crown Prince Haakon, 35-year reign, and the Mette-Marit/Epstein and Marius Borg Høiby rape conviction details are all confirmed in cited sources (e.g., A4)."
+    },
+    {
+      "headline": "Ratko Mladić, convicted of genocide at Srebrenica, dies in Hague prison",
+      "article_ids": ["A71","A84","A115","A149","A160","A163","A213","A225","A273","A323","A358","A428","A430","A435","A528","A630","A694","A702"],
+      "pass": false,
+      "reason": "summary: states Mladić was convicted of genocide for killing 'at least 12,000 Muslims' at Srebrenica, but cited sources (A115: 'at least 8,000 Muslims'; A225: 'at least 8,000 Muslims'; A358: 'some 8,000 Muslims') all put the figure at roughly 8,000, not 12,000.",
+      "failed_fields": ["summary"],
+      "failure_kinds": {"summary": "contradicted"}
+    },
+    {
+      "headline": "US judge rules Pentagon's blacklisting of Anthropic was illegal",
+      "article_ids": ["A8","A43","A58","A244","A252","A281","A387","A399","A409","A459","A558","A601","A663"],
+      "pass": true,
+      "reason": "Matches cited sources: 59-page order by Judge Rita Lin (A8), first public supply-chain-risk designation of a US company (A8), designation blocked military contracts after Anthropic refused surveillance/autonomous-weapons use (A58), and the First Amendment retaliation framing is consistent with the judge's own characterizations in A8/A58."
+    },
+    {
+      "headline": "Trump says Putin will not attack NATO as Pentagon prepares European defence options",
+      "article_ids": ["A39","A144","A148","A188","A408","A410","A576","A716"],
+      "pass": false,
+      "reason": "why_it_matters: describes the CIA director's Kremlin trip as 'a secret meeting,' but none of the cited sources characterize the Ratcliffe-Moscow contact as secret; this specific cannot be verified against the story's own sources.",
+      "failed_fields": ["why_it_matters"],
+      "failure_kinds": {"why_it_matters": "unsupported"}
+    },
+    {
+      "headline": "Iran agrees to draw up Hormuz conditions list; US clears strait of mines",
+      "article_ids": ["A28","A31","A34","A231","A319","A382","A386","A390","A403","A559","A574","A603","A681","A709"],
+      "pass": false,
+      "reason": "why_it_matters: refers to 'a closure the Biden administration has so far failed to reverse,' but cited sources (e.g., A31) describe this as Trump's war ('the U.S. and Israel launched the war,' 'Trump declared the MOU was over') — there is no Biden administration in office per the cited sources or the story's own date/context.",
+      "failed_fields": ["why_it_matters"],
+      "failure_kinds": {"why_it_matters": "contradicted"}
+    },
+    {
+      "headline": "DRC launches Ebola vaccination drive as death toll reaches 2,744",
+      "article_ids": ["A17","A20","A539","A604","A698"],
+      "pass": false,
+      "reason": "why_it_matters: claims 'renewed armed clashes in North Kivu have already forced three vaccination sites to suspend work,' a specific that does not appear in any cited source (A17, A20, A539, A604, A698).",
+      "failed_fields": ["why_it_matters"],
+      "failure_kinds": {"why_it_matters": "unsupported"}
+    },
+    {
+      "headline": "Syria appoints Kurdish commander Abdi as presidential adviser and allows Kurdish-language schooling",
+      "article_ids": ["A36","A37","A152"],
+      "pass": true,
+      "reason": "Matches cited sources: Abdi's appointment as presidential adviser and Kurdish-language schooling decision (A36), and Abdi's Interpol red notice/Turkish terrorist listing plus US envoy Tom Barrack's endorsement of the integration deal (A37)."
+    },
+    {
+      "headline": "Russia strikes Kyiv for second straight day; Kherson told to evacuate",
+      "article_ids": ["A143","A220","A221","A233","A264","A444","A548","A573","A632"],
+      "pass": true,
+      "reason": "Matches cited sources: Kyiv drone strikes killing one and damaging 14 warehouses/16 homes/3 apartment blocks (A221), and Kherson governor's warning about the heating plant and admission there is 'no way to destroy' the drones/glide bombs, plus the prior-winter power-plant strike pattern (A220)."
+    },
+    {
+      "headline": "Chinese executives may join Xi's September US visit; trade truce extension seen as near-certain",
+      "article_ids": ["A491","A501","A505"],
+      "pass": false,
+      "reason": "why_it_matters: says Washington and Beijing are managing disputes 'including Iran-related sanctions pressure,' but none of the cited sources (A491, A501, A505) mention Iran at all.",
+      "failed_fields": ["why_it_matters"],
+      "failure_kinds": {"why_it_matters": "unsupported"}
+    },
+    {
+      "headline": "Bangladesh journalists jailed since 2024 remain detained as BNP fails to honour press-freedom pledge",
+      "article_ids": ["A492","A581"],
+      "pass": false,
+      "reason": "summary: says 'five journalists and a writer' remain detained, but the cited source A581 states 'Four Bangladeshi journalists ... and writer Shahriar Kabir have faced criminal proceedings ... All have been imprisoned since 2024' — i.e., four journalists plus one writer, not five journalists plus a writer.",
+      "failed_fields": ["summary"],
+      "failure_kinds": {"summary": "contradicted"}
+    },
+    {
+      "headline": "Taiwan parliament passes its own drone plan and backs $7bn boost for domestic builders",
+      "article_ids": ["A456","A497","A714"],
+      "pass": false,
+      "reason": "why_it_matters: asserts that typhoons and record heat 'are already disrupting Taiwan Strait military planning and readiness,' but the cited source A497 only says extreme weather 'could undermine'/'could disrupt' combat readiness — a hedged, conditional possibility, not a stated current fact.",
+      "failed_fields": ["why_it_matters"],
+      "failure_kinds": {"why_it_matters": "contradicted"}
+    },
+    {
+      "headline": "Australia severs ties with two Chinese universities as Pacific rivalry sharpens",
+      "article_ids": ["A169","A292","A495","A661"],
+      "pass": true,
+      "reason": "Matches cited sources: ANU/Shandong University and University of Queensland/Chinese Academy of Sciences partnerships ended on national-security grounds amid expanded US restrictions (A495), Pacific rivalry heating up after Beijing's ICBM test (A292), and the analyst warning that the cuts won't slow China but could exclude Australia from top-tier research (A495)."
+    },
+    {
+      "headline": "Trump chip tariff plan could cost $90bn in annual GDP and delay one-fifth of US data centre projects, industry warns",
+      "article_ids": ["A47","A142","A442"],
+      "pass": false,
+      "reason": "summary: claims the tariffs would 'delay or cancel most data centre projects planned through 2030,' but the cited source A47 states the CCIA estimate is that 'about 20 percent' (one-fifth) of such projects would be delayed or canceled — directly contradicting both the source and the story's own headline figure of 'one-fifth.'",
+      "failed_fields": ["summary"],
+      "failure_kinds": {"summary": "contradicted"}
+    },
+    {
+      "headline": "Fed chair Warsh's Jackson Hole debut scrutinised for rate signals as inflation persists above target",
+      "article_ids": ["A29","A303","A383","A388","A393","A423","A427","A437","A453","A468"],
+      "pass": false,
+      "reason": "summary: names the three dissenting governors as 'Michelle Bowman, Christopher Waller and Lisa Cook,' but the cited source A29 only states 'three of them dissenting in favour of a hike' without naming anyone, and no other cited source supplies these names.",
+      "failed_fields": ["summary"],
+      "failure_kinds": {"summary": "unsupported"}
+    },
+    {
+      "headline": "Zambia opposition leader detained on treason charges ahead of president's inauguration",
+      "article_ids": ["A161","A577"],
+      "pass": false,
+      "reason": "summary: states Mundubile finished second 'by fewer than 40,000 votes,' but the cited sources (A161, A577) give no vote-margin figure at all — A161 only states Hichilema won 'around 60%' of the vote.",
+      "failed_fields": ["summary"],
+      "failure_kinds": {"summary": "unsupported"}
+    },
+    {
+      "headline": "Japan's births rise for first time in 11 years",
+      "article_ids": ["A289"],
+      "pass": false,
+      "reason": "summary: gives specific figures (731,000 babies, a 1.8 percent increase) and attributes the rise to a ministry-cited 'post-pandemic rebound in marriages,' but the sole cited source A289 provides no such detail beyond the headline fact of a rise in births for the first time in 11 years.",
+      "failed_fields": ["summary"],
+      "failure_kinds": {"summary": "unsupported"}
+    }
+  ]
+}
