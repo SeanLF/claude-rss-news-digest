@@ -27,6 +27,35 @@ FAILURE_KINDS = ("contradicted", "unsupported")
 COHERENCE_FIELDS = ("headline", "summary", "why_it_matters")
 NOT_COVERED_BLURB_MAX_LEN = 500
 
+# The coherence report as a JSON schema for the structured-output delivery. SHAPE ONLY: no
+# minItems/maxItems anywhere. A count constraint makes the model invent entries to satisfy it
+# (2026-08-21, six verdicts for claims that did not exist); correspondence -- every result names
+# a real draft story -- stays a check in code (orchestrate.validate_coherence).
+COHERENCE_REPORT_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "results": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "headline": {"type": "string"},
+                    "article_ids": {"type": "array", "items": {"type": "string"}},
+                    "pass": {"type": "boolean"},
+                    "reason": {"type": "string"},
+                    "failed_fields": {"type": "array", "items": {"type": "string", "enum": list(COHERENCE_FIELDS)}},
+                    "failure_kinds": {
+                        "type": "object",
+                        "additionalProperties": {"type": "string", "enum": list(FAILURE_KINDS)},
+                    },
+                },
+                "required": ["headline", "article_ids", "pass", "reason"],
+            },
+        }
+    },
+    "required": ["results"],
+}
+
 SOURCE_SCHEMA = {
     "type": "object",
     "properties": {

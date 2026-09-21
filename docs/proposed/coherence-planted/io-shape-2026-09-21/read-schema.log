@@ -1,0 +1,36 @@
+ Container io-shape-x3-read-schema Creating 
+ Container io-shape-x3-read-schema Created 
+
+Claude configuration file not found at: /home/appuser/.claude.json
+A backup file exists at: /home/appuser/.claude/backups/.claude.json.backup.1790021099921
+You can manually restore it by running: cp "/home/appuser/.claude/backups/.claude.json.backup.1790021099921" "/home/appuser/.claude.json"
+
+
+Claude configuration file not found at: /home/appuser/.claude.json
+A backup file exists at: /home/appuser/.claude/backups/.claude.json.backup.1790021099921
+You can manually restore it by running: cp "/home/appuser/.claude/backups/.claude.json.backup.1790021099921" "/home/appuser/.claude.json"
+
+COHERENCE eval  model=claude-sonnet-5  thinking=adaptive  runs=3  fixtures=eval-fixtures
+  labels: 8 hard, 0 borderline, 24 clean
+
+  [read-schema] attempts=1 input=28 cache_write=116449 cache_read=895496 output=28001 cost=$0.9250 reads=13 greps=0 writes=0 failed_fields=10 report_source=structured_output
+  run 0: recall 8/8  false-drops 1/24  borderline 0/0  unmapped 0  malformed 0
+          FALSE DROPS: [(9, 'why_it_matters')]
+          kinds: {'0:headline': 'contradicted', '2:summary': 'contradicted', '5:why_it_matters': 'contradicted', '6:why_it_matters': 'unsupported', '9:why_it_matters': 'unsupported', '10:summary': 'contradicted', '13:summary': 'contradicted', '14:summary': 'unsupported', '15:summary': 'unsupported', '16:summary': 'unsupported'}
+          kind agreement on hard positives: 4 agree, 0 disagree [], 4 unscored (label type not mapped) [(2, 'summary', 'numeric-contradiction'), (5, 'why_it_matters', 'stale-world-state'), (6, 'why_it_matters', 'LinkE-fabricated-event'), (14, 'summary', 'attribution-upgrade')], 2 on unlabelled fields
+  [read-schema] attempts=1 input=18 cache_write=123701 cache_read=458395 output=35599 cost=$0.9425 reads=10 greps=0 writes=0 failed_fields=12 report_source=structured_output
+  run 1: recall 8/8  false-drops 3/24  borderline 0/0  unmapped 0  malformed 0
+          FALSE DROPS: [(4, 'why_it_matters'), (9, 'why_it_matters'), (11, 'headline')]
+          kinds: {'0:headline': 'contradicted', '2:summary': 'contradicted', '4:why_it_matters': 'unsupported', '5:why_it_matters': 'contradicted', '6:why_it_matters': 'unsupported', '9:why_it_matters': 'unsupported', '10:summary': 'contradicted', '11:headline': 'contradicted', '13:summary': 'contradicted', '14:summary': 'unsupported', '15:summary': 'unsupported', '16:summary': 'unsupported'}
+          kind agreement on hard positives: 4 agree, 0 disagree [], 4 unscored (label type not mapped) [(2, 'summary', 'numeric-contradiction'), (5, 'why_it_matters', 'stale-world-state'), (6, 'why_it_matters', 'LinkE-fabricated-event'), (14, 'summary', 'attribution-upgrade')], 4 on unlabelled fields
+  [read-schema] attempts=1 input=18 cache_write=112513 cache_read=491921 output=24342 cost=$0.7919 reads=8 greps=0 writes=0 failed_fields=12 report_source=structured_output
+  run 2: recall 8/8  false-drops 2/24  borderline 0/0  unmapped 0  malformed 0
+          FALSE DROPS: [(9, 'why_it_matters'), (11, 'why_it_matters')]
+          kinds: {'0:headline': 'contradicted', '2:summary': 'contradicted', '5:why_it_matters': 'contradicted', '6:why_it_matters': 'unsupported', '9:why_it_matters': 'unsupported', '10:summary': 'contradicted', '11:why_it_matters': 'contradicted', '13:summary': 'contradicted', '14:summary': 'unsupported', '15:summary': 'unsupported', '16:summary': 'unsupported', '16:why_it_matters': 'unsupported'}
+          kind agreement on hard positives: 4 agree, 0 disagree [], 4 unscored (label type not mapped) [(2, 'summary', 'numeric-contradiction'), (5, 'why_it_matters', 'stale-world-state'), (6, 'why_it_matters', 'LinkE-fabricated-event'), (14, 'summary', 'attribution-upgrade')], 4 on unlabelled fields
+
+  best recall 8/8  worst false-drops 3
+
+  REGRESSION: false-drops 3 > 2 (precision regression)
+
+exit=1

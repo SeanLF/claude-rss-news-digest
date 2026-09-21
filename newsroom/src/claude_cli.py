@@ -299,7 +299,8 @@ async def run_agent(
                         thinking_parts.append(block.thinking)
                     elif isinstance(block, ToolUseBlock):
                         inp = block.input if isinstance(block.input, dict) else {}
-                        target = inp.get("file_path") or inp.get("pattern") or ""
+                        # Grep's identity is its pattern; every file tool's is its path.
+                        target = inp.get("pattern") if block.name == "Grep" else inp.get("file_path")
                         tool_calls.append((block.name, target if isinstance(target, str) else ""))
                     if isinstance(block, ToolUseBlock) and block.name == "Read":
                         # Only the model ASKING to open a file. Held until its result

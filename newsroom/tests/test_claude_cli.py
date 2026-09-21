@@ -654,7 +654,7 @@ class TestToolCalls:
         messages = [
             _assistant(
                 _read_tool_use("/w/a.csv"),
-                ToolUseBlock(id="tu_g", name="Grep", input={"pattern": "58%", "path": "/w"}),
+                ToolUseBlock(id="tu_g", name="Grep", input={"path": "/w", "pattern": "58%", "file_path": "/w/x"}),
                 ToolUseBlock(id="tu_w", name="Write", input={"file_path": "/w/out.json", "content": "{}"}),
             ),
             _read_result("/w/a.csv"),

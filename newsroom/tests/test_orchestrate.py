@@ -1643,3 +1643,69 @@ class TestOneRunOneDate:
 
         dated = self._dated_prompts(prompts)
         assert all("Wednesday, 1 July 2026" in p for p in dated), "a later stage re-read the clock"
+
+
+class TestReadOnlyAndInlineGrepBodies:
+    """Two more deliveries of the same checker for the 2026-09-21 I/O-shape arms. As with the
+    single-turn body, only I/O may change: the probe block survives byte for byte."""
+
+    def _probes(self, body: str) -> str:
+        return body[body.index("**For each field, run all three probes") : body.index("**Output schema")]
+
+    def test_read_only_body_keeps_read_drops_write_and_keeps_the_probes(self):
+        multi = orchestrate.parse_agent_spec(COHERENCE_SPEC).body
+        ro = orchestrate.build_read_only_body(multi)
+        assert self._probes(multi) in ro
+        assert "Read tool" in ro
+        assert "Write tool" not in ro
+        assert "Use Read and Write tools only" not in ro
+        assert "Reply with the JSON object and nothing else" in ro
+
+    def test_inline_grep_body_names_grep_and_the_on_disk_copy_and_keeps_the_probes(self):
+        multi = orchestrate.parse_agent_spec(COHERENCE_SPEC).body
+        ig = orchestrate.build_inline_grep_body(multi, "/app/eval-fixtures")
+        assert self._probes(multi) in ig
+        assert "Grep" in ig
+        assert "/app/eval-fixtures/" in ig
+        assert "Write tool" not in ig
+        assert "Reply with the JSON object and nothing else" in ig
+        # The rule the transcript is checked against: a FAIL needs a tool call behind it.
+        assert "before you FAIL" in ig
+
+    def test_both_bodies_stay_under_the_single_argv_limit(self):
+        multi = orchestrate.parse_agent_spec(COHERENCE_SPEC).body
+        assert len(orchestrate.build_read_only_body(multi).encode()) < 131072
+        assert len(orchestrate.build_inline_grep_body(multi, "/x").encode()) < 131072
+
+    def test_read_only_body_matches_the_write_step_after_the_eval_redirects_its_path(self):
+        # The evals swap /app/data/claude_input/ for the mounted fixture dir before the body
+        # reaches the builder; the first live run of the arm died on an exact-path match.
+        multi = orchestrate.parse_agent_spec(COHERENCE_SPEC).body.replace(
+            "/app/data/claude_input/", "/app/eval-fixtures/"
+        )
+        ro = orchestrate.build_read_only_body(multi)
+        assert "Write tool" not in ro and "Reply with the JSON object" in ro
+
+    def test_both_bodies_keep_step_two_and_the_rules_block(self):
+        # Review finding 2026-09-21: the first inline-grep builder sliced out step 2, the rule
+        # that a specific found only in a non-cited article is UNSUPPORTED -- the rule that
+        # matters most with the whole corpus in context. The probe span could not see it.
+        multi = orchestrate.parse_agent_spec(COHERENCE_SPEC).body
+        step2 = "A specific that appears solely in a non-cited article"
+        assert step2 in multi
+        ro = orchestrate.build_read_only_body(multi)
+        ig = orchestrate.build_inline_grep_body(multi, "/app/eval-fixtures")
+        assert step2 in ro and step2 in ig
+        tail = multi[multi.index("**Output schema") :]
+        assert "before writing that story's result" in tail
+        expected_ro = tail.replace(
+            "- DO NOT use Bash. Use Read and Write tools only.\n",
+            "- DO NOT use Bash or Write. Use the Read tool only.\n",
+        ).replace("before writing that story's result", "before giving that story's result")
+        expected_ig = tail.replace(
+            "- DO NOT use Bash. Use Read and Write tools only.\n",
+            "- DO NOT use Bash or Write. Use Grep and Read only.\n",
+        ).replace("before writing that story's result", "before giving that story's result")
+        assert expected_ro in ro
+        assert expected_ig in ig
+        assert "Use the Read tool to read these files" not in ig

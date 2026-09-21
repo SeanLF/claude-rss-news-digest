@@ -308,6 +308,182 @@ async def run_per_story_to_file(out_path: Path, model: str, body: str, thinking:
     )
 
 
+ARMS = ("tools", "read-text", "read-schema", "inline-grep")
+
+
+def _report_from(res) -> tuple[dict | None, str]:
+    """The report and where it came from: the schema-parsed final message, or text parsed in code."""
+    so = getattr(res, "structured_output", None)
+    if isinstance(so, dict) and isinstance(so.get("results"), list):
+        return so, "structured_output"
+    return orchestrate.parse_coherence_report(res.text), "text"
+
+
+def _count(res, name: str) -> int:
+    return sum(1 for n, _ in (getattr(res, "tool_calls", None) or ()) if n == name)
+
+
+def _tier_of(fixtures: Path) -> dict[str, str]:
+    """headline -> tier from the draft, so a story dropped without failed_fields is counted at its
+    own field count (briefs carry no why_it_matters by design)."""
+    try:
+        draft = json.loads((fixtures / "draft_selections.json").read_text(encoding="utf-8"))
+    except OSError, ValueError:
+        return {}
+    out: dict[str, str] = {}
+    for tier in ("must_know", "should_know"):
+        for st in draft.get(tier) or []:
+            if isinstance(st, dict) and isinstance(st.get("headline"), str):
+                out[_norm(st["headline"])] = tier
+    return out
+
+
+def failed_field_count(report: dict, fixtures: Path) -> int:
+    tiers = _tier_of(fixtures)
+    n = 0
+    for r in report.get("results") or []:
+        if not (isinstance(r, dict) and r.get("pass") is False):
+            continue
+        ff = r.get("failed_fields")
+        if isinstance(ff, list) and ff:
+            n += len(ff)
+        else:
+            n += 2 if tiers.get(_norm(r.get("headline") or "")) == "should_know" else len(KNOWN_FIELDS)
+    return n
+
+
+_MIN_PATTERN = 4
+
+
+def unbacked_fail_count(report: dict, tool_calls) -> int:
+    """Failing entries whose reason does not contain any Grep pattern of the accepted attempt.
+
+    The report lands in the final message, so positional attribution is impossible; a Grep
+    pattern that names the specific the reason quotes is the cheap attribution the transcript
+    does allow. Substring only, patterns shorter than 4 characters ignored, no token union: the
+    earlier token-overlap version let one Grep for "kill" back every failure in the report.
+    Still approximate (a Grep for "source" backs any reason that says "source"), so it is
+    reported, never gated."""
+    raw = [
+        t.strip().lower()
+        for name, t in (tool_calls or ())
+        if name == "Grep" and isinstance(t, str) and len(t.strip()) >= _MIN_PATTERN
+    ]
+    return sum(
+        1
+        for r in report.get("results") or []
+        if isinstance(r, dict) and r.get("pass") is False and not any(p in (r.get("reason") or "").lower() for p in raw)
+    )
+
+
+async def run_arm_to_file(arm: str, out_path: Path, model: str, body: str, thinking: dict, fixtures: Path) -> dict:
+    """One rep of an I/O-shape arm; the report lands at out_path and the metrics come back.
+
+    read-text:   Read only; the report is the final message, parsed in code.
+    read-schema: Read only; the final message is constrained by COHERENCE_REPORT_SCHEMA.
+    inline-grep: corpus inline in the user turn AND on disk; Grep + Read to re-check before a FAIL.
+
+    An unparseable reply is a fresh attempt (once), and every attempt is paid for: the metric the
+    arms are compared on is cost per ACCEPTED report, retries included.
+    """
+    if arm not in ARMS or arm == "tools":
+        raise ValueError(f"unknown arm {arm!r}; run_agent_to_file handles the shipped tool loop")
+    if arm == "inline-grep":
+        prompt = orchestrate.build_coherence_corpus(fixtures)
+        system_prompt = orchestrate.build_inline_grep_body(body, str(fixtures))
+        tools = ["Read", "Grep"]
+        output_format = None
+    else:
+        prompt = "Begin."
+        system_prompt = orchestrate.build_read_only_body(body)
+        tools = ["Read"]
+        output_format = (
+            {"type": "json_schema", "schema": schema.COHERENCE_REPORT_SCHEMA} if arm == "read-schema" else None
+        )
+
+    if out_path.exists():
+        out_path.unlink()
+    m = {
+        "arm": arm,
+        "attempts": 0,
+        "cost": 0.0,
+        "duration_ms": 0,
+        "input": 0,
+        "cache_write": 0,
+        "cache_read": 0,
+        "output": 0,
+        "reads": 0,
+        "greps": 0,
+        "writes": 0,
+    }
+    report = None
+    accepted = None
+    for attempt in (1, 2):
+        res = await claude_cli.run_agent(
+            prompt,
+            model=model,
+            system_prompt=system_prompt,
+            permission_mode="acceptEdits",
+            allowed_tools=" ".join(tools),
+            tools=tools,
+            cwd="/app",
+            idle_timeout=180.0,
+            thinking=thinking,
+            output_format=output_format,
+        )
+        u = res.usage or {}
+        m["attempts"] = attempt
+        # Cost and tokens sum across attempts: every attempt is paid for.
+        m["cost"] += res.total_cost_usd or 0.0
+        m["duration_ms"] += getattr(res, "duration_ms", 0) or 0
+        m["input"] += u.get("input_tokens", 0)
+        m["cache_write"] += u.get("cache_creation_input_tokens", 0)
+        m["cache_read"] += u.get("cache_read_input_tokens", 0)
+        m["output"] += u.get("output_tokens", 0)
+        if not res.ok:
+            raise RuntimeError(f"{arm} run failed: {res.error_summary()}")
+        report, m["report_source"] = _report_from(res)
+        if report is not None:
+            accepted = res
+            break
+        print(f"  [{arm}] attempt {attempt}: no parseable report" + (", retrying once" if attempt == 1 else ""))
+    if report is None or accepted is None:
+        raise RuntimeError(f"{arm}: no parseable report after 2 attempts")
+    # Tool counts and the grep rule describe the ACCEPTED attempt only: a discarded attempt's
+    # greps must not launder a FAIL the accepted report made without one.
+    m["reads"] = _count(accepted, "Read")
+    m["greps"] = _count(accepted, "Grep")
+    m["writes"] = _count(accepted, "Write")
+    out_path.write_text(json.dumps(report), encoding="utf-8")
+    m["failed_fields"] = failed_field_count(report, fixtures)
+    m["unbacked_fails"] = unbacked_fail_count(report, accepted.tool_calls) if arm == "inline-grep" else None
+    print(
+        f"  [{arm}] attempts={m['attempts']} input={m['input']} cache_write={m['cache_write']} "
+        f"cache_read={m['cache_read']} output={m['output']} cost=${m['cost']:.4f} "
+        f"reads={m['reads']} greps={m['greps']} writes={m['writes']} failed_fields={m['failed_fields']} "
+        f"unbacked_fails={m['unbacked_fails']} report_source={m['report_source']}"
+    )
+    return m
+
+
+def _metrics_from(res) -> dict:
+    """Usage, cost and tool-call counts of one StageResult (tolerant: a test double may carry none)."""
+    u = getattr(res, "usage", None) or {}
+    calls = getattr(res, "tool_calls", None) or ()
+    return {
+        "attempts": 1,
+        "cost": getattr(res, "total_cost_usd", 0.0) or 0.0,
+        "duration_ms": getattr(res, "duration_ms", 0) or 0,
+        "input": u.get("input_tokens", 0),
+        "cache_write": u.get("cache_creation_input_tokens", 0),
+        "cache_read": u.get("cache_read_input_tokens", 0),
+        "output": u.get("output_tokens", 0),
+        "reads": sum(1 for n, _ in calls if n == "Read"),
+        "greps": sum(1 for n, _ in calls if n == "Grep"),
+        "writes": sum(1 for n, _ in calls if n == "Write"),
+    }
+
+
 async def run_agent_to_file(label: str, out_path: Path, model: str, body: str, thinking: dict, tools: list[str]):
     """Run an agent through the production claude-agent-sdk path and require it to
     (re)write out_path. Shared by the coherence/repair evals so both exercise the
@@ -348,6 +524,7 @@ def main() -> int:
     ap.add_argument("--runs", type=int, default=2)
     ap.add_argument("--single-turn", action="store_true", help="inline the corpus, tools=[], parse result.text")
     ap.add_argument("--per-story", action="store_true", help="one single-turn call per story, cited sources only")
+    ap.add_argument("--arm", choices=ARMS, default="tools", help="I/O-shape arm (default: the shipped tool loop)")
     ap.add_argument("--model", default=None, help="override coherence.md's frontmatter model")
     ap.add_argument(
         "--today",
@@ -369,18 +546,40 @@ def main() -> int:
         f"{len(labels['clean_fields'])} clean\n"
     )
 
+    if (args.single_turn or args.per_story) and args.arm != "tools":
+        ap.error("--single-turn/--per-story are arms of their own; do not combine them with --arm")
+    arm_label = "per-story" if args.per_story else ("single-turn" if args.single_turn else args.arm)
+
     scores = []
     for i in range(runs):
+        metrics: dict = {"arm": arm_label}
         if args.per_story:
             asyncio.run(run_per_story_to_file(fixtures / REPORT_NAME, model, body, thinking, fixtures))
         elif args.single_turn:
             asyncio.run(run_single_turn_to_file(fixtures / REPORT_NAME, model, body, thinking, fixtures))
+        elif args.arm != "tools":
+            metrics = asyncio.run(run_arm_to_file(args.arm, fixtures / REPORT_NAME, model, body, thinking, fixtures))
         else:
-            asyncio.run(run_agent_to_file("coherence", fixtures / REPORT_NAME, model, body, thinking, tools))
+            res = asyncio.run(run_agent_to_file("coherence", fixtures / REPORT_NAME, model, body, thinking, tools))
+            metrics.update(_metrics_from(res))
+            metrics["report_source"] = "file"
+            try:
+                metrics["failed_fields"] = failed_field_count(
+                    json.loads((fixtures / REPORT_NAME).read_text(encoding="utf-8")), fixtures
+                )
+            except OSError, ValueError:
+                metrics["failed_fields"] = None
+            print(
+                f"  [tools] cost=${metrics['cost']:.4f} reads={metrics['reads']} greps={metrics['greps']} "
+                f"writes={metrics['writes']} failed_fields={metrics['failed_fields']}"
+            )
         # Keep every run's report: the 2026-09-03 per-story measurement lost the reasons behind
         # three false drops because each run overwrote the last.
-        shutil.copyfile(fixtures / REPORT_NAME, fixtures / f"coherence_report.{i}.json")
+        tag = str(i) if arm_label == "tools" else f"{arm_label}.{i}"
+        shutil.copyfile(fixtures / REPORT_NAME, fixtures / f"coherence_report.{tag}.json")
         s = score(fixtures / REPORT_NAME, labels)
+        s["metrics"] = metrics
+        (fixtures / f"score.{tag}.json").write_text(json.dumps(s, default=str), encoding="utf-8")
         scores.append(s)
         print(
             f"  run {i}: recall {len(s['hard_caught'])}/{s['n_hard']}  "

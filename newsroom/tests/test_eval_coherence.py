@@ -13,7 +13,9 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 import eval_coherence
 
 _BODY = (
-    "**Instructions:**\n1. read things\n"
+    "**Instructions:**\n1. Use the Read tool to read these files:\n   - x\n"
+    "2. For each story in draft_selections.json check it. A specific that appears solely in a non-cited article "
+    "counts as UNSUPPORTED.\n"
     "3. Use the Write tool to write the result to `/app/data/claude_input/coherence_report.json`\n"
     "**For each field, run all three probes** x\n"
     "**Output schema** y\n"
@@ -266,3 +268,174 @@ def test_a_rep_that_hangs_twice_fails_loud(tmp_path, monkeypatch):
     with pytest.raises(RuntimeError, match="idle timeout"):
         asyncio.run(eval_coherence.run_agent_to_file("coherence", out, "m", "body", {"type": "disabled"}, ["Read"]))
     assert calls["n"] == 2
+
+
+# ---------------------------------------------------------------------------
+# I/O-shape arms (2026-09-21): read-text, read-schema, inline-grep
+# ---------------------------------------------------------------------------
+
+_REPORT = {"results": [{"headline": "One", "article_ids": ["A1"], "pass": True, "reason": "ok"}]}
+
+
+def _fixtures(tmp_path):
+    (tmp_path / "draft_selections.json").write_text(json.dumps({"must_know": [{"headline": "One"}], "should_know": []}))
+    (tmp_path / "articles_1.csv").write_text("article_id,title,summary\nA1,a,b\n")
+    return tmp_path
+
+
+def _res(*, text="", structured_output=None, tool_calls=(), ok=True):
+    return SimpleNamespace(
+        ok=ok,
+        text=text,
+        structured_output=structured_output,
+        tool_calls=tool_calls,
+        usage={"input_tokens": 1, "output_tokens": 2, "cache_read_input_tokens": 3, "cache_creation_input_tokens": 4},
+        total_cost_usd=0.5,
+        duration_ms=1000,
+        error_summary=lambda: "err",
+    )
+
+
+def test_read_schema_arm_prefers_structured_output_and_sends_the_schema(tmp_path, monkeypatch):
+    fx = _fixtures(tmp_path)
+    seen = {}
+
+    async def fake(prompt, **kw):
+        seen.update(kw)
+        return _res(text="not json", structured_output=_REPORT, tool_calls=(("Read", "/x"),))
+
+    monkeypatch.setattr(eval_coherence.claude_cli, "run_agent", fake)
+    out = fx / "coherence_report.json"
+    m = asyncio.run(eval_coherence.run_arm_to_file("read-schema", out, "m", _BODY, {"type": "adaptive"}, fx))
+
+    assert json.loads(out.read_text()) == _REPORT
+    assert seen["output_format"]["type"] == "json_schema"
+    assert seen["tools"] == ["Read"]
+    assert m["attempts"] == 1 and m["reads"] == 1 and m["greps"] == 0 and m["writes"] == 0
+
+
+def test_read_text_arm_parses_the_final_message_and_retries_once_when_unparseable(tmp_path, monkeypatch):
+    fx = _fixtures(tmp_path)
+    calls = {"n": 0}
+
+    async def fake(prompt, **kw):
+        calls["n"] += 1
+        assert kw.get("output_format") is None and kw["tools"] == ["Read"]
+        return _res(text="garbage" if calls["n"] == 1 else json.dumps(_REPORT))
+
+    monkeypatch.setattr(eval_coherence.claude_cli, "run_agent", fake)
+    out = fx / "coherence_report.json"
+    m = asyncio.run(eval_coherence.run_arm_to_file("read-text", out, "m", _BODY, {"type": "adaptive"}, fx))
+
+    assert json.loads(out.read_text()) == _REPORT
+    assert m["attempts"] == 2
+    assert m["cost"] == 1.0  # both attempts are paid for
+
+
+def test_inline_grep_arm_inlines_the_corpus_allows_grep_and_counts_unbacked_fails(tmp_path, monkeypatch):
+    fx = _fixtures(tmp_path)
+    seen = {}
+    failing = {
+        "results": [
+            {
+                "headline": "One",
+                "article_ids": ["A1"],
+                "pass": False,
+                "reason": "summary: x",
+                "failed_fields": ["summary"],
+            }
+        ]
+    }
+
+    async def fake(prompt, **kw):
+        seen.update(kw)
+        seen["prompt"] = prompt
+        return _res(text=json.dumps(failing), tool_calls=())  # nothing behind the FAIL
+
+    monkeypatch.setattr(eval_coherence.claude_cli, "run_agent", fake)
+    out = fx / "coherence_report.json"
+    m = asyncio.run(eval_coherence.run_arm_to_file("inline-grep", out, "m", _BODY, {"type": "adaptive"}, fx))
+
+    assert "## articles_1.csv" in seen["prompt"]
+    assert sorted(seen["tools"]) == ["Grep", "Read"]
+    assert m["failed_fields"] == 1 and m["greps"] == 0 and m["unbacked_fails"] == 1
+
+
+def test_unknown_arm_is_refused(tmp_path):
+    with pytest.raises(ValueError, match="arm"):
+        asyncio.run(eval_coherence.run_arm_to_file("bogus", tmp_path / "r.json", "m", _BODY, {}, tmp_path))
+
+
+def test_tool_counts_and_the_grep_rule_describe_the_accepted_attempt_only(tmp_path, monkeypatch):
+    """Review finding 2026-09-21: summing greps across a discarded attempt laundered a FAIL the
+    accepted report made with nothing behind it."""
+    fx = _fixtures(tmp_path)
+    failing = {
+        "results": [
+            {
+                "headline": "One",
+                "article_ids": ["A1"],
+                "pass": False,
+                "reason": "summary: says 58%",
+                "failed_fields": ["summary"],
+            }
+        ]
+    }
+    calls = {"n": 0}
+
+    async def fake(prompt, **kw):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            return _res(text="garbage", tool_calls=(("Grep", "58%"), ("Read", "/a")))
+        return _res(text=json.dumps(failing), tool_calls=())
+
+    monkeypatch.setattr(eval_coherence.claude_cli, "run_agent", fake)
+    m = asyncio.run(eval_coherence.run_arm_to_file("inline-grep", fx / "r.json", "m", _BODY, {}, fx))
+    assert m["attempts"] == 2 and m["cost"] == 1.0
+    assert m["greps"] == 0 and m["reads"] == 0
+    assert m["unbacked_fails"] == 1
+
+
+def test_a_grep_whose_pattern_names_the_specific_backs_the_fail():
+    report = {
+        "results": [
+            {"headline": "A", "pass": False, "reason": "summary: says 12,000 killed but sources say 8,000"},
+            {"headline": "B", "pass": False, "reason": "headline: says Bhutan but sources say Tibet"},
+            {"headline": "C", "pass": True, "reason": "ok"},
+        ]
+    }
+    calls = (("Grep", "12,000"), ("Read", "/x"))
+    assert eval_coherence.unbacked_fail_count(report, calls) == 1  # B has no grep behind it
+    # A generic or tiny pattern backs nothing: the re-review found "." and "kill" backed a whole report.
+    assert eval_coherence.unbacked_fail_count(report, (("Grep", "."),)) == 2
+    assert eval_coherence.unbacked_fail_count(report, (("Grep", "say"),)) == 2
+
+
+def test_a_brief_dropped_without_failed_fields_counts_two_fields(tmp_path):
+    (tmp_path / "draft_selections.json").write_text(
+        json.dumps({"must_know": [{"headline": "Lead"}], "should_know": [{"headline": "Brief"}]})
+    )
+    report = {
+        "results": [
+            {"headline": "Lead", "pass": False, "reason": "r"},
+            {"headline": "Brief", "pass": False, "reason": "r"},
+            {"headline": "Lead", "pass": False, "reason": "r", "failed_fields": ["summary"]},
+        ]
+    }
+    assert eval_coherence.failed_field_count(report, tmp_path) == 3 + 2 + 1
+
+
+def test_single_turn_cannot_be_combined_with_an_arm(tmp_path, monkeypatch):
+    (tmp_path / "labels.json").write_text(
+        json.dumps({"hard_positives": [], "borderline": [], "clean_fields": [], "idx_headlines": {}})
+    )
+    monkeypatch.setattr(
+        eval_coherence,
+        "load_agent_for_eval",
+        lambda agent, fixtures, override=None, **_: ("m", "body", {"type": "disabled"}, ["Read"]),
+    )
+    monkeypatch.setattr(
+        sys, "argv", ["eval_coherence", "--single-turn", "--arm", "inline-grep", "--fixtures", str(tmp_path)]
+    )
+    with pytest.raises(SystemExit):
+        eval_coherence.main()

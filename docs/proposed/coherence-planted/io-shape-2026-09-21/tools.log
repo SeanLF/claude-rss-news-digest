@@ -1,0 +1,25 @@
+ Container io-shape-x3-tools Creating 
+ Container io-shape-x3-tools Created 
+
+Claude configuration file not found at: /home/appuser/.claude.json
+A backup file exists at: /home/appuser/.claude/backups/.claude.json.backup.1790021099921
+You can manually restore it by running: cp "/home/appuser/.claude/backups/.claude.json.backup.1790021099921" "/home/appuser/.claude.json"
+
+
+Claude configuration file not found at: /home/appuser/.claude.json
+A backup file exists at: /home/appuser/.claude/backups/.claude.json.backup.1790021099921
+You can manually restore it by running: cp "/home/appuser/.claude/backups/.claude.json.backup.1790021099921" "/home/appuser/.claude.json"
+
+COHERENCE eval  model=claude-sonnet-5  thinking=adaptive  runs=1  fixtures=eval-fixtures
+  labels: 8 hard, 0 borderline, 24 clean
+
+  [tools] cost=$1.0236 reads=9 greps=0 writes=1
+  run 0: recall 8/8  false-drops 1/24  borderline 0/0  unmapped 0  malformed 0
+          FALSE DROPS: [(9, 'why_it_matters')]
+          kinds: {'0:headline': 'contradicted', '2:summary': 'contradicted', '5:why_it_matters': 'contradicted', '6:why_it_matters': 'unsupported', '9:why_it_matters': 'unsupported', '10:summary': 'contradicted', '13:summary': 'contradicted', '14:summary': 'unsupported', '15:summary': 'unsupported', '16:summary': 'unsupported'}
+          kind agreement on hard positives: 4 agree, 0 disagree [], 4 unscored (label type not mapped) [(2, 'summary', 'numeric-contradiction'), (5, 'why_it_matters', 'stale-world-state'), (6, 'why_it_matters', 'LinkE-fabricated-event'), (14, 'summary', 'attribution-upgrade')], 2 on unlabelled fields
+
+  best recall 8/8  worst false-drops 1
+
+  OK (no egregious regression; review the scorecard for recall changes)
+exit=0

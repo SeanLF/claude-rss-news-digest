@@ -1,0 +1,32 @@
+ Container io-shape-grepfix Creating 
+ Container io-shape-grepfix Created 
+
+Claude configuration file not found at: /home/appuser/.claude.json
+A backup file exists at: /home/appuser/.claude/backups/.claude.json.backup.1790021689312
+You can manually restore it by running: cp "/home/appuser/.claude/backups/.claude.json.backup.1790021689312" "/home/appuser/.claude.json"
+
+
+Claude configuration file not found at: /home/appuser/.claude.json
+A backup file exists at: /home/appuser/.claude/backups/.claude.json.backup.1790021689312
+You can manually restore it by running: cp "/home/appuser/.claude/backups/.claude.json.backup.1790021689312" "/home/appuser/.claude.json"
+
+COHERENCE eval  model=claude-sonnet-5  thinking=adaptive  runs=3  fixtures=eval-fixtures
+  labels: 8 hard, 0 borderline, 24 clean
+
+  [inline-grep] attempts=1 input=16 cache_write=143343 cache_read=940416 output=21982 cost=$1.0675 reads=1 greps=12 writes=0 failed_fields=9 unbacked_fails=4 report_source=text
+  run 0: recall 8/8  false-drops 0/24  borderline 0/0  unmapped 0  malformed 0
+          kinds: {'0:headline': 'contradicted', '2:summary': 'contradicted', '5:why_it_matters': 'contradicted', '6:why_it_matters': 'unsupported', '10:summary': 'contradicted', '13:summary': 'contradicted', '14:summary': 'unsupported', '15:summary': 'unsupported', '16:summary': 'unsupported'}
+          kind agreement on hard positives: 4 agree, 0 disagree [], 4 unscored (label type not mapped) [(2, 'summary', 'numeric-contradiction'), (5, 'why_it_matters', 'stale-world-state'), (6, 'why_it_matters', 'LinkE-fabricated-event'), (14, 'summary', 'attribution-upgrade')], 1 on unlabelled fields
+  [inline-grep] attempts=1 input=6 cache_write=16935 cache_read=387115 output=15522 cost=$0.3866 reads=1 greps=4 writes=0 failed_fields=9 unbacked_fails=5 report_source=text
+  run 1: recall 8/8  false-drops 0/24  borderline 0/0  unmapped 0  malformed 0
+          kinds: {'0:headline': 'contradicted', '2:summary': 'contradicted', '5:why_it_matters': 'contradicted', '6:why_it_matters': 'unsupported', '10:summary': 'contradicted', '13:summary': 'contradicted', '14:summary': 'unsupported', '15:summary': 'unsupported', '16:summary': 'unsupported'}
+          kind agreement on hard positives: 4 agree, 0 disagree [], 4 unscored (label type not mapped) [(2, 'summary', 'numeric-contradiction'), (5, 'why_it_matters', 'stale-world-state'), (6, 'why_it_matters', 'LinkE-fabricated-event'), (14, 'summary', 'attribution-upgrade')], 1 on unlabelled fields
+  [inline-grep] attempts=1 input=6 cache_write=17505 cache_read=387690 output=19632 cost=$0.4301 reads=1 greps=2 writes=0 failed_fields=9 unbacked_fails=7 report_source=text
+  run 2: recall 8/8  false-drops 0/24  borderline 0/0  unmapped 0  malformed 0
+          kinds: {'0:headline': 'contradicted', '2:summary': 'contradicted', '5:why_it_matters': 'contradicted', '6:why_it_matters': 'unsupported', '10:summary': 'contradicted', '13:summary': 'contradicted', '14:summary': 'unsupported', '15:summary': 'unsupported', '16:summary': 'unsupported'}
+          kind agreement on hard positives: 4 agree, 0 disagree [], 4 unscored (label type not mapped) [(2, 'summary', 'numeric-contradiction'), (5, 'why_it_matters', 'stale-world-state'), (6, 'why_it_matters', 'LinkE-fabricated-event'), (14, 'summary', 'attribution-upgrade')], 1 on unlabelled fields
+
+  best recall 8/8  worst false-drops 0
+
+  OK (no egregious regression; review the scorecard for recall changes)
+exit=0

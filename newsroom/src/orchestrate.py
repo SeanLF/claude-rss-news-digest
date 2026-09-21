@@ -541,6 +541,60 @@ def build_single_turn_body(body: str) -> str:
     return out.replace("- DO NOT use Bash. Use Read and Write tools only.\n", "")
 
 
+_REPLY_JSON = "**Reply with the JSON object and nothing else** -- no preamble, no code fence, no commentary.\n"
+# The Write step names the input directory, which the evals redirect before the body reaches these
+# builders, so it is matched on its shape rather than its path.
+_WRITE_STEP = re.compile(r"3\. Use the Write tool to write the result to `[^`]*coherence_report\.json`\n")
+_TOOLS_RULE = "- DO NOT use Bash. Use Read and Write tools only.\n"
+_STEP_1 = "1. Use the Read tool to read these files:"
+_STEP_2 = "2. For each story in draft_selections.json"
+_BEFORE_WRITING = "before writing that story's result"
+_BEFORE_GIVING = "before giving that story's result"
+
+
+def build_read_only_body(body: str) -> str:
+    """The shipped checker with Write removed: it still Reads the corpus, and returns the report
+    as its final message instead of writing a file. Derived, so the probes survive byte for byte."""
+    if not _WRITE_STEP.search(body) or _TOOLS_RULE not in body:
+        raise ValueError(
+            "coherence body drifted: the Write step or the tools rule is not where build_read_only_body expects"
+        )
+    out = _WRITE_STEP.sub("3. " + _REPLY_JSON, body, count=1)
+    out = out.replace(_TOOLS_RULE, "- DO NOT use Bash or Write. Use the Read tool only.\n")
+    return out.replace(_BEFORE_WRITING, _BEFORE_GIVING)
+
+
+def build_inline_grep_body(body: str, input_dir: str) -> str:
+    """The corpus inline in the user turn AND on disk, with Grep and Read to re-check.
+
+    The 2026-08-31 inline arm lost absence detection because a negative over 80k inline tokens
+    invites satisficing; the tool loop turns it into a search that terminates. This delivery keeps
+    both: cross-reference from context, and a FAIL must be backed by a Grep or Read on the on-disk
+    copy -- a rule the transcript is checked against, since a prompt rule alone fixes nothing.
+
+    Only steps 1 and 3 of the instructions change (how the input arrives, how the result leaves).
+    Step 2 -- verify ONLY against the story's cited article_ids -- is the rule that matters most
+    with the whole corpus in context, and the first cut of this builder deleted it (review, 2026-09-21).
+    """
+    if _STEP_1 not in body or _STEP_2 not in body or not _WRITE_STEP.search(body) or _TOOLS_RULE not in body:
+        raise ValueError("coherence body drifted: an instruction step is not where build_inline_grep_body expects")
+    start = body.index(_STEP_1)
+    end = body.index(_STEP_2)
+    step1 = (
+        "1. **Your input arrives in the next message, inline**: draft_selections.json, every "
+        f"articles_*.csv, and article_fulltext.json. The same files are also on disk under `{input_dir}/`.\n"
+    )
+    out = body[:start] + step1 + body[end:]
+    step3 = (
+        "3. **Rule: before you FAIL a field, use the Grep tool (or Read) on the on-disk files to confirm "
+        "the specific is absent from, or contradicted by, the story's cited sources.** A FAIL with no "
+        "tool call behind it is not allowed; a PASS needs none.\n   " + _REPLY_JSON
+    )
+    out = _WRITE_STEP.sub(step3, out, count=1)
+    out = out.replace(_TOOLS_RULE, "- DO NOT use Bash or Write. Use Grep and Read only.\n")
+    return out.replace(_BEFORE_WRITING, _BEFORE_GIVING)
+
+
 def build_story_corpus(claude_input_dir: Path, story: dict) -> str:
     """One story and only its cited sources, inlined.
 
