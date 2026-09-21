@@ -43,12 +43,9 @@ DERIVED_FROM_ARCHIVED = {
 # (repair.md), so the scan below sees one of the four and the rest are listed by hand -- which
 # is the point: the scan's universe is "filenames spelled in a prompt", and the real input set
 # is strictly larger. Closing this changes what production records, so it is a separate decision.
-UNARCHIVED_REPAIR_OUTPUTS = {
-    "repaired_fields.json": "repair stage output; the re-check consumes it in-process",
-    "recheck_report.json": "re-check output; build_repair_resolution consumes it in-process",
-    "recheck_draft.json": "re-check input, patched from repaired_fields.json -- transitively lost",
-    "repair_resolution.json": "read by merge.assemble_selections; built from the two outputs above",
-}
+# Closed: the repair path's four model outputs are archived (db._TRACE_ARTIFACTS). The dict stays so
+# DERIVED_IN_PROCESS below keeps its shape.
+UNARCHIVED_REPAIR_OUTPUTS: dict[str, str] = {}
 
 DERIVED_IN_PROCESS = {**{k: v[1] for k, v in DERIVED_FROM_ARCHIVED.items()}, **UNARCHIVED_REPAIR_OUTPUTS}
 

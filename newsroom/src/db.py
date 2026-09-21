@@ -780,6 +780,12 @@ _TRACE_ARTIFACTS = (
     # The deterministic join's INPUT; only its output (clusters.json) was kept before.
     "cluster_tags.json",
     "fulltext_health.json",
+    # The repair path's model outputs. Not derivable (re-deriving means paying the model again),
+    # and the recheck verdict was the one thing run 303's two drops could not be read back from.
+    "repaired_fields.json",
+    "recheck_draft.json",
+    "recheck_report.json",
+    "repair_resolution.json",
     # Per-branch costs and the stories the per-story WRITE fan-out could not run. Also
     # recorded mid-run via record_run_artifact; it is in this sweep as well because that call
     # is a no-op until start_run(), and on --resume start_run happens AFTER curation -- so

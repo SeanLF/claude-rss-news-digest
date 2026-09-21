@@ -548,3 +548,16 @@ def test_archive_run_artifacts_is_idempotent(fresh_db, tmp_path):
     with sqlite3.connect(fresh_db) as conn:
         n = conn.execute("SELECT COUNT(*) FROM run_artifacts WHERE artifact_name = 'clusters.json'").fetchone()[0]
     assert n == 1
+
+
+def test_archive_run_artifacts_keeps_the_repair_paths_outputs(fresh_db, tmp_path):
+    """Probe 0 gap A2: run 303 dropped two repaired stories and the recheck verdict could not be
+    read back, because none of the repair path's four outputs was archived."""
+    d = tmp_path / "claude_input"
+    d.mkdir()
+    for name in ("repaired_fields.json", "recheck_draft.json", "recheck_report.json", "repair_resolution.json"):
+        (d / name).write_text(json.dumps({"from": name}), encoding="utf-8")
+    db.archive_run_artifacts(d)
+    arts = db.get_run_artifacts(db._state.run_id)
+    assert {"repaired_fields.json", "recheck_draft.json", "recheck_report.json", "repair_resolution.json"} <= set(arts)
+    assert json.loads(arts["recheck_report.json"]) == {"from": "recheck_report.json"}
