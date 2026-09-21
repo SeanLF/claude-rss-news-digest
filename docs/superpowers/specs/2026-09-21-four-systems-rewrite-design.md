@@ -190,7 +190,7 @@ through one primitive: run a stage on an input directory with a model and thinki
 - One Temporal server, one namespace per repo. Nothing on it is mission-critical.
 - The deploy script shrinks to build, push, apply, smoke. What stays bash is decided in plan 4: the SBOM gate,
   snapshot-as-rollback, provenance check.
-- SQLite stays. `busy_timeout` on both sides (the writer has it today; the reader has nothing). WAL is **not** turned on unless the backup becomes WAL-aware (`VACUUM INTO` or the online backup API replacing the file copy), because `db.py` refuses it for exactly that reason and §8 keeps the file snapshot as the rollback. Either both change or neither.
+- SQLite stays. `busy_timeout` on both sides (the writer has it today; the reader has nothing). WAL is **not** turned on unless the backup becomes WAL-aware (`VACUUM INTO` or the online backup API replacing the file copy), because `db.py` refuses it for exactly that reason and the deploy keeps the file snapshot as the rollback (the bash that stays, above). Either both change or neither.
 - Disk growth gets a monitor; retention is a decision, not an accident.
 
 ## 6. Seams
@@ -208,7 +208,7 @@ Inputs: archived input days from run 300 onward (four eligible today, one more p
 1. **Planted defects in the inputs** (fabricated specifics in draft text, strays in clusters, planted before the
    stage under test) for recall of the new pipeline's checker: did the shipped digest exclude or repair them.
    Ground truth by construction, unbiasable by any family. Defects planted in a *finished digest* are a different
-   thing: the judges' negative control (§7.1 control), never a gate on the system.
+   thing: the judges' negative control (the judges' control in item 2 below), never a gate on the system.
 2. **Two whole-digest judges from different families** with the rubric below: Opus or Fable (owner's pick) and,
    for now, Codex CLI or Gemini CLI on their own subscriptions; OpenRouter as fallback. Each judge's
    self-agreement band is measured on the same digest five times, and each must catch the planted-digest
@@ -264,7 +264,7 @@ Plan A is the only one the output gate governs. B, C and D are independently shi
    commits separate from extraction commits, CI green per commit, one sized review per commit.
 2. Archive the recheck outputs (known gap A2) and measure the recheck band with the existing harness. Small,
    additive, keeps prod honest during the rewrite.
-3. Measure the old system's same-day band by replaying one closed day. Gates §7.4.
+3. Measure the old system's same-day band by re-running one closed day through the old orchestrator with model calls, n ≥ 3 (§7 item 4; `bin/replay` makes no model calls and cannot give this number). Gates §7.4.
 4. **Spine, serial, one owner**: library selection gated by `still_active --sbom --fail-if-critical` on a
    CycloneDX SBOM of the candidates (the repo's own prior-art rule; a first pass ran 2026-09-21, result in the
    plan), TS scaffold and CI, the frozen contracts as tests, the workflow file with the three signals, Temporal
