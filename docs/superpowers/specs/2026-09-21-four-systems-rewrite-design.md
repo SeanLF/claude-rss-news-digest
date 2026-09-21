@@ -1,7 +1,7 @@
 # Four systems: design for the TypeScript-on-Temporal rewrite
 
 **Date:** 2026-09-21
-**Status:** draft for Sean's review; decisions marked *owed* carry a default that holds until he rules.
+**Status:** draft for Sean's review, revised after an adversarial review (14 findings, all applied); decisions marked *owed* carry a default that holds until he rules.
 **Companion:** the design brief (claude.ai artifact "Four Systems Plan", revision 15) holds the evidence
 tables this spec cites; `docs/proposed/coherence-planted/io-shape-2026-09-21/` holds the last measurement.
 
@@ -40,8 +40,8 @@ These do not change during the rewrite. Each is a test in the new repo before an
 | Fail-closed | A story whose field fails coherence is repaired or dropped, never shipped unchecked. | `merge.assemble_selections`, `validate_coherence` |
 | Parsing boundary | Code parses a model artifact for four reasons only: the id→URL map, routing (fan-out, join), control flow on verdicts, persistence (dedup headlines, thread ids). Everything else is opaque text. | Brief, "parsing boundary" |
 | Run date | One UTC-stamped day per run; the date is a workflow input read once. | `orchestrate._utc_today`; Probe 0 §B |
-| DB tables | `digest_runs`, `shown_narratives`, `source_health`, `digests`, `run_usage`, `run_artifacts`, threads tables; migrations forward-only. | `migrations/` |
-| Prompts | The seven agent prompts carry over as text. Their measured bands do **not** transfer to a new runner. | `.claude/agents/*.md` |
+| DB tables | `digest_runs`, `fetched_articles` (the raw fetch the prepare activity replays from), `shown_narratives`, `source_health`, `digests`, `selections`, `run_usage`, `run_artifacts`, `dedup_log`, `cluster_runs`, threads tables; `story_feedback` retired; migrations forward-only. | `migrations/` |
+| Prompts | The seven agent prompts carry over as text, plus the three prompts embedded in Python today (thread synthesis and audit, the cohesion gate, extract→join), which are extracted into prompt files as a spine task before anything is ported. Their measured bands do **not** transfer to a new runner. | `.claude/agents/*.md`; `thread_synthesis.py`, `cohesion.py`, `cluster_extractjoin.py` |
 
 ## 2. Pipeline
 
@@ -61,22 +61,45 @@ is ~19 of the 20 minutes; RSS 12 s, fulltext 44 s.
   The schedule replaces the systemd timer, the dup-run guard, and reboot catch-up.
 - Every model call and every network fetch is an **activity**. The workflow is deterministic: sequencing,
   timers, signals. Replay never re-runs a model.
-- **Artifacts are blobs, not files.** An activity persists its output in SQLite (`run_artifacts`) and returns a
-  pointer `(run, stage, hash)`. The local file is only the SDK's Read surface, materialised into a temp
-  directory for the model and discarded. Largest artifact today ~270 KB; the 2 MB payload cap is not the
+- **Artifacts are blobs, not files.** An activity persists its output in SQLite (`run_artifacts`, keyed
+  `(run_id, artifact_name)` as today) and returns a pointer `(run_id, artifact_name, sha256 of content)`. The hash
+  is an integrity check, not a lookup key. The local file is only the SDK's Read surface, materialised into a
+  temp directory for the model and discarded. Largest artifact today ~270 KB; the 2 MB payload cap is not the
   reason for pointers, the evals are.
-- **Idempotent on output.** An activity that finds a valid artifact for its pointer returns it. "Resume run N at
-  WRITE" is the same workflow started with run N as input. History is for visibility and forensics; the
-  artifacts are the record. History retention: 30 days.
+- **Idempotent on output.** On entry an activity looks up `(run_id, artifact_name)`; if a row exists, its hash
+  matches, and the stage's validator (today's `validate_*`, ported) accepts it, the activity returns that pointer
+  and never replaces the row. A row that fails the hash or the validator is renamed to a quarantine name
+  (`<artifact_name>.corrupt.<n>`) and the activity produces a fresh sample. Replacement happens only on an
+  explicit re-run input (`force`), the successor of today's `--force`.
+- **Workflow identity replaces the dup-run guard for every kind of start.** The workflow id is
+  `digest-<run_date>`; the id-reuse policy rejects a duplicate while one is running and allows a new one after
+  completion only when the start carries `resume` or `force`. The schedule's overlap policy covers scheduled
+  starts; the id policy covers manual, gate and operator starts. "Resume run N at WRITE" is
+  `digest-<date>` started with `resume: N`. History is for visibility and forensics; the artifacts are the
+  record. History retention: 30 days.
+- **Prepare is its own activity, between fetch and curation.** Fetch is the one non-reproducible step
+  (network); its raw result is already archived per run (`fetched_articles`). Dedup (TF-IDF 0.80, wire
+  reposts), id assignment and the CSV materialisation are a pure function of that archive, so they become one
+  `prepare` activity with the raw fetch as input. Value: every downstream stage, dedup included, replays from
+  the archive without a refetch; a dedup threshold change is measured on archived days; the fetch/prepare
+  seam is where `articles_kept` is counted. Cost: one activity boundary.
 - **Per-feed and per-link fetches are activities with their own retry policy.** gnews decoding runs at
   publish, over survivors only (run 303: 26 decodes for 10 links used), in parallel with the threads stages,
   best-effort under the existing deadline; its constraint is a per-IP daily budget, not a connection.
-- **Retry semantics, per activity.** Model calls retry within an outage-sized budget (Claude status data:
-  median ~1 h, worst ~3 h). Validation verdicts and the broadcast send are `maximum_attempts = 1`: a verdict
-  is a result, a send is at-most-once (the 2026-06-16 draft-reuse rule carries over). Workflow run timeout
-  under the box's ceiling. Every timeout carries its reason in this document, not a number alone.
+- **Retry semantics, per activity, under one run budget.** The workflow run timeout is 4 h: today's `retry.py`
+  budget, sized on Claude outage data (median ~1 h, worst ~3 h) and no longer tied to the systemd ceiling that
+  the one-shot container had. Model calls retry inside that budget; Temporal's workflow timeout is what makes
+  ten per-activity budgets sum to a bound. Validation verdicts and the broadcast send are `maximum_attempts =
+  1`: a verdict is a result, a send is at-most-once (the 2026-06-16 draft-reuse rule carries over). On timeout
+  the run fails loudly (OnFailure alert) and the dead-man's switch stands; the next day's run covers the gap.
 - **Deploys never overlap the run window** (schedule paused during deploy). `patched()` is the documented
   exception path, not routine.
+- **Server or worker restart mid-run.** The workflow survives in history; a worker reconnects and resumes from
+  the last completed activity. The SQLite/Temporal two-phase gap (an activity persisted its artifact, then its
+  completion was lost) is closed by idempotency-on-output: the re-run finds the valid row and returns it.
+  Activities longer than a minute heartbeat.
+- **A day with thin or missing inputs** ships thin (owner's call), aborts on zero stories, and is not an
+  eligible gate day.
 
 ### 2.2 Stage I/O shape (measured 2026-09-21, planted278, 13 reps)
 
@@ -84,11 +107,14 @@ is ~19 of the 20 minutes; RSS 12 s, fulltext 44 s.
   Measured: no rep needed a retry; structured output arrived every time; the shipped loop wrote once.
 - **Text in, text out** for generation and positive extraction: RECAP, PREHEADER, CLUSTER extract; SELECT to be
   measured.
-- **Checker default = corpus inline in the user turn + Grep and Read available**, with the rule "no FAIL without
-  a Grep behind it" checked in the transcript, not asked for in prose. Measured: recall 8/8 and 0/24 false drops
-  in 3/3 reps (band never below 1); it never drops the two adjudication fields every other shape drops. The rule
-  is followed for some fails only (4–7 of 9 unbacked per rep), so the transcript check is what keeps the number
-  honest. Cost ~$1 cold for every shape; warm-rep numbers are cache reuse and are not quoted.
+- **Checker shape is a pre-registered fork, with inline + Grep favoured.** Corpus inline in the user turn +
+  Grep and Read available, the rule "no FAIL without a Grep behind it" checked in the transcript, not asked for in
+  prose. Evidence on the *old* runner: recall 8/8 and 0/24 false drops in 3/3 reps (band never below 1); it
+  never drops the two adjudication fields every other shape drops; baseline n=1 that day, the band three days
+  old. The rule is followed for some fails only (4–7 of 9 unbacked per rep), so the transcript check is what
+  keeps the number honest. Cost ~$1 cold for every shape; warm-rep numbers are cache reuse and are not quoted.
+  Decided on the new runner by the same planted band, ≥ 3 reps each, inline + Grep vs the Read loop; the
+  threshold is "not worse on recall and not worse on false drops than the Read loop's band".
 - **Schema-constrained final message where code parses the artifact** (coherence, select, write); the schema
   constrains shape, never count (2026-08-21).
 - **Failure tiers.** (1) Shape or encoding error → one fix-it turn in the same session carrying the validator's
@@ -164,7 +190,7 @@ through one primitive: run a stage on an input directory with a model and thinki
 - One Temporal server, one namespace per repo. Nothing on it is mission-critical.
 - The deploy script shrinks to build, push, apply, smoke. What stays bash is decided in plan 4: the SBOM gate,
   snapshot-as-rollback, provenance check.
-- SQLite stays, WAL on, busy timeout on both sides; the web tier's reader has neither today.
+- SQLite stays. `busy_timeout` on both sides (the writer has it today; the reader has nothing). WAL is **not** turned on unless the backup becomes WAL-aware (`VACUUM INTO` or the online backup API replacing the file copy), because `db.py` refuses it for exactly that reason and §8 keeps the file snapshot as the rollback. Either both change or neither.
 - Disk growth gets a monitor; retention is a decision, not an accident.
 
 ## 6. Seams
@@ -179,18 +205,28 @@ through one primitive: run a stage on an input directory with a model and thinki
 
 Inputs: archived input days from run 300 onward (four eligible today, one more per day). Gate on ≥ 3.
 
-1. **Planted defects** (fabrications, strays) for recall: ground truth by construction, unbiasable by any family.
+1. **Planted defects in the inputs** (fabricated specifics in draft text, strays in clusters, planted before the
+   stage under test) for recall of the new pipeline's checker: did the shipped digest exclude or repair them.
+   Ground truth by construction, unbiasable by any family. Defects planted in a *finished digest* are a different
+   thing: the judges' negative control (§7.1 control), never a gate on the system.
 2. **Two whole-digest judges from different families** with the rubric below: Opus or Fable (owner's pick) and,
    for now, Codex CLI or Gemini CLI on their own subscriptions; OpenRouter as fallback. Each judge's
-   self-agreement band is measured on the same digest five times before any score counts. Disagreements go to
-   Sean: the only human label in the loop, spent where it matters.
+   self-agreement band is measured on the same digest five times, and each must catch the planted-digest
+   control, before any score counts. Disagreements go to Sean: the only human label in the loop, spent where it
+   matters. A day with an unresolved disagreement is not a passed day; after seven days unresolved, the story
+   in dispute counts as failed (fail-closed) and the day is scored on that basis.
 3. **Not gates**: the L1 caps (calibrated to shipped output), the why-judge golden (45 cases, provenance
    unclear), per-stage artifact diffs. All stay as diagnostics.
-4. **Speed and cost**: paired on the same input day. First measure the old system's same-day band by replaying one
-   closed day (never done). Then the new system, n ≥ 3, must sit within the old distribution (mean $5.18 sd $0.85;
-   20.1 min sd 4.2). A band test, not a point comparison.
-5. **Cut-over** when the gate passes on three days: schedule moves to Temporal, the Rust server retires when the
-   static archive and dynamic routes serve, the Python pipeline tree is deleted; Python evals stay per §4.
+4. **Speed and cost**: paired on the same input day. First measure the old system's same-day band by re-running
+   one closed day through the old orchestrator **with model calls** (the `bin/rerun-stage` path extended to a
+   whole run; `bin/replay` makes no model calls and cannot give this number), n ≥ 3 reps, which is the band.
+   Then the new system, n ≥ 3, must sit within that band. Wall clock is **workflow time minus time parked on
+   signals**, which Temporal history gives exactly, so the 2 h hold does not count. Cost is API-equivalent from
+   `run_usage`. A band test, not a point comparison.
+5. **Cut-over** when the gate passes on three days: schedule moves to Temporal; the Rust server retires when the
+   web plan's own gate passes (§3); the Python pipeline tree is deleted only after every eval that imports it
+   (`replay`, `rerun_stage`, the coherence builders) has a TypeScript equivalent on the same fixture. Until then
+   the tree stays, read-only. Python evals stay per §4.
 
 ### 7.1 Draft rubric for the whole-digest judge (owed: Sean edits)
 
@@ -208,6 +244,19 @@ the day's article CSVs, never URLs.
    of the inputs would expect and does not find is named.
 7. **Reads clean.** No internal ids, no template tokens, no truncation; preheader within its cap.
 
+### 7.2 Four plans, one spec
+
+This spec is one document because the seams (§6) cross every system, but it is four plans with separate gates:
+
+| Plan | Scope | Gate |
+|---|---|---|
+| A. Pipeline on Temporal | §1, §2, §6 | §7 |
+| B. Web tier | §3 | feed, MCP and JSON-bridge parity with the Rust responses; a11y and Lighthouse at the thresholds `bin/a11y-check` and `bin/lighthouse` enforce today; the security-header set present; the monitor green for seven days |
+| C. Evals and infrastructure | §4, §5 | each Python harness reproduced on its fixture before deletion; terraform plan clean; restore drill passed once |
+| D. Public-history rewrite | §8.7 | manifest shown, Sean's go |
+
+Plan A is the only one the output gate governs. B, C and D are independently shippable.
+
 ## 8. Order and fan-out
 
 1. Spec reviewed by Sean (this document). Plan written with `writing-plans`, in the ask-module shape: target tree,
@@ -216,9 +265,10 @@ the day's article CSVs, never URLs.
 2. Archive the recheck outputs (known gap A2) and measure the recheck band with the existing harness. Small,
    additive, keeps prod honest during the rewrite.
 3. Measure the old system's same-day band by replaying one closed day. Gates §7.4.
-4. **Spine, serial, one owner**: TS scaffold and CI, the frozen contracts as tests, the workflow file with the
-   three signals, Temporal in terraform, the activity-runner CLI, the gate harness (planted defects, two judges,
-   bands).
+4. **Spine, serial, one owner**: library selection gated by `still_active --sbom --fail-if-critical` on a
+   CycloneDX SBOM of the candidates (the repo's own prior-art rule; a first pass ran 2026-09-21, result in the
+   plan), TS scaffold and CI, the frozen contracts as tests, the workflow file with the three signals, Temporal
+   in terraform, the activity-runner CLI, the gate harness (planted defects, two judges, bands).
 5. **Fan-out, one agent per unit, roughly two thirds of the volume**: activities from requirements (feeds, dedup,
    cluster extract-join, recap, select, fulltext, gnews, write fan-out, preheader, coherence, repair + recheck,
    threads + synthesis, render, email, broadcast, health invariants); web routes; terraform units independent of
@@ -228,13 +278,19 @@ the day's article CSVs, never URLs.
 6. Cut-over on three passed days.
 7. Public-history rewrite (two files in fdd958d carry pilot names and pricing), manifest first, after the rewrite.
 
+**Forks are pre-registered gates, not deferrals.** Where the plan reaches a choice this document does not
+settle (fulltext extractor in TypeScript vs the Python activity; fix-it turn vs fresh attempt once something
+fails to parse; inline + Grep vs Read loop on the new runner; what stays bash in the deploy), the plan names
+the measurement that decides it, the threshold, and both branches costed, before the measurement is run. The
+2026-09-17 spike's decision rules are the pattern; the I/O-shape arms are the precedent.
+
 Implementation runs in fresh sessions (planning and building in one session measured ~3× less efficient).
 
 ## 9. Decisions owed by Sean, with the default that holds meanwhile
 
 | Decision | Default |
 |---|---|
-| Adjudicate stories 9 and 4 `why_it_matters` on planted278 | Labels stand; the inline-grep arm is recorded as disagreeing with them 3/3 |
+| Adjudicate stories 9 and 4 `why_it_matters` on planted278 | Labels stand (the fields are clean). Under that ruling the inline-grep arm **agrees** with the labels 3/3 and the tool loop and both read arms disagree by dropping them. If Sean rules the fields defective, inline-grep missed two real defects and its zero-false-drop result is void |
 | Channel for the three HitL signals | Temporal UI over Tailscale + signed link by email |
 | Judge rubric (§7.1) | The draft above |
 | What stays bash in the deploy | SBOM gate, snapshot-as-rollback, provenance check |
