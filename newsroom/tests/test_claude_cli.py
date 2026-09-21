@@ -637,3 +637,95 @@ class TestUnresolvedPromptToken:
     def test_single_braces_are_not_tokens(self):
         # Agent bodies carry JSON examples; only the {{...}} form is a template token.
         claude_cli.assert_prompt_fully_rendered('Reply with {"results": []} and nothing else.')
+
+
+# ---------------------------------------------------------------------------
+# tool_calls: every tool the stage invoked, in order
+#
+# files_read answers "did it open X". The I/O-shape measurement (2026-09-21) needs
+# the other half: how many Reads, Greps and Writes a stage makes, so "several
+# Writes to amend" can be priced against "two structured-output retries", and so
+# an inline+Grep checker can be held to "no FAIL without a Grep behind it".
+# ---------------------------------------------------------------------------
+
+
+class TestToolCalls:
+    def test_records_every_tool_use_with_its_target_in_order(self, monkeypatch):
+        messages = [
+            _assistant(
+                _read_tool_use("/w/a.csv"),
+                ToolUseBlock(id="tu_g", name="Grep", input={"pattern": "58%", "path": "/w"}),
+                ToolUseBlock(id="tu_w", name="Write", input={"file_path": "/w/out.json", "content": "{}"}),
+            ),
+            _read_result("/w/a.csv"),
+            _result(subtype="success", result="done"),
+        ]
+        monkeypatch.setattr(claude_cli, "query", _fake_query(messages))
+
+        res = _run_agent("Begin.", model="sonnet")
+
+        assert res.tool_calls == (("Read", "/w/a.csv"), ("Grep", "58%"), ("Write", "/w/out.json"))
+
+    def test_a_failed_read_is_still_a_call(self, monkeypatch):
+        # files_read hides a Read that errored (it proves nothing was opened); tool_calls
+        # must keep it, because the count of attempts is the thing being priced.
+        messages = [
+            _assistant(_read_tool_use("/w/missing.txt")),
+            _read_result("/w/missing.txt", is_error=True),
+            _result(subtype="success", result="done"),
+        ]
+        monkeypatch.setattr(claude_cli, "query", _fake_query(messages))
+
+        res = _run_agent("Begin.", model="sonnet")
+
+        assert res.files_read == ()
+        assert res.tool_calls == (("Read", "/w/missing.txt"),)
+
+    def test_default_is_empty(self):
+        r = claude_cli.StageResult(subtype="success", text="x", usage={}, total_cost_usd=0.0, duration_ms=1)
+        assert r.tool_calls == ()
+
+
+# ---------------------------------------------------------------------------
+# output_format: a JSON schema on the final message
+# ---------------------------------------------------------------------------
+
+
+class TestOutputFormat:
+    def test_output_format_reaches_the_sdk_options(self):
+        schema = {"type": "object", "properties": {"results": {"type": "array"}}, "required": ["results"]}
+        opts = claude_cli._build_options(
+            model="m",
+            system_prompt=None,
+            permission_mode=None,
+            allowed_tools=None,
+            mcp_config=None,
+            max_turns=None,
+            max_budget_usd=None,
+            cwd=None,
+            output_format={"type": "json_schema", "schema": schema},
+        )
+        assert opts.output_format == {"type": "json_schema", "schema": schema}
+
+    def test_output_format_is_absent_unless_asked(self):
+        opts = claude_cli._build_options(
+            model="m",
+            system_prompt=None,
+            permission_mode=None,
+            allowed_tools=None,
+            mcp_config=None,
+            max_turns=None,
+            max_budget_usd=None,
+            cwd=None,
+        )
+        assert opts.output_format is None
+
+    def test_structured_output_is_surfaced(self, monkeypatch):
+        parsed = {"results": [{"headline": "H", "article_ids": ["A1"], "pass": True, "reason": "ok"}]}
+        msg = _result(subtype="success", result="ignored text")
+        msg = ResultMessage(**{**msg.__dict__, "structured_output": parsed})
+        monkeypatch.setattr(claude_cli, "query", _fake_query([msg]))
+
+        res = _run_agent("Begin.", model="sonnet", output_format={"type": "json_schema", "schema": {"type": "object"}})
+
+        assert res.structured_output == parsed

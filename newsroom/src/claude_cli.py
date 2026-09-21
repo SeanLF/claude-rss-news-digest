@@ -82,6 +82,12 @@ class StageResult:
     # display is omitted (the Sonnet 5 default) -- which is not "the model did not think",
     # only "the thinking was not sent". Billed identically either way.
     thinking: str = ""
+    # Every tool the stage invoked, in order, as (tool name, target): the file_path of a
+    # Read/Write, the pattern of a Grep, else "". Unlike files_read this keeps failed calls,
+    # because the count of attempts is what the I/O-shape measurement prices.
+    tool_calls: tuple[tuple[str, str], ...] = ()
+    # The final message parsed against ``output_format``'s schema, when one was sent.
+    structured_output: Any = None
 
     @property
     def ok(self) -> bool:
@@ -121,6 +127,7 @@ def _build_options(
     tools: list[str] | None = None,
     thinking: ThinkingConfig | None = None,
     effort: str | None = None,
+    output_format: dict[str, Any] | None = None,
 ) -> ClaudeAgentOptions:
     """Build ClaudeAgentOptions from the wrapper's keyword arguments.
 
@@ -178,6 +185,11 @@ def _build_options(
         # bin/sdk-canary), and RECAP/Haiku has no reason to spend on it -- so it
         # stays absent unless a stage opts in.
         kwargs["effort"] = effort
+    if output_format is not None:
+        # {"type": "json_schema", "schema": {...}}: the SDK forwards the schema as
+        # --json-schema and the CLI constrains the FINAL message to it. Shape only --
+        # a count constraint makes the model invent entries (measured 2026-08-21).
+        kwargs["output_format"] = output_format
     return ClaudeAgentOptions(**kwargs)
 
 
@@ -225,6 +237,7 @@ async def run_agent(
     tools: list[str] | None = None,
     thinking: ThinkingConfig | None = None,
     effort: str | None = None,
+    output_format: dict[str, Any] | None = None,
 ) -> StageResult:
     """Drive the SDK query() to completion and return a :class:`StageResult`.
 
@@ -259,9 +272,11 @@ async def run_agent(
         tools=tools,
         thinking=thinking,
         effort=effort,
+        output_format=output_format,
     )
     text_parts: list[str] = []
     files_read: list[str] = []
+    tool_calls: list[tuple[str, str]] = []
     thinking_parts: list[str] = []
     # tool_use_id -> path, for Reads awaiting their result.
     pending_reads: dict[str, str] = {}
@@ -282,7 +297,11 @@ async def run_agent(
                         text_parts.append(block.text)
                     elif isinstance(block, ThinkingBlock):
                         thinking_parts.append(block.thinking)
-                    elif isinstance(block, ToolUseBlock) and block.name == "Read":
+                    elif isinstance(block, ToolUseBlock):
+                        inp = block.input if isinstance(block.input, dict) else {}
+                        target = inp.get("file_path") or inp.get("pattern") or ""
+                        tool_calls.append((block.name, target if isinstance(target, str) else ""))
+                    if isinstance(block, ToolUseBlock) and block.name == "Read":
                         # Only the model ASKING to open a file. Held until its result
                         # arrives below -- see files_read. isinstance guards a malformed
                         # tool call: input is dict[str, Any], and a non-str path would
@@ -338,6 +357,8 @@ async def run_agent(
         api_error_status=result.api_error_status,
         files_read=tuple(files_read),
         thinking="\n".join(thinking_parts),
+        tool_calls=tuple(tool_calls),
+        structured_output=getattr(result, "structured_output", None),
     )
 
 
