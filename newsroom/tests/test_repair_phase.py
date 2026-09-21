@@ -316,6 +316,31 @@ class TestRepairPhase:
         assert rows == []
         assert not (tmp_path / "repair_resolution.json").exists()
 
+    def test_a_dead_attempts_other_three_outputs_are_also_cleared_at_entry(self, tmp_path, monkeypatch):
+        # repair_resolution.json is not the only file a same-day --resume can inherit from a
+        # dead attempt: repaired_fields.json, recheck_draft.json and recheck_report.json are
+        # now archived too (db._TRACE_ARTIFACTS), so a resumed run that takes the no-op early
+        # return must not let THIS run's archive show the PRIOR attempt's patch and verdict as
+        # its own.
+        for name in ("repaired_fields.json", "recheck_draft.json", "recheck_report.json"):
+            (tmp_path / name).write_text('{"stale": true}')
+        draft = {
+            "must_know": [{"headline": "ok", "summary": "s", "why_it_matters": "w", "sources": [{"article_id": "A1"}]}],
+            "should_know": [],
+            "preheader": "p",
+        }
+        coherence = {"results": [{"headline": "ok", "article_ids": ["A1"], "pass": True}]}
+        (tmp_path / "draft_selections.json").write_text(json.dumps(draft))
+        (tmp_path / "coherence_report.json").write_text(json.dumps(coherence))
+        fake = _FakeAgent(tmp_path, repaired={"results": []}, recheck={"results": []})
+        monkeypatch.setattr(orchestrate.claude_cli, "run_agent", fake)
+
+        rows = _run(tmp_path)
+
+        assert rows == []
+        for name in ("repaired_fields.json", "recheck_draft.json", "recheck_report.json"):
+            assert not (tmp_path / name).exists(), name
+
 
 class TestSpecDrift:
     """A drifted or missing coherence.md disables the whole repair path.

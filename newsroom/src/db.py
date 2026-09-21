@@ -780,8 +780,10 @@ _TRACE_ARTIFACTS = (
     # The deterministic join's INPUT; only its output (clusters.json) was kept before.
     "cluster_tags.json",
     "fulltext_health.json",
-    # The repair path's model outputs. Not derivable (re-deriving means paying the model again),
-    # and the recheck verdict was the one thing run 303's two drops could not be read back from.
+    # The repair path's model outputs. Not derivable (re-deriving means paying the model again).
+    # repair_log.jsonl (orchestrate._log_repair_events) already records each story's status and
+    # verdict, but as a rolling per-story line, not keyed to a run in the DB -- these four are
+    # what replay and the eval harnesses read, and what the pre-deploy DB snapshot covers.
     "repaired_fields.json",
     "recheck_draft.json",
     "recheck_report.json",

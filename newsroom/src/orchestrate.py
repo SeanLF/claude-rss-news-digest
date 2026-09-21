@@ -1387,9 +1387,9 @@ async def _run_repair_phase(
     ONLY those -> assemble the resolution. The re-check is what makes repair safe
     (a story is kept only if the independent checker passes the patched text), so
     a re-check that fails or errors leaves the resolution empty of ``repaired``
-    verdicts and the story drops. repair_resolution.json is CLEARED at entry and
-    written only LAST, so a skipped OR failed phase leaves no resolution and merge
-    drops exactly as today.
+    verdicts and the story drops. All four repair-path output files are CLEARED at
+    entry, and repair_resolution.json is written only LAST, so a skipped OR failed
+    phase leaves no resolution and merge drops exactly as today.
     """
     import json
 
@@ -1397,8 +1397,13 @@ async def _run_repair_phase(
     # so merge drops. Clear any stale one up front -- same-day `--resume` reuses
     # claude_input (prepare.py wipes it only on a FULL run), so a prior run's
     # `repaired` verdict would otherwise survive a phase that fails THIS run and
-    # let merge keep a story this run never confirmed.
-    (claude_input_dir / "repair_resolution.json").unlink(missing_ok=True)
+    # let merge keep a story this run never confirmed. The other three are cleared
+    # alongside it for the same reason: a dead attempt's patch and verdict are now
+    # archived (db._TRACE_ARTIFACTS), so a resumed run that never got past the
+    # no-op early return would otherwise archive the PRIOR attempt's files as its
+    # own.
+    for name in ("repair_resolution.json", "repaired_fields.json", _RECHECK_DRAFT_NAME, _RECHECK_REPORT_NAME):
+        (claude_input_dir / name).unlink(missing_ok=True)
     _clear_repair_health(claude_input_dir)
 
     # Both prompts, before anything is spent and before the no-op early return: a prompt that

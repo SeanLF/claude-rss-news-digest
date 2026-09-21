@@ -36,18 +36,9 @@ DERIVED_FROM_ARCHIVED = {
     "preheader.txt": ("orchestrate", "read_preheader"),
 }
 
-# Model OUTPUTS on the repair path. These are NOT derivable -- re-deriving one means paying
-# for the model call again, against inputs that are themselves unarchived -- so this is a
-# KNOWN, OPEN gap in the closure guarantee, not an exemption from it. `repair_resolution.json`
-# is the one merge.assemble_selections reads. Only `repaired_fields.json` is named by a prompt
-# (repair.md), so the scan below sees one of the four and the rest are listed by hand -- which
-# is the point: the scan's universe is "filenames spelled in a prompt", and the real input set
-# is strictly larger. Closing this changes what production records, so it is a separate decision.
-# Closed: the repair path's four model outputs are archived (db._TRACE_ARTIFACTS). The dict stays so
-# DERIVED_IN_PROCESS below keeps its shape.
-UNARCHIVED_REPAIR_OUTPUTS: dict[str, str] = {}
+# Closed: the repair path's four model outputs are archived (db._TRACE_ARTIFACTS).
 
-DERIVED_IN_PROCESS = {**{k: v[1] for k, v in DERIVED_FROM_ARCHIVED.items()}, **UNARCHIVED_REPAIR_OUTPUTS}
+DERIVED_IN_PROCESS = {k: v[1] for k, v in DERIVED_FROM_ARCHIVED.items()}
 
 # articles_*.csv is archived by glob rather than by name (db.archive_run_artifacts).
 _GLOBBED = re.compile(r"^articles_\d+\.csv$")
@@ -56,8 +47,8 @@ _GLOBBED = re.compile(r"^articles_\d+\.csv$")
 # substring that happened to match, and widened past json/csv/txt: the guard's whole purpose is
 # to notice a NEW input, and the day a prompt is pointed at a .md or .jsonl the old grammar was
 # silently off. Still a filename scan -- a path built from a variable, a whole directory, or
-# prose ("the sources file") is invisible to it, which is why UNARCHIVED_REPAIR_OUTPUTS above
-# is maintained by hand.
+# prose ("the sources file") is invisible to it, which is why DERIVED_FROM_ARCHIVED above is
+# maintained by hand.
 _FILENAME = re.compile(r"\b[A-Za-z0-9_-]+\.(?:json|jsonl|csv|tsv|txt|md|ya?ml)\b")
 
 
