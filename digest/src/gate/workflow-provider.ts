@@ -1,0 +1,40 @@
+// A promptfoo provider (its JavaScript extension point) that runs one closed day through the digest
+// workflow on local Temporal and reports what the band compares: the assembled selections as output,
+// cost from run_usage, latency from the call. promptfoo's --repeat makes the reps; its cost and
+// latency assertions hold the old system's band as thresholds.
+import { approveSignal } from "../workflow/signals.js";
+import { connect, startDigest } from "../client.js";
+import { ArtifactStore } from "../store/artifacts.js";
+import { openDb } from "../store/db.js";
+import { runCost } from "../store/usage.js";
+
+interface Vars { run: number | string; date: string }
+
+export default class DigestWorkflowProvider {
+  private readonly dbPath: string;
+  constructor(options: { config?: { dbPath?: string } } = {}) {
+    const p = options.config?.dbPath ?? process.env["BAND_DB"];
+    if (!p) throw new Error("digest-workflow provider needs config.dbPath or BAND_DB: the scratch DB the worker also uses");
+    this.dbPath = p;
+  }
+  id(): string {
+    return "digest-workflow";
+  }
+  async callApi(_prompt: string, context: { vars: Vars }) {
+    const run = Number(context.vars.run);
+    const since = new Date().toISOString().replace("T", " ").slice(0, 19); // run_usage's recorded_at format
+    const t0 = Date.now();
+    const handle = await startDigest(await connect(), context.vars.date, { resumeRun: run, force: true });
+    await handle.signal(approveSignal, { decision: "approve" }); // the hold is not part of the band
+    const result = await handle.result();
+    const latencyMs = Date.now() - t0;
+    const db = openDb(this.dbPath);
+    const { costUsd, calls } = runCost(db, run, since);
+    db.close();
+    const store = new ArtifactStore(this.dbPath);
+    const selections = store.find(run, "selections.json");
+    const output = selections ? store.get(selections) : "";
+    store.close();
+    return { output, cost: costUsd, latencyMs, metadata: { ...result, calls } };
+  }
+}

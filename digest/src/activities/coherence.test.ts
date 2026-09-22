@@ -1,3 +1,4 @@
+import type { UsageRow } from "../store/usage.js";
 import type { Options, SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
@@ -44,7 +45,7 @@ function setup(report: unknown, toolCalls: { name: string; target: string }[] = 
       yield { type: "result", subtype: "success", result: "", structured_output: report, total_cost_usd: 0.9, usage: {}, duration_ms: 5, is_error: false, num_turns: 4, session_id: "s" } as unknown as SDKMessage;
     })();
   }) as unknown as SdkQuery;
-  const rows: { unbackedFails: number }[] = [];
+  const rows: UsageRow[] = [];
   const act = coherenceActivity({ store, agentsDir: AGENTS, query: q, onUsage: (r) => rows.push(r) });
   return { store, seen, act, drafts: [d0, d1], rows };
 }

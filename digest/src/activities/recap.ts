@@ -1,3 +1,4 @@
+import type { UsageRow } from "../store/usage.js";
 import { readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -21,7 +22,7 @@ export interface RecapDeps {
   agentsDir: string;
   query?: SdkQuery;
   heartbeat?: () => void;
-  onUsage?: (row: { stage: string; runId: number; costUsd: number; durationMs: number; numTurns: number }) => void;
+  onUsage?: (row: UsageRow) => void;
 }
 
 // The first real activity. Idempotent on output (spec §2.1): a valid archived recap is returned
@@ -47,7 +48,7 @@ export function recapActivity(deps: RecapDeps): (runId: number, force?: boolean)
       { today: store.runDate(runId), ...(deps.query ? { query: deps.query } : {}), ...(deps.heartbeat ? { heartbeat: deps.heartbeat } : {}), ...(deps.signal?.() ? { signal: deps.signal()! } : {}) },
     );
     deps.heartbeat?.();
-    deps.onUsage?.({ stage: "recap", runId, costUsd: r.costUsd, durationMs: r.durationMs, numTurns: r.numTurns });
+    deps.onUsage?.({ model: spec.model, thinking: spec.thinking, tokens: r.usage, stage: "recap", runId, costUsd: r.costUsd, durationMs: r.durationMs, numTurns: r.numTurns });
     const text = r.text.trim();
     if (!validRecap(text)) throw new Error(`recap for run ${runId}: model returned an empty recap`);
     return force ? store.replace(runId, RECAP_OUTPUT, text) : store.put(runId, RECAP_OUTPUT, text);

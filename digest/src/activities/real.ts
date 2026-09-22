@@ -1,6 +1,7 @@
+import { openDb, dbPath } from "../store/db.js";
+import { recordUsage, type UsageRow } from "../store/usage.js";
 import { Context, heartbeat } from "@temporalio/activity";
 import { ArtifactStore } from "../store/artifacts.js";
-import { dbPath } from "../store/db.js";
 import type { Activities } from "./index.js";
 import { assembleActivity } from "./assemble.js";
 import { clusterActivities } from "./cluster.js";
@@ -31,10 +32,11 @@ const safeSignal = (): AbortSignal | undefined => {
     return undefined; // outside an activity there is nothing to cancel
   }
 };
-const log = (row: object) => console.log(JSON.stringify({ usage: row }));
 
 export function workerActivities(): Activities {
   const store = new ArtifactStore(dbPath());
+  const usageDb = openDb(dbPath());
+  const log = (row: UsageRow) => recordUsage(usageDb, row);
   const deps = { store, agentsDir: agentsDir(), heartbeat: safeHeartbeat, signal: safeSignal, onUsage: log };
   return { ...stubActivities(), ...clusterActivities(deps), recap: recapActivity(deps), ...writeActivities(deps), select: selectActivity(deps), preheader: preheaderActivity(deps), coherence: coherenceActivity(deps), repair: repairActivity({ ...deps, maxAttempts: MODEL_MAX_ATTEMPTS }), assemble: assembleActivity(deps) };
 }

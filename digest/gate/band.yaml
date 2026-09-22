@@ -1,0 +1,16 @@
+# The new system's same-day curation band (spec §7.4). Run with `make band`: it copies the DB to a
+# fresh scratch file, brings up local Temporal on it, and runs this with --repeat 3. The thresholds
+# are the top of the old system's band on the same day (docs/proposed/2026-09-22-same-day-band).
+description: same-day curation band, TypeScript workflow
+prompts: ["run {{run}} on {{date}}"]
+providers:
+  - id: file://../dist/gate/workflow-provider.js
+tests:
+  - vars: { run: 300, date: "2026-09-18" }
+    assert:
+      - type: javascript
+        value: JSON.parse(output).must_know.length > 0
+      - type: cost
+        threshold: 6.08
+      - type: latency
+        threshold: 1035000

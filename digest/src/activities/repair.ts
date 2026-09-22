@@ -133,7 +133,7 @@ export function repairActivity(deps: RepairDeps) {
         const spec = parseAgentSpec(readFileSync(join(deps.agentsDir, "repair.md"), "utf8"));
         deps.heartbeat?.();
         const r = await runStage(spec, { userMessage: `The input directory is ${dir}. Begin.`, inputDir: dir }, { today: store.runDate(runId), outputSchema: z.toJSONSchema(RepairedSchema, { target: "draft-07" }), ...(deps.query ? { query: deps.query } : {}), ...(deps.heartbeat ? { heartbeat: deps.heartbeat } : {}), ...(deps.signal?.() ? { signal: deps.signal()! } : {}) });
-        deps.onUsage?.({ stage: "repair", runId, costUsd: r.costUsd, durationMs: r.durationMs, numTurns: r.numTurns, toolCalls: r.toolCalls.length, unbackedFails: 0 });
+        deps.onUsage?.({ model: spec.model, thinking: spec.thinking, tokens: r.usage, stage: "repair", runId, costUsd: r.costUsd, durationMs: r.durationMs, numTurns: r.numTurns, toolCalls: r.toolCalls.length, unbackedFails: 0 });
         repaired = RepairedSchema.parse(r.structured);
       } finally {
         rmSync(dir, { recursive: true, force: true }); // the mkdtemp directory this call created
@@ -149,7 +149,7 @@ export function repairActivity(deps: RepairDeps) {
           if (p) scoped[tier].push({ ...s, ...p });
         }
       const checked = await runChecker(deps, runId, JSON.stringify(scoped, null, 2));
-      deps.onUsage?.({ stage: "repair_recheck", runId, costUsd: checked.costUsd, durationMs: checked.durationMs, numTurns: checked.numTurns, toolCalls: checked.toolCalls, unbackedFails: checked.unbacked });
+      deps.onUsage?.({ model: checked.model, thinking: checked.thinking, tokens: checked.tokens, stage: "repair_recheck", runId, costUsd: checked.costUsd, durationMs: checked.durationMs, numTurns: checked.numTurns, toolCalls: checked.toolCalls, unbackedFails: checked.unbacked });
       return write({ input, results: resolve(applied, checked.report, scoped) });
     } catch (e) {
       // A cancellation is not a fault: Temporal's own, or the SDK's AbortError once our signal fired.

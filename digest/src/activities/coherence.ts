@@ -1,3 +1,4 @@
+import type { UsageRow } from "../store/usage.js";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -62,7 +63,7 @@ export interface CoherenceDeps {
   agentsDir: string;
   query?: SdkQuery;
   heartbeat?: () => void;
-  onUsage?: (row: { stage: string; runId: number; costUsd: number; durationMs: number; numTurns: number; toolCalls: number; unbackedFails: number }) => void;
+  onUsage?: (row: UsageRow) => void;
 }
 
 // The checker is a verdict: one attempt (spec §2.1), so a failure here parks or fails the run
@@ -83,8 +84,9 @@ export function coherenceActivity(deps: CoherenceDeps) {
       if (existing) store.quarantine(runId, COHERENCE_OUTPUT);
       if (existingDraft && !sameDraft) store.quarantine(runId, DRAFT_OUTPUT); // a matching draft is kept
     }
-    const { report: parsedReport, costUsd, durationMs, numTurns, toolCalls, unbacked } = await runChecker(deps, runId, draftText, note);
-      deps.onUsage?.({ stage: "coherence", runId, costUsd, durationMs, numTurns, toolCalls, unbackedFails: unbacked });
+    const checked = await runChecker(deps, runId, draftText, note);
+    const { report: parsedReport, costUsd, durationMs, numTurns, toolCalls, unbacked } = checked;
+      deps.onUsage?.({ model: checked.model, thinking: checked.thinking, tokens: checked.tokens, stage: "coherence", runId, costUsd, durationMs, numTurns, toolCalls, unbackedFails: unbacked });
       const parsed = { data: parsedReport };
     const gaps = uncovered(parsed.data, draft);
     if (gaps.length) throw new Error(`coherence for run ${runId}: no result matches ${gaps.length} draft story(ies): ${gaps.slice(0, 3).join("; ")}`);
@@ -121,7 +123,7 @@ export async function runChecker(deps: CoherenceDeps, runId: number, draftText: 
     deps.heartbeat?.();
     const parsed = CoherenceReportSchema.safeParse(r.structured);
     if (!parsed.success) throw new Error(`coherence for run ${runId}: report does not match the schema`);
-    return { report: parsed.data, costUsd: r.costUsd, durationMs: r.durationMs, numTurns: r.numTurns, toolCalls: r.toolCalls.length, unbacked: unbackedFails(parsed.data, r.toolCalls) };
+    return { model: spec.model, thinking: spec.thinking, tokens: r.usage, report: parsed.data, costUsd: r.costUsd, durationMs: r.durationMs, numTurns: r.numTurns, toolCalls: r.toolCalls.length, unbacked: unbackedFails(parsed.data, r.toolCalls) };
   } finally {
     rmSync(dir, { recursive: true, force: true }); // the mkdtemp directory this call created
   }

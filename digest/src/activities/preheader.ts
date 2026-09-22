@@ -1,3 +1,4 @@
+import type { UsageRow } from "../store/usage.js";
 import { readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -51,7 +52,7 @@ export interface PreheaderDeps {
   agentsDir: string;
   query?: SdkQuery;
   heartbeat?: () => void;
-  onUsage?: (row: { stage: string; runId: number; costUsd: number; durationMs: number; numTurns: number }) => void;
+  onUsage?: (row: UsageRow) => void;
 }
 
 // Best-effort by design: a failed call or an unusable reply stores "" and assemble substitutes the
@@ -74,7 +75,7 @@ export function preheaderActivity(deps: PreheaderDeps) {
     const spec = parseAgentSpec(readFileSync(join(deps.agentsDir, "preheader.md"), "utf8"));
     deps.heartbeat?.();
     const r = await runStage(spec, { userMessage: message, inputDir: tmpdir() }, { today: store.runDate(runId), ...(deps.query ? { query: deps.query } : {}), ...(deps.heartbeat ? { heartbeat: deps.heartbeat } : {}), ...(deps.signal?.() ? { signal: deps.signal()! } : {}) });
-    deps.onUsage?.({ stage: "preheader", runId, costUsd: r.costUsd, durationMs: r.durationMs, numTurns: r.numTurns });
+    deps.onUsage?.({ model: spec.model, thinking: spec.thinking, tokens: r.usage, stage: "preheader", runId, costUsd: r.costUsd, durationMs: r.durationMs, numTurns: r.numTurns });
     const line = cleanPreheader(r.text);
     if (!line) throw new Error(`preheader for run ${runId}: nothing usable in the reply`);
     const doc = JSON.stringify({ input, line });

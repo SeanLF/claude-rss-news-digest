@@ -17,12 +17,12 @@ sequencing, signals and the run budget.
 
 ```
 cd digest && npm install && npm test && npm run typecheck && npm run lint   # bin/ci runs these in the ci-ts container
-make temporal-up                       # Temporal 1.32.0 + Postgres 16 + UI (http://127.0.0.1:8233) + the worker
+make temporal-up                       # Temporal dev server (Server 1.32.0) + UI (http://127.0.0.1:8233) + the worker
 make digest-start DATE=2026-09-21      # start one DigestWorkflow; it holds before broadcast for 2 h or a signal
-docker run --rm --network digest_default temporalio/admin-tools:1.32.0 \
-  temporal workflow signal --address temporal:7233 -w digest-2026-09-21 --name approve --input '{"decision":"approve"}'
+docker compose -f digest/compose.temporal.yml exec temporal \
+  temporal workflow signal -w digest-2026-09-21 --name approve --input '{"decision":"approve"}'
 make digest-schedule                   # create or update the daily schedule
-make temporal-down                     # stop; keeps the Postgres volume
+make temporal-down                     # stop; keeps the SQLite volume
 bash scripts/check-api-names.sh        # every library name used is declared in the installed types
 npm run sbom && still_active --sbom=sbom.cdx.json --fail-if-critical   # the library gate
 ```

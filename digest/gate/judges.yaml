@@ -1,0 +1,17 @@
+# Two whole-digest judges from two families (spec §7.2), each run --repeat 5 on the same digest so
+# its self-agreement is known before any score counts. Run with `make judges`; then
+# `node dist/cli/agreement.js <output.json>` for the agreement and disagreement figures.
+description: whole-digest judges, band first
+prompts: [file://../dist/gate/judge-prompt.js]
+providers:
+  - id: anthropic:claude-agent-sdk
+    label: claude-opus-5
+    config: { model: claude-opus-5, working_dir: ../docs/proposed/gate-fixtures/day-300/inputs, permission_mode: dontAsk }
+  - id: openai:codex-sdk
+    label: codex
+    config: { working_dir: ../docs/proposed/gate-fixtures/day-300/inputs, sandbox_mode: read-only, skip_git_repo_check: true }
+tests:
+  - vars: { digest: file://../docs/proposed/gate-fixtures/day-300/digest.html }
+    assert:
+      - type: javascript
+        value: "(() => { const s = output.indexOf('['), e = output.lastIndexOf(']'); return s >= 0 && e > s && Array.isArray(JSON.parse(output.slice(s, e + 1))); })()"

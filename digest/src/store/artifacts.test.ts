@@ -1,3 +1,5 @@
+import { recordUsage, runCost } from "./usage.js";
+import { openDb } from "./db.js";
 import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vitest";
 import { ArtifactStore, ConflictError, IntegrityError } from "./artifacts.js";
@@ -54,5 +56,18 @@ describe("ArtifactStore on the production run_artifacts schema", () => {
     s.quarantine(300, "recap.txt");
     expect(() => s.quarantine(300, "recap.txt")).toThrow(IntegrityError);
     expect(s.find(300, "recap.txt.corrupt.1")).toBeDefined();
+  });
+});
+
+describe("run_usage", () => {
+  it("records a call and sums a run's cost since a moment", () => {
+    const path = freshDb([300]);
+    const db = openDb(path);
+    db.exec("CREATE TABLE run_usage (id INTEGER PRIMARY KEY AUTOINCREMENT, run_id INTEGER, subagent TEXT NOT NULL, model TEXT NOT NULL, input_tokens INTEGER NOT NULL DEFAULT 0, output_tokens INTEGER NOT NULL DEFAULT 0, cache_write_tokens INTEGER NOT NULL DEFAULT 0, cache_read_tokens INTEGER NOT NULL DEFAULT 0, api_cost_usd REAL NOT NULL DEFAULT 0.0, recorded_at DATETIME DEFAULT (datetime('now', 'utc')), duration_ms INTEGER, thinking TEXT, effort TEXT)");
+    recordUsage(db, { stage: "write", runId: 300, model: "claude-sonnet-5", thinking: "adaptive", costUsd: 0.25, durationMs: 9, tokens: { input_tokens: 10, output_tokens: 3, cache_read_input_tokens: 7 } });
+    recordUsage(db, { stage: "coherence", runId: 300, model: "claude-sonnet-5", thinking: "adaptive", costUsd: 0.5, durationMs: 9, tokens: {} });
+    expect(runCost(db, 300, "2000-01-01")).toEqual({ costUsd: 0.75, calls: 2 });
+    expect(runCost(db, 300, "2999-01-01")).toEqual({ costUsd: 0, calls: 0 });
+    expect(db.prepare("SELECT cache_read_tokens AS c FROM run_usage WHERE subagent='write'").get()).toEqual({ c: 7 });
   });
 });

@@ -109,11 +109,11 @@ help: ## Show this help
 		/^[a-zA-Z_-]+:.*?## /{split($$0,a,":.*?## "); printf "  \033[36m%-16s\033[0m %s\n", a[1], a[2]}' \
 		$(MAKEFILE_LIST)
 
-temporal-up: ## Local Temporal 1.32.0 + Postgres + UI (127.0.0.1:8233) + the digest worker (stubs)
+temporal-up: ## Local Temporal dev server 1.32.0 + UI (127.0.0.1:8233) + the digest worker
 	docker volume create news-digest_claude-sessions >/dev/null  # the login volume the newsroom stack owns; a no-op once it exists
 	docker compose --env-file .env -f digest/compose.temporal.yml up -d --build
 
-temporal-down: ## Stop local Temporal; keeps the Postgres volume
+temporal-down: ## Stop local Temporal; keeps its SQLite volume
 	docker compose --env-file .env -f digest/compose.temporal.yml down
 
 digest-start: ## Start one DigestWorkflow on local Temporal and wait for it (usage: make digest-start DATE=2026-09-21 [ARGS="--resume 300 --force"])
@@ -121,3 +121,11 @@ digest-start: ## Start one DigestWorkflow on local Temporal and wait for it (usa
 
 digest-schedule: ## Create or update the daily 10:25Z schedule on local Temporal
 	docker compose --env-file .env -f digest/compose.temporal.yml run --rm digest-worker node dist/cli/schedule.js
+
+band: ## Same-day curation band of the TypeScript workflow via promptfoo (RUN=300 DATE=2026-09-18 REPS=3; model calls, ~$4/rep)
+	@stamp=$$(date -u +%Y%m%dT%H%M%SZ); cp data/digest.db data/band-$$stamp.db; \
+	DIGEST_DB_PATH=/app/data/band-$$stamp.db docker compose --env-file .env -f digest/compose.temporal.yml up -d --build && sleep 10 && \
+	cd digest && npm run build && BAND_DB=../data/band-$$stamp.db npx --yes promptfoo@0.123.1 eval -c gate/band.yaml --repeat $${REPS:-3} -j 1 --no-cache -o ../data/band-$$stamp.json
+
+judges: ## Two judge families x5 on the day-300 fixture via promptfoo (model calls, ~$5)
+	@stamp=$$(date -u +%Y%m%dT%H%M%SZ); cd digest && npm run build && npx --yes promptfoo@0.123.1 eval -c gate/judges.yaml --repeat 5 -j 1 --no-cache -o ../data/judges-$$stamp.json && node dist/cli/agreement.js ../data/judges-$$stamp.json
