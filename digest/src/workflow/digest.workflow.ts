@@ -1,4 +1,4 @@
-import { ApplicationFailure, condition, proxyActivities, setHandler } from "@temporalio/workflow";
+import { ActivityFailure, ApplicationFailure, CancelledFailure, condition, proxyActivities, setHandler } from "@temporalio/workflow";
 import type { Activities, DigestInput, DigestOutput } from "../activities/index.js";
 import { SOURCE_IDS_STUB } from "../activities/index.js";
 import { approveSignal, operatorNoteSignal, retrySignal } from "./signals.js";
@@ -42,11 +42,13 @@ export async function DigestWorkflow(input: DigestInput): Promise<DigestOutput> 
   }
 
   // Retries exhausted: park on the retry signal (spec §2.3 signal 2). Returns undefined on abort.
+  // Only an activity's own failure parks; a cancellation or a workflow-code error propagates.
   async function guarded<T>(fn: () => Promise<T>): Promise<T | undefined> {
     for (;;) {
       try {
         return await fn();
-      } catch {
+      } catch (e) {
+        if (!(e instanceof ActivityFailure) || e.cause instanceof CancelledFailure) throw e;
         await condition(() => retryDecisions.length > 0);
         if (retryDecisions.shift() === "abort") return undefined;
       }
