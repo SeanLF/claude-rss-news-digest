@@ -25,7 +25,7 @@ function fakeQuery(structured: unknown, seen: { n: number; options?: Options; fi
 
 function setup(structured: unknown) {
   const store = new ArtifactStore(freshDb([300]));
-  store.put(300, "articles_1.csv", "article_id,source_id,title,published,summary\nA1,hn,Jemalloc,2026-09-18,Article URL: https://github.com/x\nA2,bbc,Vote,2026-09-18,Count\n");
+  store.put(300, "articles_1.csv", 'article_id,source_id,title,published,summary\nA1,hn,Jemalloc,2026-09-18,Article URL: https://github.com/x\n"A2",bbc,Vote,2026-09-18,"Count, early"\n');
   store.put(300, "clusters.json", '{"clusters":[{"story":"s","article_ids":["A1","A2"]}]}');
   store.put(300, "recap.txt", "recap");
   store.put(300, "sources.csv", "id,name\nhn,HN\n");

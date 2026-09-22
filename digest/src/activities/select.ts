@@ -2,6 +2,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ApplicationFailure } from "@temporalio/common";
+import { parse } from "csv-parse/sync";
 import { z } from "zod";
 import { assertNoUrls, scrubUrls } from "../contracts/ids.js";
 import { parseAgentSpec } from "../runner/prompt.js";
@@ -33,7 +34,8 @@ export function checkSelected(s: Selected, knownIds: ReadonlySet<string>): strin
   return problems;
 }
 
-const articleIds = (csv: string): string[] => [...csv.matchAll(/^(A\d+),/gm)].map((m) => m[1]!);
+const articleIds = (csv: string): string[] =>
+  parse<Record<string, string>>(csv, { columns: true, skip_empty_lines: true, relax_column_count: true }).flatMap((r) => (r["article_id"] ? [r["article_id"]] : []));
 
 export interface SelectDeps {
   store: ArtifactStore;

@@ -50,6 +50,8 @@ describe("runStage", () => {
     expect(seen.options?.disallowedTools).toEqual(expect.arrayContaining(["Write", "Edit", "Bash", "WebFetch", "WebSearch"]));
     expect(seen.options?.disallowedTools).not.toContain("Read");
     expect(seen.options?.outputFormat).toEqual({ type: "json_schema", schema: { type: "object" } });
+    expect(seen.options?.settings).toEqual({ permissions: { blockReadsOutsideWorkingDirectories: true } });
+    expect(seen.options?.maxBudgetUsd).toBeUndefined();
   });
   it("omits outputFormat when no schema is requested and falls back to the assistant text", async () => {
     const seen: { options?: Options } = {};

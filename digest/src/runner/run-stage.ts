@@ -36,7 +36,7 @@ const thinkingFor = (t: StageSpec["thinking"]): ThinkingConfig => (t === "adapti
 export async function runStage(
   spec: StageSpec,
   input: StageInput,
-  opts: { outputSchema?: Record<string, unknown>; today: string; query?: SdkQuery },
+  opts: { outputSchema?: Record<string, unknown>; today: string; query?: SdkQuery; maxBudgetUsd?: number },
 ): Promise<StageResult> {
   const q = opts.query ?? query;
   const allowed: readonly string[] = spec.tools;
@@ -49,6 +49,9 @@ export async function runStage(
     disallowedTools: BUILTIN.filter((t) => !allowed.includes(t)),
     permissionMode: "acceptEdits",
     thinking: thinkingFor(spec.thinking),
+    // cwd alone does not confine Read or Grep: an absolute path reaches the whole disk. This does.
+    settings: { permissions: { blockReadsOutsideWorkingDirectories: true } },
+    ...(opts.maxBudgetUsd !== undefined ? { maxBudgetUsd: opts.maxBudgetUsd } : {}),
     ...(opts.outputSchema ? { outputFormat: { type: "json_schema", schema: opts.outputSchema } } : {}),
   };
   const toolCalls: { name: string; target: string }[] = [];
