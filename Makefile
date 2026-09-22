@@ -108,3 +108,15 @@ help: ## Show this help
 	@awk '/^## /{printf "\n\033[1m%s\033[0m\n", substr($$0,4)} \
 		/^[a-zA-Z_-]+:.*?## /{split($$0,a,":.*?## "); printf "  \033[36m%-16s\033[0m %s\n", a[1], a[2]}' \
 		$(MAKEFILE_LIST)
+
+temporal-up: ## Local Temporal 1.32.0 + Postgres + UI (127.0.0.1:8233) + the digest worker (stubs)
+	docker compose -f digest/compose.temporal.yml up -d --build
+
+temporal-down: ## Stop local Temporal; keeps the Postgres volume
+	docker compose -f digest/compose.temporal.yml down
+
+digest-start: ## Start one DigestWorkflow on local Temporal and wait for it (usage: make digest-start DATE=2026-09-21)
+	docker compose -f digest/compose.temporal.yml run --rm digest-worker node dist/cli/start.js $(DATE)
+
+digest-schedule: ## Create or update the daily 10:25Z schedule on local Temporal
+	docker compose -f digest/compose.temporal.yml run --rm digest-worker node dist/cli/schedule.js

@@ -1,0 +1,70 @@
+# Local Temporal for the digest worker: server 1.32.0 on Postgres 16, the UI on 127.0.0.1:8233,
+# schema and namespace set up by admin-tools (temporalio/auto-setup is deprecated upstream).
+# Usage: make temporal-up / make digest-start DATE=YYYY-MM-DD / make temporal-down
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment: { POSTGRES_USER: temporal, POSTGRES_PASSWORD: temporal }
+    volumes: [temporal-pg:/var/lib/postgresql/data]
+    mem_limit: 512m
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U temporal"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+  temporal-setup:
+    image: temporalio/admin-tools:1.32.0
+    depends_on:
+      postgres: { condition: service_healthy }
+    environment: { DB: postgres12, DB_PORT: "5432", POSTGRES_USER: temporal, POSTGRES_PWD: temporal, SQL_PASSWORD: temporal, POSTGRES_SEEDS: postgres }
+    volumes: [./temporal/scripts:/scripts:ro]
+    entrypoint: ["/bin/sh"]
+    command: /scripts/setup-schema.sh
+  temporal:
+    image: temporalio/server:1.32.0
+    depends_on:
+      temporal-setup: { condition: service_completed_successfully }
+    environment:
+      DB: postgres12
+      DB_PORT: "5432"
+      POSTGRES_USER: temporal
+      POSTGRES_PWD: temporal
+      POSTGRES_SEEDS: postgres
+      BIND_ON_IP: 0.0.0.0
+      DYNAMIC_CONFIG_FILE_PATH: config/dynamicconfig/development-sql.yaml
+      TEMPORAL_ALLOW_NO_AUTH: "true"
+    ports: ["127.0.0.1:7233:7233"]
+    volumes: [./temporal/dynamicconfig:/etc/temporal/config/dynamicconfig:ro]
+    mem_limit: 1g
+    healthcheck:
+      test: ["CMD", "nc", "-z", "localhost", "7233"] # the server image has neither the CLI nor curl
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 15s
+  temporal-namespace:
+    image: temporalio/admin-tools:1.32.0
+    depends_on:
+      temporal: { condition: service_healthy }
+    environment: { TEMPORAL_ADDRESS: "temporal:7233" }
+    entrypoint: ["/bin/sh", "-c"]
+    command: ["temporal operator namespace describe -n default || temporal operator namespace create -n default --retention 30d"]
+  temporal-ui:
+    image: temporalio/ui:2.42.1
+    depends_on: [temporal]
+    environment: { TEMPORAL_ADDRESS: "temporal:7233" }
+    ports: ["127.0.0.1:8233:8080"]
+  digest-worker:
+    build: { context: .., dockerfile: digest/Dockerfile }
+    depends_on:
+      temporal-namespace: { condition: service_completed_successfully }
+    environment: { TEMPORAL_ADDRESS: "temporal:7233" }
+    volumes:
+      - ../data:/app/data
+      - claude-sessions:/home/appuser/.claude
+    mem_limit: 512m
+volumes:
+  temporal-pg: {}
+  claude-sessions:
+    external: true
+    name: news-digest_claude-sessions
