@@ -43,7 +43,9 @@ export function planStories(selectedJson: string, clustersJson: string, knownIds
   let index = 0;
   for (const tier of ["must_know", "should_know"] as const)
     for (const pick of selected[tier]) {
-      const resolved = resolveClusterIndex(clusters, pick.article_ids);
+      // The citations decide; SELECT's stated index is only the fallback when no cited id has a cluster.
+      const byCitation = resolveClusterIndex(clusters, pick.article_ids);
+      const resolved = byCitation ?? (pick.cluster_index >= 0 && pick.cluster_index < clusters.length ? pick.cluster_index : undefined);
       const cluster = resolved !== undefined ? clusters[resolved]!.article_ids : [];
       const contextIds = [...new Set([...cluster, ...pick.article_ids])].filter((a) => knownIds.has(a));
       if (contextIds.length === 0) dropped.push({ index, tier, reason: "no article in this run's CSVs" });

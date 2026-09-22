@@ -26,6 +26,11 @@ describe("planning", () => {
     ]);
     expect(dropped).toEqual([{ index: 1, tier: "should_know", reason: "no article in this run's CSVs" }]);
   });
+  it("falls back to SELECT's stated cluster when no citation has one", () => {
+    const selected = { must_know: [{ cluster_index: 1, article_ids: ["A7"] }], should_know: [] };
+    const { plans } = planStories(JSON.stringify(selected), JSON.stringify(clusters), new Set(["A3", "A4", "A5", "A7"]));
+    expect(plans).toEqual([{ index: 0, tier: "must_know", storyIds: ["A7"], contextIds: ["A3", "A4", "A5", "A7"], clusterIndex: 1 }]);
+  });
 });
 
 const plan: StoryPlan = { index: 0, tier: "must_know", storyIds: ["A1"], contextIds: ["A1", "A2"], clusterIndex: 0 };
