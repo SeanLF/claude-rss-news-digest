@@ -1,10 +1,16 @@
 """Re-run a run's curation span from its archived inputs, with model calls, N times.
 
 The gate's speed-and-cost band (spec §7.4) needs the OLD system's same-day spread, and replay.py
-makes no model calls. This restores every archived input of run N into a scratch input dir and
-drives orchestrate.orchestrate_selections (CLUSTER..COHERENCE + repair) then merge.assemble_selections
-over it with the run's date pinned. Fetch, fulltext, threads and render are outside this span.
-Usage (in the container, see bin/rerun-run): rerun_run.py --run 300 --reps 3
+makes no model calls. Every agent prompt names /app/data/claude_input/ by absolute path (and
+the WRITE fan-out and the repair re-check redirect that marker themselves), so a rep must own
+that directory: bin/rerun-run runs one container per rep with a fresh host directory mounted
+there, and this module drives orchestrate.orchestrate_selections (CLUSTER..COHERENCE + repair)
+then merge.assemble_selections over it with the run's date pinned. Fetch, fulltext, threads and
+render are outside this span.
+
+Usage (in the container, see bin/rerun-run):
+  rerun_run.py rep --run 300 --input-dir /app/data/claude_input
+  rerun_run.py summarise --run 300 --dir /app/data/rerun-run/run300/<stamp>
 """
 
 from __future__ import annotations
@@ -13,7 +19,6 @@ import argparse
 import asyncio
 import datetime
 import json
-import shutil
 import time
 from pathlib import Path
 
@@ -23,7 +28,7 @@ import merge
 import orchestrate
 import rerun_stage
 
-WORK = Path("/app/data/rerun-run")
+REP_RESULT_NAME = "rep_result.json"
 
 # Stage outputs the archive also holds; a re-run must produce these, never read them.
 STAGE_OUTPUTS = frozenset(
@@ -87,34 +92,52 @@ async def _one_rep(archive: dict[str, str], work: Path, today: datetime.date | N
     return {"cost_usd": cost, "wall_s": round(wall, 1), "stories": stories}
 
 
-async def rerun(run: int, *, reps: int, work: Path) -> dict:
+def _archive_for(run: int) -> dict[str, str]:
     archive = db.get_run_artifacts(run)
     if "sources.csv" not in archive or "weekly_recap.txt" not in archive:
         raise SystemExit(f"run {run} predates the closed archive (2026-09-18); pick run >= 300")
-    today = rerun_stage._run_date(run)
-    results: list[dict] = []
-    for i in range(reps):
-        # A directory this module created under WORK/run<N>/rep<i>; never a caller-supplied path.
-        rep_dir = work / f"rep{i}"
-        if rep_dir.exists():
-            shutil.rmtree(rep_dir)
-        results.append(await _one_rep(archive, rep_dir, today))
-        print(f"  rep {i}: {results[-1]}", flush=True)
+    return archive
+
+
+async def rep(run: int, *, input_dir: Path) -> dict:
+    """One rep into ``input_dir`` (mounted at /app/data/claude_input by bin/rerun-run); the
+    result lands beside the outputs as rep_result.json."""
+    if any(input_dir.iterdir()) if input_dir.exists() else False:
+        raise SystemExit(f"{input_dir} is not empty; bin/rerun-run mounts a fresh directory per rep")
+    result = await _one_rep(_archive_for(run), input_dir, rerun_stage._run_date(run))
+    (input_dir / REP_RESULT_NAME).write_text(json.dumps(result, indent=2), encoding="utf-8")
+    return result
+
+
+def summarise_dir(run: int, band_dir: Path) -> dict:
+    """Collect every rep*/rep_result.json under ``band_dir`` into summary.json."""
+    results = [
+        json.loads((d / REP_RESULT_NAME).read_text(encoding="utf-8"))
+        for d in sorted(band_dir.glob("rep*"))
+        if (d / REP_RESULT_NAME).exists()
+    ]
     summary = summarise(run, results)
-    work.mkdir(parents=True, exist_ok=True)
-    (work / "summary.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
+    (band_dir / "summary.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
     return summary
 
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--run", type=int, required=True)
-    ap.add_argument("--reps", type=int, default=3)
+    sub = ap.add_subparsers(dest="cmd", required=True)
+    p_rep = sub.add_parser("rep")
+    p_rep.add_argument("--run", type=int, required=True)
+    p_rep.add_argument("--input-dir", type=Path, default=config.CLAUDE_INPUT_DIR)
+    p_sum = sub.add_parser("summarise")
+    p_sum.add_argument("--run", type=int, required=True)
+    p_sum.add_argument("--dir", type=Path, required=True)
     args = ap.parse_args()
     if db.current_db_path() is None:
         db.init(config.DB_PATH, config.MIGRATIONS_DIR, apply_migrations=False)
-    summary = asyncio.run(rerun(args.run, reps=max(1, args.reps), work=WORK / f"run{args.run}"))
-    print(json.dumps(summary, indent=2))
+    if args.cmd == "rep":
+        out = asyncio.run(rep(args.run, input_dir=args.input_dir))
+    else:
+        out = summarise_dir(args.run, args.dir)
+    print(json.dumps(out, indent=2))
     return 0
 
 

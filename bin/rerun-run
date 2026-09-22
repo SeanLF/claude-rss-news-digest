@@ -1,12 +1,44 @@
 #!/bin/bash
 # Re-run a run's curation span from its archived inputs, with model calls, N times: the old
 # system's same-day cost/time band (spec §7.4). Opt-in, never in CI. ~$5 and ~20 min per rep.
+#
+# Every agent prompt names /app/data/claude_input/ by absolute path, so each rep gets its own
+# container with a fresh host directory mounted there. Nothing is ever deleted: a new run of
+# this script gets a new timestamped band directory under data/rerun-run/run<N>/.
 # Usage: bin/rerun-run --run 300 [--reps 3]
 set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
-exec docker compose run --rm \
-  -v "$(pwd)/newsroom/src:/app/src" \
-  -v "$(pwd)/.claude/agents:/app/.claude/agents" \
-  -e PYTHONPATH=/app/src \
-  --entrypoint /app/.venv/bin/python3 \
-  digest-newsroom /app/src/rerun_run.py "$@"
+
+run="" reps=3
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --run) run="$2"; shift 2 ;;
+    --reps) reps="$2"; shift 2 ;;
+    *) echo "usage: bin/rerun-run --run N [--reps 3]" >&2; exit 2 ;;
+  esac
+done
+[ -n "$run" ] || { echo "usage: bin/rerun-run --run N [--reps 3]" >&2; exit 2; }
+
+stamp=$(date -u +%Y%m%dT%H%M%SZ)
+band="data/rerun-run/run${run}/${stamp}"
+mkdir -p "$band"
+echo "band directory: $band"
+
+in_container() { # extra docker args..., then the rerun_run.py args
+  docker compose run --rm \
+    -v "$(pwd)/newsroom/src:/app/src" \
+    -v "$(pwd)/.claude/agents:/app/.claude/agents" \
+    -e PYTHONPATH=/app/src \
+    --entrypoint /app/.venv/bin/python3 \
+    "$@"
+}
+
+for i in $(seq 0 $((reps - 1))); do
+  rep_dir="${band}/rep${i}"
+  mkdir -p "$rep_dir"
+  echo "rep $i -> $rep_dir"
+  in_container -v "$(pwd)/${rep_dir}:/app/data/claude_input" \
+    digest-newsroom /app/src/rerun_run.py rep --run "$run"
+done
+
+in_container digest-newsroom /app/src/rerun_run.py summarise --run "$run" --dir "/app/${band}"

@@ -3,6 +3,8 @@ import json
 import sys
 from pathlib import Path
 
+import pytest
+
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 import rerun_run
@@ -46,7 +48,6 @@ def test_every_archived_trace_artifact_is_a_stage_output_or_an_input():
         "yesterday_headlines.txt",
         "recent_digest_headlines.txt",
         "article_index.json",
-        "gnews_decoded.json",
     }
     unclassified = set(db._TRACE_ARTIFACTS) - rerun_run.STAGE_OUTPUTS - inputs
     assert not unclassified, unclassified
@@ -79,3 +80,22 @@ def test_one_rep_drives_orchestrate_then_merge_and_sums_usage(tmp_path, monkeypa
     r = asyncio.run(rerun_run._one_rep({"sources.csv": "id\n"}, tmp_path / "rep0", None))
     assert calls == ["orchestrate", "merge"]
     assert r["cost_usd"] == 2.0 and r["stories"] == 2 and r["wall_s"] >= 0
+
+
+def test_rep_refuses_a_non_empty_input_dir(tmp_path, monkeypatch):
+    """The prompts name /app/data/claude_input/ absolutely, so a rep owns that mount; a leftover
+    file from another attempt would be read as this rep's stage output."""
+    (tmp_path / "recap.txt").write_text("stale")
+    monkeypatch.setattr(rerun_run, "_archive_for", lambda run: {"sources.csv": "id\n"})
+    with pytest.raises(SystemExit, match="not empty"):
+        asyncio.run(rerun_run.rep(300, input_dir=tmp_path))
+
+
+def test_summarise_dir_collects_rep_results_in_order(tmp_path):
+    for i, cost in ((1, 5.5), (0, 5.0)):
+        d = tmp_path / f"rep{i}"
+        d.mkdir()
+        (d / rerun_run.REP_RESULT_NAME).write_text(json.dumps({"cost_usd": cost, "wall_s": 1.0, "stories": 3}))
+    s = rerun_run.summarise_dir(300, tmp_path)
+    assert s["cost_usd"] == [5.0, 5.5]
+    assert json.loads((tmp_path / "summary.json").read_text())["reps"] == 2
