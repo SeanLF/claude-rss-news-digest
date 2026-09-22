@@ -15,6 +15,9 @@ for (const r of doc.results.results) {
   if (!out) continue;
   runs.set(name, [...(runs.get(name) ?? []), parseVerdicts(out)]);
 }
+// Loud rather than a report of zero reps if promptfoo's results shape ever changes.
+if (doc.results?.results?.length === undefined) throw new Error(`${file}: not a promptfoo results file (no results.results)`);
+if (runs.size < 2) throw new Error(`${file}: expected two judges with outputs, found ${runs.size}`);
 const [a, b] = [...runs.keys()];
 const report = {
   judges: Object.fromEntries([...runs].map(([n, rs]) => [n, { reps: rs.length, ...selfAgreement(rs) }])),
