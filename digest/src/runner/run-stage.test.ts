@@ -53,6 +53,11 @@ describe("runStage", () => {
     expect(seen.options?.settings).toEqual({ permissions: { blockReadsOutsideWorkingDirectories: true } });
     expect(seen.options?.maxBudgetUsd).toBeUndefined();
   });
+  it("heartbeats on every streamed message", async () => {
+    let beats = 0;
+    await runStage(spec, { userMessage: "Begin.", inputDir: "/in" }, { today: "2026-09-21", query: fakeQuery([assistant([]), assistant([]), result({})]), heartbeat: () => beats++ });
+    expect(beats).toBe(3);
+  });
   it("omits outputFormat when no schema is requested and falls back to the assistant text", async () => {
     const seen: { options?: Options } = {};
     const r = await call(fakeQuery([assistant([{ type: "text", text: "plain" }]), result({ result: "" })], seen));

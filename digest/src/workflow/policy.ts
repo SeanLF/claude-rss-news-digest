@@ -1,0 +1,3 @@
+// Shared by the workflow's model retry policy and the repair activity, which records a fault as its
+// answer only on the last attempt.
+export const MODEL_MAX_ATTEMPTS = 3;

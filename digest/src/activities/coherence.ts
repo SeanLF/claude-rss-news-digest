@@ -115,7 +115,7 @@ export async function runChecker(deps: CoherenceDeps, runId: number, draftText: 
     const r = await runStage({ ...spec, body }, { userMessage: parts.join("\n\n") + (note ? `\n\nOperator note for this attempt: ${note}` : ""), inputDir: dir }, {
       today: store.runDate(runId),
       outputSchema: coherenceReportJsonSchema(),
-      ...(deps.query ? { query: deps.query } : {}),
+      ...(deps.query ? { query: deps.query } : {}), ...(deps.heartbeat ? { heartbeat: deps.heartbeat } : {}),
     });
     deps.heartbeat?.();
     const parsed = CoherenceReportSchema.safeParse(r.structured);

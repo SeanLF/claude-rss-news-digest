@@ -74,7 +74,7 @@ export function selectActivity(deps: SelectDeps) {
       const spec = parseAgentSpec(readFileSync(join(deps.agentsDir, "select.md"), "utf8"));
       const message = `The input directory is ${dir}. Begin.${note ? `\n\nOperator note for this attempt: ${note}` : ""}`;
       deps.heartbeat?.();
-      const r = await runStage(spec, { userMessage: message, inputDir: dir }, { today: store.runDate(runId), outputSchema: selectedJsonSchema(), ...(deps.query ? { query: deps.query } : {}) });
+      const r = await runStage(spec, { userMessage: message, inputDir: dir }, { today: store.runDate(runId), outputSchema: selectedJsonSchema(), ...(deps.query ? { query: deps.query } : {}), ...(deps.heartbeat ? { heartbeat: deps.heartbeat } : {}) });
       deps.heartbeat?.();
       deps.onUsage?.({ stage: "select", runId, costUsd: r.costUsd, durationMs: r.durationMs, numTurns: r.numTurns, toolCalls: r.toolCalls.length });
       const parsed = SelectedSchema.safeParse(r.structured);

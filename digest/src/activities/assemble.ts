@@ -11,6 +11,9 @@ import { SelectedSchema } from "./select.js";
 
 export const SELECTIONS_OUTPUT = "selections.json";
 
+// A repair is taken whole or not at all: every patched value a repairable, non-empty, leak-free string.
+const validPatch = (p: Record<string, unknown>) => Object.keys(p).length > 0 && Object.entries(p).every(([f, v]) => ["headline", "summary", "why_it_matters"].includes(f) && typeof v === "string" && v.trim() !== "" && !leaksInternalId(v));
+
 // The cluster label holding the most of a story's distinct cited ids, ties to the earliest cited
 // (utils.cluster_for_articles): the join key threads and render share.
 export function clusterFor(ids: string[], owner: Map<string, string>): string | undefined {
@@ -35,7 +38,7 @@ export function assemble(store: ArtifactStore, runId: number, drafts: Pointer[],
   const draft = draftFrom(store, drafts);
   const results = CoherenceReportSchema.parse(JSON.parse(store.get(report))).results;
   const resolution = JSON.parse(store.get(repair)) as ResolutionDoc;
-  const patches = new Map(resolution.results.filter((r) => r.status === "repaired" && r.recheck_pass).map((r) => [r.article_ids.toSorted().join(","), r.patched_fields]));
+  const patches = new Map(resolution.results.filter((r) => r.status === "repaired" && r.recheck_pass && validPatch(r.patched_fields)).map((r) => [r.article_ids.toSorted().join(","), r.patched_fields]));
   const owner = new Map<string, string>();
   const clusters = store.find(runId, "clusters.json");
   if (clusters) for (const c of (JSON.parse(store.get(clusters)) as { clusters: { story: string; article_ids: string[] }[] }).clusters) for (const a of c.article_ids) owner.set(a, c.story);

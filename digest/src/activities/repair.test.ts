@@ -25,8 +25,11 @@ describe("repair", () => {
   });
   it("keeps a patch only on a passed recheck; a contradictory or missing verdict confirms nothing", () => {
     const applied = applyRepairs([req], { results: [{ article_ids: ["A1"], summary: "Fixed." }] });
-    expect(resolve(applied, { results: [{ headline: "H", article_ids: ["A1"], pass: true, reason: "ok" }] })[0]).toMatchObject({ status: "repaired", recheck_pass: true });
-    expect(resolve(applied, { results: [{ headline: "H", article_ids: ["A1"], pass: true, reason: "ok" }, { headline: "H", article_ids: ["A1"], pass: false, reason: "no" }] })[0]?.status).toBe("recheck_failed");
-    expect(resolve(applied, { results: [] })[0]?.status).toBe("recheck_failed");
+    const scoped = { must_know: [{ ...s("H", ["A1"]), summary: "Fixed." }], should_know: [], preheader: "" };
+    expect(resolve(applied, { results: [{ headline: "H", article_ids: ["A1"], pass: true, reason: "ok" }] }, scoped)[0]).toMatchObject({ status: "repaired", recheck_pass: true });
+    expect(resolve(applied, { results: [{ headline: "H", article_ids: ["A1"], pass: true, reason: "ok" }, { headline: "H", article_ids: ["A1"], pass: false, reason: "no" }] }, scoped)[0]?.status).toBe("recheck_failed");
+    expect(resolve(applied, { results: [] }, scoped)[0]?.status).toBe("recheck_failed");
+    // a failure matched only by headline still fails the recheck
+    expect(resolve(applied, { results: [{ headline: "H", article_ids: ["A1"], pass: true, reason: "ok" }, { headline: "H", article_ids: [], pass: false, reason: "no", failed_fields: ["summary"] }] }, scoped)[0]?.status).toBe("recheck_failed");
   });
 });

@@ -1,6 +1,7 @@
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { Context } from "@temporalio/activity";
 import { CancelledFailure } from "@temporalio/common";
 import { z } from "zod";
 import { CoherenceReportSchema, type CoherenceReport } from "../contracts/coherence.js";
@@ -72,22 +73,33 @@ export function applyRepairs(requests: RepairRequest[], repaired: z.infer<typeof
   });
 }
 
-// A patched story is kept only if the scoped recheck passed it; no verdict, or contradictory
-// verdicts for the same story, confirm nothing (repair.build_repair_resolution).
-export function resolve(applied: Resolution[], recheck: CoherenceReport): Resolution[] {
-  const verdicts = new Map<string, boolean | "conflict">();
-  for (const r of recheck.results) {
-    if (!r.article_ids.length) continue;
-    const k = key(r.article_ids);
-    const prior = verdicts.get(k);
-    verdicts.set(k, prior === undefined || prior === r.pass ? r.pass : "conflict");
-  }
-  return applied.map((a) => (a.status !== "recheck_failed" ? a : verdicts.get(key(a.article_ids)) === true ? { ...a, status: "repaired", recheck_pass: true } : a));
+// A patched story is kept only if the scoped recheck passed it: at least one result matches the
+// patched story (by ids, or by headline for a result without them) and none of the matching results
+// fails. No verdict, or any failing verdict, confirms nothing. Stricter than the Python, which keyed
+// on ids alone and so let a headline-matched failure through.
+export function resolve(applied: Resolution[], recheck: CoherenceReport, scoped: Draft): Resolution[] {
+  const stories = [...scoped.must_know, ...scoped.should_know];
+  return applied.map((a) => {
+    if (a.status !== "recheck_failed") return a;
+    const story = stories.find((s) => key(s.sources.map((x) => x.article_id)) === key(a.article_ids));
+    if (!story) return a;
+    const hits = recheck.results.filter((r) => resultMatches(r, itemIds(story.sources), normHeadline(story.headline)));
+    return hits.length && hits.every((r) => r.pass) ? { ...a, status: "repaired", recheck_pass: true } : a;
+  });
 }
 
 export interface RepairDeps extends CoherenceDeps {
   query?: SdkQuery;
+  // Attempts the workflow's model policy allows; only the last one records a fault as the answer.
+  maxAttempts: number;
 }
+const currentAttempt = (): number => {
+  try {
+    return Context.current().info.attempt;
+  } catch {
+    return Number.POSITIVE_INFINITY; // outside an activity (tests, CLIs): every attempt is the last
+  }
+};
 
 // Best-effort and fail-closed: any failure (other than a cancellation) leaves a resolution with
 // no `repaired` verdict, so assemble drops exactly what the checker failed.
@@ -99,7 +111,8 @@ export function repairActivity(deps: RepairDeps) {
     const input = `${JSON.stringify(draft)}\n${reportText}`;
     const existing = store.find(runId, REPAIR_OUTPUT);
     if (existing && !force) {
-      if ((JSON.parse(store.get(existing)) as ResolutionDoc).input === input) return existing;
+      const prior = JSON.parse(store.get(existing)) as ResolutionDoc;
+      if (prior.input === input && prior.fault === undefined) return existing; // a cached fault is rerun
       store.quarantine(runId, REPAIR_OUTPUT);
     }
     const write = (doc: ResolutionDoc) => (force ? store.replace(runId, REPAIR_OUTPUT, JSON.stringify(doc, null, 2)) : store.put(runId, REPAIR_OUTPUT, JSON.stringify(doc, null, 2)));
@@ -119,7 +132,7 @@ export function repairActivity(deps: RepairDeps) {
         }
         const spec = parseAgentSpec(readFileSync(join(deps.agentsDir, "repair.md"), "utf8"));
         deps.heartbeat?.();
-        const r = await runStage(spec, { userMessage: `The input directory is ${dir}. Begin.`, inputDir: dir }, { today: store.runDate(runId), outputSchema: z.toJSONSchema(RepairedSchema, { target: "draft-07" }), ...(deps.query ? { query: deps.query } : {}) });
+        const r = await runStage(spec, { userMessage: `The input directory is ${dir}. Begin.`, inputDir: dir }, { today: store.runDate(runId), outputSchema: z.toJSONSchema(RepairedSchema, { target: "draft-07" }), ...(deps.query ? { query: deps.query } : {}), ...(deps.heartbeat ? { heartbeat: deps.heartbeat } : {}) });
         deps.onUsage?.({ stage: "repair", runId, costUsd: r.costUsd, durationMs: r.durationMs, numTurns: r.numTurns, toolCalls: r.toolCalls.length, unbackedFails: 0 });
         repaired = RepairedSchema.parse(r.structured);
       } finally {
@@ -137,9 +150,10 @@ export function repairActivity(deps: RepairDeps) {
         }
       const checked = await runChecker(deps, runId, JSON.stringify(scoped, null, 2));
       deps.onUsage?.({ stage: "repair_recheck", runId, costUsd: checked.costUsd, durationMs: checked.durationMs, numTurns: checked.numTurns, toolCalls: checked.toolCalls, unbackedFails: checked.unbacked });
-      return write({ input, results: resolve(applied, checked.report) });
+      return write({ input, results: resolve(applied, checked.report, scoped) });
     } catch (e) {
       if (e instanceof CancelledFailure) throw e; // an activity cancelled by the workflow
+      if (currentAttempt() < deps.maxAttempts) throw e; // let the model retry policy try again
       return write({ input, results: applied.map((a) => ({ ...a, status: a.status === "repaired" ? "recheck_failed" : a.status, recheck_pass: false })), fault: String(e).slice(0, 300) });
     }
   };

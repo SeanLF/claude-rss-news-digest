@@ -101,7 +101,7 @@ export function clusterActivities(deps: ClusterDeps) {
       assertNoUrls(prompt);
       const spec = parseAgentSpec(readFileSync(join(deps.agentsDir, "cluster-extract.md"), "utf8"));
       deps.heartbeat?.();
-      const r = await runStage(spec, { userMessage: prompt, inputDir: tmpdir() }, { today: store.runDate(runId), outputSchema: extractItemsJsonSchema(), ...(deps.query ? { query: deps.query } : {}) });
+      const r = await runStage(spec, { userMessage: prompt, inputDir: tmpdir() }, { today: store.runDate(runId), outputSchema: extractItemsJsonSchema(), ...(deps.query ? { query: deps.query } : {}), ...(deps.heartbeat ? { heartbeat: deps.heartbeat } : {}) });
       deps.heartbeat?.();
       deps.onUsage?.({ stage: "cluster-extract", runId, batch: batch.index, costUsd: r.costUsd, durationMs: r.durationMs, numTurns: r.numTurns });
       const parsed = ExtractItemsSchema.safeParse(r.structured);

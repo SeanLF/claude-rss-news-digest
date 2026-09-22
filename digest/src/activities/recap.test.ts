@@ -38,7 +38,7 @@ describe("recap activity", () => {
     expect(calls.options?.tools).toEqual([]);
     expect(calls.options?.model).toBe("claude-haiku-4-5");
     expect(calls.options?.systemPrompt).not.toContain("Read tool");
-    expect(beats.length).toBe(2);
+    expect(beats.length).toBe(3); // before, on the streamed result, after
   });
   it("is idempotent on output: a valid archived recap is returned without a model call", async () => {
     const { store, calls, recap } = setup();

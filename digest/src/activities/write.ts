@@ -152,7 +152,7 @@ export function writeActivities(deps: WriteDeps) {
           today: store.runDate(runId),
           outputSchema: z.toJSONSchema(BranchDraftSchema, { target: "draft-07" }),
           maxBudgetUsd: WRITE_BRANCH_BUDGET_USD,
-          ...(deps.query ? { query: deps.query } : {}),
+          ...(deps.query ? { query: deps.query } : {}), ...(deps.heartbeat ? { heartbeat: deps.heartbeat } : {}),
         });
         deps.heartbeat?.();
         deps.onUsage?.({ stage: "write", runId, story: plan.index, costUsd: r.costUsd, durationMs: r.durationMs, numTurns: r.numTurns, toolCalls: r.toolCalls.length });

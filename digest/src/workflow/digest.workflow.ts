@@ -2,6 +2,7 @@ import { ActivityFailure, CancelledFailure, condition, isCancellation, proxyActi
 import type { Activities, DigestInput, DigestOutput } from "../activities/index.js";
 import { SOURCE_IDS_STUB } from "../activities/index.js";
 import { mapBounded, MODEL_FANOUT_LIMIT } from "./bounded.js";
+import { MODEL_MAX_ATTEMPTS } from "./policy.js";
 import { approveSignal, operatorNoteSignal, retrySignal } from "./signals.js";
 
 export const WORKFLOW_RUN_TIMEOUT = "4 hours";
@@ -15,7 +16,7 @@ export const workflowIdFor = (runDate: string): string => `digest-${runDate}`;
 const model = proxyActivities<Activities>({
   startToCloseTimeout: "45 minutes",
   heartbeatTimeout: "2 minutes",
-  retry: { maximumAttempts: 3, initialInterval: "5 minutes", backoffCoefficient: 2 },
+  retry: { maximumAttempts: MODEL_MAX_ATTEMPTS, initialInterval: "5 minutes", backoffCoefficient: 2 },
 });
 const network = proxyActivities<Activities>({ startToCloseTimeout: "2 minutes", retry: { maximumAttempts: 3, initialInterval: "10 seconds" } });
 const once = proxyActivities<Activities>({ startToCloseTimeout: "10 minutes", retry: { maximumAttempts: 1 } });

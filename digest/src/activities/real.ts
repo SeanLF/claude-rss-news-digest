@@ -8,6 +8,7 @@ import { coherenceActivity } from "./coherence.js";
 import { preheaderActivity } from "./preheader.js";
 import { recapActivity } from "./recap.js";
 import { repairActivity } from "./repair.js";
+import { MODEL_MAX_ATTEMPTS } from "../workflow/policy.js";
 import { selectActivity } from "./select.js";
 import { writeActivities } from "./write.js";
 import { stubActivities } from "./stub.js";
@@ -28,5 +29,5 @@ const log = (row: object) => console.log(JSON.stringify({ usage: row }));
 export function workerActivities(): Activities {
   const store = new ArtifactStore(dbPath());
   const deps = { store, agentsDir: agentsDir(), heartbeat: safeHeartbeat, onUsage: log };
-  return { ...stubActivities(), ...clusterActivities(deps), recap: recapActivity(deps), ...writeActivities(deps), select: selectActivity(deps), preheader: preheaderActivity(deps), coherence: coherenceActivity(deps), repair: repairActivity(deps), assemble: assembleActivity(deps) };
+  return { ...stubActivities(), ...clusterActivities(deps), recap: recapActivity(deps), ...writeActivities(deps), select: selectActivity(deps), preheader: preheaderActivity(deps), coherence: coherenceActivity(deps), repair: repairActivity({ ...deps, maxAttempts: MODEL_MAX_ATTEMPTS }), assemble: assembleActivity(deps) };
 }

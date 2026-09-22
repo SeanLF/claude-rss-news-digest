@@ -36,7 +36,7 @@ const thinkingFor = (t: StageSpec["thinking"]): ThinkingConfig => (t === "adapti
 export async function runStage(
   spec: StageSpec,
   input: StageInput,
-  opts: { outputSchema?: Record<string, unknown>; today: string; query?: SdkQuery; maxBudgetUsd?: number },
+  opts: { outputSchema?: Record<string, unknown>; today: string; query?: SdkQuery; maxBudgetUsd?: number; heartbeat?: () => void },
 ): Promise<StageResult> {
   const q = opts.query ?? query;
   const allowed: readonly string[] = spec.tools;
@@ -57,7 +57,12 @@ export async function runStage(
   const toolCalls: { name: string; target: string }[] = [];
   const texts: string[] = [];
   let result: Extract<SDKMessage, { type: "result" }> | undefined;
+  // A model call can outlast the activity's heartbeat timeout; beat on every message and every 30 s.
+  const beat = opts.heartbeat;
+  const timer = beat ? setInterval(beat, 30_000) : undefined;
+  try {
   for await (const m of q({ prompt: input.userMessage, options })) {
+    beat?.();
     if (m.type === "assistant") {
       for (const block of m.message.content) {
         if (block.type === "tool_use") toolCalls.push({ name: block.name, target: targetOf(block.name, block.input) });
@@ -66,6 +71,9 @@ export async function runStage(
     } else if (m.type === "result") {
       result = m;
     }
+  }
+  } finally {
+    if (timer) clearInterval(timer);
   }
   if (!result) throw new Error(`stage ${spec.name}: no result message`);
   if (result.subtype !== "success" || result.is_error) throw new Error(`stage ${spec.name}: ${result.subtype}`);
