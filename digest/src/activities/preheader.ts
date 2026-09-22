@@ -9,7 +9,9 @@ import type { ArtifactStore, Pointer } from "../store/artifacts.js";
 import type { StoryPlan } from "./index.js";
 import type { DraftStory } from "./write.js";
 
-export const PREHEADER_OUTPUT = "preheader.txt";
+// {input, line}: the headlines it was written from, so a resume with rewritten drafts writes a new one.
+export const PREHEADER_OUTPUT = "preheader.json";
+export const preheaderLine = (text: string): string => (JSON.parse(text) as { line: string }).line;
 
 // Truncate to <= max chars ending in an ellipsis, on a word boundary (merge._truncate_on_word_boundary).
 // Counted in code points, as Python's len() and slicing do, so an emoji at the cut is never split.
@@ -57,13 +59,15 @@ export interface PreheaderDeps {
 export function preheaderActivity(deps: PreheaderDeps) {
   return async (runId: number, drafts: Pointer[], force = false): Promise<Pointer> => {
     const { store } = deps;
-    const existing = store.find(runId, PREHEADER_OUTPUT);
-    if (existing && !force && store.get(existing).trim()) return existing;
-    if (existing && !force) store.quarantine(runId, PREHEADER_OUTPUT);
     const heads: Record<"must_know" | "should_know", { headline: string }[]> = { must_know: [], should_know: [] };
-    for (const d of drafts) {
-      const { plan, story } = JSON.parse(store.get(d)) as { plan: StoryPlan; story: DraftStory };
-      heads[plan.tier].push({ headline: story.headline });
+    const items = drafts.map((d) => JSON.parse(store.get(d)) as { plan: StoryPlan; story: DraftStory }).toSorted((a, b) => a.plan.index - b.plan.index);
+    for (const { plan, story } of items) heads[plan.tier].push({ headline: story.headline });
+    const input = JSON.stringify(heads);
+    const existing = store.find(runId, PREHEADER_OUTPUT);
+    if (existing && !force) {
+      const prior = JSON.parse(store.get(existing)) as { input?: string; line?: string };
+      if (prior.input === input && prior.line?.trim()) return existing;
+      store.quarantine(runId, PREHEADER_OUTPUT);
     }
     const message = JSON.stringify(heads, null, 2);
     assertNoUrls(message);
@@ -73,6 +77,7 @@ export function preheaderActivity(deps: PreheaderDeps) {
     deps.onUsage?.({ stage: "preheader", runId, costUsd: r.costUsd, durationMs: r.durationMs, numTurns: r.numTurns });
     const line = cleanPreheader(r.text);
     if (!line) throw new Error(`preheader for run ${runId}: nothing usable in the reply`);
-    return force ? store.replace(runId, PREHEADER_OUTPUT, line) : store.put(runId, PREHEADER_OUTPUT, line);
+    const doc = JSON.stringify({ input, line });
+    return force ? store.replace(runId, PREHEADER_OUTPUT, doc) : store.put(runId, PREHEADER_OUTPUT, doc);
   };
 }

@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import type { SdkQuery } from "../runner/run-stage.js";
 import { ArtifactStore } from "../store/artifacts.js";
 import { freshDb } from "../store/test-db.js";
-import { cleanPreheader, preheaderActivity, truncateOnWordBoundary } from "./preheader.js";
+import { cleanPreheader, preheaderActivity, preheaderLine, truncateOnWordBoundary } from "./preheader.js";
 
 describe("cleanPreheader", () => {
   it("strips a known label, a list marker and wrapping quotes, keeps the first usable line", () => {
@@ -37,8 +37,12 @@ describe("preheader activity", () => {
       })();
     }) as unknown as SdkQuery;
     const p = await preheaderActivity({ store, agentsDir: new URL("../../agents/", import.meta.url).pathname, query: q })(300, [d0, d1]);
-    expect(store.get(p)).toBe("Russia votes as the yen jumps");
+    expect(preheaderLine(store.get(p))).toBe("Russia votes as the yen jumps");
     expect(JSON.parse(seen.prompt ?? "{}")).toEqual({ must_know: [{ headline: "Russia votes" }], should_know: [{ headline: "Yen jumps" }] });
     expect(seen.options?.tools).toEqual([]);
+    // rewritten drafts mean a new preheader, never the stale one
+    const d2 = store.put(300, "draft_s02.json", JSON.stringify({ plan: { index: 0, tier: "must_know", storyIds: ["A9"], contextIds: ["A9"] }, story: { headline: "Deal signed", summary: "s", sources: [] } }));
+    await preheaderActivity({ store, agentsDir: new URL("../../agents/", import.meta.url).pathname, query: q })(300, [d2]);
+    expect(store.find(300, "preheader.json.corrupt.1")).toBeDefined();
   });
 });

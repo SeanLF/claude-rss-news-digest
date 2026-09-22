@@ -12,7 +12,7 @@ function setup(results: unknown[], resolution: unknown[] = [], preheader: string
   const drafts = plans.map(([tier, h, ids, extra], i) => store.put(300, `draft_s0${i}.json`, JSON.stringify({ plan: { index: i, tier, storyIds: ids, contextIds: ids }, story: story(h, [...ids], extra) })));
   const report = store.put(300, "coherence_report.json", JSON.stringify({ results }));
   const repair = store.put(300, "repair_resolution.json", JSON.stringify({ input: "x", results: resolution }));
-  const pre = preheader === null ? null : store.put(300, "preheader.txt", preheader);
+  const pre = preheader === null ? null : store.put(300, "preheader.json", JSON.stringify({ input: "x", line: preheader }));
   return () => assemble(store, 300, drafts, report, repair, pre);
 }
 const pass = (h: string, ids: string[]) => ({ headline: h, article_ids: ids, pass: true, reason: "ok" });

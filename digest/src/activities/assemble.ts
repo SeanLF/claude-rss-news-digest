@@ -5,7 +5,7 @@ import { itemIds, normHeadline, resultMatches } from "../contracts/match.js";
 import { NOT_COVERED_BLURB_MAX_LEN, PREHEADER_MAX_CHARS, SelectionsSchema, type Selections } from "../contracts/selections.js";
 import type { ArtifactStore, Pointer } from "../store/artifacts.js";
 import { draftFrom } from "./coherence.js";
-import { truncateOnWordBoundary } from "./preheader.js";
+import { preheaderLine, truncateOnWordBoundary } from "./preheader.js";
 import type { ResolutionDoc } from "./repair.js";
 import { SelectedSchema } from "./select.js";
 
@@ -77,7 +77,7 @@ export function assemble(store: ArtifactStore, runId: number, drafts: Pointer[],
       sel[tier].push(kept);
     }
   if (!sel.must_know.length) throw ApplicationFailure.nonRetryable(`run ${runId}: no must_know story survived (dropped ${out.dropped.length}); refusing an empty broadcast`, "EmptyDigest");
-  let pre = preheader ? store.get(preheader).trim() : "";
+  let pre = preheader ? preheaderLine(store.get(preheader)).trim() : "";
   if (!pre) pre = [...sel.must_know, ...sel.should_know].map((s) => s.headline.trim()).find(Boolean) ?? "";
   const selected = store.find(runId, "selected.json");
   let blurb: string | undefined;

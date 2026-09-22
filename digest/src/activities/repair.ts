@@ -152,7 +152,8 @@ export function repairActivity(deps: RepairDeps) {
       deps.onUsage?.({ stage: "repair_recheck", runId, costUsd: checked.costUsd, durationMs: checked.durationMs, numTurns: checked.numTurns, toolCalls: checked.toolCalls, unbackedFails: checked.unbacked });
       return write({ input, results: resolve(applied, checked.report, scoped) });
     } catch (e) {
-      if (e instanceof CancelledFailure) throw e; // an activity cancelled by the workflow
+      // A cancellation is not a fault: Temporal's own, or the SDK's AbortError once our signal fired.
+      if (e instanceof CancelledFailure || deps.signal?.()?.aborted) throw e;
       if (currentAttempt() < deps.maxAttempts) throw e; // let the model retry policy try again
       return write({ input, results: applied.map((a) => ({ ...a, status: a.status === "repaired" ? "recheck_failed" : a.status, recheck_pass: false })), fault: String(e).slice(0, 300) });
     }
