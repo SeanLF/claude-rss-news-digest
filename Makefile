@@ -110,6 +110,7 @@ help: ## Show this help
 		$(MAKEFILE_LIST)
 
 temporal-up: ## Local Temporal 1.32.0 + Postgres + UI (127.0.0.1:8233) + the digest worker (stubs)
+	docker volume create news-digest_claude-sessions >/dev/null  # the login volume the newsroom stack owns; a no-op once it exists
 	docker compose -f digest/compose.temporal.yml up -d --build
 
 temporal-down: ## Stop local Temporal; keeps the Postgres volume

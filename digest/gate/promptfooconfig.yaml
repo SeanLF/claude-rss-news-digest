@@ -1,0 +1,12 @@
+# whole-digest judges, band-first (spec §7). promptfoo is the runner; the protocol is ours (cli/gate.ts).
+# Not run until docs/proposed/gate-fixtures/day-<N>/ exists; until then this is the shape.
+description: whole-digest judges, band-first (spec §7)
+prompts:
+  - file://rubric.md
+providers:
+  - id: exec:node dist/cli/gate.js --digest {{digest}} --inputs {{inputs}} --judges gate/judges.json --reps 5 --out /tmp/band.json
+tests:
+  - vars: { digest: ../docs/proposed/gate-fixtures/day-300/digest.html, inputs: ../docs/proposed/gate-fixtures/day-300/inputs }
+    assert:
+      - type: javascript
+        value: JSON.parse(require('fs').readFileSync('/tmp/band.json','utf8')).disagreements.length <= 3
