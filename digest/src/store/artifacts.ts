@@ -45,12 +45,24 @@ export class ArtifactStore {
     return r.content;
   }
   quarantine(runId: number, name: string): string {
-    const { c } = this.db
-      .prepare("SELECT COUNT(*) AS c FROM run_artifacts WHERE run_id=? AND artifact_name LIKE ?")
-      .get(runId, `${name}.corrupt.%`) as { c: number };
-    const renamed = `${name}.corrupt.${c + 1}`;
-    this.db.prepare("UPDATE run_artifacts SET artifact_name=? WHERE run_id=? AND artifact_name=?").run(renamed, runId, name);
-    return renamed;
+    // Count and rename under one write lock, and refuse to report a rename that touched no row:
+    // a second caller on an already-quarantined name would otherwise get a fabricated name back.
+    this.db.exec("BEGIN IMMEDIATE");
+    try {
+      const { c } = this.db
+        .prepare("SELECT COUNT(*) AS c FROM run_artifacts WHERE run_id=? AND artifact_name LIKE ?")
+        .get(runId, `${name}.corrupt.%`) as { c: number };
+      const renamed = `${name}.corrupt.${c + 1}`;
+      const { changes } = this.db
+        .prepare("UPDATE run_artifacts SET artifact_name=? WHERE run_id=? AND artifact_name=?")
+        .run(renamed, runId, name);
+      if (Number(changes) !== 1) throw new IntegrityError(`no artifact ${name} for run ${runId} to quarantine`);
+      this.db.exec("COMMIT");
+      return renamed;
+    } catch (e) {
+      this.db.exec("ROLLBACK");
+      throw e;
+    }
   }
   replace(runId: number, name: string, content: string): Pointer {
     this.db.prepare("INSERT OR REPLACE INTO run_artifacts (run_id, artifact_name, content) VALUES (?, ?, ?)").run(runId, name, content);

@@ -51,4 +51,12 @@ describe("ArtifactStore on the production run_artifacts schema", () => {
     expect(s.quarantine(300, "recap.txt")).toBe("recap.txt.corrupt.2");
     expect(s.get(s.replace(300, "recap.txt", "better"))).toBe("better");
   });
+  it("quarantine of a name that is not there throws instead of returning a name it never wrote", () => {
+    const s = new ArtifactStore(freshDb());
+    expect(() => s.quarantine(300, "missing.txt")).toThrow(IntegrityError);
+    s.put(300, "recap.txt", "bad");
+    s.quarantine(300, "recap.txt");
+    expect(() => s.quarantine(300, "recap.txt")).toThrow(IntegrityError);
+    expect(s.find(300, "recap.txt.corrupt.1")).toBeDefined();
+  });
 });

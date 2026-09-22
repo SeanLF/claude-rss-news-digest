@@ -16,8 +16,10 @@ export interface StageResult {
 }
 export type SdkQuery = typeof query;
 
-// Every built-in the SDK could offer; what the spec does not name is disallowed explicitly.
-const BUILTIN = ["Read", "Grep", "Glob", "Write", "Edit", "Bash", "WebFetch", "WebSearch", "Task", "NotebookEdit"] as const;
+// `tools` is the SDK's base set of built-ins and the only option that restricts availability;
+// `allowedTools` merely skips the permission prompt. The disallow list is belt and braces for
+// the tools a preset would otherwise add.
+const BUILTIN = ["Read", "Grep", "Glob", "Write", "Edit", "Bash", "WebFetch", "WebSearch", "Task", "NotebookEdit", "TodoWrite", "ExitPlanMode", "BashOutput", "KillBash", "SlashCommand", "ListMcpResources", "ReadMcpResource", "ReadMcpResourceDir"] as const;
 
 function targetOf(name: string, input: unknown): string {
   const inp = (input && typeof input === "object" ? input : {}) as Record<string, unknown>;
@@ -42,6 +44,7 @@ export async function runStage(
     model: spec.model,
     systemPrompt: renderBody(spec.body, opts.today),
     cwd: input.inputDir,
+    tools: [...allowed],
     allowedTools: [...allowed],
     disallowedTools: BUILTIN.filter((t) => !allowed.includes(t)),
     permissionMode: "acceptEdits",

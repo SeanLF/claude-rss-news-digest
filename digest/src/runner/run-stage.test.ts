@@ -33,12 +33,19 @@ describe("runStage", () => {
     expect(r.structured).toEqual({ results: [] });
     expect(r).toMatchObject({ costUsd: 0.5, usage: { output_tokens: 10 }, durationMs: 1200, numTurns: 3 });
   });
-  it("passes model, cwd, thinking, allowed and disallowed tools, and the schema through to the SDK options", async () => {
+  it("a stage with no tools gets an empty base set: no built-in reaches the model", async () => {
+    const seen: { options?: Options } = {};
+    await runStage({ ...spec, tools: [] }, { userMessage: "Begin.", inputDir: "/in" }, { today: "2026-09-21", query: fakeQuery([result({})], seen) });
+    expect(seen.options?.tools).toEqual([]);
+    expect(seen.options?.disallowedTools).toEqual(expect.arrayContaining(["Read", "Grep", "Bash"]));
+  });
+  it("passes model, cwd, thinking, the tool base set, allowed and disallowed tools, and the schema through to the SDK options", async () => {
     const seen: { options?: Options } = {};
     await call(fakeQuery([result({ structured_output: {} })], seen), { type: "object" });
     expect(seen.options?.model).toBe("claude-sonnet-5");
     expect(seen.options?.cwd).toBe("/in");
     expect(seen.options?.thinking).toEqual({ type: "adaptive" });
+    expect(seen.options?.tools).toEqual(["Read", "Grep"]);
     expect(seen.options?.allowedTools).toEqual(["Read", "Grep"]);
     expect(seen.options?.disallowedTools).toEqual(expect.arrayContaining(["Write", "Edit", "Bash", "WebFetch", "WebSearch"]));
     expect(seen.options?.disallowedTools).not.toContain("Read");
