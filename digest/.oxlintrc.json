@@ -17,7 +17,16 @@
         "argsIgnorePattern": "^_"
       }
     ],
-    "typescript/no-unsafe-type-assertion": "warn"
+    "typescript/no-unsafe-type-assertion": "warn",
+    "typescript/no-unsafe-assignment": "error",
+    "typescript/no-unsafe-call": "error",
+    "typescript/no-unsafe-member-access": "error",
+    "typescript/no-unsafe-return": "error",
+    "typescript/no-unsafe-argument": "error",
+    "typescript/no-unsafe-enum-comparison": "error",
+    "typescript/no-floating-promises": "error",
+    "typescript/no-misused-promises": "error",
+    "typescript/await-thenable": "error"
   },
   "ignorePatterns": [
     "dist/**",

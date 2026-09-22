@@ -20,7 +20,7 @@ export interface Activities {
   fetchFeed(runId: number, sourceId: string): Promise<Pointer>;
   prepare(runId: number, fetched: Pointer[]): Promise<{ articles: Pointer[]; index: Pointer }>;
   cluster(runId: number, articles: Pointer[]): Promise<Pointer>;
-  recap(runId: number): Promise<Pointer>;
+  recap(runId: number, force?: boolean): Promise<Pointer>;
   select(runId: number, clusters: Pointer, recap: Pointer, note?: string, input?: DigestInput): Promise<Pointer>;
   fulltext(runId: number, selected: Pointer): Promise<Pointer>;
   storyCount(runId: number, selected: Pointer): Promise<number>;

@@ -116,8 +116,8 @@ temporal-up: ## Local Temporal 1.32.0 + Postgres + UI (127.0.0.1:8233) + the dig
 temporal-down: ## Stop local Temporal; keeps the Postgres volume
 	docker compose --env-file .env -f digest/compose.temporal.yml down
 
-digest-start: ## Start one DigestWorkflow on local Temporal and wait for it (usage: make digest-start DATE=2026-09-21)
-	docker compose --env-file .env -f digest/compose.temporal.yml run --rm digest-worker node dist/cli/start.js $(DATE)
+digest-start: ## Start one DigestWorkflow on local Temporal and wait for it (usage: make digest-start DATE=2026-09-21 [ARGS="--resume 300 --force"])
+	docker compose --env-file .env -f digest/compose.temporal.yml run --rm digest-worker node dist/cli/start.js $(DATE) $(ARGS)
 
 digest-schedule: ## Create or update the daily 10:25Z schedule on local Temporal
 	docker compose --env-file .env -f digest/compose.temporal.yml run --rm digest-worker node dist/cli/schedule.js

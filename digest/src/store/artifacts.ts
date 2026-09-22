@@ -68,6 +68,12 @@ export class ArtifactStore {
     this.db.prepare("INSERT OR REPLACE INTO run_artifacts (run_id, artifact_name, content) VALUES (?, ?, ?)").run(runId, name, content);
     return { runId, name, sha256: sha(content) };
   }
+  // The run's UTC day: the one date every stage reasons from (spec §1, run date).
+  runDate(runId: number): string {
+    const r = this.db.prepare("SELECT date(run_at) AS d FROM digest_runs WHERE id=?").get(runId) as { d: string | null } | undefined;
+    if (!r?.d) throw new IntegrityError(`no run ${runId}`);
+    return r.d;
+  }
   close(): void {
     this.db.close();
   }

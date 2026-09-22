@@ -57,7 +57,7 @@ export async function DigestWorkflow(input: DigestInput): Promise<DigestOutput> 
 
   const fetched = await Promise.all(SOURCE_IDS_STUB.map((s) => network.fetchFeed(runId, s)));
   const { articles } = await once.prepare(runId, fetched);
-  const [clusters, recap] = await Promise.all([model.cluster(runId, articles), model.recap(runId)]);
+  const [clusters, recap] = await Promise.all([model.cluster(runId, articles), model.recap(runId, input.force)]);
   const selected = await guarded(() => model.select(runId, clusters, recap, notes["select"], input));
   if (!selected) return finish({ stories: 0, broadcast: "skipped" });
   const fulltext = await network.fulltext(runId, selected);

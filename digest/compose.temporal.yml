@@ -61,6 +61,7 @@ services:
     environment:
       TEMPORAL_ADDRESS: "temporal:7233"
       CLAUDE_CODE_OAUTH_TOKEN: "${CLAUDE_CODE_OAUTH_TOKEN:-}" # from the repo-root .env via --env-file (Makefile)
+      DIGEST_DB_PATH: "${DIGEST_DB_PATH:-/app/data/digest.db}" # point at a scratch copy for a port check
     volumes:
       - ../data:/app/data
       - claude-sessions:/home/appuser/.claude

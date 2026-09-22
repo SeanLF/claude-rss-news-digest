@@ -1,5 +1,5 @@
 import { NativeConnection, Worker } from "@temporalio/worker";
-import { stubActivities } from "./activities/stub.js";
+import { workerActivities } from "./activities/real.js";
 export const TASK_QUEUE = "digest";
 export async function runWorker(address = process.env["TEMPORAL_ADDRESS"] ?? "localhost:7233"): Promise<void> {
   const connection = await NativeConnection.connect({ address });
@@ -7,7 +7,7 @@ export async function runWorker(address = process.env["TEMPORAL_ADDRESS"] ?? "lo
     connection,
     taskQueue: TASK_QUEUE,
     workflowsPath: new URL("./workflow/digest.workflow.js", import.meta.url).pathname,
-    activities: stubActivities(),
+    activities: workerActivities(),
   });
   await worker.run();
 }

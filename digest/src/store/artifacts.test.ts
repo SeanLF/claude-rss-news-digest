@@ -1,22 +1,7 @@
-import { mkdtempSync, readFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vitest";
 import { ArtifactStore, ConflictError, IntegrityError } from "./artifacts.js";
-
-// The repo's own migrations, so the schema under test is production's.
-const MIGRATIONS = new URL("../../../migrations/", import.meta.url).pathname;
-
-function freshDb(): string {
-  const path = join(mkdtempSync(join(tmpdir(), "digest-")), "digest.db");
-  const db = new DatabaseSync(path);
-  db.exec("CREATE TABLE digest_runs (id INTEGER PRIMARY KEY AUTOINCREMENT)");
-  db.exec("INSERT INTO digest_runs (id) VALUES (300)"); // node:sqlite enforces the FK the Python side leaves off
-  for (const f of ["20260615100000_add_run_artifacts.sql", "20260729120000_unique_run_artifact_per_run.sql"]) db.exec(readFileSync(join(MIGRATIONS, f), "utf8"));
-  db.close();
-  return path;
-}
+import { freshDb } from "./test-db.js";
 
 describe("ArtifactStore on the production run_artifacts schema", () => {
   it("put returns a pointer whose hash is the content's sha256, and get round-trips", () => {
@@ -50,6 +35,11 @@ describe("ArtifactStore on the production run_artifacts schema", () => {
     expect(s.get(p)).toBe("good");
     expect(s.quarantine(300, "recap.txt")).toBe("recap.txt.corrupt.2");
     expect(s.get(s.replace(300, "recap.txt", "better"))).toBe("better");
+  });
+  it("runDate reads the run's UTC day and refuses an unknown run", () => {
+    const s = new ArtifactStore(freshDb([300]));
+    expect(s.runDate(300)).toBe("2026-09-18");
+    expect(() => s.runDate(301)).toThrow(/no run 301/);
   });
   it("quarantine of a name that is not there throws instead of returning a name it never wrote", () => {
     const s = new ArtifactStore(freshDb());
