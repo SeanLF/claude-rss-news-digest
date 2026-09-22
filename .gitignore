@@ -35,3 +35,6 @@ scratch/
 # Rescued eval evidence is cited by docs and must travel with the tree, whatever a global
 # ignore says about *.log (2a76a31 lost three of them silently).
 !docs/proposed/**/*.log
+digest/node_modules
+digest/dist
+digest/sbom.cdx.json

@@ -40,6 +40,12 @@ services:
       - .:/app
     entrypoint: ["python3", "bin/ci"]
 
+  ci-ts:
+    build:
+      context: .
+      dockerfile: digest/Dockerfile.ci
+    working_dir: /app/digest
+
   ci-rust:
     build:
       context: ./circulation

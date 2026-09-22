@@ -62,11 +62,23 @@ def run_in_docker() -> int:
             **capture,
         )
 
-    # Wait for both
+    # Start TypeScript CI (if digest exists): tests, types, lint in the ci-ts container.
+    ts_proc = None
+    if (ROOT / "digest" / "package.json").exists():
+        ts_cmd = "npm test && npm run typecheck && npm run lint"
+        ts_proc = subprocess.Popen(
+            ["docker", "compose", "run", "--rm", "--build", "ci-ts", "sh", "-c", ts_cmd],
+            cwd=ROOT,
+            **capture,
+        )
+
+    # Wait for all
     py_out = py_proc.communicate()[0]
     py_rc = py_proc.returncode
     rust_out = rust_proc.communicate()[0] if rust_proc else None
     rust_rc = rust_proc.returncode if rust_proc else 0
+    ts_out = ts_proc.communicate()[0] if ts_proc else None
+    ts_rc = ts_proc.returncode if ts_proc else 0
 
     if py_rc != 0:
         print(f"\n{RED}Python CI failed (exit {py_rc}){RESET}")
@@ -76,13 +88,19 @@ def run_in_docker() -> int:
         print(f"\n{RED}Rust CI failed (exit {rust_rc}){RESET}")
         if rust_out:
             print(rust_out.decode(errors="replace"))
+    if ts_rc != 0:
+        print(f"\n{RED}TypeScript CI failed (exit {ts_rc}){RESET}")
+        if ts_out:
+            print(ts_out.decode(errors="replace"))
 
-    if py_rc == 0 and rust_rc == 0 and QUIET:
+    if py_rc == 0 and rust_rc == 0 and ts_rc == 0 and QUIET:
         print(f"{GREEN}CI passed{RESET}")
 
     if py_rc != 0:
         return py_rc
-    return rust_rc
+    if rust_rc != 0:
+        return rust_rc
+    return ts_rc
 
 
 def run_step(name: str, cmd: list[str], cwd: Path | None = None) -> bool:

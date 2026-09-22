@@ -1,0 +1,5 @@
+FROM node:24-slim
+WORKDIR /app/digest
+COPY digest/package.json digest/package-lock.json ./
+RUN npm ci
+COPY digest/ ./

@@ -10,3 +10,6 @@ __pycache__/
 .env
 .DS_Store
 CLAUDE.local.md
+digest/node_modules/
+digest/dist/
+digest/sbom.cdx.json

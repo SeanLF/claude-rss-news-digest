@@ -1,0 +1,40 @@
+{
+  "name": "digest",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "lint": "eslint src",
+    "test": "vitest run",
+    "sbom": "npx --yes @cyclonedx/cyclonedx-npm --output-format JSON --output-file sbom.cdx.json"
+  },
+  "dependencies": {
+    "@anthropic-ai/claude-agent-sdk": "0.3.278",
+    "@temporalio/activity": "1.24.0",
+    "@temporalio/client": "1.24.0",
+    "@temporalio/common": "1.24.0",
+    "@temporalio/worker": "1.24.0",
+    "@temporalio/workflow": "1.24.0",
+    "zod": "4.6.5"
+  },
+  "devDependencies": {
+    "@temporalio/testing": "1.24.0",
+    "@types/node": "24.13.6",
+    "eslint": "10.0.0",
+    "typescript": "5.9.3",
+    "typescript-eslint": "8.70.1",
+    "vitest": "5.0.1"
+  },
+  "allowScripts": {
+    "better-sqlite3@13.0.3": true,
+    "@swc/core@1.16.2": true,
+    "protobufjs@7.6.6": true,
+    "protobufjs@8.8.0": true,
+    "@temporalio/core-bridge@1.24.0": true
+  }
+}
