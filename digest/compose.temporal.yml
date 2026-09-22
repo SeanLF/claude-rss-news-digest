@@ -6,6 +6,7 @@ services:
     image: temporalio/temporal:1.9.1
     command: ["server", "start-dev", "--ip", "0.0.0.0", "--db-filename", "/data/temporal.db"]
     volumes: [temporal-data:/data]
+    user: "0:0" # the image's own user cannot write a fresh root-owned volume; local dev only
     ports: ["127.0.0.1:7233:7233", "127.0.0.1:8233:8233"]
   digest-worker:
     build: { context: .., dockerfile: digest/Dockerfile }
