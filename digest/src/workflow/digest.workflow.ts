@@ -76,7 +76,7 @@ export async function DigestWorkflow(input: DigestInput): Promise<DigestOutput> 
   const failed = written.find((w) => w.status === "rejected");
   if (failed) throw failed.reason;
   const drafts = written.flatMap((w) => (w.status === "fulfilled" ? [w.value] : []));
-  const [preheader, report] = await Promise.all([model.preheader(runId, drafts), model.coherence(runId, drafts, fulltext, notes["coherence"])]);
+  const [preheader, report] = await Promise.all([model.preheader(runId, drafts, input.force).catch(() => null), model.coherence(runId, drafts, fulltext, notes["coherence"])]);
   const repair = await model.repair(runId, drafts, report);
   const selections = await once.assemble(runId, drafts, report, repair, preheader);
   const [gnews, threads] = await Promise.all([network.gnews(runId, selections), model.threads(runId, selections)]);

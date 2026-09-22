@@ -1,0 +1,75 @@
+import { readFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { assertNoUrls } from "../contracts/ids.js";
+import { PREHEADER_MAX_CHARS } from "../contracts/selections.js";
+import { parseAgentSpec } from "../runner/prompt.js";
+import { runStage, type SdkQuery } from "../runner/run-stage.js";
+import type { ArtifactStore, Pointer } from "../store/artifacts.js";
+import type { StoryPlan } from "./index.js";
+import type { DraftStory } from "./write.js";
+
+export const PREHEADER_OUTPUT = "preheader.txt";
+
+// Truncate to <= max chars ending in an ellipsis, on a word boundary (merge._truncate_on_word_boundary).
+export function truncateOnWordBoundary(text: string, max: number): string {
+  if (text.length <= max) return text;
+  const budget = max - 1;
+  let head = text.slice(0, budget);
+  if (!/\s/.test(text[budget] ?? "") && !/\s/.test(text[budget - 1] ?? "")) {
+    const cut = head.lastIndexOf(" ");
+    if (cut > 0) head = head.slice(0, cut);
+  }
+  return `${head.trimEnd()}…`;
+}
+
+// A closed set of label prefixes, not a shape: `^word+:` would decapitate "WHO: companies filed..."
+// (orchestrate.clean_preheader, measured against 1,225 archived headlines).
+const LABELS = ["preheader", "preheader line", "here is the preheader", "the preheader"];
+const LABEL_RE = new RegExp(`^\\**\\s*(?:${LABELS.map((l) => l.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|")})\\s*\\**\\s*:\\**\\s*`, "i");
+const LIST_RE = /^\s*(?:[-*•]|\d+[.)])\s+/;
+const QUOTES: [string, string][] = [['"', '"'], ["'", "'"], ["“", "”"], ["‘", "’"]];
+
+// The first usable line, unlabelled, unlisted, unquoted, within the cap. "" when nothing usable is
+// left, which assemble fills from the first headline: this field degrades, it never aborts a digest.
+export function cleanPreheader(text: string): string {
+  const lines = text.split("\n").map((l) => l.trim()).filter((l) => l && !l.startsWith("```"));
+  while (lines.length && lines[0]!.replace(LABEL_RE, "").trim() === "") lines.shift();
+  if (!lines.length) return "";
+  let first = lines[0]!.replace(LIST_RE, "").replace(LABEL_RE, "").trim();
+  for (const [o, c] of QUOTES) if (first.length > 1 && first.startsWith(o) && first.endsWith(c)) first = first.slice(1, -1).trim();
+  return truncateOnWordBoundary(first, PREHEADER_MAX_CHARS);
+}
+
+export interface PreheaderDeps {
+  store: ArtifactStore;
+  agentsDir: string;
+  query?: SdkQuery;
+  heartbeat?: () => void;
+  onUsage?: (row: { stage: string; runId: number; costUsd: number; durationMs: number; numTurns: number }) => void;
+}
+
+// Best-effort by design: a failed call or an unusable reply stores "" and assemble substitutes the
+// top headline. Only a successful non-empty write is kept for idempotency.
+export function preheaderActivity(deps: PreheaderDeps) {
+  return async (runId: number, drafts: Pointer[], force = false): Promise<Pointer> => {
+    const { store } = deps;
+    const existing = store.find(runId, PREHEADER_OUTPUT);
+    if (existing && !force && store.get(existing).trim()) return existing;
+    if (existing && !force) store.quarantine(runId, PREHEADER_OUTPUT);
+    const heads: Record<"must_know" | "should_know", { headline: string }[]> = { must_know: [], should_know: [] };
+    for (const d of drafts) {
+      const { plan, story } = JSON.parse(store.get(d)) as { plan: StoryPlan; story: DraftStory };
+      heads[plan.tier].push({ headline: story.headline });
+    }
+    const message = JSON.stringify(heads, null, 2);
+    assertNoUrls(message);
+    const spec = parseAgentSpec(readFileSync(join(deps.agentsDir, "preheader.md"), "utf8"));
+    deps.heartbeat?.();
+    const r = await runStage(spec, { userMessage: message, inputDir: tmpdir() }, { today: store.runDate(runId), ...(deps.query ? { query: deps.query } : {}) });
+    deps.onUsage?.({ stage: "preheader", runId, costUsd: r.costUsd, durationMs: r.durationMs, numTurns: r.numTurns });
+    const line = cleanPreheader(r.text);
+    if (!line) throw new Error(`preheader for run ${runId}: nothing usable in the reply`);
+    return force ? store.replace(runId, PREHEADER_OUTPUT, line) : store.put(runId, PREHEADER_OUTPUT, line);
+  };
+}
