@@ -17,14 +17,14 @@ export const JUDGE_TIMEOUT_MS = 10 * 60_000;
 // The judge sees the digest and the article CSVs, never URLs (spec §7.1): every href and every
 // bare URL in the rendered digest is replaced before it leaves code, and the payload is checked.
 export function stripUrls(html: string): string {
-  return html.replace(/\s(href|src|action)=("[^"]*"|'[^']*')/gi, "").replace(/(?:https?:)?\/\/[a-z0-9.-]+\.[a-z]{2,}[^\s"'<>)]*/gi, "[link]");
+  return html.replace(/\s(href|src|action)=("[^"]*"|'[^']*')/gi, "").replace(/(?:https?:)?\/\/(?:[a-z0-9.-]+\.[a-z]{2,}|\d{1,3}(?:\.\d{1,3}){3})[^\s"'<>)]*/gi, "[link]");
 }
 
 // The outermost [...] in chatty stdout, validated cell by cell.
 export function parseVerdicts(stdout: string): JudgeVerdict[] {
   const start = stdout.indexOf("[");
   const end = stdout.lastIndexOf("]");
-  if (start < 0 || end < start) throw new Error(`judge returned no JSON array; stdout began: ${JSON.stringify(stdout.slice(0, 400))}`);
+  if (start < 0 || end < start) throw new Error(`judge returned no JSON array; stdout began: ${JSON.stringify(stripUrls(stdout.slice(0, 400)))}`);
   const parsed: unknown = JSON.parse(stdout.slice(start, end + 1));
   if (!Array.isArray(parsed)) throw new Error("judge returned no JSON array");
   return parsed.map((v: unknown, i) => {

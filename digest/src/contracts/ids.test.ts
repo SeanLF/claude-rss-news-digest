@@ -12,6 +12,7 @@ describe("article ids", () => {
   it("assertNoUrls throws on a URL and passes on a source id", () => {
     expect(() => assertNoUrls("see https://example.com/x")).toThrow(/URL/);
     expect(() => assertNoUrls("//cdn.example.com/x.png")).toThrow(/URL/);
+    expect(() => assertNoUrls("http://192.168.1.1/x")).toThrow(/URL/);
     expect(() => assertNoUrls("reuters,Reuters,centre")).not.toThrow();
     expect(() => assertNoUrls("a // comment and 3/4 of a path/segment")).not.toThrow();
   });

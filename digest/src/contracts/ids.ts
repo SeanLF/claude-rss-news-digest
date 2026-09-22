@@ -5,7 +5,8 @@ export function parseArticleId(s: string): ArticleId {
   return s as ArticleId;
 }
 // A scheme, or a protocol-relative `//host/…`: both are links a browser would follow.
-const URL_RE = /(?:https?:)?\/\/[a-z0-9.-]+\.[a-z]{2,}/i;
+// Hosts: a name with a letter TLD, or an IPv4 address.
+const URL_RE = /(?:https?:)?\/\/(?:[a-z0-9.-]+\.[a-z]{2,}|\d{1,3}(?:\.\d{1,3}){3})/i;
 export function assertNoUrls(text: string): void {
   if (URL_RE.test(text)) throw new Error("a URL reached a model stage; the no-URL invariant is broken");
 }
