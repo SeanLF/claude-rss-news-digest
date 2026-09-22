@@ -86,7 +86,7 @@ describe("repair activity", () => {
     await expect(run()).rejects.toThrow(/AbortError/);
     expect(store.find(300, REPAIR_OUTPUT)).toBeUndefined();
   });
-  it("a fault on the last attempt is recorded, and a cached fault is rerun rather than reused", async () => {
+  it("a fault on the last attempt is recorded as the answer, never as a repair", async () => {
     const { run, doc } = activitySetup(model({ fail: new Error("529 overloaded") }));
     await run(); // outside an activity every attempt is the last
     expect(doc().fault).toMatch(/529/);
