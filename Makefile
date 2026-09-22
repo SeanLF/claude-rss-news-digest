@@ -126,7 +126,7 @@ band: ## Same-day curation band of the TypeScript workflow via promptfoo (RUN=30
 	@stamp=$$(date -u +%Y%m%dT%H%M%SZ); cp data/digest.db data/band-$$stamp.db; \
 	DIGEST_DB_PATH=/app/data/band-$$stamp.db docker compose --env-file .env -f digest/compose.temporal.yml up -d --build && sleep 10 && \
 	(cd digest && npm run build && BAND_DB=../data/band-$$stamp.db npx --yes promptfoo@0.123.1 eval -c gate/band.yaml --repeat $${REPS:-3} -j 1 --no-cache -o ../data/band-$$stamp.json); status=$$?; \
-	docker compose --env-file .env -f digest/compose.temporal.yml up -d --force-recreate digest-worker >/dev/null; exit $$status  # the worker goes back to data/digest.db
+	env -u DIGEST_DB_PATH docker compose --env-file .env -f digest/compose.temporal.yml up -d --force-recreate digest-worker >/dev/null; exit $$status  # the worker goes back to data/digest.db
 
 judges: ## Two judge families x5 on the day-300 fixture via promptfoo (model calls, ~$5)
 	@stamp=$$(date -u +%Y%m%dT%H%M%SZ); cd digest && npm run build && npx --yes promptfoo@0.123.1 eval -c gate/judges.yaml --repeat 5 -j 1 --no-cache -o ../data/judges-$$stamp.json && node dist/cli/agreement.js ../data/judges-$$stamp.json
