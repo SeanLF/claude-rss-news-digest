@@ -4,6 +4,7 @@ import { dbPath } from "../store/db.js";
 import type { Activities } from "./index.js";
 import { clusterActivities } from "./cluster.js";
 import { recapActivity } from "./recap.js";
+import { selectActivity } from "./select.js";
 import { stubActivities } from "./stub.js";
 
 export const DEFAULT_AGENTS_DIR = "/app/digest/agents";
@@ -22,5 +23,5 @@ const log = (row: object) => console.log(JSON.stringify({ usage: row }));
 export function workerActivities(): Activities {
   const store = new ArtifactStore(dbPath());
   const deps = { store, agentsDir: agentsDir(), heartbeat: safeHeartbeat, onUsage: log };
-  return { ...stubActivities(), ...clusterActivities(deps), recap: recapActivity(deps) };
+  return { ...stubActivities(), ...clusterActivities(deps), recap: recapActivity(deps), select: selectActivity(deps) };
 }

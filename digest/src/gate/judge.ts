@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import { readFileSync } from "node:fs";
-import { assertNoUrls } from "../contracts/ids.js";
+import { assertNoUrls, scrubUrls } from "../contracts/ids.js";
 import type { JudgeVerdict } from "./verdict.js";
 
 // A whole-digest judge is a CLI from one model family (spec §7 item 2): it gets {rubric, digest,
@@ -17,7 +17,7 @@ export const JUDGE_TIMEOUT_MS = 10 * 60_000;
 // The judge sees the digest and the article CSVs, never URLs (spec §7.1): every href and every
 // bare URL in the rendered digest is replaced before it leaves code, and the payload is checked.
 export function stripUrls(html: string): string {
-  return html.replace(/\s(href|src|action)=("[^"]*"|'[^']*')/gi, "").replace(/(?:https?:)?\/\/(?:[a-z0-9.-]+\.[a-z]{2,}|\d{1,3}(?:\.\d{1,3}){3})[^\s"'<>)]*/gi, "[link]");
+  return scrubUrls(html.replace(/\s(href|src|action)=("[^"]*"|'[^']*')/gi, ""));
 }
 
 // The outermost [...] in chatty stdout, validated cell by cell.

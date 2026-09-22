@@ -5,7 +5,7 @@ import { ApplicationFailure } from "@temporalio/common";
 import { parse } from "csv-parse/sync";
 import { joinTags, type Cluster } from "../cluster/join.js";
 import { coerceTag, ExtractItemsSchema, extractItemsJsonSchema, itemsForBatch, TAG_BAG_WEIGHTS, usable, type Tag } from "../cluster/tags.js";
-import { assertNoUrls } from "../contracts/ids.js";
+import { assertNoUrls, scrubUrls } from "../contracts/ids.js";
 import { parseAgentSpec } from "../runner/prompt.js";
 import { runStage, type SdkQuery } from "../runner/run-stage.js";
 import type { ArtifactStore, Pointer } from "../store/artifacts.js";
@@ -43,11 +43,8 @@ export function planBatches(articles: Article[], size = EXTRACT_BATCH): ExtractB
 }
 
 // TSV of (article_id, title, summary) for one extraction batch, as the Python stage builds it.
-// Summaries are scrubbed of links before they reach the prompt: today's prepare lets Hacker News
-// summaries through with "Article URL: https://…" (a finding owed to the Python side), and the
-// clustering signal is the words, not the address.
-const URL_IN_TEXT = /(?:https?:)?\/\/(?:[a-z0-9.-]+\.[a-z]{2,}|\d{1,3}(?:\.\d{1,3}){3})[^\s"'<>)]*/gi;
-const clean = (s: string) => s.replaceAll("\n", " ").replaceAll("\t", " ").replace(URL_IN_TEXT, "[link]");
+// Summaries are scrubbed of links: the words are the clustering signal, the address is not.
+const clean = (s: string) => scrubUrls(s.replaceAll("\n", " ").replaceAll("\t", " "));
 // JSON with object keys sorted at every level, as the Python's sort_keys=True writes it.
 const stableJson = (v: unknown) => JSON.stringify(v, (_k, val: unknown) => (val && typeof val === "object" && !Array.isArray(val) ? Object.fromEntries(Object.entries(val as Record<string, unknown>).toSorted(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))) : val));
 
