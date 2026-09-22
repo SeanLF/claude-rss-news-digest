@@ -47,3 +47,15 @@ docker compose --env-file .env -f digest/compose.temporal.yml run --rm --build -
 2026-09-22: `{"structured":{"ok":true},"costUsd":0.0017,"numTurns":2}`. The worker authenticates like the newsroom
 container does, with `CLAUDE_CODE_OAUTH_TOKEN` from the repo-root `.env`; a nested Claude Code session cannot run
 it on the host.
+
+## Port checks on run 300 (scratch DB `data/digest-a2.db`, `make digest-start DATE=2026-09-18 ARGS="--resume 300 --force"`)
+
+| stage | result | archived (Python, run 300) |
+|---|---|---|
+| RECAP | $0.0465, 2.7 s, 1 turn; plausible, leads differently (known RECAP instability) | $0.042, 7 s |
+| CLUSTER | 17 batches, 0 lost, 0 title-only, $1.27, 44 s mean per batch at 4 concurrent; 302 clusters over 659 articles, 205 identical to the archived partition | $0.95, 179 s; 289 clusters |
+
+The join is exact (run 300's archived tags reproduce the archived 289 clusters in the test suite); the
+partition differences are extraction sampling. The first CLUSTER run refused every batch holding a Hacker
+News article because their summaries carry "Article URL: https://..."; the prompt now scrubs links, and
+scrubbing at prepare is owed on the Python side.
