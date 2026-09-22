@@ -59,3 +59,20 @@ The join is exact (run 300's archived tags reproduce the archived 289 clusters i
 partition differences are extraction sampling. The first CLUSTER run refused every batch holding a Hacker
 News article because their summaries carry "Article URL: https://..."; the prompt now scrubs links, and
 scrubbing at prepare is owed on the Python side.
+
+## The curation span on run 300, all stages real (2026-09-22)
+
+RECAP, CLUSTER, SELECT, WRITE, PREHEADER, COHERENCE, REPAIR and ASSEMBLE ran as activities through the
+workflow on a scratch copy of the database (`--resume 300`), and `replay.py` rendered the result with the
+scratch DB mounted read-only over `/app/data/digest.db`:
+
+```
+docker compose run --rm --build -v "$(pwd)/newsroom/src:/app/src:ro" -v "$(pwd)/data/digest-a2.db:/app/data/digest.db:ro" \
+  -e PYTHONPATH=/app/src -e THREADS_ENABLED=true --entrypoint /app/.venv/bin/python3 digest-newsroom /app/src/replay.py 300 --out /app/data/replay/run300-ts-<stamp>
+```
+
+16 stories assembled (5 must_know, 11 should_know), 0 dropped, 0 repaired, run-health clean, rendered by the
+Python renderer. Per stage: CLUSTER $1.27, SELECT $0.55-0.68, WRITE $1.18-1.49 for 16-17 stories, COHERENCE
+$0.67-0.70, PREHEADER $0.003, RECAP $0.05: about $3.8 for the span against the old band of $4.36-6.08, one
+sample, not yet a band. COHERENCE failed nothing with one Grep; the planted-defect band is what can say
+whether that is recall or satisficing.
