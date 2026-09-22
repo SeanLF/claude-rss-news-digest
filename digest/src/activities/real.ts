@@ -2,10 +2,12 @@ import { heartbeat } from "@temporalio/activity";
 import { ArtifactStore } from "../store/artifacts.js";
 import { dbPath } from "../store/db.js";
 import type { Activities } from "./index.js";
+import { assembleActivity } from "./assemble.js";
 import { clusterActivities } from "./cluster.js";
 import { coherenceActivity } from "./coherence.js";
 import { preheaderActivity } from "./preheader.js";
 import { recapActivity } from "./recap.js";
+import { repairActivity } from "./repair.js";
 import { selectActivity } from "./select.js";
 import { writeActivities } from "./write.js";
 import { stubActivities } from "./stub.js";
@@ -26,5 +28,5 @@ const log = (row: object) => console.log(JSON.stringify({ usage: row }));
 export function workerActivities(): Activities {
   const store = new ArtifactStore(dbPath());
   const deps = { store, agentsDir: agentsDir(), heartbeat: safeHeartbeat, onUsage: log };
-  return { ...stubActivities(), ...clusterActivities(deps), recap: recapActivity(deps), ...writeActivities(deps), select: selectActivity(deps), preheader: preheaderActivity(deps), coherence: coherenceActivity(deps) };
+  return { ...stubActivities(), ...clusterActivities(deps), recap: recapActivity(deps), ...writeActivities(deps), select: selectActivity(deps), preheader: preheaderActivity(deps), coherence: coherenceActivity(deps), repair: repairActivity(deps), assemble: assembleActivity(deps) };
 }

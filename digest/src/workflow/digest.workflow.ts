@@ -86,8 +86,8 @@ export async function DigestWorkflow(input: DigestInput): Promise<DigestOutput> 
   const report = await guarded(() => verdict.coherence(runId, drafts, fulltext, notes["coherence"], input.force));
   const preheader = await preheaderP;
   if (!report) return finish({ stories: 0, broadcast: "skipped" });
-  const repair = await model.repair(runId, drafts, report);
-  const selections = await once.assemble(runId, drafts, report, repair, preheader);
+  const repair = await model.repair(runId, drafts, report, input.force);
+  const selections = await once.assemble(runId, drafts, report, repair, preheader, input.force);
   const [gnews, threads] = await Promise.all([network.gnews(runId, selections), model.threads(runId, selections)]);
   const { email } = await once.render(runId, selections, threads, gnews);
 
