@@ -1,0 +1,2184 @@
+{
+  "claude-opus-5": {
+    "band": {
+      "perCriterion": {
+        "1": 1,
+        "2": 0.8,
+        "3": 1,
+        "4": 0.6,
+        "5": 1,
+        "6": 0.2,
+        "7": 0
+      },
+      "overall": 0.6571428571428571
+    },
+    "runs": [
+      [
+        {
+          "story": 0,
+          "criterion": 1,
+          "pass": false,
+          "reason": "The quoted phrase 'veneer of democracy' appears only in France 24 article A175, which is not among this story's cited sources (A4, A14, A137, A158, A177, A188, A200, A334, A471, A490); everything else (Far East polls, three days, Putin's barometer framing, antiwar party barred) is supported."
+        },
+        {
+          "story": 0,
+          "criterion": 2,
+          "pass": true,
+          "reason": "Fivefold Yandex search surge surpassing United Russia is bound to Yabloko and to the August deregistration exactly as A4 gives it; the barometer framing is bound to Putin per A334/A490."
+        },
+        {
+          "story": 0,
+          "criterion": 3,
+          "pass": true,
+          "reason": "Putin as president and United Russia as governing party match A4/A14; the Friday voting start matches the 2026-09-18 run date."
+        },
+        {
+          "story": 0,
+          "criterion": 4,
+          "pass": true,
+          "reason": "why_it_matters supplies the search-surge mechanism and the timing of the ban, neither of which the summary states."
+        },
+        {
+          "story": 0,
+          "criterion": 5,
+          "pass": true,
+          "reason": "Single event: the opening of the three-day Duma vote, with the opposition ban as context to that same vote."
+        },
+        {
+          "story": 0,
+          "criterion": 6,
+          "pass": true,
+          "reason": "First wartime Duma election is the day's lead across ten sources; its must_know slot is justified."
+        },
+        {
+          "story": 0,
+          "criterion": 7,
+          "pass": true,
+          "reason": "No internal ids, template tokens or truncation in the rendered headline, summary or why_it_matters."
+        },
+        {
+          "story": 1,
+          "criterion": 1,
+          "pass": true,
+          "reason": "0.25 point rise to 1.25%, 31-year high, first hike since June, above-2% target, two dissenting members, Ueda's hawkish comments, the Fed's Wednesday hike and the ECB's 2.5% rate all appear in A21, A157, A274, A360, A555, A650."
+        },
+        {
+          "story": 1,
+          "criterion": 2,
+          "pass": true,
+          "reason": "The dissent is attached to two BoJ board members (A274), the hawkish remarks to Governor Ueda (A157), and the 2.5% to the ECB's key rate (A21)."
+        },
+        {
+          "story": 1,
+          "criterion": 3,
+          "pass": true,
+          "reason": "Ueda as BoJ governor and the Fed/ECB rate levels match the cited 2026-09-18 articles."
+        },
+        {
+          "story": 1,
+          "criterion": 4,
+          "pass": true,
+          "reason": "why_it_matters adds the transmission mechanism analysts give in A21 — a widening rate gap weakening the yen and lifting import costs, working against the hike's own purpose."
+        },
+        {
+          "story": 1,
+          "criterion": 5,
+          "pass": true,
+          "reason": "One event: the rate decision and the currency reaction to it."
+        },
+        {
+          "story": 1,
+          "criterion": 6,
+          "pass": true,
+          "reason": "A 31-year-high policy rate at a major central bank, carried by six sources, earns a must_know slot."
+        },
+        {
+          "story": 1,
+          "criterion": 7,
+          "pass": true,
+          "reason": "Clean rendering; the reporting-varies block names real outlets and angles present in the cited articles."
+        },
+        {
+          "story": 2,
+          "criterion": 1,
+          "pass": true,
+          "reason": "$24.3bn, 48 jets, Thursday approval, first Arab operator, 30-day congressional review, Rep. Raja Krishnamoorthi's opposition on China-access grounds, Israel as sole regional F-35 operator and Netanyahu's office on preserved edge are all in A35, A39, A220, A311."
+        },
+        {
+          "story": 2,
+          "criterion": 2,
+          "pass": false,
+          "reason": "'Saudi Arabia's latest major arms purchase since its war with Iran began' binds the war to Saudi Arabia; the sources place the war between the US/Israel and Iran (A36: it 'began on February 28 when the US and Israel attacked Iran'), with Saudi Arabia a target, not a belligerent — A35 says only 'since the start of the Iran war'."
+        },
+        {
+          "story": 2,
+          "criterion": 3,
+          "pass": true,
+          "reason": "Netanyahu as Israeli PM, the Trump administration's State Department and the ongoing Iran war match the cited articles and the run date."
+        },
+        {
+          "story": 2,
+          "criterion": 4,
+          "pass": false,
+          "reason": "Both halves of why_it_matters are already in the summary — Israel's military edge and Netanyahu's office's assurance, and the intelligence warning that China could reach F-35 technology via Riyadh's ties to Beijing; restating them as 'two pillars' adds no mechanism, contradiction or consequence."
+        },
+        {
+          "story": 2,
+          "criterion": 5,
+          "pass": true,
+          "reason": "One event: the State Department's approval of the sale, with the objections attached to it."
+        },
+        {
+          "story": 2,
+          "criterion": 6,
+          "pass": true,
+          "reason": "Nine-source arms sale that alters Middle East airpower policy; the slot is warranted."
+        },
+        {
+          "story": 2,
+          "criterion": 7,
+          "pass": true,
+          "reason": "No ids, tokens or truncation; the reporting-varies entries match the cited BBC, Al-Monitor/AFP and SCMP pieces."
+        },
+        {
+          "story": 3,
+          "criterion": 1,
+          "pass": true,
+          "reason": "'Reasonable grounds to believe' (A179), the Minab school and Lamerd sports complex (A56), 100+ children and 'went beyond negligence' plus the separate strike killing a reported 22 civilians (A305), visas for Pezeshkian and Araghchi, travel restrictions and the luxury-goods ban (A36/A59) are all supported."
+        },
+        {
+          "story": 3,
+          "criterion": 2,
+          "pass": true,
+          "reason": "The war-crimes finding is attributed to the UN fact-finding mission, the visa decision to the State Department, and the midterm exposure to the analysis in A27, each as the sources give them."
+        },
+        {
+          "story": 3,
+          "criterion": 3,
+          "pass": true,
+          "reason": "Trump as US president, Pezeshkian as Iranian president and Araghchi as foreign minister match A27/A36; 'war passed its half-year mark' matches a February 28 start and the September 18 run date."
+        },
+        {
+          "story": 3,
+          "criterion": 4,
+          "pass": true,
+          "reason": "why_it_matters adds the consequence from A27 — Trump's Tuesday UN address recast as a victory lap under a war-crimes finding, with low approval and high gasoline prices threatening his party's control of Congress — none of which is in the summary."
+        },
+        {
+          "story": 3,
+          "criterion": 5,
+          "pass": false,
+          "reason": "Headline and summary bolt two distinct events together: the UN mission's war-crimes finding on the February strikes, and the State Department's separate decision to grant visas to Iran's UNGA delegation; they share only the subject country."
+        },
+        {
+          "story": 3,
+          "criterion": 6,
+          "pass": true,
+          "reason": "A UN finding of probable US war crimes is among the day's most consequential items; it belongs in must_know."
+        },
+        {
+          "story": 3,
+          "criterion": 7,
+          "pass": true,
+          "reason": "Quotation marks resolve correctly, no ids, tokens or truncation in the rendered text."
+        },
+        {
+          "story": 4,
+          "criterion": 1,
+          "pass": true,
+          "reason": "Nestlé, Auchan and Leroy Merlin placed under temporary external administration by presidential decree (A658) and first seizure of Western-owned assets since 2023 (A152) are both supported; no unsupported figures or dates."
+        },
+        {
+          "story": 4,
+          "criterion": 2,
+          "pass": true,
+          "reason": "The decree is attributed to Russia's president, the administration measure to the three companies' local operations, and the 'since 2023' first to Western-owned assets, as A152 and A658 give them."
+        },
+        {
+          "story": 4,
+          "criterion": 3,
+          "pass": true,
+          "reason": "Company status and the 2023 baseline match the cited same-day FT and WSJ reports."
+        },
+        {
+          "story": 4,
+          "criterion": 4,
+          "pass": true,
+          "reason": "Though it repeats the 'first since 2023' fact, it adds a consequence the summary does not state: remaining Western multinationals can no longer treat staying as protection from nationalization."
+        },
+        {
+          "story": 4,
+          "criterion": 5,
+          "pass": true,
+          "reason": "One event: a single decree covering three companies' local operations."
+        },
+        {
+          "story": 4,
+          "criterion": 6,
+          "pass": false,
+          "reason": "This two-source item takes the fifth must_know slot ahead of the Houthi advance — A27 describes fighters seizing islands at the mouth of Bab el-Mandeb, tightening a Red Sea chokepoint and spiking global energy prices while boxing in the US over the Iran war — which a reader of the inputs would expect in must_know but finds only as a one-source should_know brief."
+        },
+        {
+          "story": 4,
+          "criterion": 7,
+          "pass": true,
+          "reason": "Story text renders clean and the preheader is 137 characters, within the 157 cap; note the footer doubles its label ('Not covered today: Left out today: …'), a digest-level rendering redundancy outside this story's fields."
+        }
+      ],
+      [
+        {
+          "story": 0,
+          "criterion": 1,
+          "pass": false,
+          "reason": "The quoted 'veneer of democracy' (and 'All parties allowed on the ballot are loyal to the Kremlin') appears only in uncited A175, a France 24 press review, and A589; none of the story's ten cited sources (A4, A14, A137, A158, A177, A188, A200, A334, A471, A490) carries that quote, and no cited source attributes it to 'analysts and observers'."
+        },
+        {
+          "story": 0,
+          "criterion": 2,
+          "pass": true,
+          "reason": "Far East polls opening and the three-day period sit with A188/A471, the 'barometer of support' framing with Putin per A334/A177/A200/A490, and the fivefold Yandex surge with Yabloko per A4."
+        },
+        {
+          "story": 0,
+          "criterion": 3,
+          "pass": true,
+          "reason": "Putin as president, United Russia as governing party and the continuing Ukraine war match A14/A137 and the September 18, 2026 run date."
+        },
+        {
+          "story": 0,
+          "criterion": 4,
+          "pass": true,
+          "reason": "why_it_matters adds A4's mechanism — searches for Yabloko rose fivefold and passed United Russia's before the ban — which the lede does not state."
+        },
+        {
+          "story": 0,
+          "criterion": 5,
+          "pass": true,
+          "reason": "One event: the opening of the three-day State Duma election."
+        },
+        {
+          "story": 1,
+          "criterion": 1,
+          "pass": true,
+          "reason": "0.25pp to 1.25%, 31-year high, first hike since June, inflation above the 2% target, the Fed's Wednesday hike and the ECB's 2.5% key rate are all in A21; the two opposing board members in A274; the yen's fall despite hawkish Ueda in A157/A360/A650."
+        },
+        {
+          "story": 1,
+          "criterion": 2,
+          "pass": true,
+          "reason": "2.5% is bound to the ECB, the split vote to the BoJ board, the hawkish briefing to Governor Kazuo Ueda, exactly as A21/A274/A157 have them."
+        },
+        {
+          "story": 1,
+          "criterion": 3,
+          "pass": true,
+          "reason": "Ueda as BoJ governor and the Fed/ECB positions match the cited articles from the same week."
+        },
+        {
+          "story": 1,
+          "criterion": 4,
+          "pass": true,
+          "reason": "Adds A21's transmission chain attributed to analysts — a wider US-Japan rate gap weakens the yen and lifts import costs — which the summary does not spell out."
+        },
+        {
+          "story": 1,
+          "criterion": 5,
+          "pass": true,
+          "reason": "One event: the BoJ decision and the market reaction to it."
+        },
+        {
+          "story": 2,
+          "criterion": 1,
+          "pass": true,
+          "reason": "$24.3bn for 48 jets on Thursday (A35/A39/A186/A385), the 30-day congressional review (A39/A63), Democrat Raja Krishnamoorthi's opposition on China-access grounds (A35/A63/A311), first Arab country (A39), Israel as sole regional F-35 operator (A35/A39), Netanyahu's office on understandings (A220), and Israel's edge 'guaranteed under US law' (A63) all check out."
+        },
+        {
+          "story": 2,
+          "criterion": 2,
+          "pass": false,
+          "reason": "'Saudi Arabia's latest major arms purchase since its war with Iran began' attaches the war to Riyadh, but A35 says 'the kingdom's latest major arms purchase since the start of the Iran war' — a war the US and Israel launched on February 28 (A27/A36), in which Saudi Arabia is a target, not a belligerent."
+        },
+        {
+          "story": 2,
+          "criterion": 3,
+          "pass": true,
+          "reason": "Trump administration, Netanyahu as prime minister and Israel's current F-35 monopoly match A39/A63/A220 and the run date."
+        },
+        {
+          "story": 2,
+          "criterion": 4,
+          "pass": true,
+          "reason": "Adds the statutory pillar from A63 — Israel's qualitative edge is guaranteed under US law — which the summary does not mention, alongside the China-access risk."
+        },
+        {
+          "story": 2,
+          "criterion": 5,
+          "pass": true,
+          "reason": "One event: the State Department's approval; the Israeli and China objections are parts of that same approval."
+        },
+        {
+          "story": 3,
+          "criterion": 1,
+          "pass": true,
+          "reason": "'Reasonable grounds to believe' (A179/A56), the Minab school and Lamerd sports complex (A56), more than 100 children and 'went beyond negligence' plus the separate strike's 22 civilians (A305), the Pezeshkian and Araghchi visas with travel restrictions and the luxury-goods ban (A36/A59), the half-year mark (A59), and Trump's Tuesday return with low approval, high gasoline prices and the November midterms (A27) are all sourced."
+        },
+        {
+          "story": 3,
+          "criterion": 2,
+          "pass": true,
+          "reason": "Findings bound to the UN fact-finding mission, the visa decision to the State Department, the midterm risk to Trump's party — as in A179/A56/A36/A27; minor slack only in crediting State with naming the two officials, which A36 sources to 'a source familiar'."
+        },
+        {
+          "story": 3,
+          "criterion": 3,
+          "pass": true,
+          "reason": "Pezeshkian as Iran's president, Araghchi as foreign minister, Trump in office and the war past six months match A36/A59/A27 and the run date."
+        },
+        {
+          "story": 3,
+          "criterion": 4,
+          "pass": true,
+          "reason": "Adds A27's consequence — Trump speaks Tuesday under a war-crimes finding with his party's control of Congress at risk in November — not present in the summary."
+        },
+        {
+          "story": 3,
+          "criterion": 5,
+          "pass": false,
+          "reason": "Two events bolted together: the UN panel's war-crimes finding on the February strikes (A56/A179/A305) and the State Department's decision to admit Iran's UNGA delegation (A36/A59), joined in the headline by 'as' and in the summary by 'The findings came as'."
+        },
+        {
+          "story": 4,
+          "criterion": 1,
+          "pass": true,
+          "reason": "Nestlé, Auchan and Leroy Merlin placed under temporary external administration by presidential decree is A658; 'first crackdown on western-owned assets since 2023' is A152."
+        },
+        {
+          "story": 4,
+          "criterion": 2,
+          "pass": true,
+          "reason": "Auchan as the French retailer, Leroy Merlin as the home-improvement chain and the presidential decree as the instrument match A658/A152."
+        },
+        {
+          "story": 4,
+          "criterion": 3,
+          "pass": true,
+          "reason": "Nothing time-sensitive beyond the decree itself, which both cited articles date to the run day."
+        },
+        {
+          "story": 4,
+          "criterion": 4,
+          "pass": true,
+          "reason": "Weak but adds a consequence for other firms — those that stayed have no assurance against nationalization — though it opens by restating the summary's 'first since 2023'."
+        },
+        {
+          "story": 4,
+          "criterion": 5,
+          "pass": true,
+          "reason": "One event: the single decree covering the three companies."
+        },
+        {
+          "story": 0,
+          "criterion": 6,
+          "pass": false,
+          "reason": "The Houthi advance that seized the Bab el-Mandeb chokepoint and spiked global oil prices — which A27 treats as the decisive escalation of the US-Iran war and a blow to Saudi Arabia — runs as a one-source, one-sentence should_know brief, while Russia's Nestlé/Auchan seizure (2 sources, two sentences) takes the fifth must_know slot."
+        },
+        {
+          "story": 1,
+          "criterion": 6,
+          "pass": false,
+          "reason": "Same set-level finding: the Houthi seizure of the Red Sea chokepoint and the resulting oil-price surge (A27, A645) belongs in must_know ahead of the Nestlé/Auchan asset seizure."
+        },
+        {
+          "story": 2,
+          "criterion": 6,
+          "pass": false,
+          "reason": "Same set-level finding: the Houthi/oil escalation is under-tiered relative to the corporate-seizure story in must_know."
+        },
+        {
+          "story": 3,
+          "criterion": 6,
+          "pass": false,
+          "reason": "Same set-level finding: this story's own why_it_matters leans on A27, whose lead escalation — Houthi control of the Bab el-Mandeb and spiking energy prices — is left to a single-source brief."
+        },
+        {
+          "story": 4,
+          "criterion": 6,
+          "pass": false,
+          "reason": "Same set-level finding: this two-source corporate seizure occupies a must_know slot the Houthi/oil escalation has a stronger claim to."
+        },
+        {
+          "story": 0,
+          "criterion": 7,
+          "pass": false,
+          "reason": "The not-covered line renders a doubled label, 'Not covered today: Left out today: …', and the copy-link aria-labels truncate mid-phrase ('Copy link: Russians begin voting in first Duma election since')."
+        },
+        {
+          "story": 1,
+          "criterion": 7,
+          "pass": false,
+          "reason": "Same digest-level finding: doubled 'Not covered today: Left out today:' label and truncated copy-link aria-labels ('…raises rates to 31-year high of 1.25')."
+        },
+        {
+          "story": 2,
+          "criterion": 7,
+          "pass": false,
+          "reason": "Same digest-level finding: doubled not-covered label; aria-label truncated at '…F-35 sale to Saudi Arabia over'. No internal article ids or template tokens leak."
+        },
+        {
+          "story": 3,
+          "criterion": 7,
+          "pass": false,
+          "reason": "Same digest-level finding: doubled not-covered label; aria-label truncated at 'UN panel finds grounds for US war crimes in Iran s'."
+        },
+        {
+          "story": 4,
+          "criterion": 7,
+          "pass": false,
+          "reason": "Same digest-level finding: doubled not-covered label; aria-label truncated at 'Nestlé, Auchan and Leroy '. Preheader is 141 characters, within cap."
+        }
+      ],
+      [
+        {
+          "story": 0,
+          "criterion": 1,
+          "pass": false,
+          "reason": "The quoted phrase 'veneer of democracy' (and the 'analysts and observers' attribution) appears only in France 24's press review A175, which is not among this story's cited sources (A4, A14, A137, A158, A177, A188, A200, A334, A471, A490); every other specific — Friday start, Far East polls, three days, Putin's barometer framing, liberal antiwar party barred — is supported."
+        },
+        {
+          "story": 0,
+          "criterion": 2,
+          "pass": true,
+          "reason": "Barometer framing is bound to Putin, the ban to Yabloko as the only registered antiwar party, and the fivefold search surge to Yandex queries for Yabloko surpassing United Russia, exactly as A4 and A14 give them."
+        },
+        {
+          "story": 0,
+          "criterion": 3,
+          "pass": true,
+          "reason": "Putin as president, United Russia as governing party and 'first Duma election since the 2022 full-scale invasion' all match the cited articles and the 2026-09-18 run date."
+        },
+        {
+          "story": 0,
+          "criterion": 4,
+          "pass": true,
+          "reason": "why_it_matters supplies a mechanism absent from the summary — the fivefold search surge that preceded the August deregistration — rather than restating that the party was barred."
+        },
+        {
+          "story": 0,
+          "criterion": 5,
+          "pass": true,
+          "reason": "Headline and summary stay on the single event of voting opening in the Duma election; the ballot exclusions are part of that event, not a second one."
+        },
+        {
+          "story": 0,
+          "criterion": 6,
+          "pass": true,
+          "reason": "The first wartime Duma election is covered across Al Jazeera, DW, FT, France 24, Reuters, Globe and Mail, SCMP and Straits Times in the inputs and plainly earns the lead must_know slot."
+        },
+        {
+          "story": 0,
+          "criterion": 7,
+          "pass": false,
+          "reason": "Digest-level: the footer renders 'Not covered today: Left out today: ...', duplicating the label because the template prefix and the blurb both carry one; no internal ids appear and the preheader is 138 chars, inside the 157 cap."
+        },
+        {
+          "story": 1,
+          "criterion": 1,
+          "pass": true,
+          "reason": "0.25pp to 1.25%, 31-year high, first hike since June, 2% target, two dissenting board members, Ueda's hawkish tone, the yen's slide, the Fed's hike this week and the ECB's 2.5% rate are each in A21, A157, A274, A360, A555 or A650."
+        },
+        {
+          "story": 1,
+          "criterion": 2,
+          "pass": true,
+          "reason": "The dissent is bound to two BoJ board members (A274), the hawkish comments to Governor Ueda (A157), and the 2.5% to the ECB's key rate (A21) — each specific sits on the entity its source gives it."
+        },
+        {
+          "story": 1,
+          "criterion": 3,
+          "pass": true,
+          "reason": "Ueda as BoJ governor and a Federal Reserve rate rise 'earlier this week' match A21's account of the Wednesday Fed hike; nothing is carried over from an older policy regime."
+        },
+        {
+          "story": 1,
+          "criterion": 4,
+          "pass": true,
+          "reason": "why_it_matters adds the transmission mechanism the summary omits — a widening rate gap pushing the yen down and import costs up, undercutting the inflation fight — which A21 attributes to analysts."
+        },
+        {
+          "story": 1,
+          "criterion": 5,
+          "pass": true,
+          "reason": "One event: the BoJ decision and the yen's reaction to it; the Fed and ECB references are comparative context, not bolted-on events."
+        },
+        {
+          "story": 1,
+          "criterion": 6,
+          "pass": true,
+          "reason": "A 31-year-high policy rate at a major central bank, carried by Al Jazeera, FT, Reuters, Nikkei, Guardian and WSJ in the inputs, clearly belongs in must_know."
+        },
+        {
+          "story": 1,
+          "criterion": 7,
+          "pass": true,
+          "reason": "No internal ids, template tokens or truncated text; the 'How reporting varies' attributions to FT, Al Jazeera/Guardian and Nikkei each match those outlets' actual angles in the inputs."
+        },
+        {
+          "story": 2,
+          "criterion": 1,
+          "pass": true,
+          "reason": "The $24.3bn figure, 48 jets, Thursday approval, first Arab operator, 30-day congressional review, Krishnamoorthi's opposition, the China-access intelligence warning and Netanyahu's office on the military edge are all in A35, A39, A63, A220, A311 and A385."
+        },
+        {
+          "story": 2,
+          "criterion": 2,
+          "pass": false,
+          "reason": "'Saudi Arabia's latest major arms purchase since its war with Iran began' binds the war to Saudi Arabia, but A35 gives it to the US and Israel — Riyadh is described as targeted by Iranian and Houthi strikes, not as a belligerent."
+        },
+        {
+          "story": 2,
+          "criterion": 3,
+          "pass": true,
+          "reason": "Netanyahu as Israeli prime minister, the Trump administration's State Department and Israel as the region's sole F-35 operator all match the cited articles as of the run date."
+        },
+        {
+          "story": 2,
+          "criterion": 4,
+          "pass": true,
+          "reason": "why_it_matters adds that Israel's qualitative military edge is a legal guarantee under US law (A63), a mechanism the summary does not state, alongside the China-technology risk."
+        },
+        {
+          "story": 2,
+          "criterion": 5,
+          "pass": true,
+          "reason": "Single event — the State Department's approval of the F-35 sale; the Israeli and congressional objections are reactions to that approval."
+        },
+        {
+          "story": 2,
+          "criterion": 6,
+          "pass": true,
+          "reason": "A $24.3bn transfer of the most advanced US fighter to a new Middle East operator, carried by nine outlets in the inputs, is squarely a must_know story."
+        },
+        {
+          "story": 2,
+          "criterion": 7,
+          "pass": true,
+          "reason": "Headline, summary and why_it_matters render cleanly with no ids, tokens or cut-off text; the reporting-varies entries name real BBC, Al-Monitor/AFP and SCMP angles."
+        },
+        {
+          "story": 3,
+          "criterion": 1,
+          "pass": true,
+          "reason": "'Reasonable grounds to believe', the Minab school and Lamerd sports complex, 'went beyond negligence', more than 100 children, the separate strike killing a reported 22 civilians, the Pezeshkian and Araghchi visas, the half-year mark and the luxury-goods ban are in A56, A179, A305, A36 and A59."
+        },
+        {
+          "story": 3,
+          "criterion": 2,
+          "pass": true,
+          "reason": "The finding is attributed to the UN fact-finding mission, the visa decision to the State Department, and the travel and purchase restrictions to the Iranian delegation, matching A179, A36 and A59."
+        },
+        {
+          "story": 3,
+          "criterion": 3,
+          "pass": true,
+          "reason": "Pezeshkian as Iran's president, Araghchi as foreign minister and Trump addressing the UNGA next Tuesday are current in A36, A59 and A27 for the run date."
+        },
+        {
+          "story": 3,
+          "criterion": 4,
+          "pass": true,
+          "reason": "why_it_matters adds the political consequence the summary omits — Trump returning Tuesday to claim victory while facing low approval, high gasoline prices and a midterm risk to Republican control of Congress — all drawn from A27."
+        },
+        {
+          "story": 3,
+          "criterion": 5,
+          "pass": false,
+          "reason": "The headline bolts two separate events together: the UN mission's war-crimes finding and Washington's decision to admit the Iranian delegation to the General Assembly, and the summary carries both as co-equal news."
+        },
+        {
+          "story": 3,
+          "criterion": 6,
+          "pass": true,
+          "reason": "A UN finding of reasonable grounds for US war crimes is among the day's most consequential items and is rightly in must_know, even though it is packaged with the visa story."
+        },
+        {
+          "story": 3,
+          "criterion": 7,
+          "pass": true,
+          "reason": "No internal ids, template tokens or truncation; the quoted fragments are properly closed and attributed."
+        },
+        {
+          "story": 4,
+          "criterion": 1,
+          "pass": true,
+          "reason": "The temporary external administration of Nestlé, Auchan and Leroy Merlin under a presidential decree and the 'first since 2023' framing are both in A658 and A152."
+        },
+        {
+          "story": 4,
+          "criterion": 2,
+          "pass": true,
+          "reason": "The decree is bound to Russia's president, the administration measure to the three named companies' local operations, and the 2023 comparison to Western-owned assets, as A152 and A658 give them."
+        },
+        {
+          "story": 4,
+          "criterion": 3,
+          "pass": true,
+          "reason": "Nothing time-sensitive is carried over; the decree and the 2023 baseline match the cited articles and the run date."
+        },
+        {
+          "story": 4,
+          "criterion": 4,
+          "pass": false,
+          "reason": "why_it_matters opens by repeating the summary's own 'first against Western-owned assets since 2023' clause and then offers a generic inference about risk calculus that neither cited source supplies — restatement plus filler rather than an added mechanism."
+        },
+        {
+          "story": 4,
+          "criterion": 5,
+          "pass": true,
+          "reason": "One event: a single decree placing three Western companies' Russian operations under external administration."
+        },
+        {
+          "story": 4,
+          "criterion": 6,
+          "pass": false,
+          "reason": "A two-source corporate seizure holds a must_know slot while the Houthi Red Sea offensive — the day's driver of oil prices and of Trump's Iran war, carried by A27, A290, A304, A472, A206, A128, A149 and A645 — is demoted to a one-source WSJ brief; a reader of the inputs would expect that story in must_know."
+        },
+        {
+          "story": 4,
+          "criterion": 7,
+          "pass": true,
+          "reason": "Story text renders cleanly with no ids, tokens or truncation; the digest-level footer label duplication is recorded at story 0."
+        }
+      ],
+      [
+        {
+          "story": 0,
+          "criterion": 1,
+          "pass": false,
+          "reason": "The quoted phrase 'veneer of democracy' (and the 'no meaningful opposition/competition' framing) appears only in A175 and A184, neither of which is cited; none of the cited sources (A4, A14, A137, A158, A177, A188, A200, A334, A471, A490) contains that quote."
+        },
+        {
+          "story": 0,
+          "criterion": 2,
+          "pass": true,
+          "reason": "Friday start, Far East polls, three-day window, Putin's barometer framing and the Yabloko ban are each attached to the right actor and predicate in A188, A471, A334 and A14."
+        },
+        {
+          "story": 0,
+          "criterion": 3,
+          "pass": true,
+          "reason": "Putin as president and the 2022 full-scale invasion match A14; the Friday voting start matches the 2026-09-18 run date."
+        },
+        {
+          "story": 0,
+          "criterion": 4,
+          "pass": true,
+          "reason": "why_it_matters supplies the fivefold Yandex search surge for Yabloko overtaking United Russia (A4), a mechanism the summary never states."
+        },
+        {
+          "story": 0,
+          "criterion": 5,
+          "pass": true,
+          "reason": "Headline and summary stay on the single event of the Duma vote opening; the opposition ban is part of that event, not a second one."
+        },
+        {
+          "story": 0,
+          "criterion": 6,
+          "pass": true,
+          "reason": "Russia's first wartime Duma election is covered by ten cited articles across seven outlets and plainly earns the lead must_know slot."
+        },
+        {
+          "story": 0,
+          "criterion": 7,
+          "pass": false,
+          "reason": "Digest-level render defect, reported once here: the footer emits the template label twice — 'Not covered today: Left out today: the ongoing Houthi-Saudi pipeline…'. Story text itself is clean and the preheader is ~139 chars, within cap."
+        },
+        {
+          "story": 1,
+          "criterion": 1,
+          "pass": true,
+          "reason": "0.25pp to 1.25%, 31-year high, first hike since June, inflation above the 2% target, Fed hike Wednesday and ECB at 2.5% are all in A21/A555; the two dissenting votes are in A274; the yen slide despite hawkish Ueda comments is in A157/A360/A650."
+        },
+        {
+          "story": 1,
+          "criterion": 2,
+          "pass": true,
+          "reason": "The split vote is bound to the BoJ board (A274), the hawkish remarks to Governor Ueda (A157), and the 2.5% rate to the ECB rather than the Fed (A21)."
+        },
+        {
+          "story": 1,
+          "criterion": 3,
+          "pass": true,
+          "reason": "Ueda as BoJ governor and the Fed/ECB rate levels match the cited articles and the run date; FT's 'highest since 1995' is consistent with a 31-year high in 2026."
+        },
+        {
+          "story": 1,
+          "criterion": 4,
+          "pass": true,
+          "reason": "why_it_matters adds the transmission channel from A21 — a widening US-Japan rate gap weakening the yen and lifting import costs — which the summary does not spell out."
+        },
+        {
+          "story": 1,
+          "criterion": 5,
+          "pass": true,
+          "reason": "The yen's fall is a consequence of the same rate decision, not a second event bolted on."
+        },
+        {
+          "story": 1,
+          "criterion": 6,
+          "pass": true,
+          "reason": "A 31-year-high policy rate at a major central bank, carried by six cited outlets, is a defensible must_know."
+        },
+        {
+          "story": 1,
+          "criterion": 7,
+          "pass": true,
+          "reason": "No internal ids, template tokens or truncation; the reporting-varies attributions match the cited outlets (Nikkei/A274, FT/A157, Al Jazeera-Guardian/A21, A555)."
+        },
+        {
+          "story": 2,
+          "criterion": 1,
+          "pass": true,
+          "reason": "$24.3bn, 48 jets, Thursday approval, first Arab operator, 30-day congressional review, Krishnamoorthi's opposition, the China-access intelligence warning, Israel as sole regional F-35 operator and Netanyahu's office on preserving the edge are each in A35, A39, A63, A311, A385, A186 or A220."
+        },
+        {
+          "story": 2,
+          "criterion": 2,
+          "pass": true,
+          "reason": "The intelligence warning is bound to US intelligence via Krishnamoorthi (A35, A63, A311) and the edge-preservation assurance to Netanyahu's office (A220), matching the sources."
+        },
+        {
+          "story": 2,
+          "criterion": 3,
+          "pass": true,
+          "reason": "Netanyahu as Israeli PM, the Trump administration as approver and the ongoing Iran war match the cited articles and the run date."
+        },
+        {
+          "story": 2,
+          "criterion": 4,
+          "pass": true,
+          "reason": "Thin but not filler: it adds that Israel's qualitative military edge is a statutory US guarantee (A63), which the summary never states, rather than only restating the two objections."
+        },
+        {
+          "story": 2,
+          "criterion": 5,
+          "pass": true,
+          "reason": "One event — the State Department approval — with the Israeli and Chinese objections as attributes of that approval."
+        },
+        {
+          "story": 2,
+          "criterion": 6,
+          "pass": true,
+          "reason": "A first-ever Arab F-35 approval carried by nine cited outlets clearly earns a must_know slot."
+        },
+        {
+          "story": 2,
+          "criterion": 7,
+          "pass": true,
+          "reason": "No ids, tokens or truncation; the $24.3bn figure is the majority reading across cited sources, with only A519's $30.9bn as an outlier the digest does not repeat."
+        },
+        {
+          "story": 3,
+          "criterion": 1,
+          "pass": true,
+          "reason": "'Reasonable grounds to believe', Minab school and Lamerd sports complex (A56, A179), 'went beyond negligence' and more than a hundred children plus the separate 22-civilian strike (A305), the Pezeshkian/Araghchi visas, travel restrictions and luxury-goods ban (A36, A59), and the Tuesday UN return and November midterms (A27) are all in the cited sources."
+        },
+        {
+          "story": 3,
+          "criterion": 2,
+          "pass": true,
+          "reason": "The finding is bound to the UN fact-finding mission, the visa decision to the State Department, and the approval-ratings/gasoline-price argument to the Reuters analysis, as the sources have them."
+        },
+        {
+          "story": 3,
+          "criterion": 3,
+          "pass": true,
+          "reason": "Trump as US president, Pezeshkian as Iranian president and Araghchi as foreign minister match A27, A36 and A59, and the half-year war mark matches the run date."
+        },
+        {
+          "story": 3,
+          "criterion": 4,
+          "pass": true,
+          "reason": "why_it_matters adds the domestic consequence from A27 — low approval and high gasoline prices putting Republican control of Congress at risk — which the summary does not carry."
+        },
+        {
+          "story": 3,
+          "criterion": 5,
+          "pass": false,
+          "reason": "Two distinct events are bolted together: the UN war-crimes finding (A56, A179, A305) and the separate State Department visa decision (A36, A59). The 'as' clause in the headline joins them with no causal or evidentiary link in the sources, and the cluster_id names only the visa decision."
+        },
+        {
+          "story": 3,
+          "criterion": 6,
+          "pass": true,
+          "reason": "A UN body finding grounds for US war crimes is among the day's most consequential items and belongs in must_know."
+        },
+        {
+          "story": 3,
+          "criterion": 7,
+          "pass": true,
+          "reason": "No internal ids, template tokens or truncation, though the headline is long because it carries two events."
+        },
+        {
+          "story": 4,
+          "criterion": 1,
+          "pass": true,
+          "reason": "Nestlé, Auchan and Leroy Merlin placed under temporary external administration by presidential decree, and the first-since-2023 framing, are both in A152 and A658."
+        },
+        {
+          "story": 4,
+          "criterion": 2,
+          "pass": true,
+          "reason": "The external administration is attached to the three named companies' local operations and the decree to the Russian president, as the sources state."
+        },
+        {
+          "story": 4,
+          "criterion": 3,
+          "pass": true,
+          "reason": "Nothing office-holder or world-state dependent beyond the decree itself, which matches the run date."
+        },
+        {
+          "story": 4,
+          "criterion": 4,
+          "pass": true,
+          "reason": "Borderline: it repeats the summary's 'first since 2023' verbatim, but then adds a consequence the summary lacks — that staying in Russia no longer carries assurance against nationalization for remaining Western multinationals."
+        },
+        {
+          "story": 4,
+          "criterion": 5,
+          "pass": true,
+          "reason": "A single decree covering three companies is one event, not several."
+        },
+        {
+          "story": 4,
+          "criterion": 6,
+          "pass": false,
+          "reason": "A two-source corporate seizure holds the fifth must_know slot while the Houthi Red Sea offensive — carried by A27, A66, A139, A149, A180, A206, A290, A304, A415, A472 and A645 across eleven outlets, driving global oil prices, reshaping the Iran war and dealt a blow to Saudi Arabia — sits at the bottom of should_know on one source. A reader of these inputs would expect it in must_know."
+        },
+        {
+          "story": 4,
+          "criterion": 7,
+          "pass": true,
+          "reason": "No ids, template tokens or truncation in the story text; the Nestlé accent renders correctly."
+        }
+      ],
+      [
+        {
+          "story": 0,
+          "criterion": 1,
+          "pass": false,
+          "reason": "The quoted phrase 'veneer of democracy' (attributed to analysts and observers) appears only in A175, a France 24 press review that is not among this story's cited sources (A4, A14, A137, A158, A177, A188, A200, A334, A471, A490)."
+        },
+        {
+          "story": 0,
+          "criterion": 2,
+          "pass": true,
+          "reason": "Putin's barometer framing (A177, A334, A490), the Far East poll opening and three-day period (A188, A471), and the ban on the liberal antiwar party Yabloko (A14, A4) are each attached to the entity and predicate the sources give them."
+        },
+        {
+          "story": 0,
+          "criterion": 3,
+          "pass": true,
+          "reason": "Putin as president and 2022 as the full-scale invasion date match A14; 'first Duma election since' is correct for a 2026-09-18 run date given the 2021 election."
+        },
+        {
+          "story": 0,
+          "criterion": 4,
+          "pass": true,
+          "reason": "The fivefold Yandex search surge for Yabloko surpassing United Russia (A4) is a mechanism the summary never states and explains the timing of the ban."
+        },
+        {
+          "story": 0,
+          "criterion": 5,
+          "pass": true,
+          "reason": "One event: the three-day State Duma vote; the opposition ban is a constituent of that story, not a second event."
+        },
+        {
+          "story": 0,
+          "criterion": 6,
+          "pass": true,
+          "reason": "Russia's first wartime parliamentary election is unarguably a lead story on these inputs (10 cited articles across 8 outlets)."
+        },
+        {
+          "story": 0,
+          "criterion": 7,
+          "pass": false,
+          "reason": "Digest-level chrome defect: the footer doubles its label, rendering 'Not covered today: Left out today: ...'; preheader is 141 chars, within the 157 cap, and story text carries no ids or tokens."
+        },
+        {
+          "story": 1,
+          "criterion": 1,
+          "pass": true,
+          "reason": "0.25pp to 1.25%, 31-year high, first hike since June, inflation above the 2% target, the Fed's Wednesday rise and the ECB key rate at 2.5% are all in A21; the two dissenting board members are in A274; the yen fall despite hawkish Ueda comments in A157 and A360."
+        },
+        {
+          "story": 1,
+          "criterion": 2,
+          "pass": true,
+          "reason": "Each figure sits on the right body: 1.25% and 31 years on the BoJ, 2.5% on the ECB, the earlier-in-week rise on the Fed, the dissent on the BoJ board."
+        },
+        {
+          "story": 1,
+          "criterion": 3,
+          "pass": true,
+          "reason": "Kazuo Ueda is the sitting BoJ governor per A21/A157, and the Fed and ECB moves are dated to this week and last week respectively."
+        },
+        {
+          "story": 1,
+          "criterion": 4,
+          "pass": true,
+          "reason": "Adds A21's analyst mechanism the summary omits: a widening US-Japan rate gap weakens the yen and lifts inflation through import costs, working against the hike's own purpose."
+        },
+        {
+          "story": 1,
+          "criterion": 5,
+          "pass": true,
+          "reason": "One event: the rate decision and the yen's reaction to it."
+        },
+        {
+          "story": 1,
+          "criterion": 6,
+          "pass": true,
+          "reason": "A 31-year-high policy rate at the world's third-largest economy, carried by six outlets, earns a must_know slot."
+        },
+        {
+          "story": 1,
+          "criterion": 7,
+          "pass": true,
+          "reason": "No ids, tokens or truncation; the reporting-varies block names real outlets that match the cited set."
+        },
+        {
+          "story": 2,
+          "criterion": 1,
+          "pass": true,
+          "reason": "$24.3bn, 48 jets, Thursday, first Arab country, the 30-day congressional review, Krishnamoorthi's opposition and the China-access warning are in A35/A39/A63; Israel as the sole regional F-35 operator and Netanyahu's office on preserved edge are in A35 and A220. (A519 gives $30.9bn, but the State Department figure carried by the majority is $24.3bn.)"
+        },
+        {
+          "story": 2,
+          "criterion": 2,
+          "pass": false,
+          "reason": "'Saudi Arabia's latest major arms purchase since its war with Iran began' binds the war to Saudi Arabia; A35 says the United States and Israel launched the war against Iran in February and that Saudi Arabia was targeted by Iranian strikes, i.e. a target, not a belligerent."
+        },
+        {
+          "story": 2,
+          "criterion": 3,
+          "pass": true,
+          "reason": "Trump administration State Department, Netanyahu as prime minister and Israel's current F-35 monopoly all match A35/A39/A63/A220 at the run date."
+        },
+        {
+          "story": 2,
+          "criterion": 4,
+          "pass": true,
+          "reason": "The qualitative military edge as a guarantee in US law (A63) is a mechanism the summary does not state, though the China half restates the summary almost verbatim."
+        },
+        {
+          "story": 2,
+          "criterion": 5,
+          "pass": true,
+          "reason": "One event: the State Department approval, with the Israeli and Chinese objections as context to that approval."
+        },
+        {
+          "story": 2,
+          "criterion": 6,
+          "pass": true,
+          "reason": "A first-ever Arab F-35 sale of this size, cited by nine outlets across the spread, belongs in must_know."
+        },
+        {
+          "story": 2,
+          "criterion": 7,
+          "pass": true,
+          "reason": "No ids, tokens or truncation in headline, summary, why_it_matters or the reporting-varies block."
+        },
+        {
+          "story": 3,
+          "criterion": 1,
+          "pass": true,
+          "reason": "The Minab school and Lamerd sports complex strikes and 'reasonable grounds to believe' are in A179/A56; more than 100 children, 'went beyond negligence' and the separate strike killing 22 are in A305; the Pezeshkian/Araghchi visas, travel restrictions and luxury-goods ban are in A36/A59; Trump's Tuesday return, low approval, high gasoline prices and the November midterms are in A27."
+        },
+        {
+          "story": 3,
+          "criterion": 2,
+          "pass": true,
+          "reason": "The finding sits on the UN fact-finding mission, the visas on the State Department, the midterm risk on Trump's party. The quoted phrase's anchor shifts slightly - A305 attaches 'went beyond negligence' to the mistakes that led to the deaths, the digest to the deaths - but the claim's force is preserved."
+        },
+        {
+          "story": 3,
+          "criterion": 3,
+          "pass": true,
+          "reason": "Pezeshkian as Iranian president, Araghchi as foreign minister, Trump in office and the war dated from 28 February all match A36 and A27 at the run date; the half-year mark is consistent with 18 September."
+        },
+        {
+          "story": 3,
+          "criterion": 4,
+          "pass": true,
+          "reason": "Adds A27's consequence absent from the summary: Trump re-casting the war as a victory while facing war-crimes findings, low approval and a November midterm threat to his party's control of Congress."
+        },
+        {
+          "story": 3,
+          "criterion": 5,
+          "pass": false,
+          "reason": "Headline and summary bolt two separate events together - the UN fact-finding mission's war-crimes finding and the State Department's decision to grant UNGA visas to an Iranian delegation - joined only by 'as'; the cluster_id itself names only the visa event."
+        },
+        {
+          "story": 3,
+          "criterion": 6,
+          "pass": true,
+          "reason": "A UN body finding grounds to believe the US committed war crimes is a top-tier story on these inputs, even bundled."
+        },
+        {
+          "story": 3,
+          "criterion": 7,
+          "pass": true,
+          "reason": "No ids, tokens or truncation; quotation marks render correctly."
+        },
+        {
+          "story": 4,
+          "criterion": 1,
+          "pass": true,
+          "reason": "Nestle, Auchan and Leroy Merlin placed under temporary external administration by presidential decree is in A658; 'first crackdown on western-owned assets since 2023' is in A152. No full text was fetched for either source, so only the headline-level specifics are checkable, and the summary asserts nothing beyond them."
+        },
+        {
+          "story": 4,
+          "criterion": 2,
+          "pass": true,
+          "reason": "The seizure is attached to the Russian state via a presidential decree, the retail identifications (Auchan French retailer, Leroy Merlin home improvement) match A658, and the 2023 baseline is attached to Western-owned assets as in A152."
+        },
+        {
+          "story": 4,
+          "criterion": 3,
+          "pass": true,
+          "reason": "No office-holders or world-state claims; the only temporal anchor, 'since 2023', matches A152."
+        },
+        {
+          "story": 4,
+          "criterion": 4,
+          "pass": true,
+          "reason": "Adds a consequence the summary does not state - that staying in Russia no longer buys protection from nationalization, changing the risk calculus for remaining multinationals - though it opens by repeating the summary's 'first since 2023' verbatim, which is padding."
+        },
+        {
+          "story": 4,
+          "criterion": 5,
+          "pass": true,
+          "reason": "One event: a single decree covering three companies."
+        },
+        {
+          "story": 4,
+          "criterion": 6,
+          "pass": false,
+          "reason": "Weakest must_know slot on the day's inputs: a two-source corporate seizure outranks neither the Houthi Red Sea offensive that A27 ties to spiking global energy prices, a blow to Saudi Arabia and Trump's tightening bind - relegated to a one-source brief - nor next Wednesday's Trump-Xi Washington summit, also left in should_know."
+        },
+        {
+          "story": 4,
+          "criterion": 7,
+          "pass": true,
+          "reason": "No ids, tokens or truncation; the accented 'Nestle' renders correctly in body text."
+        }
+      ]
+    ]
+  },
+  "codex": {
+    "band": {
+      "perCriterion": {
+        "1": 0.4,
+        "2": 0.4,
+        "3": 1,
+        "4": 1,
+        "5": 1,
+        "6": 0.2,
+        "7": 1
+      },
+      "overall": 0.7142857142857143
+    },
+    "runs": [
+      [
+        {
+          "story": 0,
+          "criterion": 1,
+          "pass": true,
+          "reason": "The cited reporting supports the election timing, constrained field, Yabloko exclusion and protest-vote evidence."
+        },
+        {
+          "story": 0,
+          "criterion": 2,
+          "pass": true,
+          "reason": "The digest keeps Putin’s framing, the Kremlin’s restrictions and Yabloko’s status attached to the entities described by sources."
+        },
+        {
+          "story": 0,
+          "criterion": 3,
+          "pass": true,
+          "reason": "Putin and the Russian election state match the contemporaneous September 18 reporting."
+        },
+        {
+          "story": 0,
+          "criterion": 4,
+          "pass": true,
+          "reason": "The why section adds the search-interest mechanism that challenges the claimed measure of wartime support."
+        },
+        {
+          "story": 0,
+          "criterion": 5,
+          "pass": true,
+          "reason": "The headline and summary concern one event: the Duma election under constrained competition."
+        },
+        {
+          "story": 0,
+          "criterion": 6,
+          "pass": false,
+          "reason": "Ukraine’s record 2027 defence budget is omitted despite being more consequential than several selected must-know items."
+        },
+        {
+          "story": 0,
+          "criterion": 7,
+          "pass": true,
+          "reason": "The rendered story is clean, complete and free of visible internal identifiers or template tokens."
+        },
+        {
+          "story": 1,
+          "criterion": 1,
+          "pass": true,
+          "reason": "The cited sources support the 1.25% rate, 31-year high, split vote, yen fall and comparator rates."
+        },
+        {
+          "story": 1,
+          "criterion": 2,
+          "pass": true,
+          "reason": "Rates, dissent and currency movement are attributed to the BoJ and market response as reported."
+        },
+        {
+          "story": 1,
+          "criterion": 3,
+          "pass": true,
+          "reason": "Kazuo Ueda’s office and the reported monetary-policy state are current to the run date."
+        },
+        {
+          "story": 1,
+          "criterion": 4,
+          "pass": true,
+          "reason": "The why section adds the import-cost and inflation transmission mechanism beyond the rate decision."
+        },
+        {
+          "story": 1,
+          "criterion": 5,
+          "pass": true,
+          "reason": "The Fed and ECB references provide monetary context rather than a second event."
+        },
+        {
+          "story": 1,
+          "criterion": 6,
+          "pass": false,
+          "reason": "Ukraine’s record 2027 defence budget is omitted despite being more consequential than several selected must-know items."
+        },
+        {
+          "story": 1,
+          "criterion": 7,
+          "pass": true,
+          "reason": "The rendered story is clean, complete and free of visible internal identifiers or template tokens."
+        },
+        {
+          "story": 2,
+          "criterion": 1,
+          "pass": true,
+          "reason": "The cited reporting supports the price, 48 jets, review period, Israeli concerns and China-technology risk."
+        },
+        {
+          "story": 2,
+          "criterion": 2,
+          "pass": true,
+          "reason": "The digest correctly attributes approval to the State Department and objections and intelligence concerns to their stated actors."
+        },
+        {
+          "story": 2,
+          "criterion": 3,
+          "pass": true,
+          "reason": "The named US, Saudi and Israeli office-holders and military state match the cited articles."
+        },
+        {
+          "story": 2,
+          "criterion": 4,
+          "pass": true,
+          "reason": "The why section adds the competing Israeli-edge and technology-security mechanisms."
+        },
+        {
+          "story": 2,
+          "criterion": 5,
+          "pass": true,
+          "reason": "The headline and summary remain focused on the single proposed F-35 sale."
+        },
+        {
+          "story": 2,
+          "criterion": 6,
+          "pass": false,
+          "reason": "Ukraine’s record 2027 defence budget is omitted despite being more consequential than several selected must-know items."
+        },
+        {
+          "story": 2,
+          "criterion": 7,
+          "pass": true,
+          "reason": "The rendered story is clean, complete and free of visible internal identifiers or template tokens."
+        },
+        {
+          "story": 3,
+          "criterion": 1,
+          "pass": true,
+          "reason": "The cited articles support the UN findings, casualty figures, delegation visas and accompanying restrictions."
+        },
+        {
+          "story": 3,
+          "criterion": 2,
+          "pass": true,
+          "reason": "The digest preserves the panel’s qualified finding and attributes visas and restrictions to the State Department."
+        },
+        {
+          "story": 3,
+          "criterion": 3,
+          "pass": true,
+          "reason": "Trump, Pezeshkian and Araghchi’s offices and the war timeline match contemporaneous cited reporting."
+        },
+        {
+          "story": 3,
+          "criterion": 4,
+          "pass": true,
+          "reason": "The why section adds the domestic-political consequence of Trump’s UN appearance."
+        },
+        {
+          "story": 3,
+          "criterion": 5,
+          "pass": false,
+          "reason": "It bolts the UN war-crimes finding to the separate administrative decision to admit Iran’s delegation."
+        },
+        {
+          "story": 3,
+          "criterion": 6,
+          "pass": false,
+          "reason": "Ukraine’s record 2027 defence budget is omitted despite being more consequential than several selected must-know items."
+        },
+        {
+          "story": 3,
+          "criterion": 7,
+          "pass": true,
+          "reason": "The rendered story is clean, complete and free of visible internal identifiers or template tokens."
+        },
+        {
+          "story": 4,
+          "criterion": 1,
+          "pass": true,
+          "reason": "The cited sources support the temporary administration of the three firms and the first Western-asset crackdown since 2023."
+        },
+        {
+          "story": 4,
+          "criterion": 2,
+          "pass": true,
+          "reason": "The decree, firms and temporary external-administration action are correctly connected."
+        },
+        {
+          "story": 4,
+          "criterion": 3,
+          "pass": true,
+          "reason": "The Russian state action and 2023 comparison match the cited September 18 reports."
+        },
+        {
+          "story": 4,
+          "criterion": 4,
+          "pass": true,
+          "reason": "The why section adds the nationalization-risk consequence for multinationals remaining in Russia."
+        },
+        {
+          "story": 4,
+          "criterion": 5,
+          "pass": true,
+          "reason": "The headline and summary describe one asset-seizure event."
+        },
+        {
+          "story": 4,
+          "criterion": 6,
+          "pass": false,
+          "reason": "Ukraine’s record 2027 defence budget is omitted despite being more consequential than several selected must-know items."
+        },
+        {
+          "story": 4,
+          "criterion": 7,
+          "pass": true,
+          "reason": "The rendered story is clean, complete and free of visible internal identifiers or template tokens."
+        }
+      ],
+      [
+        {
+          "story": 0,
+          "criterion": 1,
+          "pass": true,
+          "reason": "The election timing, three-day vote, Putin framing, Yabloko interest spike and opposition restrictions appear in the cited reporting."
+        },
+        {
+          "story": 0,
+          "criterion": 2,
+          "pass": false,
+          "reason": "It overstates Yabloko as wholly barred from running: a cited source says it could still contest single-member races."
+        },
+        {
+          "story": 0,
+          "criterion": 3,
+          "pass": true,
+          "reason": "Putin and the Russia-Ukraine war context match the cited articles and run date."
+        },
+        {
+          "story": 0,
+          "criterion": 4,
+          "pass": true,
+          "reason": "The search-interest evidence explains why the Kremlin's exclusion matters beyond the vote description."
+        },
+        {
+          "story": 0,
+          "criterion": 5,
+          "pass": true,
+          "reason": "The headline and summary cover one election and its competitive constraints."
+        },
+        {
+          "story": 0,
+          "criterion": 6,
+          "pass": false,
+          "reason": "The set omits the Houthi advance threatening Saudi oil routes and global energy prices, a more consequential same-day story."
+        },
+        {
+          "story": 0,
+          "criterion": 7,
+          "pass": true,
+          "reason": "The rendered story is readable and contains no visible IDs, unresolved tokens or truncation."
+        },
+        {
+          "story": 1,
+          "criterion": 1,
+          "pass": true,
+          "reason": "The rate, 31-year high, dissenting votes, yen move, inflation target and Fed and ECB comparisons are cited."
+        },
+        {
+          "story": 1,
+          "criterion": 2,
+          "pass": true,
+          "reason": "Rates, currency reaction and the analysts' causal interpretation are attached to the correct institutions and market actors."
+        },
+        {
+          "story": 1,
+          "criterion": 3,
+          "pass": true,
+          "reason": "The BoJ leadership, policy decision and contemporaneous central-bank context match the day's sources."
+        },
+        {
+          "story": 1,
+          "criterion": 4,
+          "pass": true,
+          "reason": "It explains the consequence of the rate gap for imports and the inflation objective rather than repeating the hike."
+        },
+        {
+          "story": 1,
+          "criterion": 5,
+          "pass": true,
+          "reason": "The story concerns one BoJ policy decision and its immediate market reaction."
+        },
+        {
+          "story": 1,
+          "criterion": 6,
+          "pass": false,
+          "reason": "The set omits the Houthi advance threatening Saudi oil routes and global energy prices, a more consequential same-day story."
+        },
+        {
+          "story": 1,
+          "criterion": 7,
+          "pass": true,
+          "reason": "The rendered story is readable and contains no visible IDs, unresolved tokens or truncation."
+        },
+        {
+          "story": 2,
+          "criterion": 1,
+          "pass": true,
+          "reason": "The approval, price, aircraft count, congressional review, Israeli edge and China-security concerns appear in cited sources."
+        },
+        {
+          "story": 2,
+          "criterion": 2,
+          "pass": true,
+          "reason": "The sale is correctly attributed to State Department approval, while objections and intelligence concerns are attributed to their sources."
+        },
+        {
+          "story": 2,
+          "criterion": 3,
+          "pass": true,
+          "reason": "The named US, Saudi and Israeli office-holders and the regional-war context match the cited articles and run date."
+        },
+        {
+          "story": 2,
+          "criterion": 4,
+          "pass": true,
+          "reason": "It identifies the policy conflict between Israel's qualitative edge and protection of sensitive technology."
+        },
+        {
+          "story": 2,
+          "criterion": 5,
+          "pass": true,
+          "reason": "The headline and summary are facets of the single proposed F-35 sale."
+        },
+        {
+          "story": 2,
+          "criterion": 6,
+          "pass": false,
+          "reason": "The set omits the Houthi advance threatening Saudi oil routes and global energy prices, a more consequential same-day story."
+        },
+        {
+          "story": 2,
+          "criterion": 7,
+          "pass": true,
+          "reason": "The rendered story is readable and contains no visible IDs, unresolved tokens or truncation."
+        },
+        {
+          "story": 3,
+          "criterion": 1,
+          "pass": true,
+          "reason": "The UN findings, locations, casualty claims, visas, delegation members and restrictions are present in the cited reporting."
+        },
+        {
+          "story": 3,
+          "criterion": 2,
+          "pass": true,
+          "reason": "The text preserves the UN mission's qualified finding and attributes the political consequences to the cited analysis."
+        },
+        {
+          "story": 3,
+          "criterion": 3,
+          "pass": true,
+          "reason": "Trump, Pezeshkian, Araghchi and the six-month war timeline match the cited articles and run date."
+        },
+        {
+          "story": 3,
+          "criterion": 4,
+          "pass": true,
+          "reason": "It adds the domestic-political and diplomatic consequence of the findings beyond recounting them."
+        },
+        {
+          "story": 3,
+          "criterion": 5,
+          "pass": false,
+          "reason": "It joins the UN war-crimes finding and the separate visa decision into one headline and summary."
+        },
+        {
+          "story": 3,
+          "criterion": 6,
+          "pass": false,
+          "reason": "The set omits the Houthi advance threatening Saudi oil routes and global energy prices, a more consequential same-day story."
+        },
+        {
+          "story": 3,
+          "criterion": 7,
+          "pass": true,
+          "reason": "The rendered story is readable and contains no visible IDs, unresolved tokens or truncation."
+        },
+        {
+          "story": 4,
+          "criterion": 1,
+          "pass": true,
+          "reason": "The decree, the three named businesses, temporary administration and first-since-2023 framing appear in the cited sources."
+        },
+        {
+          "story": 4,
+          "criterion": 2,
+          "pass": true,
+          "reason": "The temporary external administration is correctly assigned to the Russian decree and the named local operations."
+        },
+        {
+          "story": 4,
+          "criterion": 3,
+          "pass": true,
+          "reason": "No time-sensitive office-holder claim conflicts with the cited articles or run date."
+        },
+        {
+          "story": 4,
+          "criterion": 4,
+          "pass": true,
+          "reason": "It draws the forward-looking nationalization risk for remaining firms rather than merely restating the seizure."
+        },
+        {
+          "story": 4,
+          "criterion": 5,
+          "pass": true,
+          "reason": "The story covers one decree placing several businesses under administration."
+        },
+        {
+          "story": 4,
+          "criterion": 6,
+          "pass": false,
+          "reason": "The set omits the Houthi advance threatening Saudi oil routes and global energy prices, a more consequential same-day story."
+        },
+        {
+          "story": 4,
+          "criterion": 7,
+          "pass": true,
+          "reason": "The rendered story is readable and contains no visible IDs, unresolved tokens or truncation."
+        }
+      ],
+      [
+        {
+          "story": 0,
+          "criterion": 1,
+          "pass": true,
+          "reason": "The headline, summary and significance claim are supported by the cited election reporting, including Yabloko's removal and the fivefold search surge."
+        },
+        {
+          "story": 0,
+          "criterion": 2,
+          "pass": true,
+          "reason": "The digest correctly attributes the election framing to Putin and the ballot exclusion to the Kremlin and courts."
+        },
+        {
+          "story": 0,
+          "criterion": 3,
+          "pass": true,
+          "reason": "Putin's office and the September 18 voting timeline match the cited articles and digest date."
+        },
+        {
+          "story": 0,
+          "criterion": 4,
+          "pass": true,
+          "reason": "The significance section adds the mechanism of protest-vote risk undermining the claimed support barometer."
+        },
+        {
+          "story": 0,
+          "criterion": 5,
+          "pass": true,
+          "reason": "The headline and summary remain focused on the Russian parliamentary election and its controlled field."
+        },
+        {
+          "story": 0,
+          "criterion": 6,
+          "pass": false,
+          "reason": "The Houthi offensive and oil-price surge is relegated to should-know despite its direct consequences for the Iran war and global energy supply."
+        },
+        {
+          "story": 0,
+          "criterion": 7,
+          "pass": true,
+          "reason": "The rendered story is complete and readable, with no exposed internal identifiers, tokens or truncation."
+        },
+        {
+          "story": 1,
+          "criterion": 1,
+          "pass": true,
+          "reason": "The rate level, 31-year comparison, split vote, yen move, inflation target and Fed and ECB comparisons appear in the cited reporting."
+        },
+        {
+          "story": 1,
+          "criterion": 2,
+          "pass": true,
+          "reason": "Rates, currency movement, board dissent and investors' expectations are attached to the correct institutions and actors."
+        },
+        {
+          "story": 1,
+          "criterion": 3,
+          "pass": true,
+          "reason": "Governor Ueda, the BoJ decision and the contemporaneous Fed and ECB settings match the cited articles."
+        },
+        {
+          "story": 1,
+          "criterion": 4,
+          "pass": true,
+          "reason": "The significance section explains the rate-gap mechanism linking a weak yen to import costs and inflation."
+        },
+        {
+          "story": 1,
+          "criterion": 5,
+          "pass": true,
+          "reason": "The story covers one event: the BoJ's rate decision and its immediate market response."
+        },
+        {
+          "story": 1,
+          "criterion": 6,
+          "pass": false,
+          "reason": "The Houthi offensive and oil-price surge is relegated to should-know despite its direct consequences for the Iran war and global energy supply."
+        },
+        {
+          "story": 1,
+          "criterion": 7,
+          "pass": true,
+          "reason": "The rendered story is complete and readable, with no exposed internal identifiers, tokens or truncation."
+        },
+        {
+          "story": 2,
+          "criterion": 1,
+          "pass": true,
+          "reason": "The cited sources support the $24.3bn value, 48 jets, review period, Israeli concerns, Krishnamoorthi's objection and China-risk claim."
+        },
+        {
+          "story": 2,
+          "criterion": 2,
+          "pass": true,
+          "reason": "The digest correctly assigns the approval to the State Department, the security concern to US intelligence and the military-edge concern to Israel and US policy."
+        },
+        {
+          "story": 2,
+          "criterion": 3,
+          "pass": true,
+          "reason": "The named Trump administration, Netanyahu government and congressional review status match the cited reporting."
+        },
+        {
+          "story": 2,
+          "criterion": 4,
+          "pass": true,
+          "reason": "The significance section adds the policy tension between Israel's qualitative military edge and technology-transfer risk."
+        },
+        {
+          "story": 2,
+          "criterion": 5,
+          "pass": true,
+          "reason": "Israeli and China concerns are consequences and constraints of the single F-35 sale event, not a separate event."
+        },
+        {
+          "story": 2,
+          "criterion": 6,
+          "pass": false,
+          "reason": "The Houthi offensive and oil-price surge is relegated to should-know despite its direct consequences for the Iran war and global energy supply."
+        },
+        {
+          "story": 2,
+          "criterion": 7,
+          "pass": true,
+          "reason": "The rendered story is complete and readable, with no exposed internal identifiers, tokens or truncation."
+        },
+        {
+          "story": 3,
+          "criterion": 1,
+          "pass": true,
+          "reason": "The cited articles support the UN findings, locations, casualty figures, delegation visas, named officials and restrictions."
+        },
+        {
+          "story": 3,
+          "criterion": 2,
+          "pass": true,
+          "reason": "The digest correctly attributes the allegations to the UN mission and visa decision to the State Department."
+        },
+        {
+          "story": 3,
+          "criterion": 3,
+          "pass": true,
+          "reason": "Trump, Pezeshkian, Araghchi and the next-week UN General Assembly timing match the cited articles and digest date."
+        },
+        {
+          "story": 3,
+          "criterion": 4,
+          "pass": true,
+          "reason": "The significance section adds the domestic political consequences of the war beyond the summary's findings and visa decision."
+        },
+        {
+          "story": 3,
+          "criterion": 5,
+          "pass": false,
+          "reason": "It bolts the UN war-crimes findings to the separate event of Washington admitting an Iranian UN delegation."
+        },
+        {
+          "story": 3,
+          "criterion": 6,
+          "pass": false,
+          "reason": "The Houthi offensive and oil-price surge is relegated to should-know despite its direct consequences for the Iran war and global energy supply."
+        },
+        {
+          "story": 3,
+          "criterion": 7,
+          "pass": true,
+          "reason": "The rendered story is complete and readable, with no exposed internal identifiers, tokens or truncation."
+        },
+        {
+          "story": 4,
+          "criterion": 1,
+          "pass": true,
+          "reason": "The cited Financial Times and Wall Street Journal items support the affected companies, temporary administration and first such action since 2023."
+        },
+        {
+          "story": 4,
+          "criterion": 2,
+          "pass": true,
+          "reason": "The digest identifies temporary external administration rather than claiming the firms' assets were formally transferred to Russia."
+        },
+        {
+          "story": 4,
+          "criterion": 3,
+          "pass": true,
+          "reason": "The presidential decree and since-2023 comparison match the cited contemporary articles."
+        },
+        {
+          "story": 4,
+          "criterion": 4,
+          "pass": true,
+          "reason": "The significance section adds the consequence for remaining Western multinationals rather than merely restating the seizure."
+        },
+        {
+          "story": 4,
+          "criterion": 5,
+          "pass": true,
+          "reason": "The three companies are part of the same presidential-decree action, not separate bolted events."
+        },
+        {
+          "story": 4,
+          "criterion": 6,
+          "pass": false,
+          "reason": "The Houthi offensive and oil-price surge is relegated to should-know despite its direct consequences for the Iran war and global energy supply."
+        },
+        {
+          "story": 4,
+          "criterion": 7,
+          "pass": true,
+          "reason": "The rendered story is complete and readable, with no exposed internal identifiers, tokens or truncation."
+        }
+      ],
+      [
+        {
+          "story": 0,
+          "criterion": 1,
+          "pass": true,
+          "reason": "All stated specifics, including the three-day vote, Putin's framing, Yabloko's exclusion and the fivefold search rise, appear in cited sources."
+        },
+        {
+          "story": 0,
+          "criterion": 2,
+          "pass": true,
+          "reason": "The election, opposition restrictions and Yabloko-search evidence are attached to the entities and actions cited sources describe."
+        },
+        {
+          "story": 0,
+          "criterion": 3,
+          "pass": true,
+          "reason": "The cited articles and September 18 dating consistently place Putin, the Duma vote and the Ukraine war in the stated context."
+        },
+        {
+          "story": 0,
+          "criterion": 4,
+          "pass": true,
+          "reason": "The why adds the protest-vote mechanism behind Yabloko's exclusion rather than repeating the election description."
+        },
+        {
+          "story": 0,
+          "criterion": 5,
+          "pass": true,
+          "reason": "The headline and summary remain focused on the Duma election and its controlled opposition."
+        },
+        {
+          "story": 0,
+          "criterion": 6,
+          "pass": true,
+          "reason": "Russia's first parliamentary election since the invasion, framed as a war-support test, merits a must-know slot."
+        },
+        {
+          "story": 0,
+          "criterion": 7,
+          "pass": true,
+          "reason": "The rendered item is clean and contains no visible identifiers, unresolved template text or truncation."
+        },
+        {
+          "story": 1,
+          "criterion": 1,
+          "pass": true,
+          "reason": "The cited sources support the 0.25-point hike to 1.25%, 31-year high, dissenting members, weaker yen and rate-gap context."
+        },
+        {
+          "story": 1,
+          "criterion": 2,
+          "pass": true,
+          "reason": "Rates, dissent, currency movement and the Fed and ECB comparisons are attributed to the correct institutions and actors."
+        },
+        {
+          "story": 1,
+          "criterion": 3,
+          "pass": true,
+          "reason": "Kazuo Ueda's role and the stated monetary-policy conditions match the contemporaneous cited reporting."
+        },
+        {
+          "story": 1,
+          "criterion": 4,
+          "pass": true,
+          "reason": "The why explains how the rate gap can transmit into yen weakness and import-cost inflation beyond the announcement itself."
+        },
+        {
+          "story": 1,
+          "criterion": 5,
+          "pass": true,
+          "reason": "The item covers one monetary-policy decision, with market reaction and international-rate context integral to that event."
+        },
+        {
+          "story": 1,
+          "criterion": 6,
+          "pass": true,
+          "reason": "A major central bank's move to its highest rate in decades has clear global economic consequence."
+        },
+        {
+          "story": 1,
+          "criterion": 7,
+          "pass": true,
+          "reason": "The rendered item is clean and contains no visible identifiers, unresolved template text or truncation."
+        },
+        {
+          "story": 2,
+          "criterion": 1,
+          "pass": false,
+          "reason": "Sources support approval for Saudi Arabia to acquire F-35s, but do not specifically say it is approved to operate them."
+        },
+        {
+          "story": 2,
+          "criterion": 2,
+          "pass": false,
+          "reason": "The wording turns a proposed acquisition subject to congressional review into approval to operate the aircraft."
+        },
+        {
+          "story": 2,
+          "criterion": 3,
+          "pass": true,
+          "reason": "The cited reporting consistently identifies the Trump administration, Netanyahu and Krishnamoorthi in their stated current roles."
+        },
+        {
+          "story": 2,
+          "criterion": 4,
+          "pass": true,
+          "reason": "The why adds the qualitative-military-edge and technology-security mechanisms beyond the sale's immediate objections."
+        },
+        {
+          "story": 2,
+          "criterion": 5,
+          "pass": true,
+          "reason": "The summary's congressional, Israeli and Chinese issues are consequences and constraints of the single F-35-sale decision."
+        },
+        {
+          "story": 2,
+          "criterion": 6,
+          "pass": true,
+          "reason": "A proposed $24.3-billion advanced-arms transfer with regional-balance and China-security implications earns a must-know slot."
+        },
+        {
+          "story": 2,
+          "criterion": 7,
+          "pass": true,
+          "reason": "The rendered item is clean and contains no visible identifiers, unresolved template text or truncation."
+        },
+        {
+          "story": 3,
+          "criterion": 1,
+          "pass": true,
+          "reason": "Cited reports support the UN findings, locations, casualty figures, visas, named Iranian officials and delegation restrictions."
+        },
+        {
+          "story": 3,
+          "criterion": 2,
+          "pass": true,
+          "reason": "The UN mission's reasonable-grounds finding and the State Department's visa decision are attributed to their respective actors."
+        },
+        {
+          "story": 3,
+          "criterion": 3,
+          "pass": true,
+          "reason": "The article dates and cited accounts support the stated Trump administration, Iranian officials and forthcoming UN session."
+        },
+        {
+          "story": 3,
+          "criterion": 4,
+          "pass": true,
+          "reason": "The why adds the political consequence of Trump's UN appearance and domestic electoral exposure beyond the factual summary."
+        },
+        {
+          "story": 3,
+          "criterion": 5,
+          "pass": false,
+          "reason": "It joins two distinct events: the UN mission's war-crimes finding and Washington's decision to admit the Iranian delegation."
+        },
+        {
+          "story": 3,
+          "criterion": 6,
+          "pass": true,
+          "reason": "The alleged US war crimes and Iran-war diplomacy are among the day's most consequential international developments."
+        },
+        {
+          "story": 3,
+          "criterion": 7,
+          "pass": true,
+          "reason": "The rendered item is clean and contains no visible identifiers, unresolved template text or truncation."
+        },
+        {
+          "story": 4,
+          "criterion": 1,
+          "pass": false,
+          "reason": "The sources support temporary external administration and a first crackdown since 2023, but not the claim about assurance against nationalization."
+        },
+        {
+          "story": 4,
+          "criterion": 2,
+          "pass": false,
+          "reason": "Temporary external administration is not established in the cited sources as nationalization or a loss of assurance against it."
+        },
+        {
+          "story": 4,
+          "criterion": 3,
+          "pass": true,
+          "reason": "The decree and since-2023 comparison are contemporaneous and make no stale office-holder or world-state claim."
+        },
+        {
+          "story": 4,
+          "criterion": 4,
+          "pass": true,
+          "reason": "The why adds a prospective risk mechanism for remaining multinationals rather than merely restating the decree."
+        },
+        {
+          "story": 4,
+          "criterion": 5,
+          "pass": true,
+          "reason": "The item concerns one decree placing three named companies' Russian operations under external administration."
+        },
+        {
+          "story": 4,
+          "criterion": 6,
+          "pass": false,
+          "reason": "The lower-impact asset seizure crowds out the Houthi offensive and oil-price surge, which readers of these inputs would more likely expect in must-know."
+        },
+        {
+          "story": 4,
+          "criterion": 7,
+          "pass": true,
+          "reason": "The rendered item is clean and contains no visible identifiers, unresolved template text or truncation."
+        }
+      ],
+      [
+        {
+          "story": 0,
+          "criterion": 1,
+          "pass": false,
+          "reason": "The cited sources do not contain the quoted description “veneer of democracy”; it appears in uncited article A175."
+        },
+        {
+          "story": 0,
+          "criterion": 2,
+          "pass": false,
+          "reason": "The uncited “veneer of democracy” quote is attributed broadly to analysts and observers without support in this story’s cited articles."
+        },
+        {
+          "story": 0,
+          "criterion": 3,
+          "pass": true,
+          "reason": "Putin’s office and the election’s timing match the cited reporting and the September 18, 2026 run date."
+        },
+        {
+          "story": 0,
+          "criterion": 4,
+          "pass": true,
+          "reason": "The search surge supplies a concrete mechanism for the crackdown beyond the summary’s account of the managed election."
+        },
+        {
+          "story": 0,
+          "criterion": 5,
+          "pass": true,
+          "reason": "The headline and summary remain about the single Duma-election event."
+        },
+        {
+          "story": 0,
+          "criterion": 6,
+          "pass": false,
+          "reason": "The must-know set should elevate the Houthi offensive driving oil prices and threatening Saudi energy routes over this election story."
+        },
+        {
+          "story": 0,
+          "criterion": 7,
+          "pass": true,
+          "reason": "The story reads cleanly, and the 141-character preheader is within the 157-character cap."
+        },
+        {
+          "story": 1,
+          "criterion": 1,
+          "pass": true,
+          "reason": "The rate, timing, dissent, yen move, inflation target and Fed and ECB comparisons are supported by the cited articles."
+        },
+        {
+          "story": 1,
+          "criterion": 2,
+          "pass": true,
+          "reason": "The rate rise, dissent and exchange-rate consequences are attached to the BoJ and the relevant market-rate gap correctly."
+        },
+        {
+          "story": 1,
+          "criterion": 3,
+          "pass": true,
+          "reason": "Governor Ueda and the stated monetary-policy conditions match the dated sources."
+        },
+        {
+          "story": 1,
+          "criterion": 4,
+          "pass": true,
+          "reason": "It explains how a weaker yen can raise import costs and weaken the intended inflation response."
+        },
+        {
+          "story": 1,
+          "criterion": 5,
+          "pass": true,
+          "reason": "This is one monetary-policy decision and its immediate market reaction."
+        },
+        {
+          "story": 1,
+          "criterion": 6,
+          "pass": false,
+          "reason": "The must-know set should elevate the Houthi offensive driving oil prices and threatening Saudi energy routes over this rate decision."
+        },
+        {
+          "story": 1,
+          "criterion": 7,
+          "pass": true,
+          "reason": "The story reads cleanly, and the 141-character preheader is within the 157-character cap."
+        },
+        {
+          "story": 2,
+          "criterion": 1,
+          "pass": false,
+          "reason": "Sources call this a proposed sale and a step toward acquisition, not approval for Saudi Arabia to operate F-35s."
+        },
+        {
+          "story": 2,
+          "criterion": 2,
+          "pass": false,
+          "reason": "State Department approval of a potential sale is incorrectly presented as making Saudi Arabia approved to operate the aircraft."
+        },
+        {
+          "story": 2,
+          "criterion": 3,
+          "pass": true,
+          "reason": "Trump, Netanyahu and the congressional-review status match the cited September 17-18 reporting."
+        },
+        {
+          "story": 2,
+          "criterion": 4,
+          "pass": true,
+          "reason": "It adds the legal qualitative-military-edge mechanism to the summary’s stated Israeli and Chinese concerns."
+        },
+        {
+          "story": 2,
+          "criterion": 5,
+          "pass": true,
+          "reason": "The headline and summary concern one arms-sale approval process."
+        },
+        {
+          "story": 2,
+          "criterion": 6,
+          "pass": false,
+          "reason": "The must-know set should elevate the Houthi offensive driving oil prices and threatening Saudi energy routes over this sale."
+        },
+        {
+          "story": 2,
+          "criterion": 7,
+          "pass": true,
+          "reason": "The story reads cleanly, and the 141-character preheader is within the 157-character cap."
+        },
+        {
+          "story": 3,
+          "criterion": 1,
+          "pass": true,
+          "reason": "The strikes, casualties, UN finding, visas, delegation restrictions and Tuesday UN appearance are supported by the cited reporting."
+        },
+        {
+          "story": 3,
+          "criterion": 2,
+          "pass": true,
+          "reason": "The UN allegation is attributed to the fact-finding mission and the visa decision to the State Department."
+        },
+        {
+          "story": 3,
+          "criterion": 3,
+          "pass": true,
+          "reason": "The office-holders, half-year war duration and next-week General Assembly timing fit the cited articles and run date."
+        },
+        {
+          "story": 3,
+          "criterion": 4,
+          "pass": true,
+          "reason": "It adds the domestic political consequence and the contrast with Trump’s anticipated UN framing."
+        },
+        {
+          "story": 3,
+          "criterion": 5,
+          "pass": false,
+          "reason": "It bolts the separate UN war-crimes finding to the separate decision to admit Iran’s delegation."
+        },
+        {
+          "story": 3,
+          "criterion": 6,
+          "pass": false,
+          "reason": "The must-know set should elevate the Houthi offensive driving oil prices and threatening Saudi energy routes over this bundled story."
+        },
+        {
+          "story": 3,
+          "criterion": 7,
+          "pass": true,
+          "reason": "The story reads cleanly, and the 141-character preheader is within the 157-character cap."
+        },
+        {
+          "story": 4,
+          "criterion": 1,
+          "pass": true,
+          "reason": "The cited reports support the named companies, temporary administration and first Western-asset seizure since 2023."
+        },
+        {
+          "story": 4,
+          "criterion": 2,
+          "pass": true,
+          "reason": "The decree is correctly attached to Russia’s local operations of the three named Western companies."
+        },
+        {
+          "story": 4,
+          "criterion": 3,
+          "pass": true,
+          "reason": "The decree and 2023 comparison are consistent with the cited September 18 reporting."
+        },
+        {
+          "story": 4,
+          "criterion": 4,
+          "pass": true,
+          "reason": "It adds the consequential inference that remaining Western firms face a changed nationalization risk."
+        },
+        {
+          "story": 4,
+          "criterion": 5,
+          "pass": true,
+          "reason": "The story describes one decree placing several companies’ operations under administration."
+        },
+        {
+          "story": 4,
+          "criterion": 6,
+          "pass": false,
+          "reason": "The must-know set should elevate the Houthi offensive driving oil prices and threatening Saudi energy routes over this asset seizure."
+        },
+        {
+          "story": 4,
+          "criterion": 7,
+          "pass": true,
+          "reason": "The story reads cleanly, and the 141-character preheader is within the 157-character cap."
+        }
+      ]
+    ]
+  },
+  "disagreements": [
+    {
+      "story": 0,
+      "criterion": 1
+    },
+    {
+      "story": 0,
+      "criterion": 6
+    },
+    {
+      "story": 1,
+      "criterion": 6
+    },
+    {
+      "story": 2,
+      "criterion": 2
+    },
+    {
+      "story": 2,
+      "criterion": 4
+    },
+    {
+      "story": 2,
+      "criterion": 6
+    },
+    {
+      "story": 3,
+      "criterion": 6
+    }
+  ]
+}
