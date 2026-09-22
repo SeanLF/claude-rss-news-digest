@@ -58,6 +58,7 @@ export function buildExtractPrompt(batch: string[], arts: Map<string, Article>):
 }
 
 export interface ClusterDeps {
+  signal?: () => AbortSignal | undefined;
   store: ArtifactStore;
   agentsDir: string;
   query?: SdkQuery;
@@ -101,7 +102,7 @@ export function clusterActivities(deps: ClusterDeps) {
       assertNoUrls(prompt);
       const spec = parseAgentSpec(readFileSync(join(deps.agentsDir, "cluster-extract.md"), "utf8"));
       deps.heartbeat?.();
-      const r = await runStage(spec, { userMessage: prompt, inputDir: tmpdir() }, { today: store.runDate(runId), outputSchema: extractItemsJsonSchema(), ...(deps.query ? { query: deps.query } : {}), ...(deps.heartbeat ? { heartbeat: deps.heartbeat } : {}) });
+      const r = await runStage(spec, { userMessage: prompt, inputDir: tmpdir() }, { today: store.runDate(runId), outputSchema: extractItemsJsonSchema(), ...(deps.query ? { query: deps.query } : {}), ...(deps.heartbeat ? { heartbeat: deps.heartbeat } : {}), ...(deps.signal?.() ? { signal: deps.signal()! } : {}) });
       deps.heartbeat?.();
       deps.onUsage?.({ stage: "cluster-extract", runId, batch: batch.index, costUsd: r.costUsd, durationMs: r.durationMs, numTurns: r.numTurns });
       const parsed = ExtractItemsSchema.safeParse(r.structured);

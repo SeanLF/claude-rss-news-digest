@@ -53,6 +53,15 @@ describe("runStage", () => {
     expect(seen.options?.settings).toEqual({ permissions: { blockReadsOutsideWorkingDirectories: true } });
     expect(seen.options?.maxBudgetUsd).toBeUndefined();
   });
+  it("hands the SDK an abort controller that follows the activity's cancellation signal", async () => {
+    const seen: { options?: Options } = {};
+    const ac = new AbortController();
+    await runStage(spec, { userMessage: "Begin.", inputDir: "/in" }, { today: "2026-09-21", query: fakeQuery([result({})], seen), signal: ac.signal });
+    const inner = seen.options?.abortController;
+    expect(inner?.signal.aborted).toBe(false);
+    ac.abort("cancelled");
+    expect(inner?.signal.aborted).toBe(true);
+  });
   it("heartbeats on every streamed message", async () => {
     let beats = 0;
     await runStage(spec, { userMessage: "Begin.", inputDir: "/in" }, { today: "2026-09-21", query: fakeQuery([assistant([]), assistant([]), result({})]), heartbeat: () => beats++ });

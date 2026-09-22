@@ -27,6 +27,13 @@ function targetOf(name: string, input: unknown): string {
   return typeof v === "string" ? v : "";
 }
 
+function controllerFor(signal: AbortSignal): AbortController {
+  const c = new AbortController();
+  if (signal.aborted) c.abort(signal.reason);
+  else signal.addEventListener("abort", () => c.abort(signal.reason), { once: true });
+  return c;
+}
+
 const thinkingFor = (t: StageSpec["thinking"]): ThinkingConfig => (t === "adaptive" ? { type: "adaptive" } : { type: "disabled" });
 
 // One stage: system prompt from the spec, the stage's input as the user turn, tools scoped to
@@ -36,7 +43,7 @@ const thinkingFor = (t: StageSpec["thinking"]): ThinkingConfig => (t === "adapti
 export async function runStage(
   spec: StageSpec,
   input: StageInput,
-  opts: { outputSchema?: Record<string, unknown>; today: string; query?: SdkQuery; maxBudgetUsd?: number; heartbeat?: () => void },
+  opts: { outputSchema?: Record<string, unknown>; today: string; query?: SdkQuery; maxBudgetUsd?: number; heartbeat?: () => void; signal?: AbortSignal },
 ): Promise<StageResult> {
   const q = opts.query ?? query;
   const allowed: readonly string[] = spec.tools;
@@ -51,6 +58,9 @@ export async function runStage(
     thinking: thinkingFor(spec.thinking),
     // cwd alone does not confine Read or Grep: an absolute path reaches the whole disk. This does.
     settings: { permissions: { blockReadsOutsideWorkingDirectories: true } },
+    // A cancelled activity (its workflow terminated or cancelled) stops the model call; otherwise a
+    // zombie attempt keeps running and can still write its artifact after the run is gone.
+    ...(opts.signal ? { abortController: controllerFor(opts.signal) } : {}),
     ...(opts.maxBudgetUsd !== undefined ? { maxBudgetUsd: opts.maxBudgetUsd } : {}),
     ...(opts.outputSchema ? { outputFormat: { type: "json_schema", schema: opts.outputSchema } } : {}),
   };

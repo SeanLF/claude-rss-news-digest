@@ -57,6 +57,7 @@ export function uncovered(report: CoherenceReport, draft: Draft): string[] {
 }
 
 export interface CoherenceDeps {
+  signal?: () => AbortSignal | undefined;
   store: ArtifactStore;
   agentsDir: string;
   query?: SdkQuery;
@@ -115,7 +116,7 @@ export async function runChecker(deps: CoherenceDeps, runId: number, draftText: 
     const r = await runStage({ ...spec, body }, { userMessage: parts.join("\n\n") + (note ? `\n\nOperator note for this attempt: ${note}` : ""), inputDir: dir }, {
       today: store.runDate(runId),
       outputSchema: coherenceReportJsonSchema(),
-      ...(deps.query ? { query: deps.query } : {}), ...(deps.heartbeat ? { heartbeat: deps.heartbeat } : {}),
+      ...(deps.query ? { query: deps.query } : {}), ...(deps.heartbeat ? { heartbeat: deps.heartbeat } : {}), ...(deps.signal?.() ? { signal: deps.signal()! } : {}),
     });
     deps.heartbeat?.();
     const parsed = CoherenceReportSchema.safeParse(r.structured);

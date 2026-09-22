@@ -1,4 +1,4 @@
-import { heartbeat } from "@temporalio/activity";
+import { Context, heartbeat } from "@temporalio/activity";
 import { ArtifactStore } from "../store/artifacts.js";
 import { dbPath } from "../store/db.js";
 import type { Activities } from "./index.js";
@@ -24,10 +24,17 @@ const safeHeartbeat = () => {
     /* outside an activity context (tests, CLIs) there is nothing to beat */
   }
 };
+const safeSignal = (): AbortSignal | undefined => {
+  try {
+    return Context.current().cancellationSignal;
+  } catch {
+    return undefined; // outside an activity there is nothing to cancel
+  }
+};
 const log = (row: object) => console.log(JSON.stringify({ usage: row }));
 
 export function workerActivities(): Activities {
   const store = new ArtifactStore(dbPath());
-  const deps = { store, agentsDir: agentsDir(), heartbeat: safeHeartbeat, onUsage: log };
+  const deps = { store, agentsDir: agentsDir(), heartbeat: safeHeartbeat, signal: safeSignal, onUsage: log };
   return { ...stubActivities(), ...clusterActivities(deps), recap: recapActivity(deps), ...writeActivities(deps), select: selectActivity(deps), preheader: preheaderActivity(deps), coherence: coherenceActivity(deps), repair: repairActivity({ ...deps, maxAttempts: MODEL_MAX_ATTEMPTS }), assemble: assembleActivity(deps) };
 }

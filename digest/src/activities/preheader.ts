@@ -44,6 +44,7 @@ export function cleanPreheader(text: string): string {
 }
 
 export interface PreheaderDeps {
+  signal?: () => AbortSignal | undefined;
   store: ArtifactStore;
   agentsDir: string;
   query?: SdkQuery;
@@ -68,7 +69,7 @@ export function preheaderActivity(deps: PreheaderDeps) {
     assertNoUrls(message);
     const spec = parseAgentSpec(readFileSync(join(deps.agentsDir, "preheader.md"), "utf8"));
     deps.heartbeat?.();
-    const r = await runStage(spec, { userMessage: message, inputDir: tmpdir() }, { today: store.runDate(runId), ...(deps.query ? { query: deps.query } : {}), ...(deps.heartbeat ? { heartbeat: deps.heartbeat } : {}) });
+    const r = await runStage(spec, { userMessage: message, inputDir: tmpdir() }, { today: store.runDate(runId), ...(deps.query ? { query: deps.query } : {}), ...(deps.heartbeat ? { heartbeat: deps.heartbeat } : {}), ...(deps.signal?.() ? { signal: deps.signal()! } : {}) });
     deps.onUsage?.({ stage: "preheader", runId, costUsd: r.costUsd, durationMs: r.durationMs, numTurns: r.numTurns });
     const line = cleanPreheader(r.text);
     if (!line) throw new Error(`preheader for run ${runId}: nothing usable in the reply`);
