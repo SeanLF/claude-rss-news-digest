@@ -37,3 +37,13 @@ digest-temporal-ui-1     18.33MiB
 ```
 
 First end-to-end run on stubs: `{"runId":1,"stories":3,"broadcast":"sent"}`, 122 history events.
+
+## Live smoke of the runner (one Haiku call, ~$0.002)
+
+```
+docker compose --env-file .env -f digest/compose.temporal.yml run --rm --build --no-deps digest-worker node dist/cli/smoke-stage.js
+```
+
+2026-09-22: `{"structured":{"ok":true},"costUsd":0.0017,"numTurns":2}`. The worker authenticates like the newsroom
+container does, with `CLAUDE_CODE_OAUTH_TOKEN` from the repo-root `.env`; a nested Claude Code session cannot run
+it on the host.

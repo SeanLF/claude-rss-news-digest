@@ -4,6 +4,7 @@
 import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { coherenceReportJsonSchema } from "../contracts/coherence.js";
+import { assertNoUrls } from "../contracts/ids.js";
 import { parseAgentSpec } from "../runner/prompt.js";
 import { runStage } from "../runner/run-stage.js";
 
@@ -37,7 +38,9 @@ export function inlineCorpus(inputDir: string): string {
   const names = readdirSync(inputDir)
     .filter((n) => n === "draft_selections.json" || /^articles_\d+\.csv$/.test(n) || n === "article_fulltext.json")
     .sort();
-  return names.map((n) => `## ${n}\n\n${readFileSync(join(inputDir, n), "utf8")}`).join("\n\n");
+  const corpus = names.map((n) => `## ${n}\n\n${readFileSync(join(inputDir, n), "utf8")}`).join("\n\n");
+  assertNoUrls(corpus); // the no-URL invariant, checked where the text leaves code (spec §1)
+  return corpus;
 }
 
 if (process.argv[1]?.endsWith("run-stage.js")) {

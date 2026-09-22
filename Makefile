@@ -111,13 +111,13 @@ help: ## Show this help
 
 temporal-up: ## Local Temporal 1.32.0 + Postgres + UI (127.0.0.1:8233) + the digest worker (stubs)
 	docker volume create news-digest_claude-sessions >/dev/null  # the login volume the newsroom stack owns; a no-op once it exists
-	docker compose -f digest/compose.temporal.yml up -d --build
+	docker compose --env-file .env -f digest/compose.temporal.yml up -d --build
 
 temporal-down: ## Stop local Temporal; keeps the Postgres volume
-	docker compose -f digest/compose.temporal.yml down
+	docker compose --env-file .env -f digest/compose.temporal.yml down
 
 digest-start: ## Start one DigestWorkflow on local Temporal and wait for it (usage: make digest-start DATE=2026-09-21)
-	docker compose -f digest/compose.temporal.yml run --rm digest-worker node dist/cli/start.js $(DATE)
+	docker compose --env-file .env -f digest/compose.temporal.yml run --rm digest-worker node dist/cli/start.js $(DATE)
 
 digest-schedule: ## Create or update the daily 10:25Z schedule on local Temporal
-	docker compose -f digest/compose.temporal.yml run --rm digest-worker node dist/cli/schedule.js
+	docker compose --env-file .env -f digest/compose.temporal.yml run --rm digest-worker node dist/cli/schedule.js

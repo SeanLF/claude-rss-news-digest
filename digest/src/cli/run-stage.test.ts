@@ -24,4 +24,9 @@ describe("run-stage CLI", () => {
     expect(c).toContain("## draft_selections.json");
     expect(c).not.toContain("coherence_report");
   });
+  it("refuses a corpus that carries a URL", () => {
+    const d = mkdtempSync(join(tmpdir(), "corpus-"));
+    writeFileSync(join(d, "articles_1.csv"), "article_id,title,url\nA1,x,https://example.com/a\n");
+    expect(() => inlineCorpus(d)).toThrow(/URL/);
+  });
 });

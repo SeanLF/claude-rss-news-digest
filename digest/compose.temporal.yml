@@ -58,7 +58,9 @@ services:
     build: { context: .., dockerfile: digest/Dockerfile }
     depends_on:
       temporal-namespace: { condition: service_completed_successfully }
-    environment: { TEMPORAL_ADDRESS: "temporal:7233" }
+    environment:
+      TEMPORAL_ADDRESS: "temporal:7233"
+      CLAUDE_CODE_OAUTH_TOKEN: "${CLAUDE_CODE_OAUTH_TOKEN:-}" # from the repo-root .env via --env-file (Makefile)
     volumes:
       - ../data:/app/data
       - claude-sessions:/home/appuser/.claude
