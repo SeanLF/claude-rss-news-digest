@@ -36,6 +36,12 @@ describe("ArtifactStore on the production run_artifacts schema", () => {
     expect(s.quarantine(300, "recap.txt")).toBe("recap.txt.corrupt.2");
     expect(s.get(s.replace(300, "recap.txt", "better"))).toBe("better");
   });
+  it("names lists a run's artifacts in name order", () => {
+    const s = new ArtifactStore(freshDb([300]));
+    s.put(300, "articles_2.csv", "b");
+    s.put(300, "articles_1.csv", "a");
+    expect(s.names(300)).toEqual(["articles_1.csv", "articles_2.csv"]);
+  });
   it("runDate reads the run's UTC day and refuses an unknown run", () => {
     const s = new ArtifactStore(freshDb([300]));
     expect(s.runDate(300)).toBe("2026-09-18");

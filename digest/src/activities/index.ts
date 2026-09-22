@@ -7,6 +7,12 @@ export interface DigestInput {
   force?: boolean;
   failStage?: "select";
 }
+// One extraction batch: which articles a model call tags. Sized by the data, so the fan-out is a
+// workflow decision over a small payload, not a hidden loop inside one activity.
+export interface ExtractBatch {
+  index: number;
+  ids: string[];
+}
 export interface DigestOutput {
   runId: number;
   stories: number;
@@ -19,7 +25,9 @@ export interface Activities {
   startRun(input: DigestInput): Promise<{ runId: number }>;
   fetchFeed(runId: number, sourceId: string): Promise<Pointer>;
   prepare(runId: number, fetched: Pointer[]): Promise<{ articles: Pointer[]; index: Pointer }>;
-  cluster(runId: number, articles: Pointer[]): Promise<Pointer>;
+  planBatches(runId: number, articles: Pointer[]): Promise<{ batches: ExtractBatch[] }>;
+  extractBatch(runId: number, batch: ExtractBatch, force?: boolean): Promise<Pointer>;
+  joinClusters(runId: number, tagBatches: (Pointer | null)[], force?: boolean): Promise<Pointer>;
   recap(runId: number, force?: boolean): Promise<Pointer>;
   select(runId: number, clusters: Pointer, recap: Pointer, note?: string, input?: DigestInput): Promise<Pointer>;
   fulltext(runId: number, selected: Pointer): Promise<Pointer>;

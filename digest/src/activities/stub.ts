@@ -11,7 +11,9 @@ export function stubActivities(): Activities {
     startRun: (input: DigestInput) => Promise.resolve({ runId: input.resumeRun ?? 1 }),
     fetchFeed: (runId, sourceId) => Promise.resolve(ptr(runId, `feed_${sourceId}.json`)),
     prepare: (runId) => Promise.resolve({ articles: [ptr(runId, "articles_1.csv")], index: ptr(runId, "article_index.json") }),
-    cluster: (runId) => Promise.resolve(ptr(runId, "clusters.json")),
+    planBatches: () => Promise.resolve({ batches: [{ index: 0, ids: ["A1"] }] }),
+    extractBatch: (runId, b) => Promise.resolve(ptr(runId, `cluster_tags_b${b.index}.json`)),
+    joinClusters: (runId) => Promise.resolve(ptr(runId, "clusters.json")),
     recap: (runId) => Promise.resolve(ptr(runId, "recap.txt")),
     select: (runId, _clusters, _recap, _note, input) => {
       if (input?.failStage === "select") return Promise.reject(ApplicationFailure.nonRetryable("select failed for the test", "StubFailure"));

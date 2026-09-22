@@ -1,0 +1,2108 @@
+{
+  "clusters": [
+    {
+      "story": "Suspected serial killer murders of women near Johannesburg",
+      "article_ids": [
+        "A1",
+        "A55",
+        "A93",
+        "A95",
+        "A96",
+        "A103",
+        "A107",
+        "A110",
+        "A117",
+        "A203",
+        "A210",
+        "A211"
+      ]
+    },
+    {
+      "story": "India cricket Sooryavanshi role Sri Lanka series",
+      "article_ids": [
+        "A2",
+        "A584"
+      ]
+    },
+    {
+      "story": "Harry Kane Ballon d'Or candidacy 2026",
+      "article_ids": [
+        "A3",
+        "A384",
+        "A522"
+      ]
+    },
+    {
+      "story": "Russia 2026 parliamentary elections with opposition barred",
+      "article_ids": [
+        "A4",
+        "A14",
+        "A70",
+        "A76",
+        "A137",
+        "A158",
+        "A175",
+        "A177",
+        "A184",
+        "A188",
+        "A200",
+        "A212",
+        "A297",
+        "A300",
+        "A334",
+        "A471",
+        "A488",
+        "A490",
+        "A491",
+        "A589"
+      ]
+    },
+    {
+      "story": "Aid influencers exploiting Nepal flood disaster victims",
+      "article_ids": [
+        "A5",
+        "A301",
+        "A574"
+      ]
+    },
+    {
+      "story": "Israel backlash against NAZA Gaza documentary",
+      "article_ids": [
+        "A6",
+        "A551",
+        "A635"
+      ]
+    },
+    {
+      "story": "ISIL using AI chatbots to bypass safeguards for bomb instructions",
+      "article_ids": [
+        "A7"
+      ]
+    },
+    {
+      "story": "Indonesia acquires first aircraft carrier",
+      "article_ids": [
+        "A8",
+        "A30",
+        "A101",
+        "A369",
+        "A535",
+        "A554"
+      ]
+    },
+    {
+      "story": "South Cotabato Philippines school shooting",
+      "article_ids": [
+        "A9",
+        "A52",
+        "A69",
+        "A309",
+        "A326",
+        "A333",
+        "A335"
+      ]
+    },
+    {
+      "story": "Western sanctions on Israel impact ahead of October elections",
+      "article_ids": [
+        "A10",
+        "A31"
+      ]
+    },
+    {
+      "story": "Yemen war driving fuel and food price increases",
+      "article_ids": [
+        "A11",
+        "A26",
+        "A485"
+      ]
+    },
+    {
+      "story": "Nigeria miners deaths in paramilitary custody protests",
+      "article_ids": [
+        "A12",
+        "A89",
+        "A192",
+        "A362",
+        "A487",
+        "A590"
+      ]
+    },
+    {
+      "story": "Oman Sohar port ship-to-ship oil transfers amid Hormuz blockade",
+      "article_ids": [
+        "A13"
+      ]
+    },
+    {
+      "story": "US allows Iranian leaders to attend UN General Assembly",
+      "article_ids": [
+        "A15",
+        "A27",
+        "A36",
+        "A37",
+        "A56",
+        "A59",
+        "A71",
+        "A123",
+        "A179",
+        "A219",
+        "A294",
+        "A305",
+        "A308",
+        "A342",
+        "A382",
+        "A390",
+        "A397",
+        "A401",
+        "A473",
+        "A483",
+        "A497",
+        "A517",
+        "A528",
+        "A533",
+        "A639"
+      ]
+    },
+    {
+      "story": "South Korea rules out Hormuz military deployment amid US-Iran war",
+      "article_ids": [
+        "A16",
+        "A28",
+        "A29",
+        "A168",
+        "A303",
+        "A363",
+        "A364",
+        "A557"
+      ]
+    },
+    {
+      "story": "Russian strike on Zaporizhzhia shopping centre fire",
+      "article_ids": [
+        "A17"
+      ]
+    },
+    {
+      "story": "Australia crackdown on tourist visa overstayers",
+      "article_ids": [
+        "A18",
+        "A359",
+        "A426"
+      ]
+    },
+    {
+      "story": "US economic squeeze impact on voters ahead of elections",
+      "article_ids": [
+        "A19"
+      ]
+    },
+    {
+      "story": "New tiger cat species Leopardus tilcayo discovered in Bolivia",
+      "article_ids": [
+        "A20",
+        "A213",
+        "A393",
+        "A479",
+        "A494",
+        "A592"
+      ]
+    },
+    {
+      "story": "Bank of Japan interest rate hike to 31-year high",
+      "article_ids": [
+        "A21",
+        "A157",
+        "A159",
+        "A171",
+        "A337",
+        "A345",
+        "A350",
+        "A355",
+        "A360",
+        "A361",
+        "A366",
+        "A367",
+        "A421",
+        "A555",
+        "A650",
+        "A652"
+      ]
+    },
+    {
+      "story": "Tillamook cheese halal label boycott controversy",
+      "article_ids": [
+        "A22"
+      ]
+    },
+    {
+      "story": "Houthi threat to Red Sea shipping during Iran-US war",
+      "article_ids": [
+        "A23",
+        "A128",
+        "A149",
+        "A403",
+        "A529"
+      ]
+    },
+    {
+      "story": "Colombia armed groups drone attacks doubling in 2026",
+      "article_ids": [
+        "A24"
+      ]
+    },
+    {
+      "story": "US veteran protest over Palm Beach County Israeli bonds investment",
+      "article_ids": [
+        "A25"
+      ]
+    },
+    {
+      "story": "Ed Sheeran faces Gaza-related boycott and desertions",
+      "article_ids": [
+        "A32",
+        "A163",
+        "A570",
+        "A576"
+      ]
+    },
+    {
+      "story": "Assad-era Syrian prison official convicted of torture by US court",
+      "article_ids": [
+        "A33",
+        "A503"
+      ]
+    },
+    {
+      "story": "China upgrades Djibouti military base for enhanced regional monitoring",
+      "article_ids": [
+        "A34",
+        "A90",
+        "A399",
+        "A513"
+      ]
+    },
+    {
+      "story": "US approves $24 billion F-35 sale to Saudi Arabia",
+      "article_ids": [
+        "A35",
+        "A39",
+        "A63",
+        "A66",
+        "A121",
+        "A139",
+        "A180",
+        "A186",
+        "A206",
+        "A220",
+        "A290",
+        "A304",
+        "A311",
+        "A357",
+        "A385",
+        "A394",
+        "A415",
+        "A416",
+        "A472",
+        "A477",
+        "A519",
+        "A530",
+        "A647",
+        "A648"
+      ]
+    },
+    {
+      "story": "Turkey detains finance executives amid investment fund market turmoil",
+      "article_ids": [
+        "A38",
+        "A145",
+        "A287",
+        "A404"
+      ]
+    },
+    {
+      "story": "RFK Jr. anti-vaccine stance and HHS role",
+      "article_ids": [
+        "A40",
+        "A122",
+        "A126",
+        "A209",
+        "A408",
+        "A600"
+      ]
+    },
+    {
+      "story": "AI-powered autonomous drone targeting systems military deployment",
+      "article_ids": [
+        "A41",
+        "A238"
+      ]
+    },
+    {
+      "story": "Google CC AI agent family sharing feature launch",
+      "article_ids": [
+        "A42"
+      ]
+    },
+    {
+      "story": "Microsoft OpenAI internal emails on AI scraping and news industry impact",
+      "article_ids": [
+        "A43",
+        "A227",
+        "A376",
+        "A502",
+        "A509"
+      ]
+    },
+    {
+      "story": "Republican bill to mandate ISP and DNS blocking of foreign piracy sites",
+      "article_ids": [
+        "A44"
+      ]
+    },
+    {
+      "story": "SynthID watermarking causing LLMs to comply with harmful prompts",
+      "article_ids": [
+        "A45"
+      ]
+    },
+    {
+      "story": "IV detox drip poisoning outbreak linked to glutathione injections",
+      "article_ids": [
+        "A46"
+      ]
+    },
+    {
+      "story": "2026 Hyundai Ioniq 5 review and reliability concerns",
+      "article_ids": [
+        "A47",
+        "A346"
+      ]
+    },
+    {
+      "story": "OpenAI misalignment tracking framework launch",
+      "article_ids": [
+        "A48",
+        "A204",
+        "A217",
+        "A218",
+        "A235",
+        "A370"
+      ]
+    },
+    {
+      "story": "EPA sued over repeal of climate rules for power plants",
+      "article_ids": [
+        "A49"
+      ]
+    },
+    {
+      "story": "Boeing Starliner return to NASA spaceflight plans",
+      "article_ids": [
+        "A50"
+      ]
+    },
+    {
+      "story": "Dolphin inducing fish vomiting as feeding strategy",
+      "article_ids": [
+        "A51"
+      ]
+    },
+    {
+      "story": "Explosive vehicle attack on mosque in Pakistan killing 16",
+      "article_ids": [
+        "A53",
+        "A92"
+      ]
+    },
+    {
+      "story": "EU proposal for Canada associate membership",
+      "article_ids": [
+        "A54",
+        "A64",
+        "A67",
+        "A72",
+        "A77",
+        "A119",
+        "A132",
+        "A196",
+        "A198",
+        "A291",
+        "A295",
+        "A318",
+        "A320",
+        "A354",
+        "A383",
+        "A423",
+        "A482",
+        "A484",
+        "A496",
+        "A550",
+        "A575",
+        "A598",
+        "A640",
+        "A646"
+      ]
+    },
+    {
+      "story": "Nigerian public share-buying frenzy in Dangote Refinery",
+      "article_ids": [
+        "A57",
+        "A392",
+        "A395"
+      ]
+    },
+    {
+      "story": "Zara Larsson criticizing White House use of her song in deportation video",
+      "article_ids": [
+        "A58"
+      ]
+    },
+    {
+      "story": "Hyrox athlete Joanna Wietrzyk apology and disqualification for racing with diarrhea",
+      "article_ids": [
+        "A60",
+        "A75",
+        "A566"
+      ]
+    },
+    {
+      "story": "Xi Jinping US visit and Xi-Trump summit",
+      "article_ids": [
+        "A61",
+        "A285",
+        "A352",
+        "A372",
+        "A457",
+        "A462",
+        "A465",
+        "A466",
+        "A467",
+        "A506",
+        "A541"
+      ]
+    },
+    {
+      "story": "Aztec manuscript returned to Mexico on loan from France",
+      "article_ids": [
+        "A62",
+        "A102",
+        "A135",
+        "A193",
+        "A199",
+        "A319"
+      ]
+    },
+    {
+      "story": "2032 Brisbane Olympics Fitzroy River venue safety concerns",
+      "article_ids": [
+        "A65"
+      ]
+    },
+    {
+      "story": "Canadian General Jennie Carignan NATO senior post appointment controversy",
+      "article_ids": [
+        "A68",
+        "A84",
+        "A127",
+        "A191",
+        "A205",
+        "A289",
+        "A428",
+        "A432",
+        "A478",
+        "A524"
+      ]
+    },
+    {
+      "story": "Kennedy Center closure and demolition threat legal battle",
+      "article_ids": [
+        "A73",
+        "A125",
+        "A207",
+        "A208",
+        "A405",
+        "A480",
+        "A514"
+      ]
+    },
+    {
+      "story": "OpenAI lawsuit over Tumbler Ridge shooting dismissed",
+      "article_ids": [
+        "A74"
+      ]
+    },
+    {
+      "story": "King Charles warning AI leaders of existential dangers at Scotland summit",
+      "article_ids": [
+        "A78",
+        "A86",
+        "A141",
+        "A214",
+        "A389",
+        "A475",
+        "A526",
+        "A586"
+      ]
+    },
+    {
+      "story": "Analysis of Trump foreign policy causing global crises and Arab ally alienation",
+      "article_ids": [
+        "A79"
+      ]
+    },
+    {
+      "story": "Iran attacking Togolese oil tanker in Strait of Hormuz",
+      "article_ids": [
+        "A80",
+        "A347",
+        "A396",
+        "A649"
+      ]
+    },
+    {
+      "story": "European Parliament vote to suspend dialogue with Cuba over repression",
+      "article_ids": [
+        "A81",
+        "A521"
+      ]
+    },
+    {
+      "story": "Trump-Delcy Rodr\u00edguez meeting at UN General Assembly amid post-Maduro Venezuela diplomacy",
+      "article_ids": [
+        "A82",
+        "A176",
+        "A495",
+        "A641"
+      ]
+    },
+    {
+      "story": "Lula da Silva criticizes Brazil Supreme Court scandals amid election campaign",
+      "article_ids": [
+        "A83",
+        "A88",
+        "A136",
+        "A143",
+        "A510"
+      ]
+    },
+    {
+      "story": "Isabel D\u00edaz Ayuso public funds apartment purchase scandal in Madrid",
+      "article_ids": [
+        "A85"
+      ]
+    },
+    {
+      "story": "Trump military advisors planning combat operations around the Moon",
+      "article_ids": [
+        "A87",
+        "A505"
+      ]
+    },
+    {
+      "story": "Malaysia king allows Najib Razak house arrest to serve out sentence",
+      "article_ids": [
+        "A91",
+        "A284",
+        "A302",
+        "A348",
+        "A356",
+        "A642"
+      ]
+    },
+    {
+      "story": "South Africa Foundation Phase textbook rollout frozen over procurement concerns",
+      "article_ids": [
+        "A94",
+        "A371"
+      ]
+    },
+    {
+      "story": "Rocky Horror themed dinner party guide",
+      "article_ids": [
+        "A97"
+      ]
+    },
+    {
+      "story": "Netflix thriller The Whisper Man review",
+      "article_ids": [
+        "A98"
+      ]
+    },
+    {
+      "story": "Madagascar conservation resilience amid cyclone and environmental pressures",
+      "article_ids": [
+        "A99"
+      ]
+    },
+    {
+      "story": "Waymo announces autonomous ride-hailing launch in Singapore by 2028",
+      "article_ids": [
+        "A100",
+        "A223",
+        "A358",
+        "A625",
+        "A631"
+      ]
+    },
+    {
+      "story": "Madlanga Commission one-year anniversary corroborating KZN police corruption allegations",
+      "article_ids": [
+        "A104",
+        "A105",
+        "A148"
+      ]
+    },
+    {
+      "story": "Dolphin strandings in Gqeberha prompt expert assessment",
+      "article_ids": [
+        "A106",
+        "A108",
+        "A114"
+      ]
+    },
+    {
+      "story": "ANC Eastern Cape election list dispute with Fikile Mbalula ahead of 2026 local elections",
+      "article_ids": [
+        "A109"
+      ]
+    },
+    {
+      "story": "Changes in pension fund investment rules amid inflation and AI bubble",
+      "article_ids": [
+        "A111"
+      ]
+    },
+    {
+      "story": "Makhanda decade-long water crisis with no resolution in sight",
+      "article_ids": [
+        "A112"
+      ]
+    },
+    {
+      "story": "LIV Golf's impact on professional golf and its decline",
+      "article_ids": [
+        "A113"
+      ]
+    },
+    {
+      "story": "Former South African defence minister Mapisa-Nqakula corruption trial cross-examination",
+      "article_ids": [
+        "A115"
+      ]
+    },
+    {
+      "story": "DA candidate Abdulkader Elyas fake qualifications scandal exposed",
+      "article_ids": [
+        "A116"
+      ]
+    },
+    {
+      "story": "US regulators review testosterone therapy for menopausal women",
+      "article_ids": [
+        "A118"
+      ]
+    },
+    {
+      "story": "Republican congresswoman Mar\u00eda Elvira Salazar distances herself from Trump ahead of midterms",
+      "article_ids": [
+        "A120",
+        "A187",
+        "A391",
+        "A499",
+        "A527"
+      ]
+    },
+    {
+      "story": "Trump withdraws ICE director nominee Lance Schroyer",
+      "article_ids": [
+        "A124",
+        "A183",
+        "A476",
+        "A556"
+      ]
+    },
+    {
+      "story": "US-Iran war escalation risks and duration forecast",
+      "article_ids": [
+        "A129",
+        "A202",
+        "A314"
+      ]
+    },
+    {
+      "story": "US weapons sale to Israel faces congressional opposition",
+      "article_ids": [
+        "A130",
+        "A449",
+        "A470",
+        "A654"
+      ]
+    },
+    {
+      "story": "Turkey Erdogan crackdown on LGBTQ+ movement",
+      "article_ids": [
+        "A131"
+      ]
+    },
+    {
+      "story": "Sweden center-left election victory and Kristersson resignation",
+      "article_ids": [
+        "A133",
+        "A307",
+        "A422",
+        "A481",
+        "A601"
+      ]
+    },
+    {
+      "story": "Russian attack on civilian ship in Black Sea",
+      "article_ids": [
+        "A134",
+        "A474"
+      ]
+    },
+    {
+      "story": "India emerging as destination for trafficked exotic wildlife",
+      "article_ids": [
+        "A138",
+        "A378"
+      ]
+    },
+    {
+      "story": "Kosovo war crimes verdict reaction in Serbia",
+      "article_ids": [
+        "A140"
+      ]
+    },
+    {
+      "story": "Jamaica churches as climate change activists",
+      "article_ids": [
+        "A142"
+      ]
+    },
+    {
+      "story": "European populists avoiding criticism of China",
+      "article_ids": [
+        "A144",
+        "A419",
+        "A657"
+      ]
+    },
+    {
+      "story": "AfD electoral momentum challenged in German state election",
+      "article_ids": [
+        "A146",
+        "A296",
+        "A501"
+      ]
+    },
+    {
+      "story": "Turkish visit to Syria causing Israeli security concerns",
+      "article_ids": [
+        "A147"
+      ]
+    },
+    {
+      "story": "Berkshire Hathaway Warren Buffett chairman succession",
+      "article_ids": [
+        "A150"
+      ]
+    },
+    {
+      "story": "Scottish Labour leadership contest",
+      "article_ids": [
+        "A151",
+        "A571"
+      ]
+    },
+    {
+      "story": "Russia seizes Western-owned Nestl\u00e9 and Auchan assets",
+      "article_ids": [
+        "A152",
+        "A658"
+      ]
+    },
+    {
+      "story": "Guide to Impressionist art techniques",
+      "article_ids": [
+        "A153"
+      ]
+    },
+    {
+      "story": "Antichrist discourse in contemporary politics",
+      "article_ids": [
+        "A154"
+      ]
+    },
+    {
+      "story": "Venezuela gold reserve transfer deal to New York",
+      "article_ids": [
+        "A155",
+        "A619"
+      ]
+    },
+    {
+      "story": "Global inflation and interest rates data tracker",
+      "article_ids": [
+        "A156"
+      ]
+    },
+    {
+      "story": "Tata Group boardroom succession dispute",
+      "article_ids": [
+        "A160",
+        "A279",
+        "A402"
+      ]
+    },
+    {
+      "story": "spring bulb planting guide for bold seasonal display",
+      "article_ids": [
+        "A161"
+      ]
+    },
+    {
+      "story": "Greek finance minister urges Germany to implement economic reforms",
+      "article_ids": [
+        "A162"
+      ]
+    },
+    {
+      "story": "UK Number 10 North unit regional growth agenda challenges",
+      "article_ids": [
+        "A164"
+      ]
+    },
+    {
+      "story": "men's personal experiences with GLP-1 weight loss drugs",
+      "article_ids": [
+        "A165"
+      ]
+    },
+    {
+      "story": "fourth generation Zegna family takes over luxury brand leadership",
+      "article_ids": [
+        "A166"
+      ]
+    },
+    {
+      "story": "FTAV further reading digest miscellaneous topics",
+      "article_ids": [
+        "A167"
+      ]
+    },
+    {
+      "story": "UK retail sales rose more than forecast in August 2026",
+      "article_ids": [
+        "A169"
+      ]
+    },
+    {
+      "story": "MPs call for temporary public ownership of Thames Water",
+      "article_ids": [
+        "A170",
+        "A595"
+      ]
+    },
+    {
+      "story": "EU mulls compromise on Usmanov sanctions amid French stand-off",
+      "article_ids": [
+        "A172"
+      ]
+    },
+    {
+      "story": "analysis of interconnections among major AI systems and companies",
+      "article_ids": [
+        "A173",
+        "A644",
+        "A656"
+      ]
+    },
+    {
+      "story": "FT Lessons in Leadership new management series launch",
+      "article_ids": [
+        "A174"
+      ]
+    },
+    {
+      "story": "Spanish police move migrants off Ceuta beaches to new area",
+      "article_ids": [
+        "A178",
+        "A253"
+      ]
+    },
+    {
+      "story": "Russia seizes Nestle and French company assets via Putin decree",
+      "article_ids": [
+        "A181",
+        "A341",
+        "A387"
+      ]
+    },
+    {
+      "story": "\u00c9ric Zemmour announces 2027 French presidential candidacy",
+      "article_ids": [
+        "A182",
+        "A242",
+        "A252"
+      ]
+    },
+    {
+      "story": "France plans \u20ac54 billion public spending cuts to reduce deficit",
+      "article_ids": [
+        "A185",
+        "A243",
+        "A246",
+        "A254",
+        "A532"
+      ]
+    },
+    {
+      "story": "Marseille 4-1 defeat at Besiktas in Europa League opener",
+      "article_ids": [
+        "A189"
+      ]
+    },
+    {
+      "story": "Russian drone strikes injure five including children in Kyiv region",
+      "article_ids": [
+        "A190",
+        "A215",
+        "A343",
+        "A493",
+        "A511"
+      ]
+    },
+    {
+      "story": "French police officer arrested over suspected far-right terror plot",
+      "article_ids": [
+        "A194"
+      ]
+    },
+    {
+      "story": "Russian disinformation campaign targets Democrats ahead of US midterms",
+      "article_ids": [
+        "A195",
+        "A427"
+      ]
+    },
+    {
+      "story": "investigation reveals millions of books fed into AI training without consent",
+      "article_ids": [
+        "A197"
+      ]
+    },
+    {
+      "story": "AI data centres as US midterm election political issue",
+      "article_ids": [
+        "A201"
+      ]
+    },
+    {
+      "story": "Ireland boycotting Eurovision 2027 over Israel participation",
+      "article_ids": [
+        "A216",
+        "A534"
+      ]
+    },
+    {
+      "story": "jemalloc 5.4.0 software release",
+      "article_ids": [
+        "A221"
+      ]
+    },
+    {
+      "story": "x86 emulation challenges technical analysis",
+      "article_ids": [
+        "A222"
+      ]
+    },
+    {
+      "story": "OpenAI internal repository compromise via heap overflow and SSO vulnerability",
+      "article_ids": [
+        "A224"
+      ]
+    },
+    {
+      "story": "Qwen 3.8 Omni Flash AI model release",
+      "article_ids": [
+        "A225",
+        "A230"
+      ]
+    },
+    {
+      "story": "Guide to writing with large language models",
+      "article_ids": [
+        "A226"
+      ]
+    },
+    {
+      "story": "AI impact on sex and relationships societal analysis",
+      "article_ids": [
+        "A228"
+      ]
+    },
+    {
+      "story": "Uber engineering approach to preventing retry storms",
+      "article_ids": [
+        "A229"
+      ]
+    },
+    {
+      "story": "Product management philosophy on avoiding unnecessary features",
+      "article_ids": [
+        "A231"
+      ]
+    },
+    {
+      "story": "Flet 1.0 cross-platform Python app framework release",
+      "article_ids": [
+        "A232",
+        "A553"
+      ]
+    },
+    {
+      "story": "Bend programming language launch for AI-error prevention via proof",
+      "article_ids": [
+        "A233"
+      ]
+    },
+    {
+      "story": "Japan centenarian population surpassing 100,000",
+      "article_ids": [
+        "A234",
+        "A365"
+      ]
+    },
+    {
+      "story": "Commentary on widespread online irrationality and lost minds",
+      "article_ids": [
+        "A236"
+      ]
+    },
+    {
+      "story": "Richard Stallman 2001 commentary on post-9/11 deaths and civil liberties",
+      "article_ids": [
+        "A237"
+      ]
+    },
+    {
+      "story": "Infinite-parameter LLM weight generation research paper",
+      "article_ids": [
+        "A239"
+      ]
+    },
+    {
+      "story": "Hister private personal search engine release",
+      "article_ids": [
+        "A240"
+      ]
+    },
+    {
+      "story": "d\u00e9bat scientifique sur le risque existentiel de l'intelligence artificielle",
+      "article_ids": [
+        "A241",
+        "A275"
+      ]
+    },
+    {
+      "story": "Iran attaque p\u00e9trolier d\u00e9troit d'Ormuz baisse trafic maritime",
+      "article_ids": [
+        "A244"
+      ]
+    },
+    {
+      "story": "film chinois Bienvenue au restaurant Le Dragon propagande anti-am\u00e9ricaine",
+      "article_ids": [
+        "A245",
+        "A273"
+      ]
+    },
+    {
+      "story": "proc\u00e8s meurtre Federico Aramburu expertise psychiatrique Lo\u00efk Le Priol",
+      "article_ids": [
+        "A247"
+      ]
+    },
+    {
+      "story": "\u00e9lections l\u00e9gislatives russes 2025 contexte guerre Ukraine",
+      "article_ids": [
+        "A248"
+      ]
+    },
+    {
+      "story": "\u00e9lections l\u00e9gislatives isra\u00e9liennes octobre 2025 divisions opposition",
+      "article_ids": [
+        "A249"
+      ]
+    },
+    {
+      "story": "violences \u00e9conomiques conjugales prise en charge bancaire femmes victimes",
+      "article_ids": [
+        "A250"
+      ]
+    },
+    {
+      "story": "inauguration site stockage CO2 grande \u00e9chelle Danemark Ineos",
+      "article_ids": [
+        "A251"
+      ]
+    },
+    {
+      "story": "journ\u00e9es europ\u00e9ennes patrimoine 2025 \u00e9dition 43",
+      "article_ids": [
+        "A255"
+      ]
+    },
+    {
+      "story": "infographies W.E.B. Du Bois Exposition universelle 1900 cause afro-am\u00e9ricaine",
+      "article_ids": [
+        "A256"
+      ]
+    },
+    {
+      "story": "Toyota d\u00e9ploiement 400000 robots usines",
+      "article_ids": [
+        "A257",
+        "A344"
+      ]
+    },
+    {
+      "story": "yen japonais fluctuations face dollar contexte resserrement BOJ",
+      "article_ids": [
+        "A258",
+        "A259",
+        "A260",
+        "A270",
+        "A274"
+      ]
+    },
+    {
+      "story": "Applied Materials investissement 5 milliards dollars Inde semi-conducteurs",
+      "article_ids": [
+        "A261",
+        "A266"
+      ]
+    },
+    {
+      "story": "Kodak premi\u00e8re marque cam\u00e9ra Japon succ\u00e8s G\u00e9n\u00e9ration Z",
+      "article_ids": [
+        "A262"
+      ]
+    },
+    {
+      "story": "investissements actions m\u00e9nages japonais d\u00e9passent assurance pensions",
+      "article_ids": [
+        "A263"
+      ]
+    },
+    {
+      "story": "Honda acc\u00e9l\u00e9ration production hybrides nouvelle g\u00e9n\u00e9ration r\u00e9vision strat\u00e9gie EV",
+      "article_ids": [
+        "A264"
+      ]
+    },
+    {
+      "story": "Cor\u00e9e du Sud Lee refuse d\u00e9ploiement militaire combat Moyen-Orient",
+      "article_ids": [
+        "A265",
+        "A277"
+      ]
+    },
+    {
+      "story": "artistes J-pop perte royalties \u00e9trangers failles syst\u00e8me international",
+      "article_ids": [
+        "A267"
+      ]
+    },
+    {
+      "story": "Forge Nano fabricant outils puces am\u00e9ricain parie sur Ta\u00efwan production",
+      "article_ids": [
+        "A268"
+      ]
+    },
+    {
+      "story": "AirAsia chute actions 21 pour cent craintes financement",
+      "article_ids": [
+        "A269",
+        "A353"
+      ]
+    },
+    {
+      "story": "s\u00e9isme Indon\u00e9sie cons\u00e9quences plans \u00e9conomiques Prabowo",
+      "article_ids": [
+        "A271",
+        "A286"
+      ]
+    },
+    {
+      "story": "DeepWay soutenu Baidu licence technologie camions \u00e9lectriques Europe",
+      "article_ids": [
+        "A272"
+      ]
+    },
+    {
+      "story": "Nikkei Asia alerte Global Hawk drone disparu salle r\u00e9daction",
+      "article_ids": [
+        "A276",
+        "A282",
+        "A283"
+      ]
+    },
+    {
+      "story": "Takaichi nouveau cabinet Japan consolidation base politique",
+      "article_ids": [
+        "A278"
+      ]
+    },
+    {
+      "story": "Nitori strat\u00e9gie nouveaux magasins Chine priorit\u00e9 arts de table sur meubles",
+      "article_ids": [
+        "A280"
+      ]
+    },
+    {
+      "story": "Android gains market share in Japan amid iPhone price increases",
+      "article_ids": [
+        "A281"
+      ]
+    },
+    {
+      "story": "Taiwan dollar and South Korean won strength amid AI boom",
+      "article_ids": [
+        "A288",
+        "A542"
+      ]
+    },
+    {
+      "story": "AI-powered chatbot for maternal health in Kenya",
+      "article_ids": [
+        "A292"
+      ]
+    },
+    {
+      "story": "Beijing baozi food culture feature",
+      "article_ids": [
+        "A293",
+        "A407",
+        "A540"
+      ]
+    },
+    {
+      "story": "Macron and Carney visit to Saint Pierre and Miquelon raises territory profile",
+      "article_ids": [
+        "A298"
+      ]
+    },
+    {
+      "story": "Rise of preppy conservative youth culture in Spain",
+      "article_ids": [
+        "A299"
+      ]
+    },
+    {
+      "story": "Israel E1 settlement project in West Bank threatening Palestinian statehood",
+      "article_ids": [
+        "A306"
+      ]
+    },
+    {
+      "story": "Two players attempt to complete Campaign for North Africa board game",
+      "article_ids": [
+        "A310"
+      ]
+    },
+    {
+      "story": "Rise of cross-cultural comedians taking regional humor global",
+      "article_ids": [
+        "A312",
+        "A544"
+      ]
+    },
+    {
+      "story": "Racial disparities in FEMA flood buyout program",
+      "article_ids": [
+        "A313"
+      ]
+    },
+    {
+      "story": "Afghan sentenced after mixed verdict in 2021 Kabul attack case",
+      "article_ids": [
+        "A315"
+      ]
+    },
+    {
+      "story": "Suspect in London bus pushing attack found dead",
+      "article_ids": [
+        "A316",
+        "A594"
+      ]
+    },
+    {
+      "story": "New Budapest play signals cultural reawakening in Hungary under Orban",
+      "article_ids": [
+        "A317"
+      ]
+    },
+    {
+      "story": "AI-assisted coastline restoration using satellite imagery",
+      "article_ids": [
+        "A321"
+      ]
+    },
+    {
+      "story": "Philippine Ombudsman investigation into DICT ghost internet projects",
+      "article_ids": [
+        "A322"
+      ]
+    },
+    {
+      "story": "Philippines fight against POGOs and human trafficking",
+      "article_ids": [
+        "A323"
+      ]
+    },
+    {
+      "story": "Sara Duterte impeachment trial legal representation",
+      "article_ids": [
+        "A324",
+        "A538"
+      ]
+    },
+    {
+      "story": "Villar family graft complaints over PrimeWater government contracts",
+      "article_ids": [
+        "A325"
+      ]
+    },
+    {
+      "story": "BARMM post-election coalition building and governance",
+      "article_ids": [
+        "A327"
+      ]
+    },
+    {
+      "story": "China Coast Guard ramming of Philippine vessel in West Philippine Sea",
+      "article_ids": [
+        "A328",
+        "A349"
+      ]
+    },
+    {
+      "story": "EDSA Busway 2027 budget funding appeal",
+      "article_ids": [
+        "A329",
+        "A331"
+      ]
+    },
+    {
+      "story": "Fact check on claims Bato dela Rosa is under Trump protection",
+      "article_ids": [
+        "A330"
+      ]
+    },
+    {
+      "story": "Proposal for robot tax to redistribute automation wealth",
+      "article_ids": [
+        "A332"
+      ]
+    },
+    {
+      "story": "France investigation into smart glasses misuse in sexual harassment",
+      "article_ids": [
+        "A336",
+        "A489"
+      ]
+    },
+    {
+      "story": "Aramco boost in Gulf oil exports September-October",
+      "article_ids": [
+        "A338"
+      ]
+    },
+    {
+      "story": "SK Hynix Solidigm weighing NAND chip factory in United States",
+      "article_ids": [
+        "A339"
+      ]
+    },
+    {
+      "story": "China's CXMT flash memory expansion challenging Samsung and YMTC",
+      "article_ids": [
+        "A340"
+      ]
+    },
+    {
+      "story": "China refined fuel exports surpassing pre-Iran war levels",
+      "article_ids": [
+        "A351",
+        "A380"
+      ]
+    },
+    {
+      "story": "Anthropic Claude AI leading quarter of model development work",
+      "article_ids": [
+        "A368",
+        "A375",
+        "A486",
+        "A508",
+        "A626",
+        "A627",
+        "A632"
+      ]
+    },
+    {
+      "story": "Apple Pay India rollout with Axis Bank",
+      "article_ids": [
+        "A373",
+        "A628"
+      ]
+    },
+    {
+      "story": "Disney cites Trump press threats to block FCC action",
+      "article_ids": [
+        "A374",
+        "A398",
+        "A507"
+      ]
+    },
+    {
+      "story": "Berlin city election housing crisis focus",
+      "article_ids": [
+        "A377",
+        "A492"
+      ]
+    },
+    {
+      "story": "Iran conflict oil market uncertainty JP Morgan assessment",
+      "article_ids": [
+        "A379"
+      ]
+    },
+    {
+      "story": "LNG Canada Phase 2 expansion approval timeline",
+      "article_ids": [
+        "A381"
+      ]
+    },
+    {
+      "story": "US-bound vessels compromised by hackers",
+      "article_ids": [
+        "A386",
+        "A525"
+      ]
+    },
+    {
+      "story": "Lockheed Martin receives Patriot interceptor parts from General Motors",
+      "article_ids": [
+        "A388",
+        "A414"
+      ]
+    },
+    {
+      "story": "Amway $225 million settlement over deceiving recruits",
+      "article_ids": [
+        "A400",
+        "A653"
+      ]
+    },
+    {
+      "story": "US-China top diplomats call on high-level interactions",
+      "article_ids": [
+        "A406",
+        "A464"
+      ]
+    },
+    {
+      "story": "Lenovo ends US patent lawsuit against Asus over laptops",
+      "article_ids": [
+        "A409"
+      ]
+    },
+    {
+      "story": "SEC five-year exemption for tokenized stock trading",
+      "article_ids": [
+        "A410"
+      ]
+    },
+    {
+      "story": "Xpeng plans to offer tech solutions to foreign automakers",
+      "article_ids": [
+        "A411"
+      ]
+    },
+    {
+      "story": "US uranium investment deal in Niger",
+      "article_ids": [
+        "A412"
+      ]
+    },
+    {
+      "story": "Nebius raises AI cloud prices amid surging demand",
+      "article_ids": [
+        "A413"
+      ]
+    },
+    {
+      "story": "Amazon calls for AI safety rigorous testing and safeguards",
+      "article_ids": [
+        "A417"
+      ]
+    },
+    {
+      "story": "Rising oil prices and rates fueling stagflation fears in markets",
+      "article_ids": [
+        "A418"
+      ]
+    },
+    {
+      "story": "US labor market strength amid rising mortgage housing pressure",
+      "article_ids": [
+        "A420",
+        "A638"
+      ]
+    },
+    {
+      "story": "GlobalFoundries and Marvell expand chip capacity deal for AI data centers",
+      "article_ids": [
+        "A424"
+      ]
+    },
+    {
+      "story": "Exxon raises 2050 global emissions forecast",
+      "article_ids": [
+        "A425"
+      ]
+    },
+    {
+      "story": "CoreWeave launches $3 billion convertible debt sale",
+      "article_ids": [
+        "A429"
+      ]
+    },
+    {
+      "story": "Pakistan austerity measures amid Gulf conflict energy crisis",
+      "article_ids": [
+        "A430",
+        "A431",
+        "A560"
+      ]
+    },
+    {
+      "story": "Hong Kong debut five-year plan and 2026 policy address",
+      "article_ids": [
+        "A433",
+        "A434",
+        "A435",
+        "A436",
+        "A437",
+        "A438",
+        "A440",
+        "A441",
+        "A442",
+        "A443",
+        "A444",
+        "A445",
+        "A446",
+        "A447",
+        "A448",
+        "A450",
+        "A451",
+        "A452",
+        "A453",
+        "A454",
+        "A455",
+        "A655"
+      ]
+    },
+    {
+      "story": "Ngong Ping 360 cable car opening 2006 anniversary archive",
+      "article_ids": [
+        "A439"
+      ]
+    },
+    {
+      "story": "China mysterious Shanghai vessel assessed as underwater drone mothership",
+      "article_ids": [
+        "A456"
+      ]
+    },
+    {
+      "story": "North Korea nuclear tests activating fault lines near Mount Paektu",
+      "article_ids": [
+        "A458",
+        "A498",
+        "A643"
+      ]
+    },
+    {
+      "story": "China mass production of super-cooling wall paint",
+      "article_ids": [
+        "A459"
+      ]
+    },
+    {
+      "story": "Theory of Chinese explorers settling New Zealand before Maori",
+      "article_ids": [
+        "A460"
+      ]
+    },
+    {
+      "story": "DNA study of Xinjiang ancient tomb inhabitants linked to Yellow River farmers",
+      "article_ids": [
+        "A461"
+      ]
+    },
+    {
+      "story": "US pressure on Brazil to review Anglo American nickel sale to China",
+      "article_ids": [
+        "A463"
+      ]
+    },
+    {
+      "story": "Pew survey on AI regulation trust China vs US and EU",
+      "article_ids": [
+        "A468",
+        "A633"
+      ]
+    },
+    {
+      "story": "Xiangshan Forum warnings against Japan military build-up",
+      "article_ids": [
+        "A469"
+      ]
+    },
+    {
+      "story": "Golden retriever pesters burglar with toys",
+      "article_ids": [
+        "A500"
+      ]
+    },
+    {
+      "story": "Man sentenced for assaulting US Representative Ilhan Omar",
+      "article_ids": [
+        "A504"
+      ]
+    },
+    {
+      "story": "Daily news roundup September 18 2026",
+      "article_ids": [
+        "A512",
+        "A624"
+      ]
+    },
+    {
+      "story": "Ebola outbreak in Democratic Republic of Congo 2026",
+      "article_ids": [
+        "A515"
+      ]
+    },
+    {
+      "story": "Islamist militant attack kills 15 in northern Cameroon",
+      "article_ids": [
+        "A516"
+      ]
+    },
+    {
+      "story": "Ukraine record defence spending plan for 2027",
+      "article_ids": [
+        "A518"
+      ]
+    },
+    {
+      "story": "South Sudan Sudan border tribal clashes kill 26 in Abyei",
+      "article_ids": [
+        "A520"
+      ]
+    },
+    {
+      "story": "US officials visit Myanmar to free detained American Adam Castillo",
+      "article_ids": [
+        "A523"
+      ]
+    },
+    {
+      "story": "Irish PM condemns assault on lawmaker amid concerns over political hostility",
+      "article_ids": [
+        "A531"
+      ]
+    },
+    {
+      "story": "Thailand failure to prosecute Mauerberger network members",
+      "article_ids": [
+        "A536"
+      ]
+    },
+    {
+      "story": "Malaysia refusal to extradite Zakir Naik to India",
+      "article_ids": [
+        "A537"
+      ]
+    },
+    {
+      "story": "US Pacific Islands policy analysis and critique",
+      "article_ids": [
+        "A539"
+      ]
+    },
+    {
+      "story": "US deploys on-orbit space control weapons escalating space arms race",
+      "article_ids": [
+        "A543"
+      ]
+    },
+    {
+      "story": "UN adopts Equal Earth map projection over Mercator",
+      "article_ids": [
+        "A545"
+      ]
+    },
+    {
+      "story": "Documentary on Salman Rushdie's survival after stabbing attack",
+      "article_ids": [
+        "A546"
+      ]
+    },
+    {
+      "story": "Delhi sex workers struck off electoral rolls in Modi voter list purge",
+      "article_ids": [
+        "A547"
+      ]
+    },
+    {
+      "story": "Personal account of surviving being buried in avalanche",
+      "article_ids": [
+        "A548"
+      ]
+    },
+    {
+      "story": "MobLand season two television review",
+      "article_ids": [
+        "A549"
+      ]
+    },
+    {
+      "story": "Asian governments preparing for supersized El Ni\u00f1o event",
+      "article_ids": [
+        "A552"
+      ]
+    },
+    {
+      "story": "Writers demand proof of life for disappeared Eritrean authors",
+      "article_ids": [
+        "A558"
+      ]
+    },
+    {
+      "story": "Ms Rachel matches Macklemore 1 million dollar Palestine aid donation",
+      "article_ids": [
+        "A559"
+      ]
+    },
+    {
+      "story": "Teqball debut at Asian Games",
+      "article_ids": [
+        "A561"
+      ]
+    },
+    {
+      "story": "Gordon Parks Foundation 20th anniversary exhibition",
+      "article_ids": [
+        "A562"
+      ]
+    },
+    {
+      "story": "House of Lords relaxes dress code tie rules",
+      "article_ids": [
+        "A563"
+      ]
+    },
+    {
+      "story": "Guardian AI existential risk reader Q&A",
+      "article_ids": [
+        "A564",
+        "A591",
+        "A614"
+      ]
+    },
+    {
+      "story": "Santnerpass Dolomites mountain hut travel feature",
+      "article_ids": [
+        "A565"
+      ]
+    },
+    {
+      "story": "Week in wildlife photography roundup",
+      "article_ids": [
+        "A567",
+        "A583"
+      ]
+    },
+    {
+      "story": "Remigration policy debate and Slovenia 1992 erasure precedent",
+      "article_ids": [
+        "A568"
+      ]
+    },
+    {
+      "story": "Generation Z transition to adulthood economic challenges",
+      "article_ids": [
+        "A569"
+      ]
+    },
+    {
+      "story": "Andrew Griffith appointed Conservative shadow chancellor",
+      "article_ids": [
+        "A572"
+      ]
+    },
+    {
+      "story": "Paid political influencers transparency regulation debate",
+      "article_ids": [
+        "A573"
+      ]
+    },
+    {
+      "story": "England football squad announcement with Alexander-Arnold and Palmer",
+      "article_ids": [
+        "A577"
+      ]
+    },
+    {
+      "story": "Premier League weekend fixtures preview",
+      "article_ids": [
+        "A578"
+      ]
+    },
+    {
+      "story": "Todd Boehly exits Chelsea FC ownership role",
+      "article_ids": [
+        "A579"
+      ]
+    },
+    {
+      "story": "Nigel Short chess tournament at South Pole climate controversy",
+      "article_ids": [
+        "A580"
+      ]
+    },
+    {
+      "story": "England Red Roses women's rugby Canada rivalry post-World Cup",
+      "article_ids": [
+        "A581"
+      ]
+    },
+    {
+      "story": "Sydney Sweeney sports culture war debate",
+      "article_ids": [
+        "A582"
+      ]
+    },
+    {
+      "story": "Buffalo Bills defeat Detroit Lions in new stadium opening",
+      "article_ids": [
+        "A585"
+      ]
+    },
+    {
+      "story": "Iranian actress Laheh Marzban threatened after Venice Film Festival speech",
+      "article_ids": [
+        "A587"
+      ]
+    },
+    {
+      "story": "Global initiative to fight extreme inequality launched by economists",
+      "article_ids": [
+        "A588"
+      ]
+    },
+    {
+      "story": "Ethiopia Green Legacy Initiative tree planting campaign",
+      "article_ids": [
+        "A593"
+      ]
+    },
+    {
+      "story": "Meta ordered to remove UK deepfakes by oversight board",
+      "article_ids": [
+        "A596"
+      ]
+    },
+    {
+      "story": "Green Party Zionism is racism motion debate ahead of conference",
+      "article_ids": [
+        "A597"
+      ]
+    },
+    {
+      "story": "American Airlines passenger duct-taped to seat incident",
+      "article_ids": [
+        "A599"
+      ]
+    },
+    {
+      "story": "Mahmoud Khalil ICE detention and book publication",
+      "article_ids": [
+        "A602"
+      ]
+    },
+    {
+      "story": "2026 Bowness Photography Prize announcement",
+      "article_ids": [
+        "A603",
+        "A615"
+      ]
+    },
+    {
+      "story": "Pulp documentary film review",
+      "article_ids": [
+        "A604"
+      ]
+    },
+    {
+      "story": "Best of the Best Bollywood film review",
+      "article_ids": [
+        "A605"
+      ]
+    },
+    {
+      "story": "Monster Lizzie Borden Story TV series review",
+      "article_ids": [
+        "A606"
+      ]
+    },
+    {
+      "story": "50 Years of Punk documentary review",
+      "article_ids": [
+        "A607"
+      ]
+    },
+    {
+      "story": "Baka Beyond Sing the World Awake album review",
+      "article_ids": [
+        "A608"
+      ]
+    },
+    {
+      "story": "Exaudi Pocket Universe album review",
+      "article_ids": [
+        "A609"
+      ]
+    },
+    {
+      "story": "Beabadoobee Pylon album review",
+      "article_ids": [
+        "A610"
+      ]
+    },
+    {
+      "story": "Opus13 Mendelssohn and Grieg album review",
+      "article_ids": [
+        "A611"
+      ]
+    },
+    {
+      "story": "Beck musician Q&A interview",
+      "article_ids": [
+        "A612"
+      ]
+    },
+    {
+      "story": "My Year in Paris With Gertrude Stein audiobook review",
+      "article_ids": [
+        "A613"
+      ]
+    },
+    {
+      "story": "British rapper Sway death aged 44",
+      "article_ids": [
+        "A616"
+      ]
+    },
+    {
+      "story": "Bonnie Greer obituary",
+      "article_ids": [
+        "A617"
+      ]
+    },
+    {
+      "story": "Public domain literary characters horror film exploitation trend",
+      "article_ids": [
+        "A618"
+      ]
+    },
+    {
+      "story": "Helen Goh blackcurrant vanilla finger buns recipe",
+      "article_ids": [
+        "A620"
+      ]
+    },
+    {
+      "story": "Rise of sophisticated adult nonalcoholic soft drinks trend",
+      "article_ids": [
+        "A621"
+      ]
+    },
+    {
+      "story": "Advice column on loneliness manosphere influence on young men",
+      "article_ids": [
+        "A622"
+      ]
+    },
+    {
+      "story": "Adults making new friends and combating social isolation feature",
+      "article_ids": [
+        "A623"
+      ]
+    },
+    {
+      "story": "Xbox disc-to-digital game conversion feature launch",
+      "article_ids": [
+        "A629"
+      ]
+    },
+    {
+      "story": "Camp Snap 110D retro digital camera launch",
+      "article_ids": [
+        "A630"
+      ]
+    },
+    {
+      "story": "Lunacy Audio Nova AI music plugin platform launch",
+      "article_ids": [
+        "A634"
+      ]
+    },
+    {
+      "story": "Russia string of daring plots targeting Western officials",
+      "article_ids": [
+        "A636"
+      ]
+    },
+    {
+      "story": "US gas prices rise forecast amid Trump administration messaging",
+      "article_ids": [
+        "A637"
+      ]
+    },
+    {
+      "story": "Houthi offensive driving oil price surge amid Trump-Iran war",
+      "article_ids": [
+        "A645"
+      ]
+    },
+    {
+      "story": "Stellantis Canada factory sale sparking strike threat from Unifor",
+      "article_ids": [
+        "A651"
+      ]
+    },
+    {
+      "story": "Best high-yield savings account rates September 2026",
+      "article_ids": [
+        "A659"
+      ]
+    }
+  ]
+}
