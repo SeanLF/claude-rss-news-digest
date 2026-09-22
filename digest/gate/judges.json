@@ -1,1 +1,4 @@
-[]
+[
+  { "name": "claude-opus-5", "family": "anthropic", "command": ["claude", "-p", "--model", "claude-opus-5", "--output-format", "text", "--permission-mode", "dontAsk", "--allowedTools", "Read,Grep,Glob", "--add-dir", "{inputsDir}"] },
+  { "name": "codex", "family": "openai", "command": ["codex", "exec", "--skip-git-repo-check", "-s", "read-only", "-C", "{inputsDir}"] }
+]

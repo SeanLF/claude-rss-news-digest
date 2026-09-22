@@ -18,15 +18,24 @@ describe("judge", () => {
     expect(await j.run("<p>x</p>", "/inputs")).toEqual([{ story: 0, criterion: 1, pass: true, reason: "r" }]);
   });
   it("the digest reaches the judge with every href and bare URL removed", async () => {
-    const html = '<a href="https://example.com/x?a=1">Reuters</a> see http://news.test/p and <img src=\'https://i.test/a.png\'>';
-    expect(stripUrls(html)).toBe("<a>Reuters</a> see [link] and <img>");
+    const html = '<a href="https://example.com/x?a=1">Reuters</a> see http://news.test/p and <img src=\'https://i.test/a.png\'> or //cdn.test/y';
+    expect(stripUrls(html)).toBe("<a>Reuters</a> see [link] and <img> or [link]");
     const echo = cliJudge("echo", "openai", ["node", "-e", "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{const i=JSON.parse(s);console.log(JSON.stringify([{story:0,criterion:7,pass:!/https?:/.test(i.digest),reason:i.digest}]))})"]);
     const [v] = await echo.run(html, "/inputs");
-    expect(v).toMatchObject({ pass: true, reason: "<a>Reuters</a> see [link] and <img>" });
+    expect(v).toMatchObject({ pass: true, reason: "<a>Reuters</a> see [link] and <img> or [link]" });
   });
   it("a judge that hangs is killed at the timeout", async () => {
     const slow = cliJudge("slow", "google", ["node", "-e", "setTimeout(()=>{}, 60000)"], 300);
     await expect(slow.run("<p/>", "/x")).rejects.toThrow(/exceeded 300 ms/);
+  });
+  it("substitutes {inputsDir} into the command so a CLI can read the inputs", async () => {
+    const j = cliJudge("args", "openai", ["node", "-e", "console.log(JSON.stringify([{story:0,criterion:1,pass:process.argv[1]==='/in/here',reason:process.argv[1]}]))", "{inputsDir}"]);
+    expect(await j.run("<p/>", "/in/here")).toEqual([{ story: 0, criterion: 1, pass: true, reason: "/in/here" }]);
+  });
+  it("a command that cannot be spawned rejects at once and leaves no timer running", async () => {
+    const t0 = Date.now();
+    await expect(cliJudge("nope", "google", ["/no/such/binary"], 5_000).run("<p/>", "/x")).rejects.toThrow(/ENOENT/);
+    expect(Date.now() - t0).toBeLessThan(2_000);
   });
   it("a non-zero exit is an error, not an empty verdict list", async () => {
     await expect(cliJudge("bad", "google", ["node", "-e", "process.exit(3)"]).run("<p/>", "/x")).rejects.toThrow(/exited 3/);

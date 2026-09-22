@@ -17,14 +17,14 @@ export const JUDGE_TIMEOUT_MS = 10 * 60_000;
 // The judge sees the digest and the article CSVs, never URLs (spec §7.1): every href and every
 // bare URL in the rendered digest is replaced before it leaves code, and the payload is checked.
 export function stripUrls(html: string): string {
-  return html.replace(/\s(href|src|action)=("[^"]*"|'[^']*')/gi, "").replace(/https?:\/\/[^\s"'<>)]+/gi, "[link]");
+  return html.replace(/\s(href|src|action)=("[^"]*"|'[^']*')/gi, "").replace(/(?:https?:)?\/\/[a-z0-9.-]+\.[a-z]{2,}[^\s"'<>)]*/gi, "[link]");
 }
 
 // The outermost [...] in chatty stdout, validated cell by cell.
 export function parseVerdicts(stdout: string): JudgeVerdict[] {
   const start = stdout.indexOf("[");
   const end = stdout.lastIndexOf("]");
-  if (start < 0 || end < start) throw new Error("judge returned no JSON array");
+  if (start < 0 || end < start) throw new Error(`judge returned no JSON array; stdout began: ${JSON.stringify(stdout.slice(0, 400))}`);
   const parsed: unknown = JSON.parse(stdout.slice(start, end + 1));
   if (!Array.isArray(parsed)) throw new Error("judge returned no JSON array");
   return parsed.map((v: unknown, i) => {
@@ -42,7 +42,9 @@ export function cliJudge(name: string, family: Judge["family"], command: string[
     family,
     run: (digestHtml, inputsDir) =>
       new Promise((resolve, reject) => {
-        const [cmd, ...args] = command;
+        // `{inputsDir}` in an argument is the judge's input directory: a CLI needs it to read the
+        // article CSVs (claude --add-dir, codex -C) and a static judges.json cannot know it.
+        const [cmd, ...args] = command.map((a) => a.replaceAll("{inputsDir}", inputsDir));
         if (!cmd) return reject(new Error("empty judge command"));
         // A nested Claude Code session refuses `claude -p`; the judge is its own process.
         const { CLAUDECODE: _c, ...env } = process.env;
@@ -57,7 +59,10 @@ export function cliJudge(name: string, family: Judge["family"], command: string[
         p.stdout.on("data", (d: Buffer) => {
           out += d.toString();
         });
-        p.on("error", reject);
+        p.on("error", (e) => {
+          clearTimeout(timer);
+          reject(e);
+        });
         p.on("close", (code) => {
           clearTimeout(timer);
           if (code !== 0) return reject(new Error(`${name} exited ${code}`));
