@@ -25,6 +25,7 @@ import json
 import logging
 import re
 
+import prompts
 import threads
 from claude_agent_sdk import ThinkingConfig
 from config import DEFAULT_MODEL
@@ -61,25 +62,17 @@ _LB_STOP = frozenset(
 
 logger = logging.getLogger(__name__)
 
-EVOLVE_SYSTEM = """You maintain an EVOLVING daily digest thread for ONE ongoing news story. You are given RECENT UPDATES (what's already been reported to readers on prior days) + OPEN QUESTIONS, and TODAY'S source articles.
 
-CRITICAL GROUNDING RULE: RECENT UPDATES are MEMORY -- they tell you what's ALREADY been reported so you can identify what is genuinely NEW today and avoid repeating it. Every fact you put in `whats_new` MUST be stated in TODAY'S articles, and you MUST record the exact today-article ID(s) that state it in that fact's `sources` list. NEVER carry a fact from RECENT UPDATES into whats_new -- if a development isn't in today's articles, it is not today's news. `resolved` and `still_open` may reference prior context; `whats_new` may NOT.
+def synthesis_system() -> str:
+    return prompts.load_prompt_text("thread-synthesis")
 
-WHERE IDs GO: article IDs are internal bookkeeping and are shown to NOBODY. They belong in the `sources` list ONLY. NO prose field may contain an article ID -- not `fact`, not `new_questions`, not `still_open`, not a `resolved` entry's `question` or `how`. No "A238", no "(A238)", no "according to A238", no "[A238]". Every one of those strings ships verbatim to readers (facts as the story's summary, questions on the public thread page), so an ID written into any of them is a visible defect. Attribute in prose by OUTLET NAME ("according to Reuters") or not at all.
-
-Produce today's installment:
-- whats_new: today's genuinely NEW developments (not already in RECENT UPDATES). ORDER THEM MOST IMPORTANT FIRST, and write each as ONE clean, self-contained sentence a reader could see as the story's update -- because the top few will be shown verbatim as today's summary. EACH must be grounded in and cite today's articles (verifiable from the cited article alone). If nothing is new, return [].
-- resolved: which OPEN QUESTIONS today's articles now answer, and how (cite today's article). Use the EXACT wording of the open question you are resolving.
-- new_questions: new open questions today's developments raise.
-- still_open: prior open questions still unanswered (use their exact wording).
-Invent nothing; preserve disagreement.
-Output ONLY JSON: {"whats_new": [{"fact": "...", "sources": ["A1"]}], "resolved": [{"question": "...", "how": "..."}], "new_questions": ["..."], "still_open": ["..."]}"""
 
 SUMMARY_CHARS = 400  # how much of each article summary to feed the synthesis/audit prompts
 
-AUDIT_SYSTEM = """You are a strict fact-checker. You are given CLAIMS, each with the FULL TEXT of the source article(s) it cites. For each claim decide if it is SUPPORTED by its cited source text ALONE (the specific -- number/name/date/quote -- must actually appear or be directly entailed). If the cited text does not support it, mark supported=false.
-Return ONE verdict per claim: N claims means N verdicts, ids 1..N, none omitted or merged.
-Output ONLY JSON: {"verdicts": [{"id": 1, "supported": true}, {"id": 2, "supported": false, "issue": "short reason"}]}"""
+
+def audit_system() -> str:
+    return prompts.load_prompt_text("thread-audit")
+
 
 # Appended for the second attempt. Worded impersonally on purpose: _run_sonnet starts a FRESH
 # query() with no resume, so the model reading this never saw the reply being described. The
@@ -341,7 +334,7 @@ def synthesize_installment(
     prior = f"RECENT UPDATES:\n{updates}\nOPEN QUESTIONS:\n{questions}"
     user = f"{prior}\n\nTODAY'S SOURCE ARTICLES:\n{_bundle(article_ids, arts)}"
     return _parse_json(
-        _run_sonnet(user, EVOLVE_SYSTEM, model=model, subagent="thread_synthesis", usage_rows=usage_rows)
+        _run_sonnet(user, synthesis_system(), model=model, subagent="thread_synthesis", usage_rows=usage_rows)
     )
 
 
@@ -381,7 +374,7 @@ def audit_whats_new(
     problem = ""
     for attempt in (1, 2):
         prompt = user if attempt == 1 else user + _AUDIT_REASK.format(problem=problem, n=n)
-        text = _run_sonnet(prompt, AUDIT_SYSTEM, model=model, subagent="thread_audit", usage_rows=usage_rows)
+        text = _run_sonnet(prompt, audit_system(), model=model, subagent="thread_audit", usage_rows=usage_rows)
         objects = _json_objects(text)
         if not objects:
             problem = f"no JSON object in the reply, which began {text[:60]!r}"
@@ -434,7 +427,7 @@ def apply_installment(store, assignment, installment: dict, supported: list[bool
         if new_questions and threads.clean_questions(new_questions, cited_ids) != new_questions:
             logger.warning(
                 "thread %s: a new question cites an article id inline; it will be suppressed in "
-                "the public ledger (see thread_synthesis EVOLVE_SYSTEM)",
+                "the public ledger (see .claude/agents/thread-synthesis.md)",
                 tid,
             )
         if new_questions:

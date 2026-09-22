@@ -133,16 +133,11 @@ def test_a_whitespaced_token_is_substituted_not_rejected():
     assert "{{" not in rendered
 
 
-# Prompts production sends that are NOT .md files. cluster.md is dead -- orchestrate routes
-# label == "cluster" to cluster_extractjoin, which uses EXTRACT_SYSTEM -- so the glob above
-# covers a prompt nothing runs and missed the one that does. Until they move into
-# .claude/agents/, they are named here so the guard still reaches them.
+# Prompts still sent from Python constants: the eval judges only. Every prompt production
+# sends is a .md file under .claude/agents/ (the pipeline's via prompts.load_prompt_text), so
+# the glob above reaches all of them; cluster.md is dead (orchestrate routes label == "cluster"
+# to cluster_extractjoin, which reads cluster-extract.md).
 INLINE_SYSTEM_PROMPTS = (
-    ("cluster_extractjoin", "EXTRACT_SYSTEM"),
-    ("cohesion", "JUDGE_SYSTEM"),
-    ("threads", "LINK_SYSTEM"),
-    ("thread_synthesis", "EVOLVE_SYSTEM"),
-    ("thread_synthesis", "AUDIT_SYSTEM"),
     ("eval_why_judge", "WHY_JUDGE_PROMPT"),
     ("eval_recap_judge", "RECAP_JUDGE_PROMPT"),
     ("eval_recap_ab", "RECAP_SYSTEM_PROMPT"),
@@ -166,10 +161,10 @@ def test_no_inline_system_prompt_is_unlisted():
     outside every prompt-level guarantee -- which is how cluster.md's replacement escaped
     in the first place.
 
-    Bounded, and the bound matters: this sees `system_prompt=CONSTANT` only. A constant
-    assigned to a local first (thread_synthesis passes `system_prompt=system`) is invisible
-    here, which is why EVOLVE_SYSTEM and AUDIT_SYSTEM are on the list but not in `found`.
-    The render check above covers them; this one cannot.
+    Bounded, and the bound matters: this sees `system_prompt=CONSTANT` only. A prompt read
+    from a file (`system_prompt=judge_system()`) or assigned to a local first
+    (thread_synthesis passes `system_prompt=system`) is invisible here; the .md glob above
+    and test_prompts.py cover those.
     """
     listed = {name for _module, name in INLINE_SYSTEM_PROMPTS}
     found: dict[str, str] = {}

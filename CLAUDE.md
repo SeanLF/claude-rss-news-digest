@@ -82,7 +82,7 @@ SQLite at `data/digest.db`. Schema managed by migrations in `migrations/`.
 `newsroom/src/` imports flow one direction. Do not introduce a cycle.
 
 ```
-config, schema, write_fanout    no internal imports — keep them leaf modules
+config, schema, write_fanout, prompts    no internal imports — keep them leaf modules
   -> run_health         schema only
   -> db, feeds, utils
   -> render, merge, repair

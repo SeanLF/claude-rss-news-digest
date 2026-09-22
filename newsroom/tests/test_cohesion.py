@@ -269,4 +269,4 @@ class TestTheJudgeSeesTheStoryLabel:
         assert v["applied"] is True and v["dominant"] == ["A3"] and sorted(v["strays"]) == ["A1", "A2"]
 
     def test_the_system_prompt_asks_for_the_story_event_first(self):
-        assert "list that story's event first" in cohesion.JUDGE_SYSTEM.lower()
+        assert "list that story's event first" in cohesion.judge_system().lower()

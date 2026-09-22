@@ -233,7 +233,8 @@ def test_link_system_prompt_example_is_type_consistent():
     """The prompt taught the drift: its example mixed `"thread": 3` (int) with
     `"thread": "NEW"` (str) for the same field, so the model normalised to strings and
     every id came back quoted. Every `thread` value in the example must be unquoted."""
-    example = threads.LINK_SYSTEM[threads.LINK_SYSTEM.index('{"links"') :]
+    system = threads.link_system()
+    example = system[system.index('{"links"') :]
     quoted = re.findall(r'"thread":\s*"', example)
     assert not quoted, f"example mixes a string `thread` value in: {example[:120]}"
 

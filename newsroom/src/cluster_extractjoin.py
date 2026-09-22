@@ -33,6 +33,7 @@ from pathlib import Path
 from typing import Any
 
 import claude_cli
+import prompts
 import usage
 from claude_agent_sdk import ThinkingConfig
 from retry import with_retry_async
@@ -77,18 +78,13 @@ _EXTRACT_ATTEMPT_TIMEOUT_S = 900.0
 # all-zeros, which collapses/merges spuriously -- such docs get a unique sentinel instead.
 _TOKEN_RE = re.compile(r"\b\w\w+\b")
 
+
 # Per-article extraction rubric. Mirrors the gate-validated scratch prompt: the primary_event
 # phrase is the load-bearing join signal (not generic entities), and same-story articles must
 # get matching entities + primary_event.
-EXTRACT_SYSTEM = """You extract clustering metadata from news articles. For EACH input article, output:
-- entities: 3-8 canonical named entities CENTRAL to the article (people, organizations, places, products, named events). Use the most common canonical form (e.g. "Donald Trump", not "Trump"/"the president").
-- keywords: 3-8 salient lowercase topic terms (not entities) that characterize the specific story.
-- primary_event: ONE short specific phrase naming the underlying story this article is about -- the kind of label you'd give the cluster it belongs to (e.g. "US-Iran interim peace deal congressional scrutiny", NOT "politics" or "Middle East").
+def extract_system() -> str:
+    return prompts.load_prompt_text("cluster-extract")
 
-Be specific and consistent: two articles about the SAME story must get the SAME entities and a matching primary_event phrase. Distinguish sub-stories (e.g. "Iran nuclear talks" vs "Iran oil market impact" are different primary_events even though they share entities).
-
-Respond IMMEDIATELY with ONLY a JSON object, no prose, no markdown fence, one item per input article in input order:
-{"items": [{"article_id": "A1", "entities": ["..."], "keywords": ["..."], "primary_event": "..."}]}"""
 
 _EXTRACT_BATCH = 40
 # The ~13 per-batch extraction calls are independent, so they run concurrently (bounded) rather
@@ -511,7 +507,7 @@ async def run_extractjoin_stage(
             claude_cli.run_agent(
                 prompt,
                 model=model,
-                system_prompt=EXTRACT_SYSTEM,
+                system_prompt=extract_system(),
                 tools=[],
                 max_turns=1,
                 cwd=cwd,

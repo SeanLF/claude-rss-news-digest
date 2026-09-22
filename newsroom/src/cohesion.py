@@ -28,6 +28,7 @@ from pathlib import Path
 from typing import Any
 
 import claude_cli
+import prompts
 import usage
 import write_fanout
 from claude_agent_sdk import ThinkingConfig
@@ -40,25 +41,9 @@ _SNIPPET_CHARS = 200
 _GROUPS_PER_CALL = 12
 _CONCURRENCY = 4
 
-JUDGE_SYSTEM = """You are auditing a news-clustering system. Each GROUP below is a set of articles the \
-system decided cover THE SAME news story. Some groups are right; some bundle a second, unrelated \
-event that merely shares a place, a person, an organisation or a topic with the story.
 
-Each GROUP header names the story the system selected that group for. For each group, partition \
-its articles into EVENTS, and list that story's event FIRST -- the articles about the named story -- \
-then every other event.
-
-Rules:
-- Different angles, reactions, analysis, follow-ups or later developments of ONE underlying event \
-are ONE event (a strike, the market reaction to it, and an opinion piece about it = 1).
-- Articles about events that merely share a place, a country, a person, an organisation or a topic \
-are DIFFERENT events (a typhoon and a company's earnings that both happen in Hong Kong = 2; a \
-lawsuit over AI rules and a helipad at the same building = 2).
-- Judge only from the titles and snippets given. Do not guess at content you cannot see.
-- Every article id appears in exactly one event. Use the ids exactly as given.
-
-Return ONLY a JSON object, no prose:
-{"results": [{"group": <int>, "events": [["<id>", "<id>"], ["<id>"]]}]}"""
+def judge_system() -> str:
+    return prompts.load_prompt_text("cohesion")
 
 
 def _thinking_for(model: str) -> ThinkingConfig | None:
@@ -304,7 +289,7 @@ async def run_cohesion_stage(claude_input_dir: Path, *, model: str, cwd: str | P
                     result = await claude_cli.run_agent(
                         build_judge_prompt(batch, articles),
                         model=model,
-                        system_prompt=JUDGE_SYSTEM,
+                        system_prompt=judge_system(),
                         tools=[],
                         max_turns=1,
                         cwd=cwd,
