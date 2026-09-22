@@ -1,0 +1,12 @@
+#!/bin/bash
+# Re-run a run's curation span from its archived inputs, with model calls, N times: the old
+# system's same-day cost/time band (spec §7.4). Opt-in, never in CI. ~$5 and ~20 min per rep.
+# Usage: bin/rerun-run --run 300 [--reps 3]
+set -euo pipefail
+cd "$(dirname "${BASH_SOURCE[0]}")/.."
+exec docker compose run --rm \
+  -v "$(pwd)/newsroom/src:/app/src" \
+  -v "$(pwd)/.claude/agents:/app/.claude/agents" \
+  -e PYTHONPATH=/app/src \
+  --entrypoint /app/.venv/bin/python3 \
+  digest-newsroom /app/src/rerun_run.py "$@"
