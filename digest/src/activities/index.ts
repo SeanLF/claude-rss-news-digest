@@ -42,7 +42,7 @@ export interface Activities {
   planStories(runId: number, selected: Pointer, clusters: Pointer): Promise<{ plans: StoryPlan[] }>;
   writeStory(runId: number, plan: StoryPlan, selected: Pointer, note?: string, force?: boolean): Promise<Pointer>;
   preheader(runId: number, drafts: Pointer[], force?: boolean): Promise<Pointer>;
-  coherence(runId: number, drafts: Pointer[], fulltext: Pointer, note?: string): Promise<Pointer>;
+  coherence(runId: number, drafts: Pointer[], fulltext: Pointer, note?: string, force?: boolean): Promise<Pointer>;
   repair(runId: number, drafts: Pointer[], report: Pointer): Promise<Pointer>;
   assemble(runId: number, drafts: Pointer[], report: Pointer, repair: Pointer, preheader: Pointer | null): Promise<Pointer>;
   gnews(runId: number, selections: Pointer): Promise<Pointer>;

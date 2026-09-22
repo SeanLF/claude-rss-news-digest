@@ -16,6 +16,7 @@ describe("cleanPreheader", () => {
   });
   it("truncates on a word boundary with an ellipsis, within the cap", () => {
     expect(truncateOnWordBoundary("alpha beta gamma", 12)).toBe("alpha beta…");
+    expect(truncateOnWordBoundary("😀😀😀😀😀", 3)).toBe("😀😀…");
     const long = cleanPreheader("word ".repeat(60));
     expect(long.length).toBeLessThanOrEqual(157);
     expect(long.endsWith("word…")).toBe(true);

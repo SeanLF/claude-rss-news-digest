@@ -12,6 +12,9 @@ describe("startOptions", () => {
     expect(o.workflowRunTimeout).toBe("4 hours");
     expect(o.args).toEqual([{ runDate: "2026-09-21" }]);
   });
+  it("a resume without force may also reuse a completed day's id", () => {
+    expect(startOptions("2026-09-21", { resumeRun: 303 }).workflowIdReusePolicy).toBe(WorkflowIdReusePolicy.ALLOW_DUPLICATE);
+  });
   it("a forced re-run may reuse the id of a completed run, never a running one", () => {
     const o = startOptions("2026-09-21", { force: true, resumeRun: 303 });
     expect(o.workflowIdReusePolicy).toBe(WorkflowIdReusePolicy.ALLOW_DUPLICATE);

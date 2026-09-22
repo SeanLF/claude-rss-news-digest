@@ -72,9 +72,12 @@ describe("DigestWorkflow", () => {
     });
     expect(out.broadcast).toBe("skipped");
   }, 120_000);
-  it("resumeRun without force is refused", async () => {
-    await withWorker(async () => {
-      await expect((await start("2026-09-27", { resumeRun: 303 })).result()).rejects.toThrow();
+  it("a resume continues the named run without forcing its artifacts", async () => {
+    const out = await withWorker(async () => {
+      const h = await start("2026-09-27", { resumeRun: 303 });
+      await h.signal(approveSignal, { decision: "approve" });
+      return h.result();
     });
+    expect(out).toMatchObject({ runId: 303, broadcast: "sent" });
   }, 120_000);
 });

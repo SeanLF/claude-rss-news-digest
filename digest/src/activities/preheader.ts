@@ -12,10 +12,12 @@ import type { DraftStory } from "./write.js";
 export const PREHEADER_OUTPUT = "preheader.txt";
 
 // Truncate to <= max chars ending in an ellipsis, on a word boundary (merge._truncate_on_word_boundary).
-export function truncateOnWordBoundary(text: string, max: number): string {
-  if (text.length <= max) return text;
+// Counted in code points, as Python's len() and slicing do, so an emoji at the cut is never split.
+export function truncateOnWordBoundary(input: string, max: number): string {
+  const text = Array.from(input);
+  if (text.length <= max) return input;
   const budget = max - 1;
-  let head = text.slice(0, budget);
+  let head = text.slice(0, budget).join("");
   if (!/\s/.test(text[budget] ?? "") && !/\s/.test(text[budget - 1] ?? "")) {
     const cut = head.lastIndexOf(" ");
     if (cut > 0) head = head.slice(0, cut);

@@ -18,7 +18,8 @@ export function startOptions(runDate: string, opts: StartOpts): WorkflowStartOpt
     args: [input],
     workflowRunTimeout: WORKFLOW_RUN_TIMEOUT,
     workflowIdConflictPolicy: WorkflowIdConflictPolicy.FAIL,
-    workflowIdReusePolicy: opts.force ? WorkflowIdReusePolicy.ALLOW_DUPLICATE : WorkflowIdReusePolicy.REJECT_DUPLICATE,
+    // A resume or a forced re-run may reuse a completed day's id (spec §2.1); a running one never.
+    workflowIdReusePolicy: opts.force || opts.resumeRun !== undefined ? WorkflowIdReusePolicy.ALLOW_DUPLICATE : WorkflowIdReusePolicy.REJECT_DUPLICATE,
   };
 }
 

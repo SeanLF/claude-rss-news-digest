@@ -1,4 +1,4 @@
-import { ActivityFailure, ApplicationFailure, CancelledFailure, condition, proxyActivities, setHandler } from "@temporalio/workflow";
+import { ActivityFailure, CancelledFailure, condition, isCancellation, proxyActivities, setHandler } from "@temporalio/workflow";
 import type { Activities, DigestInput, DigestOutput } from "../activities/index.js";
 import { SOURCE_IDS_STUB } from "../activities/index.js";
 import { mapBounded, MODEL_FANOUT_LIMIT } from "./bounded.js";
@@ -19,9 +19,11 @@ const model = proxyActivities<Activities>({
 });
 const network = proxyActivities<Activities>({ startToCloseTimeout: "2 minutes", retry: { maximumAttempts: 3, initialInterval: "10 seconds" } });
 const once = proxyActivities<Activities>({ startToCloseTimeout: "10 minutes", retry: { maximumAttempts: 1 } });
+// A verdict is a result, never re-sampled until something passes (spec §2.2 tier 3): one attempt,
+// and a failure parks on the retry signal for an operator.
+const verdict = proxyActivities<Activities>({ startToCloseTimeout: "45 minutes", heartbeatTimeout: "2 minutes", retry: { maximumAttempts: 1 } });
 
 export async function DigestWorkflow(input: DigestInput): Promise<DigestOutput> {
-  if (input.resumeRun !== undefined && !input.force) throw ApplicationFailure.nonRetryable("resumeRun requires force", "BadInput");
   let approval: "approve" | "reject" | undefined;
   const retryDecisions: ("retry" | "abort")[] = []; // a queue: a decision sent before the failure is kept
   const notes: Record<string, string> = {};
@@ -76,7 +78,13 @@ export async function DigestWorkflow(input: DigestInput): Promise<DigestOutput> 
   const failed = written.find((w) => w.status === "rejected");
   if (failed) throw failed.reason;
   const drafts = written.flatMap((w) => (w.status === "fulfilled" ? [w.value] : []));
-  const [preheader, report] = await Promise.all([model.preheader(runId, drafts, input.force).catch(() => null), model.coherence(runId, drafts, fulltext, notes["coherence"])]);
+  const preheaderP = model.preheader(runId, drafts, input.force).catch((e: unknown) => {
+    if (isCancellation(e)) throw e; // best-effort, never at the cost of a cancellation
+    return null;
+  });
+  const report = await guarded(() => verdict.coherence(runId, drafts, fulltext, notes["coherence"], input.force));
+  const preheader = await preheaderP;
+  if (!report) return finish({ stories: 0, broadcast: "skipped" });
   const repair = await model.repair(runId, drafts, report);
   const selections = await once.assemble(runId, drafts, report, repair, preheader);
   const [gnews, threads] = await Promise.all([network.gnews(runId, selections), model.threads(runId, selections)]);
