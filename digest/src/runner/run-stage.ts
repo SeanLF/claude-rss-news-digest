@@ -19,7 +19,7 @@ export type SdkQuery = typeof query;
 // `tools` is the SDK's base set of built-ins and the only option that restricts availability;
 // `allowedTools` merely skips the permission prompt. The disallow list is belt and braces for
 // the tools a preset would otherwise add.
-const BUILTIN = ["Read", "Grep", "Glob", "Write", "Edit", "Bash", "WebFetch", "WebSearch", "Task", "NotebookEdit", "TodoWrite", "ExitPlanMode", "BashOutput", "KillBash", "SlashCommand", "ListMcpResources", "ReadMcpResource", "ReadMcpResourceDir"] as const;
+const BUILTIN = ["Read", "Grep", "Glob", "Write", "Edit", "MultiEdit", "Bash", "WebFetch", "WebSearch", "Task", "NotebookEdit", "TodoWrite", "ExitPlanMode", "BashOutput", "KillBash", "SlashCommand", "ListMcpResources", "ReadMcpResource", "ReadMcpResourceDir"] as const;
 
 function targetOf(name: string, input: unknown): string {
   const inp = (input && typeof input === "object" ? input : {}) as Record<string, unknown>;
