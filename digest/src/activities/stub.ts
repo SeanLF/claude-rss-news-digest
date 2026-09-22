@@ -20,8 +20,8 @@ export function stubActivities(): Activities {
       return Promise.resolve(ptr(runId, "selected.json"));
     },
     fulltext: (runId) => Promise.resolve(ptr(runId, "article_fulltext.json")),
-    storyCount: () => Promise.resolve(STORY_COUNT_STUB),
-    writeStory: (runId, i) => Promise.resolve(ptr(runId, `draft_${i}.json`)),
+    planStories: () => Promise.resolve({ plans: Array.from({ length: STORY_COUNT_STUB }, (_, i) => ({ index: i, tier: "must_know" as const, storyIds: ["A1"], contextIds: ["A1"] })) }),
+    writeStory: (runId, plan) => Promise.resolve(ptr(runId, `draft_s${plan.index}.json`)),
     preheader: (runId) => Promise.resolve(ptr(runId, "preheader.txt")),
     coherence: (runId) => Promise.resolve(ptr(runId, "coherence_report.json")),
     repair: (runId) => Promise.resolve(ptr(runId, "repair_resolution.json")),

@@ -13,6 +13,14 @@ export interface ExtractBatch {
   index: number;
   ids: string[];
 }
+// One selected story to write: SELECT's order and tier, its citations, and the evidence it may see.
+export interface StoryPlan {
+  index: number;
+  tier: "must_know" | "should_know";
+  storyIds: string[];
+  contextIds: string[];
+  clusterIndex?: number;
+}
 export interface DigestOutput {
   runId: number;
   stories: number;
@@ -31,8 +39,8 @@ export interface Activities {
   recap(runId: number, force?: boolean): Promise<Pointer>;
   select(runId: number, clusters: Pointer, recap: Pointer, note?: string, input?: DigestInput): Promise<Pointer>;
   fulltext(runId: number, selected: Pointer): Promise<Pointer>;
-  storyCount(runId: number, selected: Pointer): Promise<number>;
-  writeStory(runId: number, storyIndex: number, selected: Pointer, fulltext: Pointer, note?: string): Promise<Pointer>;
+  planStories(runId: number, selected: Pointer, clusters: Pointer): Promise<{ plans: StoryPlan[] }>;
+  writeStory(runId: number, plan: StoryPlan, selected: Pointer, note?: string, force?: boolean): Promise<Pointer>;
   preheader(runId: number, drafts: Pointer[]): Promise<Pointer>;
   coherence(runId: number, drafts: Pointer[], fulltext: Pointer, note?: string): Promise<Pointer>;
   repair(runId: number, drafts: Pointer[], report: Pointer): Promise<Pointer>;

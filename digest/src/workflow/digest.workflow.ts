@@ -68,8 +68,14 @@ export async function DigestWorkflow(input: DigestInput): Promise<DigestOutput> 
   const selected = await guarded(() => model.select(runId, clusters, recap, notes["select"], input));
   if (!selected) return finish({ stories: 0, broadcast: "skipped" });
   const fulltext = await network.fulltext(runId, selected);
-  const storyCount = await once.storyCount(runId, selected);
-  const drafts = await Promise.all(Array.from({ length: storyCount }, (_, i) => model.writeStory(runId, i, selected, fulltext, notes["write"])));
+  // WRITE fans out one story per call, four at a time; a story that exhausts its retries fails the
+  // phase rather than letting the digest ship one story short.
+  const { plans } = await once.planStories(runId, selected, clusters);
+  const storyCount = plans.length;
+  const written = await mapBounded(plans, MODEL_FANOUT_LIMIT, (p) => model.writeStory(runId, p, selected, notes["write"], input.force));
+  const failed = written.find((w) => w.status === "rejected");
+  if (failed) throw failed.reason;
+  const drafts = written.flatMap((w) => (w.status === "fulfilled" ? [w.value] : []));
   const [preheader, report] = await Promise.all([model.preheader(runId, drafts), model.coherence(runId, drafts, fulltext, notes["coherence"])]);
   const repair = await model.repair(runId, drafts, report);
   const selections = await once.assemble(runId, drafts, report, repair, preheader);
