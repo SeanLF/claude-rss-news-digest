@@ -62,6 +62,13 @@ describe("recap activity", () => {
     expect(store.get(p)).toBe("A quiet week of steady themes.");
     expect(calls.n).toBe(1);
   });
+  it("refuses titles that carry a URL", async () => {
+    const store = new ArtifactStore(freshDb([300]));
+    store.put(300, RECAP_INPUT, "title,date\nSee https://example.com/x,2026-09-17\n");
+    const calls = { n: 0 };
+    await expect(recapActivity({ store, agentsDir: AGENTS, query: fakeQuery("x", calls) })(300)).rejects.toThrow(/URL/);
+    expect(calls.n).toBe(0);
+  });
   it("a missing input is a non-retryable failure, and an empty model reply stores nothing", async () => {
     const { store: s2, recap: r2 } = setup("   ");
     await expect(r2(300)).rejects.toThrow(/empty recap/);

@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ApplicationFailure } from "@temporalio/common";
+import { assertNoUrls } from "../contracts/ids.js";
 import { parseAgentSpec } from "../runner/prompt.js";
 import { runStage, type SdkQuery } from "../runner/run-stage.js";
 import type { ArtifactStore, Pointer } from "../store/artifacts.js";
@@ -36,6 +37,7 @@ export function recapActivity(deps: RecapDeps): (runId: number, force?: boolean)
     const input = store.find(runId, RECAP_INPUT);
     if (!input) throw ApplicationFailure.nonRetryable(`run ${runId} has no ${RECAP_INPUT}; prepare has not run`, "MissingInput");
     const titles = store.get(input);
+    assertNoUrls(titles); // the invariant, checked where text leaves code (spec §1)
     const spec = parseAgentSpec(readFileSync(join(deps.agentsDir, "recap.md"), "utf8"));
     deps.heartbeat?.();
     const r = await runStage(
