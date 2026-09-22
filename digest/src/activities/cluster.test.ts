@@ -65,6 +65,21 @@ describe("cluster activities", () => {
     expect(JSON.parse(store.get(store.find(300, "cluster_tags.json")!))).toMatchObject({ tag_bag_weights: { entities: 3, keywords: 1, primary_event: 2 } });
     expect(await acts.joinClusters(300, [p])).toEqual(c); // idempotent
   });
+  it("scrubs a link inside a summary before it reaches the extract prompt", () => {
+    const prompt = buildExtractPrompt(["A1"], new Map([["A1", { article_id: "A1", title: "Jemalloc 5.4.0", summary: "Article URL: https://github.com/jemalloc/releases Comments: https://news.ycombinator.com/item?id=1", source_id: "hn" }]]));
+    expect(prompt).toContain("A1\tJemalloc 5.4.0\tArticle URL: [link] Comments: [link]");
+    expect(prompt).not.toContain("http");
+  });
+  it("regenerating after an invalid clusters.json quarantines the sibling outputs too", async () => {
+    const { store, acts } = setup({ items: [sweden("A1"), sweden("A2"), sweden("A4"), sweden("A5")] });
+    const p = await acts.extractBatch(300, { index: 0, ids: ["A1", "A2", "A3", "A4", "A5"] });
+    store.put(300, "clusters.json", '{"clusters": []}');
+    store.put(300, "cluster_health.json", '{"stale": true}');
+    const c = await acts.joinClusters(300, [p]);
+    expect((JSON.parse(store.get(c)) as { clusters: unknown[] }).clusters.length).toBe(2);
+    expect(store.find(300, "clusters.json.corrupt.1")).toBeDefined();
+    expect(store.find(300, "cluster_health.json.corrupt.1")).toBeDefined();
+  });
   it("refuses a degenerate partition when too many articles are tagless", async () => {
     const { acts } = setup({ items: [] });
     await expect(acts.joinClusters(300, [null])).rejects.toMatchObject({ nonRetryable: true, type: "DegeneratePartition" });

@@ -43,7 +43,11 @@ export function planBatches(articles: Article[], size = EXTRACT_BATCH): ExtractB
 }
 
 // TSV of (article_id, title, summary) for one extraction batch, as the Python stage builds it.
-const clean = (s: string) => s.replaceAll("\n", " ").replaceAll("\t", " ");
+// Summaries are scrubbed of links before they reach the prompt: today's prepare lets Hacker News
+// summaries through with "Article URL: https://…" (a finding owed to the Python side), and the
+// clustering signal is the words, not the address.
+const URL_IN_TEXT = /(?:https?:)?\/\/(?:[a-z0-9.-]+\.[a-z]{2,}|\d{1,3}(?:\.\d{1,3}){3})[^\s"'<>)]*/gi;
+const clean = (s: string) => s.replaceAll("\n", " ").replaceAll("\t", " ").replace(URL_IN_TEXT, "[link]");
 // JSON with object keys sorted at every level, as the Python's sort_keys=True writes it.
 const stableJson = (v: unknown) => JSON.stringify(v, (_k, val: unknown) => (val && typeof val === "object" && !Array.isArray(val) ? Object.fromEntries(Object.entries(val as Record<string, unknown>).toSorted(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))) : val));
 
@@ -121,8 +125,10 @@ export function clusterActivities(deps: ClusterDeps) {
       if (existing && !force) {
         const doc = JSON.parse(store.get(existing)) as { clusters?: unknown[] };
         if (Array.isArray(doc.clusters) && doc.clusters.length > 0) return existing;
-        store.quarantine(runId, CLUSTERS_OUTPUT);
       }
+      // The three outputs are one write: regenerating quarantines every sibling a previous attempt
+      // left, or put would conflict on the ones that differ.
+      if (!force) for (const name of [CLUSTERS_OUTPUT, "cluster_tags.json", "cluster_health.json"]) if (store.find(runId, name)) store.quarantine(runId, name);
       const articles = loadArticles(store, runId);
       const ids = articles.map((a) => a.article_id);
       const tags: Record<string, Tag> = {};

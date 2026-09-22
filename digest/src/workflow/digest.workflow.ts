@@ -1,6 +1,7 @@
 import { ActivityFailure, ApplicationFailure, CancelledFailure, condition, proxyActivities, setHandler } from "@temporalio/workflow";
 import type { Activities, DigestInput, DigestOutput } from "../activities/index.js";
 import { SOURCE_IDS_STUB } from "../activities/index.js";
+import { mapBounded, MODEL_FANOUT_LIMIT } from "./bounded.js";
 import { approveSignal, operatorNoteSignal, retrySignal } from "./signals.js";
 
 export const WORKFLOW_RUN_TIMEOUT = "4 hours";
@@ -61,7 +62,7 @@ export async function DigestWorkflow(input: DigestInput): Promise<DigestOutput> 
   // → deterministic join; a batch that exhausts its retries is a lost batch the join title-falls back.
   const recapP = model.recap(runId, input.force);
   const { batches } = await once.planBatches(runId, articles);
-  const settled = await Promise.allSettled(batches.map((b) => model.extractBatch(runId, b, input.force)));
+  const settled = await mapBounded(batches, MODEL_FANOUT_LIMIT, (b) => model.extractBatch(runId, b, input.force));
   const tagBatches = settled.map((s) => (s.status === "fulfilled" ? s.value : null));
   const [clusters, recap] = await Promise.all([once.joinClusters(runId, tagBatches, input.force), recapP]);
   const selected = await guarded(() => model.select(runId, clusters, recap, notes["select"], input));
