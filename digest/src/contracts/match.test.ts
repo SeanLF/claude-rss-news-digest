@@ -10,5 +10,9 @@ describe("coherence matching", () => {
     expect(resultMatches({ article_ids: ["A2", "A1"], headline: "x" }, ids, "y")).toBe(true);
     expect(resultMatches({ article_ids: ["A1"], headline: "y" }, ids, "y")).toBe(true);
     expect(resultMatches({ article_ids: ["A1"], headline: "z" }, ids, "y")).toBe(false);
+    expect(resultMatches({ article_ids: ["A1", "A2", "A1"], headline: "z" }, ids, "y")).toBe(true);
+  });
+  it("folds ß and final sigma as casefold does", () => {
+    expect(normHeadline("Straße ΟΔΟΣ")).toBe(normHeadline("STRASSE οδοσ"));
   });
 });

@@ -82,6 +82,7 @@ export async function DigestWorkflow(input: DigestInput): Promise<DigestOutput> 
     if (isCancellation(e)) throw e; // best-effort, never at the cost of a cancellation
     return null;
   });
+  preheaderP.catch(() => undefined); // observed while the checker may be parked; awaited below
   const report = await guarded(() => verdict.coherence(runId, drafts, fulltext, notes["coherence"], input.force));
   const preheader = await preheaderP;
   if (!report) return finish({ stories: 0, broadcast: "skipped" });

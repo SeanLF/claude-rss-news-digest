@@ -78,7 +78,10 @@ export function coherenceActivity(deps: CoherenceDeps) {
       const parsed = CoherenceReportSchema.safeParse(JSON.parse(store.get(existing)));
       if (parsed.success && uncovered(parsed.data, draft).length === 0) return existing;
     }
-    for (const name of [COHERENCE_OUTPUT, DRAFT_OUTPUT]) if (store.find(runId, name) && !force) store.quarantine(runId, name);
+    if (!force) {
+      if (existing) store.quarantine(runId, COHERENCE_OUTPUT);
+      if (existingDraft && !sameDraft) store.quarantine(runId, DRAFT_OUTPUT); // a matching draft is kept
+    }
     const dir = mkdtempSync(join(tmpdir(), `coherence-${runId}-`));
     try {
       const files: [string, string][] = [[DRAFT_OUTPUT, draftText]];
@@ -105,7 +108,7 @@ export function coherenceActivity(deps: CoherenceDeps) {
       const gaps = uncovered(parsed.data, draft);
       if (gaps.length) throw new Error(`coherence for run ${runId}: no result matches ${gaps.length} draft story(ies): ${gaps.slice(0, 3).join("; ")}`);
       const write = (name: string, text: string) => (force ? store.replace(runId, name, text) : store.put(runId, name, text));
-      write(DRAFT_OUTPUT, draftText);
+      if (force || !sameDraft) write(DRAFT_OUTPUT, draftText);
       return write(COHERENCE_OUTPUT, JSON.stringify(parsed.data, null, 2));
     } finally {
       rmSync(dir, { recursive: true, force: true }); // the mkdtemp directory this call created

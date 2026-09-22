@@ -67,6 +67,15 @@ describe("coherence activity", () => {
     expect(await act(300, drafts, ft)).toEqual(p);
     expect(seen.n).toBe(1);
   });
+  it("a matching stored draft survives a missing report and is not quarantined", async () => {
+    const report = { results: [{ headline: "Talks resume", article_ids: ["A1"], pass: true, reason: "ok" }, { headline: "Yen jumps", article_ids: ["A2"], pass: true, reason: "ok" }] };
+    const { store, act, drafts } = setup(report);
+    await act(300, drafts, ft);
+    store.quarantine(300, COHERENCE_OUTPUT);
+    await act(300, drafts, ft);
+    expect(store.find(300, `${DRAFT_OUTPUT}.corrupt.1`)).toBeUndefined();
+    expect(store.find(300, COHERENCE_OUTPUT)).toBeDefined();
+  });
   it("a report that leaves a story unchecked is a failure and stores nothing", async () => {
     const { store, act, drafts } = setup({ results: [{ headline: "Talks resume", article_ids: ["A1"], pass: true, reason: "ok" }] });
     await expect(act(300, drafts, ft)).rejects.toThrow(/no result matches 1 draft story\(ies\): Yen jumps/);
