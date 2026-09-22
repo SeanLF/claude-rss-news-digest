@@ -8,7 +8,7 @@ export function recallOnPlants(plants: Plant[], report: CoherenceReport): { caug
   let caught = 0;
   for (const p of plants) {
     const r = report.results[p.storyIndex];
-    if (r && r.pass === false && (r.failed_fields ?? []).includes(p.field)) caught++;
+    if (r && !r.pass && (r.failed_fields ?? []).includes(p.field)) caught++;
   }
   return { caught, total: plants.length };
 }

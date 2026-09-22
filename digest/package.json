@@ -4,12 +4,12 @@
   "private": true,
   "type": "module",
   "engines": {
-    "node": ">=24"
+    "node": ">=26"
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "lint": "eslint src",
+    "lint": "oxlint --type-aware src",
     "test": "vitest run",
     "sbom": "npx --yes @cyclonedx/cyclonedx-npm --output-format JSON --output-file sbom.cdx.json"
   },
@@ -24,11 +24,11 @@
   },
   "devDependencies": {
     "@temporalio/testing": "1.24.0",
-    "@types/node": "24.13.6",
-    "eslint": "10.0.0",
-    "typescript": "5.9.3",
-    "typescript-eslint": "8.70.1",
-    "vitest": "5.0.1"
+    "@types/node": "26.6.2",
+    "typescript": "7.0.2",
+    "vitest": "5.0.1",
+    "oxlint": "1.85.0",
+    "oxlint-tsgolint": "7.0.2002"
   },
   "allowScripts": {
     "better-sqlite3@13.0.3": true,

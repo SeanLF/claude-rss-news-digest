@@ -1,4 +1,4 @@
-FROM node:24-slim
+FROM node:26-slim
 RUN useradd -m appuser
 WORKDIR /app/digest
 COPY digest/package.json digest/package-lock.json ./

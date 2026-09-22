@@ -1,5 +1,7 @@
 import type { JudgeVerdict } from "./verdict.js";
 
+const avg = (xs: number[]) => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : 0);
+
 // A judge's self-agreement across repeated runs on the same digest (spec §7 item 2): the share of
 // (story, criterion) cells on which every run gave the same verdict, overall and per criterion.
 // A criterion under 0.8 is not usable as a gate criterion until the rubric is tightened.
@@ -18,6 +20,5 @@ export function selfAgreement(runs: JudgeVerdict[][]): { perCriterion: Record<nu
     const c = Number(k.split(":")[1]);
     (byCriterion[c] ??= []).push(same);
   }
-  const avg = (xs: number[]) => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : 0);
   return { perCriterion: Object.fromEntries(Object.entries(byCriterion).map(([c, xs]) => [Number(c), avg(xs)])), overall: cells.size ? agree / cells.size : 0 };
 }

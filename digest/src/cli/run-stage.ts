@@ -37,7 +37,7 @@ export function buildInvocation(argv: string[]): Invocation {
 export function inlineCorpus(inputDir: string): string {
   const names = readdirSync(inputDir)
     .filter((n) => n === "draft_selections.json" || /^articles_\d+\.csv$/.test(n) || n === "article_fulltext.json")
-    .sort();
+    .toSorted();
   const corpus = names.map((n) => `## ${n}\n\n${readFileSync(join(inputDir, n), "utf8")}`).join("\n\n");
   assertNoUrls(corpus); // the no-URL invariant, checked where the text leaves code (spec §1)
   return corpus;
