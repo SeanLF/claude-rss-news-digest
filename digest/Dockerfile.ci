@@ -2,4 +2,6 @@ FROM node:24-slim
 WORKDIR /app/digest
 COPY digest/package.json digest/package-lock.json ./
 RUN npm ci
+# The store's tests apply the repo's own migrations so the schema under test is production's.
+COPY migrations/ /app/migrations/
 COPY digest/ ./

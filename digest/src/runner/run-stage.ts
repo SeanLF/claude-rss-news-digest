@@ -1,0 +1,81 @@
+import { query, type Options, type SDKMessage, type ThinkingConfig } from "@anthropic-ai/claude-agent-sdk";
+import { renderBody, type StageSpec } from "./prompt.js";
+
+export interface StageInput {
+  userMessage: string;
+  inputDir: string;
+}
+export interface StageResult {
+  text: string;
+  structured?: unknown;
+  toolCalls: { name: string; target: string }[];
+  costUsd: number;
+  usage: Record<string, number>;
+  durationMs: number;
+  numTurns: number;
+}
+export type SdkQuery = typeof query;
+
+// Every built-in the SDK could offer; what the spec does not name is disallowed explicitly.
+const BUILTIN = ["Read", "Grep", "Glob", "Write", "Edit", "Bash", "WebFetch", "WebSearch", "Task", "NotebookEdit"] as const;
+
+function targetOf(name: string, input: unknown): string {
+  const inp = (input && typeof input === "object" ? input : {}) as Record<string, unknown>;
+  const v = name === "Grep" ? inp["pattern"] : inp["file_path"];
+  return typeof v === "string" ? v : "";
+}
+
+const thinkingFor = (t: StageSpec["thinking"]): ThinkingConfig => (t === "adaptive" ? { type: "adaptive" } : { type: "disabled" });
+
+// One stage: system prompt from the spec, the stage's input as the user turn, tools scoped to
+// Read and Grep over the input directory, the result as the final message (structured when a
+// schema is given). Tool calls are recorded so a checker's "no FAIL without a Grep behind it"
+// can be checked in the transcript rather than asked for in prose (spec §2.2).
+export async function runStage(
+  spec: StageSpec,
+  input: StageInput,
+  opts: { outputSchema?: Record<string, unknown>; today: string; query?: SdkQuery },
+): Promise<StageResult> {
+  const q = opts.query ?? query;
+  const allowed: readonly string[] = spec.tools;
+  const options: Options = {
+    model: spec.model,
+    systemPrompt: renderBody(spec.body, opts.today),
+    cwd: input.inputDir,
+    allowedTools: [...allowed],
+    disallowedTools: BUILTIN.filter((t) => !allowed.includes(t)),
+    permissionMode: "acceptEdits",
+    thinking: thinkingFor(spec.thinking),
+    ...(opts.outputSchema ? { outputFormat: { type: "json_schema", schema: opts.outputSchema } } : {}),
+  };
+  const toolCalls: { name: string; target: string }[] = [];
+  const texts: string[] = [];
+  let result: Extract<SDKMessage, { type: "result" }> | undefined;
+  for await (const m of q({ prompt: input.userMessage, options })) {
+    if (m.type === "assistant") {
+      for (const block of m.message.content) {
+        if (block.type === "tool_use") toolCalls.push({ name: block.name, target: targetOf(block.name, block.input) });
+        else if (block.type === "text") texts.push(block.text);
+      }
+    } else if (m.type === "result") {
+      result = m;
+    }
+  }
+  if (!result) throw new Error(`stage ${spec.name}: no result message`);
+  if (result.subtype !== "success" || result.is_error) throw new Error(`stage ${spec.name}: ${result.subtype}`);
+  // The SDK re-prompts on schema mismatch and ends with error_max_structured_output_retries; a
+  // success WITHOUT structured_output when a schema was requested is also a failure.
+  const structured = result.structured_output;
+  if (opts.outputSchema && structured === undefined) throw new Error(`stage ${spec.name}: success without structured output`);
+  const usage: Record<string, number> = {};
+  for (const [k, v] of Object.entries(result.usage)) if (typeof v === "number") usage[k] = v;
+  return {
+    text: (result.result || texts.join("\n")).trim(),
+    ...(structured !== undefined ? { structured } : {}),
+    toolCalls,
+    costUsd: result.total_cost_usd,
+    usage,
+    durationMs: result.duration_ms,
+    numTurns: result.num_turns,
+  };
+}
