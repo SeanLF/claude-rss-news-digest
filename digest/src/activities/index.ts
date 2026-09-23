@@ -29,8 +29,15 @@ export type FulltextTask = [articleId: string, url: string];
 export interface FulltextFetch { tasks: number; results: Record<string, string>; outcome: string }
 // `existing`: the run already has its full text. `skip`: there is nothing to fetch, and why.
 export interface FulltextPlan { tasks: FulltextTask[]; existing?: Pointer; skip?: "disabled" | "no_candidates" }
-// The activity the Python worker serves on FULLTEXT_TASK_QUEUE.
+// The activity the Python worker serves on PYTHON_TASK_QUEUE.
 export interface FulltextFetcher { fetchFulltext(tasks: FulltextTask[]): Promise<FulltextFetch> }
+// What the Python `decodeLinks` activity returns: the links it was given, those it decoded, the decode
+// requests it made, and how the pass ended ("completed", "rate_limited", "deadline", "cancelled"), or
+// "unavailable" when nothing picked it up and "failed" when it broke after it started.
+export interface GnewsDecode { links: number; decoded: Record<string, string>; attempted: number; outcome: string }
+export interface GnewsPlan { urls: string[]; existing?: Pointer; skip?: "disabled" | "no_candidates" }
+// The activity the Python worker serves on PYTHON_TASK_QUEUE for the decode.
+export interface LinkDecoder { decodeLinks(urls: string[]): Promise<GnewsDecode> }
 // THREADS: a continuing thread to synthesize, with its story's articles; what one synthesis
 // reported; and what the workflow saw of the whole phase, which the finish records.
 export interface ThreadPlan { threadId: number; articleIds: string[] }
@@ -66,7 +73,8 @@ export interface Activities {
   coherence(runId: number, drafts: Pointer[], fulltext: Pointer, note?: string, force?: boolean): Promise<Pointer>;
   repair(runId: number, drafts: Pointer[], report: Pointer, force?: boolean): Promise<Pointer>;
   assemble(runId: number, drafts: Pointer[], report: Pointer, repair: Pointer, preheader: Pointer | null, force?: boolean): Promise<Pointer>;
-  gnews(runId: number, selections: Pointer): Promise<Pointer>;
+  planGnews(runId: number, selections: Pointer, force?: boolean): Promise<GnewsPlan>;
+  storeGnews(runId: number, decoded: GnewsDecode, force?: boolean): Promise<Pointer>;
   threadsLink(runId: number, force?: boolean): Promise<ThreadsLinked>;
   threadSynthesis(runId: number, plan: ThreadPlan): Promise<ThreadOutcome>;
   threadsFinish(runId: number, report: ThreadsReport): Promise<Pointer>;

@@ -30,11 +30,11 @@ DOCKER_CHECK_TIMEOUT=5
 # desyncs the others silently.
 SERVICE_CIRCULATION="digest-circulation"
 SERVICE_NEWSROOM="digest-newsroom"
-# The TypeScript pipeline's two workers. Terraform names them too (news_digest_worker_image_name,
-# news_digest_fulltext_image_name); a rename here without one there pins a digest to a repository
+# The Temporal pipeline's two workers, TypeScript and Python. Terraform names them too
+# (news_digest_worker_image_name, news_digest_python_image_name); a rename here without one there pins a digest to a repository
 # terraform never pulls.
 SERVICE_WORKER="digest-worker"
-SERVICE_FULLTEXT="digest-fulltext"
+SERVICE_PYTHON="digest-python"
 
 # Rendered on the box by terraform (news-digest-temporal.tf): pauses the daily Temporal schedule,
 # or re-derives its pause state from which pipeline is live.
@@ -592,30 +592,30 @@ build_and_push() {
 
   # The Temporal workers only when the box runs them: in "python" mode they are not built, gated
   # or pushed, so a problem in digest/ cannot block a Python deploy. Image scans, like newsroom:
-  # the worker's graph is the pruned node_modules the image ships, and the fulltext image installs
+  # the worker's graph is the pruned node_modules the image ships, and the Python worker's image installs
   # from pyproject.toml pins with no lockfile a source scan could read.
-  local worker_pid="" fulltext_pid=""
+  local worker_pid="" python_pid=""
   if temporal_on; then
     build_and_push_image "$SERVICE_WORKER" "." "digest/Dockerfile" "--build-arg GIT_SHA=${SHA:0:7}" image &
     worker_pid=$!
-    build_and_push_image "$SERVICE_FULLTEXT" "." "digest/fulltext/Dockerfile" "" image &
-    fulltext_pid=$!
+    build_and_push_image "$SERVICE_PYTHON" "." "digest/python/Dockerfile" "" image &
+    python_pid=$!
   fi
 
-  local circ_failed=false news_failed=false worker_failed=false fulltext_failed=false
+  local circ_failed=false news_failed=false worker_failed=false python_failed=false
   wait "$circ_pid" || circ_failed=true
   wait "$news_pid" || news_failed=true
   if [ -n "$worker_pid" ]; then wait "$worker_pid" || worker_failed=true; fi
-  if [ -n "$fulltext_pid" ]; then wait "$fulltext_pid" || fulltext_failed=true; fi
+  if [ -n "$python_pid" ]; then wait "$python_pid" || python_failed=true; fi
 
-  if [ "$circ_failed" = "true" ] || [ "$news_failed" = "true" ] || [ "$worker_failed" = "true" ] || [ "$fulltext_failed" = "true" ]; then
+  if [ "$circ_failed" = "true" ] || [ "$news_failed" = "true" ] || [ "$worker_failed" = "true" ] || [ "$python_failed" = "true" ]; then
     # "or its SBOM audit": generate_sbom runs BEFORE the push, so an image that built cleanly
     # still lands here when it ships a HIGH+ vulnerability -- and it was never pushed. Saying only
     # "build failed" would send the next reader to the Dockerfile for a dependency problem.
     [ "$circ_failed" = "true" ] && log_error "$SERVICE_CIRCULATION build or its SBOM audit failed"
     [ "$news_failed" = "true" ] && log_error "$SERVICE_NEWSROOM build or its SBOM audit failed"
     [ "$worker_failed" = "true" ] && log_error "$SERVICE_WORKER build or its SBOM audit failed"
-    [ "$fulltext_failed" = "true" ] && log_error "$SERVICE_FULLTEXT build or its SBOM audit failed"
+    [ "$python_failed" = "true" ] && log_error "$SERVICE_PYTHON build or its SBOM audit failed"
     return 1
   fi
 
@@ -857,11 +857,11 @@ apply_terraform() {
 
   # Empty when --skip-build ran (nothing was pushed this time); terraform falls back to :latest,
   # which is the pre-existing behaviour rather than a hard failure on a build-less apply.
-  local newsroom_digest circulation_digest worker_digest fulltext_digest
+  local newsroom_digest circulation_digest worker_digest python_digest
   newsroom_digest=$(cat "$DIGEST_DIR/$SERVICE_NEWSROOM.digest" 2>/dev/null || echo "")
   circulation_digest=$(cat "$DIGEST_DIR/$SERVICE_CIRCULATION.digest" 2>/dev/null || echo "")
   worker_digest=$(cat "$DIGEST_DIR/$SERVICE_WORKER.digest" 2>/dev/null || echo "")
-  fulltext_digest=$(cat "$DIGEST_DIR/$SERVICE_FULLTEXT.digest" 2>/dev/null || echo "")
+  python_digest=$(cat "$DIGEST_DIR/$SERVICE_PYTHON.digest" 2>/dev/null || echo "")
 
   local -a targets=("${TF_TARGETS[@]}")
   temporal_on && targets+=("${TF_TEMPORAL_TARGETS[@]}")
@@ -874,7 +874,7 @@ apply_terraform() {
     -var="news_digest_newsroom_digest=$newsroom_digest" \
     -var="news_digest_circulation_digest=$circulation_digest" \
     -var="news_digest_worker_digest=$worker_digest" \
-    -var="news_digest_fulltext_digest=$fulltext_digest" \
+    -var="news_digest_python_digest=$python_digest" \
     -detailed-exitcode \
     -out=/tmp/news-digest-tfplan \
     -compact-warnings \

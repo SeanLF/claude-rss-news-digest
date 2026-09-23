@@ -1,5 +1,5 @@
 // Fulltext on both sides of the language line (docs/2026-09-23-fulltext-extractor-fork.md): the fetch
-// and trafilatura's extract are a Python activity on the `fulltext` task queue; planning the tasks
+// and trafilatura's extract are a Python activity on the `python` task queue; planning the tasks
 // and storing the result stay here, so the artifact store has one writer language.
 import { scrubUrls } from "../contracts/ids.js";
 import type { ArtifactStore, Pointer } from "../store/artifacts.js";

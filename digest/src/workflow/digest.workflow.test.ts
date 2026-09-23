@@ -3,11 +3,11 @@ import { ApplicationFailure, WorkflowIdConflictPolicy } from "@temporalio/common
 import { TestWorkflowEnvironment } from "@temporalio/testing";
 import { Worker } from "@temporalio/worker";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import type { Activities, AlertRequest, FulltextFetch, FulltextTask, ThreadsReport } from "../activities/index.js";
+import type { Activities, AlertRequest, FulltextFetch, FulltextTask, GnewsDecode, ThreadsReport } from "../activities/index.js";
 import type { Pointer } from "../store/artifacts.js";
 import { stubActivities } from "../activities/stub.js";
 import { DEADLINE_MARGIN_MS, DigestWorkflow, HOLD_MINIMUM_MS, TAIL_MARGIN_MS, TAIL_WORST_CASE_MS, WORKFLOW_RUN_TIMEOUT, workflowIdFor } from "./digest.workflow.js";
-import { FULLTEXT_TASK_QUEUE } from "./policy.js";
+import { PYTHON_TASK_QUEUE } from "./policy.js";
 import { approveSignal, retrySignal } from "./signals.js";
 
 let env: TestWorkflowEnvironment;
@@ -19,10 +19,13 @@ afterAll(async () => {
 });
 
 const taskQueue = "digest-test";
-// `fetcher` stands in for the Python fulltext worker on its own queue; null means nothing answers
+// `fetcher` stands in for the Python worker on its own queue; null means nothing answers
 // there, as when that worker is down.
 const emptyFetch = (tasks: FulltextTask[]): Promise<FulltextFetch> => Promise.resolve({ tasks: tasks.length, results: {}, outcome: "completed" });
-async function withWorker<T>(fn: () => Promise<T>, overrides: Partial<Activities> = {}, fetcher: ((tasks: FulltextTask[]) => Promise<FulltextFetch>) | null = emptyFetch): Promise<T> {
+const noDecode = (urls: string[]): Promise<GnewsDecode> => Promise.resolve({ links: urls.length, decoded: {}, attempted: urls.length, outcome: "completed" });
+const noFulltext: Activities["planFulltext"] = () => Promise.resolve({ tasks: [], skip: "disabled" as const });
+const noLinks: Activities["planGnews"] = () => Promise.resolve({ urls: [], skip: "no_candidates" as const });
+async function withWorker<T>(fn: () => Promise<T>, overrides: Partial<Activities> = {}, fetcher: ((tasks: FulltextTask[]) => Promise<FulltextFetch>) | null = emptyFetch, decoder: (urls: string[]) => Promise<GnewsDecode> = noDecode): Promise<T> {
   const worker = await Worker.create({
     connection: env.nativeConnection,
     taskQueue,
@@ -30,7 +33,7 @@ async function withWorker<T>(fn: () => Promise<T>, overrides: Partial<Activities
     activities: { ...stubActivities(), ...overrides },
   });
   if (!fetcher) return worker.runUntil(fn());
-  const python = await Worker.create({ connection: env.nativeConnection, taskQueue: FULLTEXT_TASK_QUEUE, activities: { fetchFulltext: fetcher } });
+  const python = await Worker.create({ connection: env.nativeConnection, taskQueue: PYTHON_TASK_QUEUE, activities: { fetchFulltext: fetcher, decodeLinks: decoder } });
   return python.runUntil(worker.runUntil(fn()));
 }
 const approveAndWait = async (runDate: string) => {
@@ -247,16 +250,17 @@ describe("DigestWorkflow", () => {
       expect(stored).toEqual([{ tasks: 1, results: { A1: "Body." }, outcome: "completed" }]);
       expect(out.broadcast).toBe("sent");
     }, 120_000);
-    it("goes on without full text when nothing answers on the fulltext queue", async () => {
+    it("goes on without full text when nothing answers on the python queue", async () => {
       stored.length = 0;
       // The test server does not skip time while an activity task sits unclaimed, so the clock is
-      // moved past the schedule-to-start timeout by hand.
+      // moved past the schedule-to-start timeout by hand. The decode is skipped here so the fetch is
+      // the one unclaimed task; the gnews tests take the decode's turn.
       const out = await withWorker(async () => {
         const h = await start("2026-09-29");
         await env.sleep("6 minutes");
         await h.signal(approveSignal, { decision: "approve" });
         return h.result();
-      }, { storeFulltext }, null);
+      }, { storeFulltext, planGnews: noLinks }, null);
       expect(stored).toEqual([{ tasks: 1, results: {}, outcome: "unavailable" }]);
       expect(out.broadcast).toBe("sent");
     }, 120_000);
@@ -280,6 +284,81 @@ describe("DigestWorkflow", () => {
       });
       expect(fetched).toBe(0);
       expect(stored).toEqual([]);
+    }, 120_000);
+  });
+  describe("gnews across the language line", () => {
+    const GN = "https://news.google.com/rss/articles/X";
+    const stored: GnewsDecode[] = [];
+    const rendered: string[] = [];
+    const storeGnews: Activities["storeGnews"] = (runId, decoded) => {
+      stored.push(decoded);
+      return stubActivities().storeGnews(runId, decoded);
+    };
+    const render: Activities["render"] = (runId, selections, threads, gnews) => {
+      rendered.push(`${gnews.name}@${gnews.sha256.slice(0, 4)}`); // the stub store hashes to 0000
+      return stubActivities().render(runId, selections, threads, gnews);
+    };
+    const reset = () => {
+      stored.length = 0;
+      rendered.length = 0;
+    };
+    it("hands the surviving links to the python queue, stores what comes back, and renders with it", async () => {
+      reset();
+      const seen: string[][] = [];
+      const out = await withWorker(() => approveAndWait("2026-10-02"), { storeGnews, render }, emptyFetch, (urls) => {
+        seen.push(urls);
+        return Promise.resolve({ links: urls.length, decoded: { [GN]: "https://www.reuters.com/x" }, attempted: 1, outcome: "completed" });
+      });
+      expect(seen).toEqual([[GN]]);
+      expect(stored).toEqual([{ links: 1, decoded: { [GN]: "https://www.reuters.com/x" }, attempted: 1, outcome: "completed" }]);
+      expect(rendered).toEqual(["gnews_links.json@0000"]);
+      expect(out.broadcast).toBe("sent");
+    }, 120_000);
+    it("a decode that fails after it started ships the raw links: stored as failed, never retried, and the run goes on", async () => {
+      reset();
+      let calls = 0;
+      const out = await withWorker(() => approveAndWait("2026-10-03"), { storeGnews }, emptyFetch, () => {
+        calls++;
+        return Promise.reject(new Error("decoder blew up"));
+      });
+      expect(calls).toBe(1);
+      expect(stored).toEqual([{ links: 1, decoded: {}, attempted: 0, outcome: "failed" }]);
+      expect(out.broadcast).toBe("sent");
+    }, 120_000);
+    it("goes on with the raw links when nothing answers on the python queue, stored as unavailable", async () => {
+      reset();
+      // Full text is switched off so the decode is the one task left unclaimed; the test server
+      // does not skip time past it, so the clock is moved by hand, as for the fetch.
+      const out = await withWorker(async () => {
+        const h = await start("2026-10-06");
+        await env.sleep("6 minutes");
+        await h.signal(approveSignal, { decision: "approve" });
+        return h.result();
+      }, { storeGnews, planFulltext: noFulltext }, null);
+      expect(stored).toEqual([{ links: 1, decoded: {}, attempted: 0, outcome: "unavailable" }]);
+      expect(out.broadcast).toBe("sent");
+    }, 300_000); // this sleep measured about 91 s of wall time, near the default 120 s
+    it("records a skipped decode without calling Python", async () => {
+      reset();
+      let calls = 0;
+      await withWorker(() => approveAndWait("2026-10-04"), { storeGnews, planGnews: () => Promise.resolve({ urls: [], skip: "no_candidates" as const }) }, emptyFetch, (urls) => {
+        calls++;
+        return noDecode(urls);
+      });
+      expect(calls).toBe(0);
+      expect(stored).toEqual([{ links: 0, decoded: {}, attempted: 0, outcome: "no_candidates" }]);
+    }, 120_000);
+    it("renders with the links a resumed run already decoded, spending no requests", async () => {
+      reset();
+      let calls = 0;
+      const existing = { runId: 1, name: "gnews_links.json", sha256: "1".repeat(64) };
+      await withWorker(() => approveAndWait("2026-10-05"), { storeGnews, render, planGnews: () => Promise.resolve({ urls: [], existing }) }, emptyFetch, (urls) => {
+        calls++;
+        return noDecode(urls);
+      });
+      expect(calls).toBe(0);
+      expect(stored).toEqual([]);
+      expect(rendered).toEqual(["gnews_links.json@1111"]);
     }, 120_000);
   });
   describe("threads are best-effort", () => {

@@ -46,7 +46,7 @@ Two guards stop both pipelines from sending the same day:
 | `news-digest-temporal-ui` | `temporalio/ui:2.54.1` on 127.0.0.1:8233, and on the tailnet via `tailscale serve` | 128 MiB |
 | `news-digest-temporal-bootstrap` | one-shot: namespace `news-digest` (30-day retention), `ensureSchedule`, pause state, missed-slot start | |
 | `news-digest-worker` | the TypeScript worker, queue `digest`; env `.env` then `worker.env` | 1280 MiB |
-| `news-digest-fulltext` | the Python fulltext worker, queue `fulltext` | 448 MiB |
+| `news-digest-python` | the Python worker (fulltext, gnews), queue `python` | 448 MiB |
 | `news-digest-temporal-backup.timer` | nightly `pg_dump` at 03:15 UTC, kept 14 days | |
 
 - Everything sits on the docker network `news-digest-temporal`. The workers also join `digest-v6`:
@@ -63,7 +63,7 @@ Two guards stop both pipelines from sending the same day:
 Read on the box on 2026-09-23 (`free -m`, `docker stats`): 3819 MiB total, no swap, 994 MiB used with
 no digest running. That leaves 2825 MiB.
 
-The caps sum to 2752 MiB: Postgres 384, server 512, UI 128, fulltext 448, worker 1280. Every container
+The caps sum to 2752 MiB: Postgres 384, server 512, UI 128, Python worker 448, worker 1280. Every container
 can sit at its cap at once and 73 MiB are still free.
 
 The worker's 1280 MiB covers the WRITE fan-out: 4 Claude Code processes at about 245 MiB each is
@@ -72,7 +72,7 @@ headroom. The worker was OOM-killed at 512 MiB. If the fan-out width (Semaphore 
 changes with it.
 
 Idle, measured locally: server + Postgres 213-277 MiB (262 on prod on 2026-09-21), worker 137-208,
-fulltext 67-79, UI 7.
+Python worker 67-79 (measured as the fulltext worker, before gnews joined it), UI 7.
 
 ## Staged verification
 
@@ -82,7 +82,7 @@ fulltext 67-79, UI 7.
    fetch window (`get_last_run_time`) and its duplicate-run guard never see it. Broadcast is off.
 3. Health, all read-only:
    ```
-   bin/ssh 'systemctl is-active news-digest-temporal-postgres news-digest-temporal news-digest-temporal-ui news-digest-worker news-digest-fulltext'
+   bin/ssh 'systemctl is-active news-digest-temporal-postgres news-digest-temporal news-digest-temporal-ui news-digest-worker news-digest-python'
    bin/ssh 'systemctl is-active news-digest-temporal-schema news-digest-temporal-bootstrap'   # one-shots: active (exited)
    T='docker run --rm --network news-digest-temporal -e TEMPORAL_ADDRESS=news-digest-temporal:7233 -e TEMPORAL_NAMESPACE=news-digest temporalio/admin-tools:1.32.0 temporal'
    bin/ssh "$T schedule describe -s digest-daily -o json" | jq .schedule.state     # paused, "mode staged"
