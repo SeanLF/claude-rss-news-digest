@@ -31,7 +31,7 @@ export function scheduleOptions(): ScheduleOptions {
     scheduleId: SCHEDULE_ID,
     spec: { calendars: [{ hour: 10, minute: 25 }] },
     policies: { overlap: ScheduleOverlapPolicy.SKIP, catchupWindow: "1 day" },
-    action: { type: "startWorkflow", workflowType: DigestWorkflow, taskQueue: TASK_QUEUE, workflowId: "digest-scheduled", args: [{ runDate: "" }] },
+    action: { type: "startWorkflow", workflowType: DigestWorkflow, taskQueue: TASK_QUEUE, workflowId: "digest-scheduled", args: [{ runDate: "" }], workflowRunTimeout: WORKFLOW_RUN_TIMEOUT },
   };
 }
 
