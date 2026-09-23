@@ -2,7 +2,7 @@ import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vitest";
 import { ArtifactStore } from "../store/artifacts.js";
 import { migratedDb } from "../store/migrated-db.js";
-import { broadcastActivities, type Mail } from "./broadcast.js";
+import { broadcastActivities, CLAIM_TTL_MS, type Mail } from "./broadcast.js";
 
 type Call = [string, unknown];
 const ok = <T>(data: T) => Promise.resolve({ data, error: null, headers: null });
@@ -106,15 +106,36 @@ describe("broadcast: at most once per digest date (the 2026-06-16 rule)", () => 
     expect(fake.names()).toEqual(["contacts", "create"]);
     expect(state()).toEqual({ id: null, status: null, recipients: null });
   });
-  it("unless BROADCAST_ENABLED is true it never calls Resend and says the send is disabled", async () => {
+  it("unless BROADCAST_ENABLED is true it says so and refuses to send, never calling Resend", async () => {
     for (const flag of [undefined, "", "false", "1", "yes"]) {
       const { BROADCAST_ENABLED: _on, ...rest } = ENV;
       const { email, state, make } = setup({}, flag === undefined ? rest : { ...rest, BROADCAST_ENABLED: flag });
       const fake = fakeMail({});
-      expect(await make(fake.mail).broadcast(300, email)).toEqual({ broadcastId: "", status: "disabled", recipients: 0 });
+      expect(await make(fake.mail).sendEnabled()).toBe(false);
+      await expect(make(fake.mail).broadcast(300, email)).rejects.toThrow(/BROADCAST_ENABLED/);
       expect(fake.names()).toEqual([]);
       expect(state()).toEqual({ id: null, status: null, recipients: null });
     }
+  });
+  it("two sends for the same date at once: one claims the date and sends, the other sends nothing", async () => {
+    const { email, state, make } = setup({});
+    const fake = fakeMail({});
+    const results = await Promise.allSettled([make(fake.mail).broadcast(300, email), make(fake.mail).broadcast(300, email)]);
+    expect(fake.names().filter((n) => n === "create")).toHaveLength(1);
+    expect(fake.names().filter((n) => n === "send")).toHaveLength(1);
+    expect(results.map((r) => r.status).toSorted()).toEqual(["fulfilled", "rejected"]);
+    expect(String((results.find((r) => r.status === "rejected") as PromiseRejectedResult).reason)).toMatch(/claimed/);
+    expect(state()).toEqual({ id: "b-new", status: "sent", recipients: 2 });
+  });
+  it("a claim younger than an attempt's lifetime holds the date; an older one, from an attempt that died before creating, is taken over", async () => {
+    const recent = setup({ status: `claimed ${new Date().toISOString()}` });
+    const fresh = fakeMail({});
+    await expect(recent.make(fresh.mail).broadcast(300, recent.email)).rejects.toThrow(/claimed/);
+    expect(fresh.names()).toEqual([]);
+    const stale = setup({ status: `claimed ${new Date(Date.now() - CLAIM_TTL_MS - 1000).toISOString()}` });
+    const fake = fakeMail({});
+    expect(await stale.make(fake.mail).broadcast(300, stale.email)).toMatchObject({ broadcastId: "b-new", status: "sent" });
+    expect(fake.names()).toEqual(["contacts", "create", "send"]);
   });
   it("refuses to send a digest that has no saved row, since the row is its idempotency record", async () => {
     const { email, make } = setup();
@@ -150,6 +171,15 @@ describe("notifyHold", () => {
     expect(p.html).toContain("Deal &lt;signed&gt;");
     expect(p.html).toContain("Yen falls");
     expect(p.html).toContain("12:45");
+  });
+  it("with no budget left for a hold, says the issue is sending now, unheld", async () => {
+    const { selections, make } = setup({});
+    const fake = fakeMail({});
+    expect(await make(fake.mail).notifyHold(300, selections, null)).toEqual({ sent: true });
+    const p = fake.calls[0]![1] as { subject: string; html: string };
+    expect(p.subject).toContain("unheld");
+    expect(p.html).toContain("not held");
+    expect(p.html).not.toContain("To stop it");
   });
   it("without an operator address it sends nothing and says so, rather than failing the run", async () => {
     const { selections, make } = setup({}, { ...ENV, HEALTH_ALERT_EMAIL: "" });

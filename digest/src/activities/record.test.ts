@@ -80,6 +80,13 @@ describe("record activities", () => {
       { headline: "Yen falls", tier: "should_know", source_id: "nhk", original_title: "Yen slides", cluster_id: "c2", run_id: 300 },
     ]);
   });
+  it("refuses to record shown headlines it cannot resolve to sources, rather than writing rows with no source", async () => {
+    const path = migratedDb([{ id: 301, runAt: "2026-09-19 10:25:40" }]);
+    const store = new ArtifactStore(path);
+    const sel = store.put(301, "selections.json", JSON.stringify(SELECTIONS));
+    await expect(recordActivities({ store, dbPath: path }).recordShownHeadlines(301, sel)).rejects.toThrow(/article_index.json/);
+    expect(new DatabaseSync(path).prepare("SELECT COUNT(*) AS n FROM shown_narratives").get()).toEqual({ n: 0 });
+  });
   it("marks a failed run failed with its error, keeping its rows", async () => {
     const { acts, db, sel, html } = setup();
     await acts.saveDigest(300, html, sel);
@@ -90,6 +97,12 @@ describe("record activities", () => {
 });
 
 describe("finishRun", () => {
+  it("a run with the send disabled was not delivered: no completed_at, and its status says why", async () => {
+    const { path, store, db } = setup();
+    const run = runActivities({ store, dbPath: path, sourcesFile: "/dev/null" });
+    await run.finishRun(300, { stories: 17, broadcast: "disabled", recipients: 0 });
+    expect(db.prepare("SELECT status, completed_at, articles_emailed FROM digest_runs WHERE id=300").get()).toEqual({ status: "disabled", completed_at: null, articles_emailed: null });
+  });
   it("a sent run completes with its recipients emailed and its fetch-time kept count", async () => {
     const { path, store, db } = setup();
     db.exec("INSERT INTO digest_runs (id, run_at) VALUES (299, '2026-09-17 10:25:40')");

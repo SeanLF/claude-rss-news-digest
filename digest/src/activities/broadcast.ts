@@ -17,6 +17,9 @@ export interface Mail {
 // A broadcast in any of these states was accepted for delivery, so a send whose response failed
 // actually landed. "sent" is safe only because a first send always goes to a fresh draft.
 export const ACCEPTED_BROADCAST_STATES: ReadonlySet<string> = new Set(["queued", "sending", "sent"]);
+// The send activity's start-to-close is 10 minutes; a claim older than this outlived its attempt.
+export const CLAIM_TTL_MS = 15 * 60 * 1000;
+const CLAIMED = "claimed ";
 export const CONTACT_THRESHOLD = 900; // Resend's free tier stops at 1,000 contacts (spec §3)
 
 interface Execution { namespace: string; workflowId: string; runId: string }
@@ -92,6 +95,38 @@ export function broadcastActivities(deps: BroadcastDeps) {
     }
   };
 
+  // The date's claim, taken under SQLite's write lock: the one attempt that holds it may create a
+  // broadcast. A claim older than an attempt can live was left by one that died before creating
+  // anything, so it is taken over rather than blocking the day.
+  const claim = (date: string) => {
+    const db = openDb(deps.dbPath);
+    try {
+      db.exec("BEGIN IMMEDIATE");
+      try {
+        const row = db.prepare("SELECT broadcast_id AS id, broadcast_status AS status FROM digests WHERE date=?").get(date) as { id: string | null; status: string | null } | undefined;
+        const held = row?.status?.startsWith(CLAIMED) ? Date.parse(row.status.slice(CLAIMED.length)) : Number.NaN;
+        if (!row || row.id !== null || (!Number.isNaN(held) && Date.now() - held < CLAIM_TTL_MS)) {
+          throw ApplicationFailure.nonRetryable(`the send for ${date} is claimed by another attempt (${row?.id ?? row?.status ?? "no row"}); not sending`, "SendClaimed");
+        }
+        db.prepare("UPDATE digests SET broadcast_status=? WHERE date=?").run(`${CLAIMED}${new Date().toISOString()}`, date);
+        db.exec("COMMIT");
+      } catch (e) {
+        db.exec("ROLLBACK");
+        throw e;
+      }
+    } finally {
+      db.close();
+    }
+  };
+  const release = (date: string) => {
+    const db = openDb(deps.dbPath);
+    try {
+      db.prepare("UPDATE digests SET broadcast_status=NULL WHERE date=? AND broadcast_id IS NULL AND broadcast_status LIKE ?").run(date, `${CLAIMED}%`);
+    } finally {
+      db.close();
+    }
+  };
+
   // Best-effort: a probe that cannot read the status answers null and the caller assumes nothing.
   const probe = async (id: string): Promise<string | null> => {
     try {
@@ -136,15 +171,18 @@ export function broadcastActivities(deps: BroadcastDeps) {
     return v;
   };
 
+  // Off unless asked for: a worker pointed at a copy of the database, or started for a test, must
+  // never mail the audience.
+  const enabled = () => env["BROADCAST_ENABLED"] === "true";
+
   return {
+    sendEnabled: (): Promise<boolean> => Promise.resolve(enabled()),
+
     broadcast: async (runId: number, email: Pointer): Promise<BroadcastResult> => {
       const date = store.runDate(runId);
-      // Off unless asked for: a worker pointed at a copy of the database, or started for a test,
-      // must never mail the audience.
-      if (env["BROADCAST_ENABLED"] !== "true") {
-        console.log(JSON.stringify({ stage: "broadcast", runId, date, event: "disabled: BROADCAST_ENABLED is not true; nothing sent" }));
-        return { broadcastId: "", status: "disabled", recipients: 0 };
-      }
+      // The workflow asks sendEnabled first; this refuses anyway, so no path mails the audience
+      // from a worker that was not told to.
+      if (!enabled()) throw ApplicationFailure.nonRetryable("BROADCAST_ENABLED is not true; nothing sent", "SendDisabled");
       const html = store.get(email);
       const row = readRow(date);
       if (!row) throw ApplicationFailure.nonRetryable(`no digests row for ${date}: the digest is saved before its send, and its row is the send's idempotency record`, "MissingDigest");
@@ -170,12 +208,20 @@ export function broadcastActivities(deps: BroadcastDeps) {
       const segmentId = required("RESEND_AUDIENCE_ID");
       const from = required("RESEND_FROM");
       const name = env["DIGEST_NAME"] || "News Digest";
-      const recipients = await contactCount(segmentId);
-      if (recipients >= CONTACT_THRESHOLD) console.warn(JSON.stringify({ stage: "broadcast", warning: `audience at ${recipients} contacts, near the free tier's 1,000`, recipients }));
-      const day = longDate(date);
-      const { id } = await must(() =>
-        deps.mail().broadcasts.create({ from: `${name} <${from}>`, segmentId, subject: `${name} – ${day}`, html, name: `Digest ${day}`, ...(env["CONTACT_EMAIL"] ? { replyTo: env["CONTACT_EMAIL"] } : {}) }),
-      );
+      claim(date); // before any await: two workflows for one date both read no id above
+      let id: string;
+      let recipients: number;
+      try {
+        recipients = await contactCount(segmentId);
+        if (recipients >= CONTACT_THRESHOLD) console.warn(JSON.stringify({ stage: "broadcast", warning: `audience at ${recipients} contacts, near the free tier's 1,000`, recipients }));
+        const day = longDate(date);
+        ({ id } = await must(() =>
+          deps.mail().broadcasts.create({ from: `${name} <${from}>`, segmentId, subject: `${name} – ${day}`, html, name: `Digest ${day}`, ...(env["CONTACT_EMAIL"] ? { replyTo: env["CONTACT_EMAIL"] } : {}) }),
+        ));
+      } catch (e) {
+        release(date); // no draft to recover, so the next attempt may create one
+        throw e;
+      }
       record(date, id, "created"); // before the send, so a send that fails leaves the id to recover
       const status = await sendExisting(id);
       record(date, id, status, recipients);
@@ -185,12 +231,13 @@ export function broadcastActivities(deps: BroadcastDeps) {
 
     // The pre-broadcast hold's notification (spec §2.3): the run's Temporal UI link and its
     // headlines, to the operator's alert address. Best-effort: the hold proceeds without it.
-    notifyHold: async (runId: number, selections: Pointer, holdEndsAt: string): Promise<{ sent: boolean }> => {
+    notifyHold: async (runId: number, selections: Pointer, holdEndsAt: string | null): Promise<{ sent: boolean }> => {
       const date = store.runDate(runId);
       const sel = JSON.parse(store.get(selections)) as Selections;
       const to = env["HEALTH_ALERT_EMAIL"];
       const from = env["RESEND_FROM"];
-      const dropped = `digest ${date} (run ${runId}) is held for approval until ${holdEndsAt}`;
+      const until = holdEndsAt?.slice(11, 16);
+      const dropped = until ? `digest ${date} (run ${runId}) is held for approval until ${holdEndsAt}` : `digest ${date} (run ${runId}) sends now, unheld: the run's budget had no time left for a hold`;
       if (!to || !from || !env["RESEND_API_KEY"]) {
         console.error(JSON.stringify({ stage: "hold", error: "ALERTING MISCONFIGURED (HEALTH_ALERT_EMAIL, RESEND_FROM or RESEND_API_KEY unset): hold notification dropped", dropped }));
         return { sent: false };
@@ -199,13 +246,17 @@ export function broadcastActivities(deps: BroadcastDeps) {
       const ui = (env["TEMPORAL_UI_URL"] || "http://127.0.0.1:8233").replace(/\/+$/, "");
       const link = `${ui}/namespaces/${encodeURIComponent(ex.namespace)}/workflows/${encodeURIComponent(ex.workflowId)}/${encodeURIComponent(ex.runId)}/history`;
       const signal = (decision: string) => `temporal workflow signal --workflow-id ${ex.workflowId} --name approve --input '{"decision":"${decision}"}'`;
-      const until = holdEndsAt.slice(11, 16);
-      const html = `<h2>Digest ${date} is waiting to send</h2>
+      const head = until
+        ? `<h2>Digest ${date} is waiting to send</h2>
 <p>Run ${runId} is held until <strong>${until} UTC</strong>, then it sends on its own. <a href="${htmlEscape(link)}">Open the run in the Temporal UI</a>.</p>
-<p>To stop it: <code>${htmlEscape(signal("reject"))}</code><br>To send now: <code>${htmlEscape(signal("approve"))}</code></p>
+<p>To stop it: <code>${htmlEscape(signal("reject"))}</code><br>To send now: <code>${htmlEscape(signal("approve"))}</code></p>`
+        : `<h2>Digest ${date} is sending now, without a hold</h2>
+<p>Run ${runId} used its time budget before the hold, so it was <strong>not held</strong> for approval. <a href="${htmlEscape(link)}">Open the run in the Temporal UI</a>.</p>`;
+      const html = `${head}
 <h3>Must know (${sel.must_know.length})</h3><ol>${headlineList(sel.must_know)}</ol>
 <h3>Should know (${sel.should_know.length})</h3><ol>${headlineList(sel.should_know)}</ol>`;
-      const subject = `[Hold] Digest ${date}: ${sel.must_know.length + sel.should_know.length} stories send at ${until} UTC`;
+      const n = sel.must_know.length + sel.should_know.length;
+      const subject = until ? `[Hold] Digest ${date}: ${n} stories send at ${until} UTC` : `[No hold] Digest ${date}: ${n} stories sending now, unheld`;
       try {
         const r = await call(() => deps.mail().emails.send({ from: `News Digest Alerts <${from}>`, to: [to], subject, html }));
         if (r.error) throw new ResendFailure(r.error);

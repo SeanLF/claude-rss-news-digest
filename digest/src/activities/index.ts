@@ -33,7 +33,7 @@ export interface FetchSummary { sourceId: string; ok: boolean; fetched: number; 
 export interface DigestOutput {
   runId: number;
   stories: number;
-  // "disabled": recorded and published to the web, not emailed (the Python's --no-email).
+  // "disabled": BROADCAST_ENABLED is off, so nothing was published, like "rejected".
   broadcast: "sent" | "disabled" | "rejected" | "skipped";
   recipients?: number;
 }
@@ -61,9 +61,10 @@ export interface Activities {
   threads(runId: number, selections: Pointer): Promise<Pointer>;
   render(runId: number, selections: Pointer, threads: Pointer, gnews: Pointer): Promise<{ html: Pointer; email: Pointer }>;
   archiveRun(runId: number, selections: Pointer, clusters: Pointer): Promise<void>;
-  notifyHold(runId: number, selections: Pointer, holdEndsAt: string): Promise<{ sent: boolean }>;
+  sendEnabled(): Promise<boolean>;
+  // holdEndsAt null: no run budget was left for a hold, and the send follows at once.
+  notifyHold(runId: number, selections: Pointer, holdEndsAt: string | null): Promise<{ sent: boolean }>;
   saveDigest(runId: number, html: Pointer, selections: Pointer): Promise<{ date: string }>;
-  // status "disabled": the worker is not configured to send (BROADCAST_ENABLED unset).
   broadcast(runId: number, email: Pointer): Promise<{ broadcastId: string; status: string; recipients: number }>;
   recordShownHeadlines(runId: number, selections: Pointer): Promise<{ rows: number }>;
   finishRun(runId: number, output: Omit<DigestOutput, "runId">): Promise<void>;

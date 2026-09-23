@@ -1,4 +1,5 @@
 import type { DatabaseSync } from "node:sqlite";
+import { ApplicationFailure } from "@temporalio/common";
 import { resolveArticleIds, type Selections } from "../render/render.js";
 import { webArchiveHtml } from "../render/web-archive.js";
 import type { ArtifactStore, Pointer } from "../store/artifacts.js";
@@ -8,8 +9,8 @@ export interface ShownRow { headline: string; tier: "must_know" | "should_know";
 
 // render.extract_headlines: one row per source per story, over the selections as resolved against
 // the run's article index. The next day's prepare reads these back for dedup.
-export function shownHeadlines(selections: Selections, index: Record<string, unknown> | undefined): ShownRow[] {
-  const resolved = index ? resolveArticleIds(selections, index) : selections;
+export function shownHeadlines(selections: Selections, index: Record<string, unknown>): ShownRow[] {
+  const resolved = resolveArticleIds(selections, index);
   return (["must_know", "should_know"] as const).flatMap((tier) =>
     resolved[tier].flatMap((item) => item.sources.map((src) => ({ headline: item.headline ?? "", tier, source_id: src.source_id ?? null, original_title: src.original_title ?? null, cluster_id: item.cluster_id ?? null }))),
   );
@@ -85,9 +86,12 @@ export function recordActivities(deps: RecordDeps) {
       return Promise.resolve({ date });
     },
 
-    recordShownHeadlines: (runId: number, selections: Pointer): Promise<{ rows: number }> => {
+    recordShownHeadlines: async (runId: number, selections: Pointer): Promise<{ rows: number }> => {
+      // Without the index every row would carry no source_id and no original_title, and the next
+      // day's dedup would match nothing: fail rather than write them.
       const indexPtr = store.find(runId, "article_index.json");
-      const rows = shownHeadlines(selectionsOf(selections), indexPtr ? (JSON.parse(store.get(indexPtr)) as Record<string, unknown>) : undefined);
+      if (!indexPtr) throw ApplicationFailure.nonRetryable(`run ${runId} has no article_index.json to resolve its shown headlines`, "MissingInput");
+      const rows = shownHeadlines(selectionsOf(selections), JSON.parse(store.get(indexPtr)) as Record<string, unknown>);
       withDb(deps.dbPath, (db) =>
         tx(db, () => {
           db.prepare("DELETE FROM shown_narratives WHERE run_id=?").run(runId);
@@ -95,7 +99,7 @@ export function recordActivities(deps: RecordDeps) {
           for (const r of rows) ins.run(r.headline, r.tier, r.source_id, r.original_title, r.cluster_id, runId);
         }),
       );
-      return Promise.resolve({ rows: rows.length });
+      return { rows: rows.length };
     },
 
     // Marked, never deleted: a run that failed after its send keeps its record (2026-06-16).

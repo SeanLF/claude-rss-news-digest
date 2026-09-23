@@ -31,6 +31,7 @@ export function stubActivities(): Activities {
     threads: (runId) => Promise.resolve(ptr(runId, THREAD_CONTEXT)),
     render: (runId) => Promise.resolve({ html: ptr(runId, "digest.html"), email: ptr(runId, "email.html") }),
     archiveRun: () => Promise.resolve(),
+    sendEnabled: () => Promise.resolve(true),
     notifyHold: () => Promise.resolve({ sent: true }),
     saveDigest: () => Promise.resolve({ date: "2026-09-21" }),
     broadcast: () => Promise.resolve({ broadcastId: "stub", status: "sent", recipients: 12 }),
