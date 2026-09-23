@@ -51,7 +51,7 @@ R = reads, W = writes, `-` = neither. Circulation opens every production connect
 | `threads` | 951 | 0.2 | W R | W R | R | R |
 | `thread_installments` | 1,597 | 4.6 | W R | W R | R | R |
 | `thread_questions` | 3,116 | 0.9 | W R | W R | R | R |
-| `thread_runs` | 98 | <0.1 | W | W, R existence only | - | **no reader of its counts** |
+| `thread_runs` | 98 | <0.1 | W | W, R existence only | - | **counts read only by the parity oracle** |
 | `story_feedback` | 37 | <0.1 | - | - | - (route removed) | - |
 
 Sizes: `$P "SELECT name, round(sum(pgsize)/1048576.0,2) FROM dbstat GROUP BY name ORDER BY 2 DESC"`. The
@@ -313,9 +313,10 @@ CREATE VIEW thread_state AS ...  -- label, first/last run, active|dormant|merged
   else, inside one transaction; the "later runs build on it" refusal (`dependentRuns`) stays.
 - Readers (thread pages, the linker's context, synthesis history) see rows whose run is in
   `published_runs`, plus the current run's own. `retractAbandoned` and the abandoned-run sweep are deleted.
-- `thread_runs` goes: its counts have no reader (`rg -n "FROM thread_runs" digest/src newsroom/src circulation/src analytics bin -g '!*test*'`
-  → one existence check) and `thread_health.json` holds the same numbers. `threads.slug` goes: written,
-  never read.
+- `thread_runs` goes: outside the parity oracle its counts have no reader (`rg -n "FROM thread_runs" digest/src newsroom circulation/src analytics bin -g '!*test*'`
+  → one existence check, plus `newsroom/tools/threads_oracle.py`) and `thread_health.json` holds the same
+  numbers. `threads.slug` goes: written, and read only by that oracle. The oracle compares the two pipelines,
+  so it retires with Python; that is why both drops wait for step 3.
 - **Takedown.** If a publisher or person asks for content to come down, the path is a manual redaction
   (`content` replaced by a tombstone, logged), not the run-undo machinery. Not built; noted.
 
@@ -407,8 +408,8 @@ Grep scope for every row: `digest/src circulation/src newsroom/src bin analytics
 |---|---|---|
 | `selections.*` (table) | no `FROM/JOIN selections` outside docstrings | drop after backfill (step 3) |
 | `cluster_runs.*` (table) | read by 3 analytics queries only; equals `clusters.json` 99/99 | repoint, drop |
-| `thread_runs.threads_synthesized`, `audit_failures` | no reader; Python alerts from an in-memory count | drop |
-| `threads.slug` | written by both pipelines, read nowhere (`rg -n "\bslug\b"`: only render slugs and a test schema) | drop |
+| `thread_runs.threads_synthesized`, `audit_failures` | read only by `threads_oracle.py` (parity); Python alerts from an in-memory count | drop with Python |
+| `threads.slug` | written by both pipelines, read only by `threads_oracle.py` (parity) | drop with Python |
 | `threads.label`, `last_run_id`, `status`, `first_run_id` | derivable, 951/951 | become `thread_state` |
 | `thread_installments.matched_score` | read only as `IS NOT NULL` (`run-health.ts:148`, `db.py:527`) | becomes `continued` |
 | `shown_narratives.cluster_id` | written, never read in SQL; 10,855 of 30,063 set | keep for now; drop with normalisation |
