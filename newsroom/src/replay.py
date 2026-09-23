@@ -36,10 +36,11 @@ from pathlib import Path
 
 import config
 import db
-import digest
 import render
 import render_email
 import run_health
+
+import digest
 
 logger = logging.getLogger(__name__)
 
