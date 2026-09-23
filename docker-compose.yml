@@ -29,7 +29,10 @@ services:
       - ./newsroom/templates/digest.css:/app/templates/digest.css:ro
       - ./prompts:/app/prompts:ro
 
+  # ci and ci-rust hold toolchains only and bind-mount the tree, so every worktree and compose
+  # project shares one tag. ci-ts and ci-python COPY source in, so they keep per-project tags.
   ci:
+    image: news-digest/ci:local
     build:
       context: .
       dockerfile: newsroom/Dockerfile.ci
@@ -53,12 +56,17 @@ services:
       dockerfile: digest/python/Dockerfile
 
   ci-rust:
+    image: news-digest/ci-rust:local
     build:
       context: ./circulation
       dockerfile: Dockerfile.ci
     working_dir: /app
+    environment:
+      # One build directory for every worktree; cargo's lock serialises concurrent builds.
+      - CARGO_TARGET_DIR=/cargo-target
     volumes:
       - ./circulation:/app
+      - cargo-target:/cargo-target
       - ./newsroom/sources.json:/app/sources.json:ro
       # tokens.css is the shared design source `include_str!`'d by src/assets.rs as
       # ../../design/tokens.css -> /design/tokens.css from /app/src (same bind-mount
@@ -141,3 +149,6 @@ volumes:
   claude-sessions:
   bash-history:
   cargo-cache:
+    name: news-digest-cargo-cache
+  cargo-target:
+    name: news-digest-cargo-target
