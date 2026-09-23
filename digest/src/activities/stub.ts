@@ -32,5 +32,11 @@ export function stubActivities(): Activities {
     render: (runId) => Promise.resolve({ html: ptr(runId, "digest.html"), email: ptr(runId, "email.html") }),
     broadcast: () => Promise.resolve({ broadcastId: "stub" }),
     finishRun: () => Promise.resolve(),
+    weeklyRecap: (runId) => Promise.resolve(ptr(runId, "weekly_recap.txt")),
+    healthcheck: () => Promise.resolve(),
+    healthcheckLog: () => Promise.resolve(),
+    checkFeeds: () => Promise.resolve(null),
+    checkRunHealth: () => Promise.resolve(null),
+    alert: () => Promise.resolve(),
   };
 }

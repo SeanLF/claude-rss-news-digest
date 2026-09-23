@@ -1,10 +1,11 @@
-import { WorkflowIdConflictPolicy } from "@temporalio/common";
+import { WorkflowFailedError } from "@temporalio/client";
+import { ApplicationFailure, WorkflowIdConflictPolicy } from "@temporalio/common";
 import { TestWorkflowEnvironment } from "@temporalio/testing";
 import { Worker } from "@temporalio/worker";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import type { Activities, FulltextFetch, FulltextTask } from "../activities/index.js";
+import type { Activities, AlertRequest, FulltextFetch, FulltextTask } from "../activities/index.js";
 import { stubActivities } from "../activities/stub.js";
-import { DigestWorkflow, workflowIdFor } from "./digest.workflow.js";
+import { DigestWorkflow, WORKFLOW_RUN_TIMEOUT, workflowIdFor } from "./digest.workflow.js";
 import { FULLTEXT_TASK_QUEUE } from "./policy.js";
 import { approveSignal, retrySignal } from "./signals.js";
 
@@ -38,6 +39,29 @@ const approveAndWait = async (runDate: string) => {
 };
 const start = (runDate: string, extra: Record<string, unknown> = {}, opts: Record<string, unknown> = {}) =>
   env.client.workflow.start(DigestWorkflow, { taskQueue, workflowId: workflowIdFor(runDate), args: [{ runDate, ...extra }], ...opts });
+
+// Records the operations calls in order, with SELECT among them to check what runs before it.
+function recorder(over: Partial<Activities> = {}) {
+  const calls: unknown[][] = [];
+  const stubs = stubActivities() as unknown as Record<string, (...a: unknown[]) => Promise<unknown>>;
+  const track = <K extends keyof Activities>(name: K, keep: (a: unknown[]) => unknown[] = (a) => a): Activities[K] =>
+    ((...a: unknown[]) => {
+      calls.push([name, ...keep(a)]);
+      return stubs[name]!(...a);
+    }) as unknown as Activities[K];
+  const acts: Partial<Activities> = {
+    healthcheck: track("healthcheck"),
+    checkFeeds: track("checkFeeds", ([runId, ids]) => [runId, (ids as string[]).length]),
+    weeklyRecap: track("weeklyRecap", ([runId]) => [runId]),
+    select: track("select", () => []),
+    checkRunHealth: track("checkRunHealth"),
+    alert: track("alert"),
+    ...over,
+  };
+  return { calls, acts };
+}
+const named = (calls: unknown[][], name: string) => calls.filter((c) => c[0] === name);
+const failed = (reason: string) => () => Promise.reject(ApplicationFailure.nonRetryable(reason, "TestFailure"));
 
 describe("DigestWorkflow", () => {
   it("runs every stage over stub activities and sends when approved", async () => {
@@ -92,6 +116,74 @@ describe("DigestWorkflow", () => {
     });
     expect(out).toMatchObject({ runId: 303, broadcast: "sent" });
   }, 120_000);
+  describe("operations", () => {
+    it("a delivered run pings start and success, keeps the weekly recap before SELECT, and checks its health", async () => {
+      const { calls, acts } = recorder();
+      const out = await withWorker(() => approveAndWait("2026-10-02"), acts);
+      expect(out.broadcast).toBe("sent");
+      expect(named(calls, "healthcheck")).toEqual([["healthcheck", "start"], ["healthcheck", "success"]]);
+      expect(named(calls, "checkFeeds")).toEqual([["checkFeeds", 1, 3]]);
+      expect(calls.findIndex((c) => c[0] === "weeklyRecap")).toBeLessThan(calls.findIndex((c) => c[0] === "select"));
+      expect(named(calls, "checkRunHealth")).toEqual([["checkRunHealth", 1, true]]);
+      expect(named(calls, "alert")).toEqual([]);
+    }, 120_000);
+    it("alerts on what the feed and run-health checks find", async () => {
+      const feeds = { kind: "source-health" as const, failing: [["the_hindu", 4]] as [string, number][], failedThisRun: 1, totalSources: 3, threshold: 3 };
+      const health = { kind: "run-health" as const, runId: 1, violations: ["ZERO_STORIES: x"] };
+      const { calls, acts } = recorder({ checkFeeds: () => Promise.resolve(feeds), checkRunHealth: () => Promise.resolve(health) });
+      await withWorker(() => approveAndWait("2026-10-03"), acts);
+      expect(named(calls, "alert")).toEqual([["alert", feeds], ["alert", health]]);
+    }, 120_000);
+    it("a rejected run is checked as not broadcasting and never pings success", async () => {
+      const { calls, acts } = recorder();
+      await withWorker(async () => {
+        const h = await start("2026-10-04");
+        await h.signal(approveSignal, { decision: "reject" });
+        return h.result();
+      }, acts);
+      expect(named(calls, "checkRunHealth")).toEqual([["checkRunHealth", 1, false]]);
+      expect(named(calls, "healthcheck")).toEqual([["healthcheck", "start"]]);
+    }, 120_000);
+    it("the operations checks are best-effort: every one failing still delivers the run", async () => {
+      const boom = failed("ops down");
+      const out = await withWorker(() => approveAndWait("2026-10-05"), { healthcheck: boom, checkFeeds: boom, weeklyRecap: boom, checkRunHealth: boom, alert: boom, healthcheckLog: boom });
+      expect(out.broadcast).toBe("sent");
+    }, 120_000);
+    it("a failed run pings fail and alerts with the cause, then still fails", async () => {
+      const { calls, acts } = recorder({ writeStory: failed("write s00: the model is gone") });
+      const err = await withWorker(async () => (await start("2026-10-06")).result().catch((e: unknown) => e), acts);
+      expect(err).toBeInstanceOf(WorkflowFailedError);
+      expect(named(calls, "healthcheck")).toEqual([["healthcheck", "start"], ["healthcheck", "fail"]]);
+      const [[, req]] = named(calls, "alert") as [[string, AlertRequest]];
+      expect(req).toMatchObject({ kind: "run-failed", workflowId: workflowIdFor("2026-10-06"), runId: 1, timedOut: false });
+      expect((req as Extract<AlertRequest, { kind: "run-failed" }>).reason).toContain("write s00: the model is gone");
+    }, 120_000);
+    it("a run that hangs fails loudly at its own deadline, before the server's run timeout can kill it silently", async () => {
+      const { calls, acts } = recorder();
+      // Parked on the retry signal with nobody answering: only the deadline ends it.
+      const err = await withWorker(async () => (await start("2026-10-07", { failStage: "select" }, { workflowRunTimeout: WORKFLOW_RUN_TIMEOUT })).result().catch((e: unknown) => e), acts);
+      expect(err).toBeInstanceOf(WorkflowFailedError);
+      expect((err as WorkflowFailedError).cause?.message).toMatch(/deadline/);
+      expect(named(calls, "alert")).toMatchObject([["alert", { kind: "run-failed", runId: 1, timedOut: true }]]);
+      expect(named(calls, "healthcheck")).toEqual([["healthcheck", "start"], ["healthcheck", "fail"]]);
+    }, 120_000);
+    it("a failed resume alerts but leaves the dead-man's switch to the day's first run", async () => {
+      const { calls, acts } = recorder({ writeStory: failed("still gone") });
+      await withWorker(async () => (await start("2026-10-08", { resumeRun: 303 })).result().catch((e: unknown) => e), acts);
+      expect(named(calls, "healthcheck")).toEqual([]);
+      expect(named(calls, "alert")).toMatchObject([["alert", { kind: "run-failed", runId: 303 }]]);
+    }, 120_000);
+    it("an operator's cancellation is not a failure to alert on", async () => {
+      const { calls, acts } = recorder();
+      await withWorker(async () => {
+        const h = await start("2026-10-09");
+        await env.sleep("1 minute");
+        await h.cancel();
+        return h.result().catch((e: unknown) => e);
+      }, acts);
+      expect(named(calls, "alert")).toEqual([]);
+    }, 120_000);
+  });
   describe("fulltext across the language line", () => {
     const stored: FulltextFetch[] = [];
     const storeFulltext: Activities["storeFulltext"] = (runId, fetched) => {

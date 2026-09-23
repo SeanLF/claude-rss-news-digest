@@ -1,4 +1,6 @@
+import type { AlertRequest } from "../ops/alerts.js";
 import type { Pointer } from "../store/artifacts.js";
+export type { AlertRequest };
 
 // failStage is a test hook the stub honours; real activities ignore it.
 export interface DigestInput {
@@ -60,6 +62,13 @@ export interface Activities {
   render(runId: number, selections: Pointer, threads: Pointer, gnews: Pointer): Promise<{ html: Pointer; email: Pointer }>;
   broadcast(runId: number, email: Pointer): Promise<{ broadcastId: string }>;
   finishRun(runId: number, output: Omit<DigestOutput, "runId">): Promise<void>;
+  // Operations (src/activities/ops.ts): best-effort, none can fail a run.
+  weeklyRecap(runId: number, force?: boolean): Promise<Pointer | null>;
+  healthcheck(event: "start" | "success" | "fail"): Promise<void>;
+  healthcheckLog(message: string): Promise<void>;
+  checkFeeds(runId: number, sourceIds: string[]): Promise<AlertRequest | null>;
+  checkRunHealth(runId: number, broadcasting: boolean): Promise<AlertRequest | null>;
+  alert(req: AlertRequest): Promise<void>;
 }
 export const STORY_COUNT_STUB = 3;
 // What threads and gnews hand render: each story's thread context by cluster label, and each
