@@ -3,6 +3,7 @@ import type { Activities, DigestInput, DigestOutput, FulltextFetch, FulltextFetc
 import { mapBounded, MODEL_FANOUT_LIMIT } from "./bounded.js";
 import { FULLTEXT_TASK_QUEUE, MODEL_MAX_ATTEMPTS, NETWORK_MAX_ATTEMPTS } from "./policy.js";
 import { approveSignal, operatorNoteSignal, retrySignal } from "./signals.js";
+import { threadsPhase } from "./threads.js";
 
 export const WORKFLOW_RUN_TIMEOUT = "4 hours";
 export const HOLD_TIMEOUT = "2 hours";
@@ -103,7 +104,7 @@ export async function DigestWorkflow(input: DigestInput): Promise<DigestOutput> 
   if (!report) return finish({ stories: 0, broadcast: "skipped" });
   const repair = await model.repair(runId, drafts, report, input.force);
   const selections = await once.assemble(runId, drafts, report, repair, preheader, input.force);
-  const [gnews, threads] = await Promise.all([network.gnews(runId, selections), model.threads(runId, selections)]);
+  const [gnews, threads] = await Promise.all([network.gnews(runId, selections), threadsPhase(runId)]);
   const { email } = await once.render(runId, selections, threads, gnews);
 
   // Pre-broadcast hold (spec §2.3 signal 1): 2 h, then proceed.
