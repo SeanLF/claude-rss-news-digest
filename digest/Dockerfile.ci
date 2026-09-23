@@ -10,4 +10,7 @@ COPY migrations/ /app/migrations/
 COPY newsroom/templates/digest-template.html newsroom/templates/digest.css /app/newsroom/templates/
 COPY newsroom/tests/fixtures/kitchensink_selections.json /app/newsroom/tests/fixtures/
 COPY design/tokens.css /app/design/tokens.css
+# python-tree.test.ts checks that what the worker images copy from newsroom/ exists and is in the runbook.
+COPY newsroom/src/ /app/newsroom/src/
+COPY docs/2026-09-23-temporal-cutover-runbook.md /app/docs/
 COPY digest/ ./

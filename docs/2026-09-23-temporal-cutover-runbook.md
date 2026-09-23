@@ -191,6 +191,23 @@ history. Rehearsed under systemd in a container: no unit files and no active uni
   - Known gap: the apply's own bootstrap step restores the schedule a few seconds before the workers
     restart on the new image.
 
+## What still needs the Python tree after the cut-over
+
+The cut-over retires the Python pipeline, not `newsroom/`. Deleting it breaks these:
+
+| what | reads from the Python tree | how |
+|---|---|---|
+| the Python worker image (`digest/python/Dockerfile`) | `newsroom/src/fulltext.py`, `newsroom/src/gnews.py`, `newsroom/src/config.py` | copied into `/app/src/`; trafilatura keeps the worker in Python whatever happens to gnews |
+| the TypeScript worker image (`digest/Dockerfile`) | `newsroom/sources.json`, `newsroom/templates/digest-template.html`, `newsroom/templates/digest.css` | copied; the feed catalogue and the render's template |
+| the ci-ts image (`digest/Dockerfile.ci`) | `migrations/`, the two templates above, `newsroom/tests/fixtures/kitchensink_selections.json`, `newsroom/src/` | copied for the store, render and parity tests, and for the guard below |
+| migrations | the newsroom image | `bin/migrate` runs yoyo in `digest-newsroom`, locally and on the box; `bin/deploy` migrates through it |
+| staged mode's DB refresh | the newsroom image | the worker unit copies `digest.db` to `digest-staged.db` with SQLite's backup API inside it (Staged verification, step 2) |
+
+`digest/src/python-tree.test.ts` fails when a file these Dockerfiles copy from `newsroom/` or
+`migrations/` is gone, or is missing from this table. The last two rows are not Dockerfile copies, so
+no test guards them: moving yoyo and the staged refresh off the newsroom image comes before
+deleting it.
+
 ## Backups and the restore drill
 
 Dumps land in `/opt/news-digest/temporal-dumps/` as `<db>-<UTC stamp>.dump` (custom format), for
