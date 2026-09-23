@@ -135,13 +135,23 @@ def journal_command(since: str, lines: int, grep: str | None) -> str:
     email addresses (broadcast.py logs test-send and alert recipients). That is acceptable on a
     channel the operator already has; it is the specific reason this must never become an HTTP
     tool.
+
+    The pattern goes to journalctl's own --grep, not a piped `grep --`. Two reasons, both found
+    live: (1) plain `grep` with no `-E` is POSIX basic regex, where `|` is a literal character,
+    not alternation, so an operator's `ERROR|Traceback` sweep silently returned nothing;
+    (2) a pipe is sequential -- `-n N | grep` truncates to the last N raw lines *before* the
+    pattern ever sees them, so a match older than the tail of the --since window was silently
+    missed even though it was in-window. journalctl parses --since/--grep/-n as one combined
+    query instead: --grep (PCRE) filters the whole --since window, and -n then bounds the
+    number of MATCHING entries -- which is what "bounded by --lines on purpose" above is
+    supposed to mean. Note --grep matches only the MESSAGE field, not the timestamp/unit/pid
+    prefix a piped `grep` would have seen; not a concern for the ERROR/Traceback-style patterns
+    this is for.
     """
-    cmd = (
-        f"journalctl -u {shlex.quote(UNIT)} --since {shlex.quote(_relative_time(since))} "
-        f"-n {int(lines)} --no-pager"
-    )
+    cmd = f"journalctl -u {shlex.quote(UNIT)} --since {shlex.quote(_relative_time(since))} --no-pager"
     if grep:
-        cmd += f" | grep -- {shlex.quote(grep)}"
+        cmd += f" --grep {shlex.quote(grep)}"
+    cmd += f" -n {int(lines)}"
     return cmd
 
 
