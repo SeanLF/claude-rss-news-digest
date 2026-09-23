@@ -163,6 +163,89 @@ def test_journal_grep_is_quoted():
     assert "; rm -rf /" not in cmd.replace("'a; rm -rf /'", "")
 
 
+# --- journal --grep, executed against a stubbed journalctl on PATH ---------------------------
+#
+# The stub mimics the two behaviours that matter here: with --grep it filters the whole
+# fixture (as systemd's journalctl does -- --grep is PCRE and applies before --lines), and only
+# then does -n take the last N *matching* entries. Without --grep it just truncates to the last
+# N raw lines, which is what plain journalctl does and is what made the pre-fix `| grep` bug
+# possible: the pipeline truncated to N lines *before* any pattern ever saw them.
+_FAKE_JOURNALCTL = """#!/usr/bin/env python3
+import os, re, sys
+
+argv, grep, lines, i = sys.argv[1:], None, None, 0
+while i < len(argv):
+    if argv[i] == "--grep" and i + 1 < len(argv):
+        grep = argv[i + 1]
+        i += 2
+        continue
+    if argv[i] == "-n" and i + 1 < len(argv):
+        lines = int(argv[i + 1])
+        i += 2
+        continue
+    i += 1
+
+with open(os.environ["JOURNAL_FIXTURE"]) as f:
+    entries = [line.rstrip("\\n") for line in f]
+
+if grep:
+    pattern = re.compile(grep)
+    entries = [e for e in entries if pattern.search(e)]
+
+if lines is not None:
+    entries = entries[-lines:]
+
+sys.stdout.write("\\n".join(entries))
+if entries:
+    sys.stdout.write("\\n")
+"""
+
+
+def _stub_journalctl(tmp_path, fixture_lines):
+    fixture = tmp_path / "journal.log"
+    fixture.write_text("\n".join(fixture_lines) + "\n")
+    stub = tmp_path / "journalctl"
+    stub.write_text(_FAKE_JOURNALCTL)
+    stub.chmod(0o755)
+    return fixture
+
+
+def _run_journal_command(cmd, tmp_path, fixture):
+    env = {**os.environ, "PATH": f"{tmp_path}:{os.environ['PATH']}", "JOURNAL_FIXTURE": str(fixture)}
+    return subprocess.run(["bash", "-c", cmd], capture_output=True, text=True, env=env, timeout=10)
+
+
+def test_grep_pattern_alternates_instead_of_matching_a_literal_pipe(tmp_path):
+    """Piping to plain `grep --` parses the pattern as POSIX basic regex, where `|` is a
+    literal character, not alternation -- an operator's `ERROR|Traceback` sweep must find
+    both, not silently return nothing."""
+    fixture = _stub_journalctl(
+        tmp_path,
+        [
+            "Sep 23 10:00:00 host digest[1]: starting run",
+            "Sep 23 10:00:01 host digest[1]: ERROR: fetch failed",
+            "Sep 23 10:00:02 host digest[1]: Traceback (most recent call last):",
+            "Sep 23 10:00:03 host digest[1]: done",
+        ],
+    )
+    cmd = ops.journal_command(since="1h", lines=200, grep="ERROR|Traceback")
+    result = _run_journal_command(cmd, tmp_path, fixture)
+    assert "ERROR: fetch failed" in result.stdout, result.stdout
+    assert "Traceback" in result.stdout, result.stdout
+
+
+def test_grep_searches_the_whole_window_not_just_the_last_n_raw_lines(tmp_path):
+    """`-n` must bound the number of MATCHING entries, not the raw lines handed to the
+    pattern -- otherwise a match older than the most recent N lines in the --since window is
+    silently dropped before the pattern ever sees it."""
+    old_match = "Sep 23 09:00:00 host digest[1]: Traceback (most recent call last):"
+    filler = [f"Sep 23 09:{i:02d}:00 host digest[1]: heartbeat" for i in range(1, 251)]
+    fixture = _stub_journalctl(tmp_path, [old_match, *filler])
+    cmd = ops.journal_command(since="6h", lines=200, grep="Traceback")
+    result = _run_journal_command(cmd, tmp_path, fixture)
+    assert "Traceback" in result.stdout, result.stdout
+
+
 def test_the_deployed_image_is_preferred_over_the_latest_tag():
     """`:latest` on the box is not what the unit runs -- it was `8ffdb88` while production ran
     a pinned digest at `c276c83`. Nothing here needs project code (stdlib sqlite3 reads the
