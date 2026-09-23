@@ -12,6 +12,7 @@ import { runStage, type SdkQuery } from "../runner/run-stage.js";
 import type { ArtifactStore, Pointer } from "../store/artifacts.js";
 import type { StoryPlan } from "./index.js";
 import { SelectedSchema } from "./select.js";
+import { recordOperatorNote } from "./operator-note.js";
 
 export const WRITE_BRANCH_BUDGET_USD = 1.0;
 const SHARED = ["recap.txt", "weekly_recap.txt", "recent_digest_headlines.txt"];
@@ -148,6 +149,7 @@ export function writeActivities(deps: WriteDeps) {
           if (p) put(f, store.get(p));
         }
         const spec = parseAgentSpec(readFileSync(join(deps.agentsDir, "write.md"), "utf8"));
+        recordOperatorNote(store, runId, "write", note);
         const message = `The input directory is ${dir}. Begin.${note ? `\n\nOperator note for this attempt: ${note}` : ""}`;
         deps.heartbeat?.();
         const r = await runStage(spec, { userMessage: message, inputDir: dir }, {

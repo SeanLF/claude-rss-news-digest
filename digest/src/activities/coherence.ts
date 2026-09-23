@@ -10,6 +10,7 @@ import { runStage, type SdkQuery } from "../runner/run-stage.js";
 import type { ArtifactStore, Pointer } from "../store/artifacts.js";
 import type { StoryPlan } from "./index.js";
 import type { DraftStory } from "./write.js";
+import { recordOperatorNote } from "./operator-note.js";
 
 export const COHERENCE_OUTPUT = "coherence_report.json";
 export const DRAFT_OUTPUT = "draft_selections.json";
@@ -97,6 +98,7 @@ export function coherenceActivity(deps: CoherenceDeps) {
       if (existing) store.quarantine(runId, COHERENCE_OUTPUT);
       if (existingDraft && !sameDraft) store.quarantine(runId, DRAFT_OUTPUT); // a matching draft is kept
     }
+    recordOperatorNote(store, runId, "coherence", note);
     const checked = await runChecker(deps, runId, draftText, note);
     const { report: parsedReport, costUsd, durationMs, numTurns, toolCalls, unbacked } = checked;
       deps.onUsage?.({ model: checked.model, thinking: checked.thinking, tokens: checked.tokens, stage: "coherence", runId, costUsd, durationMs, numTurns, toolCalls, unbackedFails: unbacked });

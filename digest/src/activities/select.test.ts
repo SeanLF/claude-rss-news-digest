@@ -48,6 +48,12 @@ describe("select activity", () => {
     expect(await select(300, p0, p0)).toEqual(p); // idempotent
     expect(seen.n).toBe(1);
   });
+  it("persists an operator note as an input artifact of the run", async () => {
+    const { store, select } = setup(good);
+    await select(300, p0, p0, "prefer the Sudan story");
+    const name = store.names(300).find((n) => n.startsWith("operator_note.select."));
+    expect(name && store.get(store.find(300, name)!)).toBe("prefer the Sudan story");
+  });
   it("a citation to an id the run does not have is a retryable failure that stores nothing", async () => {
     const { store, select } = setup({ must_know: [{ cluster_index: 0, article_ids: ["A1", "A77"] }], should_know: [] });
     await expect(select(300, p0, p0)).rejects.toThrow(/unknown ids A77/);

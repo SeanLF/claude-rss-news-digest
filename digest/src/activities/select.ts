@@ -9,6 +9,7 @@ import { assertNoUrls, scrubUrls } from "../contracts/ids.js";
 import { parseAgentSpec } from "../runner/prompt.js";
 import { runStage, type SdkQuery } from "../runner/run-stage.js";
 import type { ArtifactStore, Pointer } from "../store/artifacts.js";
+import { recordOperatorNote } from "./operator-note.js";
 
 export const SELECT_OUTPUT = "selected.json";
 const REQUIRED = ["clusters.json", "recap.txt", "sources.csv"];
@@ -74,6 +75,7 @@ export function selectActivity(deps: SelectDeps) {
         if (csvs.includes(name)) for (const id of articleIds(text)) known.add(id);
       }
       const spec = parseAgentSpec(readFileSync(join(deps.agentsDir, "select.md"), "utf8"));
+      recordOperatorNote(store, runId, "select", note);
       const message = `The input directory is ${dir}. Begin.${note ? `\n\nOperator note for this attempt: ${note}` : ""}`;
       deps.heartbeat?.();
       const r = await runStage(spec, { userMessage: message, inputDir: dir }, { today: store.runDate(runId), outputSchema: selectedJsonSchema(), ...(deps.query ? { query: deps.query } : {}), ...(deps.heartbeat ? { heartbeat: deps.heartbeat } : {}), ...(deps.signal?.() ? { signal: deps.signal()! } : {}) });
