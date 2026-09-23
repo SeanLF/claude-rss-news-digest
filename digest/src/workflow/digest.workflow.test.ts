@@ -180,6 +180,21 @@ describe("DigestWorkflow", () => {
       expect(out.broadcast).toBe("sent");
       expect(seen.reports).toEqual([{ outcomes: [{ threadId: 8, auditFailed: true }], failures: [{ threadId: 7, error: "synthesis broke" }] }]);
     }, 120_000);
+    it("passes a forced start's force to the link", async () => {
+      const forced: (boolean | undefined)[] = [];
+      const { acts } = spy({
+        threadsLink: (_runId, force) => {
+          forced.push(force);
+          return Promise.resolve({ plans: [] });
+        },
+      });
+      await withWorker(async () => {
+        const h = await start("2026-10-06", { force: true });
+        await h.signal(approveSignal, { decision: "approve" });
+        return h.result();
+      }, acts);
+      expect(forced).toEqual([true]);
+    }, 120_000);
     it("a finish that fails leaves the render a pointer to no context, and the digest ships", async () => {
       const { seen, acts } = spy({ threadsFinish: () => nonRetryable("db locked") });
       const out = await withWorker(() => approveAndWait("2026-10-04"), acts);

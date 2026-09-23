@@ -104,7 +104,7 @@ export async function DigestWorkflow(input: DigestInput): Promise<DigestOutput> 
   if (!report) return finish({ stories: 0, broadcast: "skipped" });
   const repair = await model.repair(runId, drafts, report, input.force);
   const selections = await once.assemble(runId, drafts, report, repair, preheader, input.force);
-  const [gnews, threads] = await Promise.all([network.gnews(runId, selections), threadsPhase(runId)]);
+  const [gnews, threads] = await Promise.all([network.gnews(runId, selections), threadsPhase(runId, input.force)]);
   const { email } = await once.render(runId, selections, threads, gnews);
 
   // Pre-broadcast hold (spec §2.3 signal 1): 2 h, then proceed.

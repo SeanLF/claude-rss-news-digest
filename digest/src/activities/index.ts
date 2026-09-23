@@ -34,7 +34,7 @@ export interface FulltextFetcher { fetchFulltext(tasks: FulltextTask[]): Promise
 export interface ThreadPlan { threadId: number; articleIds: string[] }
 export interface ThreadsLinked { plans: ThreadPlan[]; skip?: "disabled" }
 export interface ThreadOutcome { threadId: number; auditFailed: boolean }
-export interface ThreadsReport { linkError?: string; outcomes: ThreadOutcome[]; failures: { threadId: number; error: string }[] }
+export interface ThreadsReport { linkError?: string; timedOut?: boolean; outcomes: ThreadOutcome[]; failures: { threadId: number; error: string }[] }
 export interface FetchSummary { sourceId: string; ok: boolean; fetched: number; kept: number; error?: string }
 export interface DigestOutput {
   runId: number;
@@ -62,7 +62,7 @@ export interface Activities {
   repair(runId: number, drafts: Pointer[], report: Pointer, force?: boolean): Promise<Pointer>;
   assemble(runId: number, drafts: Pointer[], report: Pointer, repair: Pointer, preheader: Pointer | null, force?: boolean): Promise<Pointer>;
   gnews(runId: number, selections: Pointer): Promise<Pointer>;
-  threadsLink(runId: number): Promise<ThreadsLinked>;
+  threadsLink(runId: number, force?: boolean): Promise<ThreadsLinked>;
   threadSynthesis(runId: number, plan: ThreadPlan): Promise<ThreadOutcome>;
   threadsFinish(runId: number, report: ThreadsReport): Promise<Pointer>;
   render(runId: number, selections: Pointer, threads: Pointer, gnews: Pointer): Promise<{ html: Pointer; email: Pointer }>;

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { answerFor, articleSignature, expandNeighbourhood, synthesisPrompt, type Art } from "./synthesis.js";
+import { answerFor, articleSignature, describeMismatch, expandNeighbourhood, parseInstallment, readAudit, synthesisPrompt, type Art } from "./synthesis.js";
 
 const arts = (o: Record<string, Art>) => new Map(Object.entries(o));
 
@@ -32,18 +32,36 @@ describe("expandNeighbourhood", () => {
   });
 });
 
-describe("answerFor", () => {
-  it("accepts exactly n verdicts with ids 1..n, in claim order", () => {
-    expect(answerFor({ verdicts: [{ id: 2, supported: false }, { id: 1, supported: true }] }, 2)).toEqual({ supported: [true, false] });
+describe("reading the audit as audit_whats_new does", () => {
+  it("accepts exactly n verdicts with ids 1..n, in claim order, spellings of true and false included", () => {
+    expect(answerFor({ verdicts: [{ id: 2, supported: "no" }, { id: 1, supported: 1 }] }, 2)).toEqual({ supported: [true, false], unreadable: 0 });
+    expect(answerFor({ verdicts: [{ id: 1, supported: "maybe" }] }, 1)).toEqual({ supported: [false], unreadable: 1 });
   });
   it.each([
-    [[{ id: 1, supported: true }], "[2]"],
-    [[{ id: 1, supported: true }, { id: 1, supported: true }], "[2]"],
-    [[{ id: 1, supported: true }, { id: 3, supported: true }], "[2]"],
-    [[{ id: 1, supported: true }, { id: 2, supported: true }, { id: 3, supported: true }], "none"],
-  ])("refuses %j", (verdicts, missing) => {
-    const out = answerFor({ verdicts }, 2);
-    expect("problem" in out && out.problem).toContain(`claim(s) ${missing}`);
+    [[{ id: 1, supported: true }], "claim(s) [2] (1 element(s), 1 usable, ids [1])"],
+    [[{ id: 1, supported: true }, { id: 1, supported: true }], "claim(s) [2] (2 element(s), 2 usable, ids [1])"],
+    [[{ id: 1, supported: true }, "x"], "claim(s) [2] (2 element(s), 1 usable, ids [1])"],
+    [[{ id: 1, supported: true }, { id: 2, supported: true }, { id: 3, supported: true }], "claim(s) none (3 element(s), 3 usable, ids [1, 2, 3])"],
+  ])("refuses %j", (verdicts, problem) => {
+    expect(answerFor({ verdicts }, 2)).toBeUndefined();
+    expect(describeMismatch({ verdicts }, 2)).toBe(`verdicts missing/misaligned for ${problem}`);
+  });
+  it("takes the last object that answers, past prose and a first wrong one", () => {
+    const text = 'Here: {"verdicts": [{"id": 1, "supported": true}]} oops, corrected: {"verdicts": [{"id": 1, "supported": false}, {"id": 2, "supported": true}]}';
+    expect(readAudit(text, 2)).toEqual({ supported: [false, true], unreadable: 0 });
+  });
+  it("names a reply with no object the way the Python's repr does", () => {
+    expect(readAudit("I can't judge these.", 1)).toEqual({ problem: `no JSON object in the reply, which began "I can't judge these."` });
+    expect(describeMismatch({ verdicts: "all true" }, 3)).toBe("`verdicts` was str, not a list of 3");
+  });
+});
+
+describe("parseInstallment", () => {
+  it("reads the first object whole, extra keys and trailing prose included", () => {
+    expect(parseInstallment('```json\n{"whats_new": [], "resolved": [], "mood": "calm {x}"}\n``` Done {x}')).toEqual({ whats_new: [], resolved: [], mood: "calm {x}" });
+  });
+  it("throws on a reply without one, so the synthesis is re-sampled", () => {
+    expect(() => parseInstallment("No news today.")).toThrow(/no JSON object/);
   });
 });
 

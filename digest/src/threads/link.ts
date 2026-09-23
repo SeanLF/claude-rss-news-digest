@@ -37,7 +37,9 @@ export function parseLinks(text: string): Links {
   if (!parsed.success) throw new Error(`the linker returned no parseable links: ${JSON.stringify(text.slice(0, 300))}`);
   return {
     links: parsed.data.links.flatMap((ln) => {
-      if (!ln || typeof ln !== "object") return [];
+      // The Python calls .get on each entry outside its try, so one such entry loses the run's
+      // threads there; here it is skipped.
+      if (!ln || typeof ln !== "object" || Array.isArray(ln)) return [];
       const { story, thread } = ln as { story?: unknown; thread?: unknown };
       return [{ story: asIndex(story), thread: asIndex(thread) }];
     }),

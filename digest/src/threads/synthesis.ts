@@ -1,4 +1,4 @@
-import { z } from "zod";
+import { firstJsonObject, jsonObjects } from "./json.js";
 import type { ThreadStore } from "./store.js";
 import { cited, cleanQuestions } from "./text.js";
 
@@ -79,26 +79,46 @@ export function synthesisPrompt(recentUpdates: string[], openQuestions: string[]
   return `RECENT UPDATES:\n${updates}\nOPEN QUESTIONS:\n${questions}\n\nTODAY'S SOURCE ARTICLES:\n${bundle(articleIds, arts)}`;
 }
 
-const WhatsNew = z.object({ fact: z.string(), sources: z.array(z.string()) });
-export const InstallmentSchema = z.object({
-  whats_new: z.array(WhatsNew),
-  resolved: z.array(z.object({ question: z.string(), how: z.string() })),
-  new_questions: z.array(z.string()),
-  still_open: z.array(z.string()),
-});
-export type Installment = z.infer<typeof InstallmentSchema>;
+// An installment as the model wrote it: production stores the parsed object whole, so it is kept
+// whole here, and every field is read as leniently as thread_synthesis reads it.
+export type Installment = Record<string, unknown>;
+const list = (v: unknown): unknown[] => (Array.isArray(v) ? v : []);
+const isObject = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
+export const whatsNewOf = (inst: Installment): unknown[] => list(inst["whats_new"]);
 
-export const VerdictsSchema = z.object({ verdicts: z.array(z.object({ id: z.number().int(), supported: z.boolean(), issue: z.string().optional() })) });
-export type Verdicts = z.infer<typeof VerdictsSchema>;
+// synthesize_installment's parse: the first JSON object in the reply; a reply without one throws.
+export const parseInstallment = (text: string): Installment => firstJsonObject(text);
 
-export function auditPrompt(whatsNew: Installment["whats_new"], arts: Arts): string {
+// Python's repr of a str, for the problem text the re-ask quotes back to the model.
+export function pyRepr(s: string): string {
+  const q = s.includes("'") && !s.includes('"') ? '"' : "'";
+  const body = Array.from(s, (c) => {
+    if (c === "\\" || c === q) return `\\${c}`;
+    if (c === "\n") return "\\n";
+    if (c === "\r") return "\\r";
+    if (c === "\t") return "\\t";
+    const code = c.codePointAt(0)!;
+    return code < 0x20 || code === 0x7f ? `\\x${code.toString(16).padStart(2, "0")}` : c;
+  }).join("");
+  return `${q}${body}${q}`;
+}
+const pyList = (xs: unknown[]): string => `[${xs.map((x) => (typeof x === "string" ? pyRepr(x) : String(x))).join(", ")}]`;
+const pyType = (v: unknown): string => (v === null ? "NoneType" : Array.isArray(v) ? "list" : typeof v === "string" ? "str" : typeof v === "boolean" ? "bool" : typeof v === "number" ? (Number.isInteger(v) ? "int" : "float") : "dict");
+
+// audit_whats_new's prompt. A fact that is not an object, or sources that cannot be iterated, is the
+// AttributeError/TypeError that makes production's audit fail open; it throws here for the same end.
+export function auditPrompt(whatsNew: unknown[], arts: Arts): string {
   return whatsNew
     .map((f, i) => {
-      const srcs = f.sources.flatMap((s) => {
-        const a = arts.get(s);
-        return a ? [`  [${s}] ${a.title}. ${head(a.summary)}`] : [];
+      if (!isObject(f)) throw new Error(`fact ${i + 1} is not an object`);
+      const sources = f["sources"] === undefined ? [] : f["sources"];
+      if (typeof sources !== "string" && !Array.isArray(sources)) throw new Error(`fact ${i + 1} has sources that are not a list`);
+      const srcs = (typeof sources === "string" ? Array.from(sources) : sources).flatMap((s) => {
+        const a = typeof s === "string" ? arts.get(s) : undefined;
+        return a ? [`  [${s as string}] ${a.title}. ${head(a.summary)}`] : [];
       }).join("\n");
-      return `CLAIM ${i + 1}: ${f.fact}\nCITED SOURCE(S):\n${srcs || "  (none cited)"}`;
+      const fact = f["fact"] === undefined ? "" : typeof f["fact"] === "string" ? f["fact"] : JSON.stringify(f["fact"]);
+      return `CLAIM ${i + 1}: ${fact}\nCITED SOURCE(S):\n${srcs || "  (none cited)"}`;
     })
     .join("\n\n");
 }
@@ -106,27 +126,82 @@ export function auditPrompt(whatsNew: Installment["whats_new"], arts: Arts): str
 export const auditReask = (problem: string, n: number): string =>
   `\n\nIMPORTANT: an earlier attempt at these exact claims came back unusable (${problem}). Return EXACTLY ${n} verdicts, ids 1 through ${n}, one per CLAIM above, each carrying "supported": true or false. Output ONE JSON object and nothing else -- no prose, no second attempt inside the same reply.`;
 
-// _answer_for: the verdicts answer the claim list only if there are exactly n of them with ids
-// exactly 1..n. Returns the supported flag per claim, or a description of the mismatch.
-export function answerFor(v: Verdicts, n: number): { supported: boolean[] } | { problem: string } {
-  const ids = new Map<number, boolean>();
-  for (const x of v.verdicts) ids.set(x.id, x.supported);
-  const complete = v.verdicts.length === n && ids.size === n && [...ids.keys()].every((id) => id >= 1 && id <= n);
-  if (complete) return { supported: Array.from({ length: n }, (_, i) => ids.get(i + 1)!) };
-  const missing = Array.from({ length: n }, (_, i) => i + 1).filter((i) => !ids.has(i));
-  return { problem: `verdicts missing/misaligned for claim(s) ${missing.length ? `[${missing.join(", ")}]` : "none"} (${v.verdicts.length} element(s), ids [${[...ids.keys()].toSorted((a, b) => a - b).join(", ")}])` };
+const TRUTHY = new Set(["true", "yes", "y", "1"]);
+const FALSY = new Set(["false", "no", "n", "0"]);
+// _read_supported: what a value plainly states, or undefined when it states nothing readable.
+export function readSupported(v: unknown): boolean | undefined {
+  if (typeof v === "boolean") return v;
+  if (v === 0 || v === 1) return v === 1;
+  if (typeof v === "string") {
+    const t = v.trim().toLowerCase();
+    if (TRUTHY.has(t)) return true;
+    if (FALSY.has(t)) return false;
+  }
+  return undefined;
+}
+
+// _verdict_pairs: (id, supported) per verdict object carrying both keys; an unreadable `supported`
+// reads as unsupported and is counted.
+function verdictPairs(raw: unknown[]): { pairs: [unknown, boolean][]; unreadable: number } {
+  const pairs: [unknown, boolean][] = [];
+  let unreadable = 0;
+  for (const v of raw) {
+    if (!isObject(v) || !("id" in v) || !("supported" in v)) continue;
+    let s = readSupported(v["supported"]);
+    if (s === undefined) {
+      s = false;
+      unreadable++;
+    }
+    pairs.push([v["id"], s]);
+  }
+  return { pairs, unreadable };
+}
+
+// _answer_for: an object answers n claims only if `verdicts` holds exactly n verdicts with ids exactly 1..n.
+export function answerFor(obj: Record<string, unknown>, n: number): { supported: boolean[]; unreadable: number } | undefined {
+  const raw = obj["verdicts"] === undefined ? [] : obj["verdicts"];
+  if (!Array.isArray(raw) || raw.length !== n) return undefined;
+  const { pairs, unreadable } = verdictPairs(raw);
+  const byId = new Map(pairs);
+  if (pairs.length !== n || byId.size !== n || !Array.from({ length: n }, (_, i) => i + 1).every((i) => byId.has(i))) return undefined;
+  return { supported: Array.from({ length: n }, (_, i) => byId.get(i + 1)!), unreadable };
+}
+
+// _describe_mismatch: why an object failed answerFor, in the words the re-ask carries.
+export function describeMismatch(obj: Record<string, unknown>, n: number): string {
+  const raw = obj["verdicts"] === undefined ? [] : obj["verdicts"];
+  if (!Array.isArray(raw)) return `\`verdicts\` was ${pyType(raw)}, not a list of ${n}`;
+  const { pairs } = verdictPairs(raw);
+  const byId = new Map(pairs);
+  const missing = Array.from({ length: n }, (_, i) => i + 1).filter((i) => !byId.has(i));
+  const ids = [...byId.keys()].toSorted((a, b) => (String(a) < String(b) ? -1 : String(a) > String(b) ? 1 : 0));
+  return `verdicts missing/misaligned for claim(s) ${missing.length ? pyList(missing) : "none"} (${raw.length} element(s), ${pairs.length} usable, ids ${pyList(ids)})`;
+}
+
+// One audit reply read as audit_whats_new reads it: the LAST object that answers the claims wins,
+// since a second object is the model's correction of the first.
+export function readAudit(text: string, n: number): { supported: boolean[]; unreadable: number } | { problem: string } {
+  const objects = jsonObjects(text);
+  if (!objects.length) return { problem: `no JSON object in the reply, which began ${pyRepr(Array.from(text).slice(0, 60).join(""))}` };
+  const usable = objects.flatMap((o) => answerFor(o, n) ?? []);
+  return usable.length ? usable.at(-1)! : { problem: describeMismatch(objects.at(-1)!, n) };
 }
 
 // apply_installment: drop the unsupported facts, resolve the carried questions today answers, raise
 // the new ones, and store the verified installment. The caller owns the transaction.
-export function applyInstallment(store: ThreadStore, threadId: number, openNow: string[], installment: Installment, supported: boolean[], runId: number): Installment & { cited_ids: string[] } {
-  const kept = installment.whats_new.filter((_, i) => supported[i] === true);
+export function applyInstallment(store: ThreadStore, threadId: number, openNow: string[], installment: Installment, supported: boolean[], runId: number): Installment {
+  const whatsNew = whatsNewOf(installment);
+  const kept = whatsNew.filter((_, i) => supported[i] === true);
   // PRE-audit citations: the grounding scope for this run's questions (a dropped fact's ids too).
-  const citedIds = [...new Set(installment.whats_new.flatMap((f) => cited(f.sources)))].toSorted();
+  const citedIds = [...new Set(whatsNew.flatMap((f) => (isObject(f) ? cited(f["sources"]) : [])))].toSorted();
   const verified = { ...installment, whats_new: kept, cited_ids: citedIds };
   const open = new Set(openNow);
-  for (const r of installment.resolved) if (open.has(r.question)) store.resolveQuestion(threadId, r.question, runId, r.how);
-  const fresh = installment.new_questions;
+  for (const r of list(installment["resolved"])) {
+    if (!isObject(r)) throw new Error(`thread ${threadId}: a resolved entry is not an object`);
+    const question = typeof r["question"] === "string" ? r["question"] : "";
+    if (open.has(question)) store.resolveQuestion(threadId, question, runId, typeof r["how"] === "string" ? r["how"] : "");
+  }
+  const fresh = list(installment["new_questions"]).filter((q): q is string => typeof q === "string");
   // Stored unchanged and suppressed at render time: dropping one here would erase it for good.
   if (fresh.length && JSON.stringify(cleanQuestions(fresh, citedIds)) !== JSON.stringify(fresh))
     console.warn(JSON.stringify({ stage: "threads", warning: "a new question cites an article id inline; the public ledger will suppress it", thread_id: threadId }));

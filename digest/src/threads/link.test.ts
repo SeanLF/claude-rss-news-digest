@@ -43,6 +43,9 @@ describe("parseLinks", () => {
   it("reads the links out of fences and prose, a quoted id as the number", () => {
     expect(parseLinks('Here you go:\n```json\n{"links": [{"story": 0, "thread": "261"}, {"story": "1", "thread": null}, {"story": 2, "thread": "NEW"}]}\n```')).toEqual({ links: [{ story: 0, thread: 261 }, { story: 1, thread: null }, { story: 2, thread: null }] });
   });
+  it("skips entries that are not objects", () => {
+    expect(parseLinks('{"links": [1, "x", null, [0, 3], {"story": 0, "thread": 3}]}')).toEqual({ links: [{ story: 0, thread: 3 }] });
+  });
   it("throws on an answer with nothing to read, so the attempt is re-sampled", () => {
     expect(() => parseLinks("I cannot help with that.")).toThrow(/no parseable links/);
     expect(() => parseLinks('{"links": {"0": 3}}')).toThrow(/no parseable links/);

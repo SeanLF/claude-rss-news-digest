@@ -62,7 +62,8 @@ function oracleQuery(exp: Expected, seen: { link: string[]; synthesis: Map<strin
   }) as unknown as SdkQuery;
 }
 
-describe.skipIf(cases.length === 0)("threads parity with the Python on archived runs", () => {
+describe("threads parity with the Python on archived runs", () => {
+  if (cases.length === 0) it.skip(`no oracle in ${ORACLE}: generate it with DB=<prod clone> bin/threads-oracle 300 301 302 303 304`, () => undefined);
   it.each(cases)("%s", async (dir) => {
     const exp = JSON.parse(readFileSync(join(ORACLE, dir, "expected.json"), "utf8")) as Expected;
     const path = join(mkdtempSync(join(tmpdir(), "threads-parity-")), "digest.db");

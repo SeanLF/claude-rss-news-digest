@@ -7,7 +7,7 @@ import { ArtifactStore } from "../store/artifacts.js";
 import { freshDb } from "../store/test-db.js";
 import type { UsageRow } from "../store/usage.js";
 import { THREAD_CONTEXT } from "./index.js";
-import { THREAD_ASSIGNMENTS, THREAD_HEALTH, THREAD_INSTALLMENTS, THREAD_LINKS, threadsActivities, threadsConfigFrom, type ThreadsConfig } from "./threads.js";
+import { plansFrom, THREAD_ASSIGNMENTS, THREAD_HEALTH, THREAD_INSTALLMENTS, THREAD_LINKS, threadsActivities, threadsConfigFrom, type ThreadsConfig } from "./threads.js";
 
 const AGENTS = new URL("../../agents/", import.meta.url).pathname;
 const MIGRATIONS = new URL("../../../migrations/", import.meta.url).pathname;
@@ -50,7 +50,7 @@ function setup(opts: { config?: Partial<ThreadsConfig>; answers?: Partial<Record
   store.put(RUN, "selected.json", JSON.stringify({ must_know: [{ article_ids: ["A1", "A2"], cluster_index: 0 }], should_know: [{ article_ids: ["A3", "A4"], cluster_index: 1 }] }));
   const calls: Call[] = [];
   const usage: UsageRow[] = [];
-  const config: ThreadsConfig = { ...threadsConfigFrom({}), latebind: null, digestDomain: "news.example", ...opts.config };
+  const config: ThreadsConfig = { ...threadsConfigFrom({}), enabled: true, latebind: null, digestDomain: "news.example", ...opts.config };
   const acts = threadsActivities({ store, dbPath: path, agentsDir: AGENTS, config, maxAttempts: 3, query: fakeQuery(opts.answers ?? {}, calls), onUsage: (r) => usage.push(r), attempt: () => opts.attempt ?? 1 });
   const rows = (sql: string) => db.prepare(sql).all() as Record<string, unknown>[];
   return { db, store, calls, usage, acts, rows };
@@ -217,7 +217,7 @@ describe("threadSynthesis", () => {
     expect(await s.acts.threadSynthesis(RUN, s.plan)).toEqual({ threadId: 1, auditFailed: false });
     const audits = s.calls.filter((c) => c.stage === "audit");
     expect(audits).toHaveLength(2);
-    expect(audits[1]!.prompt).toContain("IMPORTANT: an earlier attempt at these exact claims came back unusable (verdicts missing/misaligned for claim(s) [2] (1 element(s), ids [1])). Return EXACTLY 2 verdicts");
+    expect(audits[1]!.prompt).toContain("IMPORTANT: an earlier attempt at these exact claims came back unusable (verdicts missing/misaligned for claim(s) [2] (1 element(s), 1 usable, ids [1])). Return EXACTLY 2 verdicts");
   });
 
   it("fails open when the audit cannot answer, keeping the facts and saying so", async () => {
@@ -244,18 +244,18 @@ describe("threadsFinish", () => {
     expect(p.name).toBe(THREAD_CONTEXT);
     expect(JSON.parse(s.store.get(p))).toEqual({ "Iran talks in Geneva": { thread_id: 1, day: 3, delta: "Talks resumed in Geneva. A deal is imminent.", url: "https://news.example/thread/1" } });
     expect(JSON.parse(s.store.get(s.store.find(RUN, THREAD_INSTALLMENTS)!))).toEqual([{ thread_id: 1, ...installment, cited_ids: ["A1", "A2"] }]);
-    expect(JSON.parse(s.store.get(s.store.find(RUN, THREAD_HEALTH)!))).toEqual({ link: "ok", synthesized: 1, audit_failures: 1, failures: [] });
+    expect(JSON.parse(s.store.get(s.store.find(RUN, THREAD_HEALTH)!))).toEqual({ link: "ok", linker_ok: true, synthesized: 1, audit_failures: 1, failures: [] });
     expect(s.rows("SELECT run_id, threads_synthesized, audit_failures FROM thread_runs")).toEqual([{ run_id: RUN, threads_synthesized: 1, audit_failures: 1 }]);
     expect(await s.acts.threadsFinish(RUN, { outcomes: [outcome], failures: [] })).toEqual(p);
     expect(s.rows("SELECT COUNT(*) AS n FROM thread_runs")).toEqual([{ n: 1 }]);
   });
 
-  it("leaves a resumed Python run's own health row alone", async () => {
+  it("recounts a resumed Python run's health row but never lowers its audit failures", async () => {
     const s = setup();
     await s.acts.threadsLink(RUN);
-    s.db.prepare("INSERT INTO thread_runs (run_id, threads_synthesized, audit_failures) VALUES (?, 4, 0)").run(RUN);
+    s.db.prepare("INSERT INTO thread_runs (run_id, threads_synthesized, audit_failures) VALUES (?, 4, 2)").run(RUN);
     await s.acts.threadsFinish(RUN, { outcomes: [], failures: [] });
-    expect(s.rows("SELECT threads_synthesized FROM thread_runs")).toEqual([{ threads_synthesized: 4 }]);
+    expect(s.rows("SELECT threads_synthesized, audit_failures FROM thread_runs")).toEqual([{ threads_synthesized: 0, audit_failures: 2 }]);
   });
 
   it("records a failed link and gives the render nothing to find", async () => {
@@ -264,5 +264,104 @@ describe("threadsFinish", () => {
     expect(s.store.find(RUN, p.name)).toBeUndefined();
     expect(JSON.parse(s.store.get(s.store.find(RUN, THREAD_HEALTH)!))).toEqual({ link: "failed", error: "linker down" });
     expect(s.rows("SELECT COUNT(*) AS n FROM thread_runs")).toEqual([{ n: 0 }]);
+  });
+});
+
+describe("a forced re-run", () => {
+  const link2 = { links: [{ story: 0, thread: 1 }, { story: 1, thread: null }] };
+  it("takes back this run's identity and relinks from the state the run began in (the reviewer's scenario)", async () => {
+    const s = setup({ answers: { link: [link2, { links: [{ story: 0, thread: null }] }] } });
+    seedThread(s.db);
+    await s.acts.threadsLink(RUN);
+    await s.acts.threadsFinish(RUN, { outcomes: [], failures: [] });
+    s.store.replace(RUN, "selected.json", JSON.stringify({ must_know: [{ article_ids: ["A3", "A4"], cluster_index: 1 }], should_know: [] }));
+    expect(await s.acts.threadsLink(RUN, true)).toEqual({ plans: [] });
+    expect(s.calls.filter((c) => c.stage === "link").at(-1)!.prompt).toContain("[1] Iran nuclear talks open -> Iran nuclear talks\n"); // the arc as it stood before the run
+    expect(s.rows(`SELECT thread_id, cluster_story FROM thread_installments WHERE run_id = ${RUN}`)).toEqual([{ thread_id: 3, cluster_story: "EU AI act" }]);
+    expect(s.rows("SELECT id, label, last_run_id FROM threads ORDER BY id")).toEqual([{ id: 1, label: "Iran nuclear talks", last_run_id: 299 }, { id: 3, label: "EU AI act", last_run_id: RUN }]);
+    expect(s.rows("SELECT run_id, COUNT(*) AS n FROM thread_installments GROUP BY run_id")).toEqual([{ run_id: 298, n: 1 }, { run_id: 299, n: 1 }, { run_id: RUN, n: 1 }]);
+    expect(JSON.parse(s.store.get(await s.acts.threadsFinish(RUN, { outcomes: [], failures: [] })))).toEqual({});
+    expect(s.store.names(RUN).filter((n) => n.includes(".corrupt."))).toEqual(["thread_assignments.json.corrupt.1", "thread_context.json.corrupt.1", "thread_health.json.corrupt.1", "thread_installments.json.corrupt.1", "thread_links.json.corrupt.1"]);
+  });
+  it("reopens what this run resolved, drops what it raised, and resynthesizes", async () => {
+    const s = setup({ answers: { link: [link2, link2], synthesis: [installment, installment], audit: [{ verdicts: [{ id: 1, supported: true }, { id: 2, supported: true }] }, { verdicts: [{ id: 1, supported: true }, { id: 2, supported: false }] }] } });
+    seedThread(s.db);
+    const { plans } = await s.acts.threadsLink(RUN);
+    await s.acts.threadSynthesis(RUN, plans[0]!);
+    await s.acts.threadsFinish(RUN, { outcomes: [], failures: [] });
+    const again = await s.acts.threadsLink(RUN, true);
+    expect(s.rows("SELECT question, status FROM thread_questions")).toEqual([{ question: "Will talks move to Geneva?", status: "open" }]);
+    expect(s.rows("SELECT COUNT(*) AS n FROM thread_runs")).toEqual([{ n: 0 }]);
+    expect(await s.acts.threadSynthesis(RUN, again.plans[0]!)).toEqual({ threadId: 1, auditFailed: false });
+    expect(s.calls.map((c) => c.stage)).toEqual(["link", "synthesis", "audit", "link", "synthesis", "audit"]);
+    expect(s.rows("SELECT question, status FROM thread_questions ORDER BY id")).toEqual([{ question: "Will talks move to Geneva?", status: "resolved" }, { question: "Will a deal be signed?", status: "open" }]);
+  });
+  it("leaves another run's rows alone", async () => {
+    const s = setup({ answers: { link: [link2, link2] } });
+    seedThread(s.db);
+    await s.acts.threadsLink(RUN);
+    const before = s.rows("SELECT * FROM thread_installments WHERE run_id <> 300 ORDER BY id");
+    await s.acts.threadsLink(RUN, true);
+    expect(s.rows("SELECT * FROM thread_installments WHERE run_id <> 300 ORDER BY id")).toEqual(before);
+    expect(s.rows("SELECT question, status FROM thread_questions")).toEqual([{ question: "Will talks move to Geneva?", status: "open" }]);
+  });
+});
+
+describe("resumes and records", () => {
+  it("does not apply again an installment the Python applied before a resume", async () => {
+    const s = setup({ answers: { link: [{ links: [{ story: 0, thread: 1 }, { story: 1, thread: null }] }] } });
+    seedThread(s.db);
+    const { plans } = await s.acts.threadsLink(RUN);
+    s.db.prepare(`UPDATE thread_installments SET content = ? WHERE thread_id = 1 AND run_id = ${RUN}`).run(JSON.stringify(installment));
+    s.db.prepare("INSERT INTO thread_questions (thread_id, question, status, raised_run_id) VALUES (1, 'Will a deal be signed?', 'open', ?)").run(RUN);
+    expect(await s.acts.threadSynthesis(RUN, plans[0]!)).toEqual({ threadId: 1, auditFailed: false });
+    expect(s.calls.map((c) => c.stage)).toEqual(["link"]);
+    expect(s.rows("SELECT COUNT(*) AS n FROM thread_questions")).toEqual([{ n: 2 }]);
+  });
+  it("plans only from trace entries that carry their assignment's story", () => {
+    const trace = { linker_ok: true, proposed: 1, validated: 1, candidates: [], stories: [{ story_index: 0, label: "other story", article_ids: ["A1", "A2"], proposed_thread: 1, refused: null, outcome: "continued" as const }] };
+    expect(plansFrom([{ thread_id: 1, is_new: false, story: "Iran" }], trace)).toEqual([]);
+    expect(plansFrom([{ thread_id: 1, is_new: false, story: "other story" }], trace)).toEqual([{ threadId: 1, articleIds: ["A1", "A2"] }]);
+  });
+  it("a failed link then a successful resume: health and context say so", async () => {
+    const s = setup();
+    await s.acts.threadsFinish(RUN, { outcomes: [], failures: [], linkError: "boom" });
+    expect(JSON.parse(s.store.get(s.store.find(RUN, THREAD_HEALTH)!))).toMatchObject({ link: "failed" });
+    await s.acts.threadsLink(RUN);
+    const p = await s.acts.threadsFinish(RUN, { outcomes: [], failures: [] });
+    expect(JSON.parse(s.store.get(s.store.find(RUN, THREAD_HEALTH)!))).toEqual({ link: "ok", linker_ok: true, synthesized: 0, audit_failures: 0, failures: [] });
+    expect(s.store.find(RUN, p.name)).toEqual(p);
+  });
+  it("a synthesis that failed and then landed on a resume is no longer a failure", async () => {
+    const s = setup({ answers: { link: [{ links: [{ story: 0, thread: 1 }, { story: 1, thread: null }] }], synthesis: [installment], audit: [{ verdicts: [{ id: 1, supported: true }, { id: 2, supported: true }] }] } });
+    seedThread(s.db);
+    const { plans } = await s.acts.threadsLink(RUN);
+    await s.acts.threadsFinish(RUN, { outcomes: [], failures: [{ threadId: 1, error: "overloaded" }] });
+    expect(JSON.parse(s.store.get(s.store.find(RUN, THREAD_HEALTH)!))).toMatchObject({ synthesized: 0, failures: [{ threadId: 1, error: "overloaded" }] });
+    expect(JSON.parse(s.store.get(s.store.find(RUN, THREAD_CONTEXT)!))).toMatchObject({ "Iran talks in Geneva": { delta: "" } });
+    const outcome = await s.acts.threadSynthesis(RUN, plans[0]!);
+    const p = await s.acts.threadsFinish(RUN, { outcomes: [outcome], failures: [] });
+    expect(JSON.parse(s.store.get(s.store.find(RUN, THREAD_HEALTH)!))).toMatchObject({ synthesized: 1, failures: [] });
+    expect(JSON.parse(s.store.get(p))).toMatchObject({ "Iran talks in Geneva": { delta: "Talks resumed in Geneva. A deal is imminent." } });
+    expect(s.rows("SELECT threads_synthesized FROM thread_runs")).toEqual([{ threads_synthesized: 1 }]);
+  });
+  it("a phase that ran past its bound is recorded and leaves no context for the render", async () => {
+    const s = setup();
+    await s.acts.threadsLink(RUN);
+    await s.acts.threadsFinish(RUN, { outcomes: [], failures: [] });
+    const p = await s.acts.threadsFinish(RUN, { outcomes: [], failures: [], timedOut: true });
+    expect(s.store.find(RUN, p.name)).toBeUndefined();
+    expect(JSON.parse(s.store.get(s.store.find(RUN, THREAD_HEALTH)!))).toMatchObject({ timed_out: true });
+  });
+});
+
+describe("threadsConfigFrom", () => {
+  it("is off by default, as config.py is, with config.py's defaults", () => {
+    expect(threadsConfigFrom({})).toEqual({ enabled: false, dormantAfter: 3, latebind: null, digestDomain: "" });
+    expect(threadsConfigFrom({ THREADS_ENABLED: "true", THREAD_LATEBIND: "yes" })).toEqual({ enabled: true, dormantAfter: 3, latebind: { threshold: 0.35, maxExtra: 12 }, digestDomain: "" });
+    expect(threadsConfigFrom({ THREADS_ENABLED: "on" }).enabled).toBe(false); // config.py reads only 1, true, yes
+  });
+  it.each([["THREAD_DORMANT_AFTER", "three"], ["THREAD_DORMANT_AFTER", "2.5"], ["THREAD_DORMANT_AFTER", "-1"], ["THREAD_DORMANT_AFTER", ""], ["THREAD_LATEBIND_MAX_EXTRA", "x"]])("refuses %s=%j loudly", (name, value) => {
+    expect(() => threadsConfigFrom({ THREADS_ENABLED: "1", THREAD_LATEBIND: "1", [name]: value })).toThrow(new RegExp(name));
   });
 });
