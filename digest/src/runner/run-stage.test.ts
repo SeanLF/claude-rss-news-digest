@@ -33,6 +33,12 @@ describe("runStage", () => {
     expect(r.structured).toEqual({ results: [] });
     expect(r).toMatchObject({ costUsd: 0.5, usage: { output_tokens: 10 }, durationMs: 1200, numTurns: 3 });
   });
+  it("reports the effort the request carried: none, so the SDK's default", async () => {
+    const seen: { options?: Options } = {};
+    const r = await call(fakeQuery([result({})], seen));
+    expect(seen.options?.effort).toBeUndefined();
+    expect(r.effort).toBe("(sdk default)");
+  });
   it("a stage with no tools gets an empty base set: no built-in reaches the model", async () => {
     const seen: { options?: Options } = {};
     await runStage({ ...spec, tools: [] }, { userMessage: "Begin.", inputDir: "/in" }, { today: "2026-09-21", query: fakeQuery([result({})], seen) });

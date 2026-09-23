@@ -7,6 +7,7 @@ export interface UsageRow {
   runId: number;
   model: string;
   thinking: string;
+  effort: string;
   costUsd: number;
   durationMs: number;
   tokens: Record<string, number>;
@@ -16,8 +17,8 @@ export interface UsageRow {
 export function recordUsage(db: DatabaseSync, row: UsageRow): void {
   const t = row.tokens;
   db.prepare(
-    "INSERT INTO run_usage (run_id, subagent, model, input_tokens, output_tokens, cache_write_tokens, cache_read_tokens, api_cost_usd, duration_ms, thinking) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-  ).run(row.runId, row.stage, row.model, t["input_tokens"] ?? 0, t["output_tokens"] ?? 0, t["cache_creation_input_tokens"] ?? 0, t["cache_read_input_tokens"] ?? 0, row.costUsd, row.durationMs, row.thinking);
+    "INSERT INTO run_usage (run_id, subagent, model, input_tokens, output_tokens, cache_write_tokens, cache_read_tokens, api_cost_usd, duration_ms, thinking, effort) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+  ).run(row.runId, row.stage, row.model, t["input_tokens"] ?? 0, t["output_tokens"] ?? 0, t["cache_creation_input_tokens"] ?? 0, t["cache_read_input_tokens"] ?? 0, row.costUsd, row.durationMs, row.thinking, row.effort);
 }
 
 export function runCost(db: DatabaseSync, runId: number, since: string): { costUsd: number; calls: number } {

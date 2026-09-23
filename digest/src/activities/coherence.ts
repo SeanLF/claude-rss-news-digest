@@ -101,7 +101,7 @@ export function coherenceActivity(deps: CoherenceDeps) {
     recordOperatorNote(store, runId, "coherence", note);
     const checked = await runChecker(deps, runId, draftText, note);
     const { report: parsedReport, costUsd, durationMs, numTurns, toolCalls, unbacked } = checked;
-      deps.onUsage?.({ model: checked.model, thinking: checked.thinking, tokens: checked.tokens, stage: "coherence", runId, costUsd, durationMs, numTurns, toolCalls, unbackedFails: unbacked });
+      deps.onUsage?.({ model: checked.model, thinking: checked.thinking, effort: checked.effort, tokens: checked.tokens, stage: "coherence", runId, costUsd, durationMs, numTurns, toolCalls, unbackedFails: unbacked });
       const parsed = { data: parsedReport };
     const gaps = uncovered(parsed.data, draft);
     if (gaps.length) throw new Error(`coherence for run ${runId}: no result matches ${gaps.length} draft story(ies): ${gaps.slice(0, 3).join("; ")}`);
@@ -155,7 +155,7 @@ export async function checkDraft(
     deps.heartbeat?.();
     const parsed = CoherenceReportSchema.safeParse(r.structured);
     if (!parsed.success) throw new Error("coherence: report does not match the schema");
-    return { model: spec.model, thinking: spec.thinking, tokens: r.usage, report: parsed.data, costUsd: r.costUsd, durationMs: r.durationMs, numTurns: r.numTurns, toolCalls: r.toolCalls.length, unbacked: shape === "inline-grep" ? unbackedFails(parsed.data, r.toolCalls) : null };
+    return { model: spec.model, thinking: spec.thinking, effort: r.effort, tokens: r.usage, report: parsed.data, costUsd: r.costUsd, durationMs: r.durationMs, numTurns: r.numTurns, toolCalls: r.toolCalls.length, unbacked: shape === "inline-grep" ? unbackedFails(parsed.data, r.toolCalls) : null };
   } finally {
     rmSync(dir, { recursive: true, force: true }); // the mkdtemp directory this call created
   }

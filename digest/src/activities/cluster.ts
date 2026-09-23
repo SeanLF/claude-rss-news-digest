@@ -105,7 +105,7 @@ export function clusterActivities(deps: ClusterDeps) {
       deps.heartbeat?.();
       const r = await runStage(spec, { userMessage: prompt, inputDir: tmpdir() }, { today: store.runDate(runId), outputSchema: extractItemsJsonSchema(), ...(deps.query ? { query: deps.query } : {}), ...(deps.heartbeat ? { heartbeat: deps.heartbeat } : {}), ...(deps.signal?.() ? { signal: deps.signal()! } : {}) });
       deps.heartbeat?.();
-      deps.onUsage?.({ model: spec.model, thinking: spec.thinking, tokens: r.usage, stage: "cluster-extract", runId, batch: batch.index, costUsd: r.costUsd, durationMs: r.durationMs, numTurns: r.numTurns });
+      deps.onUsage?.({ model: spec.model, thinking: spec.thinking, effort: r.effort, tokens: r.usage, stage: "cluster-extract", runId, batch: batch.index, costUsd: r.costUsd, durationMs: r.durationMs, numTurns: r.numTurns });
       const parsed = ExtractItemsSchema.safeParse(r.structured);
       if (!parsed.success) throw new Error(`extract batch ${batch.index}: structured output did not match the items schema`);
       const items = itemsForBatch(parsed.data.items, batch.ids)
