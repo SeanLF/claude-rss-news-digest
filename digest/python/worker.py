@@ -2,11 +2,17 @@
 
 fulltext: trafilatura stays in Python (docs/2026-09-23-fulltext-extractor-fork.md), so this worker
 runs the production fetch, fulltext._collect_isolated, unchanged: its child process and SIGKILL are
-the bound. The TypeScript workflow calls each activity by name and does the planning and storing.
+the bound.
+
+gnews: googlenewsdecoder has no TypeScript equivalent that reports a 429, so the decode is
+newsroom's gnews.resolve, paced and bounded as digest._resolve_gnews_links drives it.
+
+The TypeScript workflow calls each activity by name and does the planning and storing.
 """
 
 import asyncio
 import os
+import time
 from concurrent.futures import ThreadPoolExecutor
 
 from temporalio import activity
@@ -15,6 +21,7 @@ from temporalio.worker import Worker
 
 import config
 import fulltext
+import gnews
 
 TASK_QUEUE = "python"
 
@@ -30,10 +37,36 @@ def fetch_fulltext(tasks: list[list[str]]) -> dict:
     return {"tasks": len(tasks), "results": results, "outcome": outcome}
 
 
+@activity.defn(name="decodeLinks")  # the name the TypeScript workflow calls
+def decode_links(urls: list[str]) -> dict:
+    # gnews keeps its cache and tally at module level, sized for one run per process; this worker
+    # serves every run, so each pass starts from nothing, or one day's failed token stays failed.
+    with gnews._cache_lock:
+        gnews._cache.clear()
+    gnews.reset_resolution_stats()
+    decoded: dict[str, str] = {}
+    outcome = "completed"
+    end = time.monotonic() + config.GNEWS_RESOLVE_DEADLINE_S
+    for url in urls:
+        if time.monotonic() > end:
+            outcome = "deadline"
+            break
+        try:
+            resolved = gnews.resolve(url, timeout=config.GNEWS_RESOLVE_TIMEOUT_S, delay=config.GNEWS_RESOLVE_DELAY_S)
+        except gnews.GnewsRateLimited:
+            outcome = "rate_limited"
+            break
+        if resolved:
+            decoded[url] = resolved
+    attempted, _ = gnews.resolution_stats()
+    return {"links": len(urls), "decoded": decoded, "attempted": attempted, "outcome": outcome}
+
+
 async def main() -> None:
     client = await Client.connect(os.environ.get("TEMPORAL_ADDRESS", "localhost:7233"))
     with ThreadPoolExecutor(max_workers=2) as pool:
-        await Worker(client, task_queue=TASK_QUEUE, activities=[fetch_fulltext], activity_executor=pool).run()
+        activities = [fetch_fulltext, decode_links]
+        await Worker(client, task_queue=TASK_QUEUE, activities=activities, activity_executor=pool).run()
 
 
 if __name__ == "__main__":

@@ -13,7 +13,7 @@ FROM python:3.14-slim
 RUN useradd --create-home appuser
 WORKDIR /app
 COPY --from=builder --chown=appuser:appuser /app/.venv /app/.venv
-COPY newsroom/src/fulltext.py newsroom/src/config.py digest/python/worker.py digest/python/test_worker.py /app/src/
+COPY newsroom/src/fulltext.py newsroom/src/gnews.py newsroom/src/config.py digest/python/worker.py digest/python/test_worker.py /app/src/
 ENV PATH=/app/.venv/bin:$PATH PYTHONPATH=/app/src PYTHONUNBUFFERED=1
 USER appuser
 WORKDIR /app/src
