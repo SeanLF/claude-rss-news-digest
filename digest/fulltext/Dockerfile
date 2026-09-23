@@ -15,6 +15,9 @@ WORKDIR /app
 COPY --from=builder --chown=appuser:appuser /app/.venv /app/.venv
 COPY newsroom/src/fulltext.py newsroom/src/config.py digest/fulltext/worker.py digest/fulltext/test_worker.py /app/src/
 ENV PATH=/app/.venv/bin:$PATH PYTHONPATH=/app/src PYTHONUNBUFFERED=1
+# Changes every commit, so it sits below the venv copy; bin/deploy's provenance check reads it.
+ARG OCI_REVISION=""
+LABEL org.opencontainers.image.revision="${OCI_REVISION}"
 USER appuser
 WORKDIR /app/src
 CMD ["python", "worker.py"]

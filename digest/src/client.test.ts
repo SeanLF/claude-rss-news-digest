@@ -2,6 +2,7 @@ import { ScheduleAlreadyRunning, ScheduleOverlapPolicy, type Client } from "@tem
 import { WorkflowIdConflictPolicy, WorkflowIdReusePolicy } from "@temporalio/common";
 import { describe, expect, it } from "vitest";
 import { ensureSchedule, SCHEDULE_ID, scheduleOptions, startOptions } from "./client.js";
+import { temporalNamespace } from "./worker.js";
 
 describe("startOptions", () => {
   it("a normal day rejects duplicates while running and after completion", () => {
@@ -30,6 +31,9 @@ describe("the daily schedule", () => {
     expect(o.spec.calendars).toEqual([{ hour: 10, minute: 25 }]);
     expect(o.policies).toEqual({ overlap: ScheduleOverlapPolicy.SKIP, catchupWindow: "1 day" });
   });
+  it("is created paused: only the live-pipeline switch unpauses it", () => {
+    expect(scheduleOptions().state).toMatchObject({ paused: true });
+  });
   it("ensureSchedule creates once and updates in place when the schedule already exists", async () => {
     const calls: string[] = [];
     let exists = false;
@@ -44,8 +48,9 @@ describe("the daily schedule", () => {
         getHandle: (id: string) => ({
           update: (fn: (prev: unknown) => unknown) => {
             calls.push(`update:${id}`);
-            const next = fn({}) as { spec: unknown };
+            const next = fn({ state: { paused: false, note: "live pipeline: temporal" } }) as { spec: unknown; state: unknown };
             expect(next.spec).toEqual(scheduleOptions().spec);
+            expect(next.state).toEqual({ paused: false, note: "live pipeline: temporal" }); // an update never re-pauses a live schedule
             return Promise.resolve();
           },
         }),
@@ -58,5 +63,14 @@ describe("the daily schedule", () => {
   it("ensureSchedule rethrows anything but already-running", async () => {
     const fake = { schedule: { create: () => Promise.reject(new Error("connection refused")) } } as unknown as Client;
     await expect(ensureSchedule(fake)).rejects.toThrow(/connection refused/);
+  });
+});
+
+describe("the Temporal namespace", () => {
+  it("is TEMPORAL_NAMESPACE when set, so production runs in the repo's own namespace", () => {
+    expect(temporalNamespace({ TEMPORAL_NAMESPACE: "news-digest" })).toBe("news-digest");
+  });
+  it("is the dev server's default otherwise", () => {
+    expect(temporalNamespace({})).toBe("default");
   });
 });
