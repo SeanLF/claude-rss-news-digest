@@ -1,4 +1,6 @@
 FROM node:26-slim
+# The slim image has no system CA store: Node carries its own, but native binaries (the Codex judge) do not.
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates && rm -rf /var/lib/apt/lists/*
 RUN useradd -m appuser
 WORKDIR /app/digest
 COPY digest/package.json digest/package-lock.json ./

@@ -31,6 +31,14 @@ services:
     restart: unless-stopped
     environment:
       TEMPORAL_ADDRESS: "temporal:7233"
+  # The gate's judges (make judges). Codex needs its own sandbox (bubblewrap) to read the fixture
+  # read-only, and Docker's default seccomp profile blocks it; unconfined here keeps Codex's sandbox
+  # on instead of running it with full access over untrusted publisher text. Local evals only.
+  digest-judge:
+    extends: { service: digest-worker }
+    security_opt: ["seccomp=unconfined"]
+    restart: "no"
+    profiles: ["judge"]
 volumes:
   temporal-data: {}
   claude-sessions:
