@@ -19,7 +19,7 @@ seanfloyd.dev. Spec: §2.1 and §5 of `docs/superpowers/specs/2026-09-21-four-sy
 | worker's database (`DIGEST_DB_PATH`) | | `digest-staged.db`, a copy | `digest.db` |
 | worker broadcasts (`BROADCAST_ENABLED`) | | `false` | `true` |
 | healthchecks.io success ping | the Python run | the Python run | `news-digest-deadman`, after `--verify-today` |
-| what `bin/deploy` builds and applies | circulation, newsroom | + both workers, the stack, pause and restore | same as staged, and refuses 10:00-11:45Z without `--force` |
+| what `bin/deploy` builds and applies | circulation, newsroom | + both workers, the stack, pause and restore; warns (never refuses) when a run is live or Temporal cannot say | same as staged, but refuses those without `--force`, and 10:00-11:45Z too |
 
 - **`python`** costs nothing. A Python deploy never builds, gates, targets or pauses anything Temporal,
   so a problem in `digest/` cannot block it.
@@ -186,10 +186,44 @@ history. Rehearsed under systemd in a container: no unit files and no active uni
   - The schedule is paused before the snapshot and the migrations, and restored after the apply and
     the tag. The exit trap restores it too if the deploy dies partway.
   - In temporal mode, a deploy between 10:00Z and 11:45Z needs `--force`.
-  - A run already in progress is reported, not blocked: the worker restarts under it and resumes from
-    its last completed activity.
-  - Known gap: the apply's own bootstrap step restores the schedule a few seconds before the workers
-    restart on the new image.
+  - In temporal mode a deploy refuses, without `--force`, while a digest workflow is running. It
+    lists them (`workflow list --query 'WorkflowType="DigestWorkflow" AND ExecutionStatus="Running"'`)
+    before the builds and again after the pause. An unreachable Temporal, a failed pause, or an
+    answer that is not a complete list refuses too; `--force` is for the deploy that repairs
+    Temporal. In staged mode each of these warns and the deploy goes on: the TypeScript runs there
+    are rehearsals on a scratch database, and a Temporal problem must not block Python's deploy.
+  - Clearing a live run so a temporal deploy can go ahead:
+    - in its hold (up to 14:25Z): approve or reject it;
+    - parked on the retry signal: answer it (retry or abort);
+    - **stuck**: its workflow task keeps failing, as on a nondeterminism error. The refusal marks
+      it "stuck". It cannot take a signal, so approving or rejecting does nothing, and it blocks
+      every deploy until its 4 h run timeout. Terminate it
+      (`bin/ssh "$T workflow terminate -w <id> --reason <why>"`), or deploy with `--force`.
+  - What a restart does to a live run is measured in `digest/src/workflow/deploy-safety.test.ts`: a
+    model call, render and assemble are retried by their policies. A one-attempt step (COHERENCE,
+    the send, and the other `once` steps) fails the run or parks it for an operator. A workflow-code
+    change the run cannot replay leaves it stuck until its 4 h run timeout, with no alert.
+  - **Known gap: a run can still start under the restart.** The check after the pause stops the
+    schedule from starting one, but the apply restarts the bootstrap (`digest-schedule sync`) before
+    the workers. On a day with no run yet after 10:25Z, its missed-day trigger starts one on the old
+    worker, and the worker restart then lands under it. Terraform cannot order the bootstrap after
+    the workers, because the workers depend on it (it creates the namespace). Not closed. The
+    mitigation: such a run gets stuck only on a workflow change made without `patched()`, and
+    `replay.test.ts` fails that change in CI before it can be deployed. An interrupted one-attempt
+    step still fails the run (with an alert) or parks it.
+  - **Workflow-code changes are gated with `patched()`** (the convention is at the top of
+    `digest/src/workflow/digest.workflow.ts`). `replay.test.ts` replays recorded histories of every
+    path (`digest/src/workflow/histories/`) against the current code in CI, so an ungated change fails
+    before it ships. Re-record the fixtures only for a new path, never to make a replay pass:
+    `temporal server start-dev` on a spare port, then
+    `cd digest && npm run build && TEMPORAL_ADDRESS=localhost:<port> node dist/cli/record-histories.js`.
+  - Not worker versioning (Worker Deployments, pinned workflows), decided 2026-09-23. Pinning keeps
+    a run on the build that started it, so the old worker must keep running beside the new one until
+    its runs end, up to 4 h. This box has one worker, and it has no room for a second: the caps
+    already sum to 2752 of 2825 MiB free. Pinning also needs a set-current-version and drain step in
+    the deploy. With the guard above, a temporal deploy overlaps a run only when forced or through the
+    bootstrap gap, and `patched()` covers both. Revisit if the pipeline gets a second worker
+    host.
 
 ## What still needs the Python tree after the cut-over
 
