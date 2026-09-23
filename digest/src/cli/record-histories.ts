@@ -29,9 +29,17 @@ const signalled = (decision: "approve" | "reject") => async (h: WorkflowHandle<t
   await h.signal(approveSignal, { decision });
   return h.result();
 };
+// The decision arrives during the hold: the hold's timer is started, then cancelled by the signal.
+const inHoldThen = (decision: "approve" | "reject") => async (h: WorkflowHandle<typeof DigestWorkflow>) => {
+  await inHold(h);
+  return signalled(decision)(h);
+};
 export const SCENARIOS: Scenario[] = [
+  // Decided before the hold is reached: the workflow never starts the hold's timer.
   { name: "sent", drive: signalled("approve") },
   { name: "rejected", drive: signalled("reject") },
+  { name: "approved-in-hold", drive: inHoldThen("approve") },
+  { name: "rejected-in-hold", drive: inHoldThen("reject") },
   // A 60 min run timeout leaves a 50 min deadline, 20 min of hold after the tail's margin: under the minimum.
   { name: "held-out", runTimeout: "60 minutes", drive: (h) => h.result() },
   { name: "disabled", activities: { sendEnabled: () => Promise.resolve(false) }, drive: (h) => h.result() },

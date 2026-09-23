@@ -11,6 +11,7 @@ const fixtures = readdirSync(dir)
   .filter((f) => f.endsWith(".json"))
   .toSorted()
   .map((f) => ({ workflowId: f.replace(/\.json$/, ""), history: JSON.parse(readFileSync(new URL(f, dir), "utf8")) as unknown }));
+type RecordedEvent = { eventType?: string; activityTaskScheduledEventAttributes?: { activityType?: { name?: string } } };
 const currentCode = new URL("./digest.workflow.ts", import.meta.url).pathname;
 
 async function replay(workflowsPath: string): Promise<Record<string, string>> {
@@ -21,7 +22,22 @@ async function replay(workflowsPath: string): Promise<Record<string, string>> {
 
 describe("workflow replay", () => {
   it("covers every representative path", () => {
-    expect(fixtures.map((f) => f.workflowId)).toEqual(["disabled", "failed", "held-out", "in-hold", "parked-abort", "rejected", "resume", "sent"]);
+    expect(fixtures.map((f) => f.workflowId)).toEqual(["approved-in-hold", "disabled", "failed", "held-out", "in-hold", "parked-abort", "rejected-in-hold", "rejected", "resume", "sent"]);
+  });
+
+  // Control on the fixtures themselves: the decision landed during the hold, not before it.
+  it.each([
+    ["approved-in-hold", "broadcast"],
+    ["rejected-in-hold", undefined],
+  ])("%s: the decision cancels the hold's timer after notifyHold", (name, sendAfter) => {
+    const history = fixtures.find((f) => f.workflowId === name)?.history as { events?: RecordedEvent[] } | undefined;
+    const types = (history?.events ?? []).map((e) => e.activityTaskScheduledEventAttributes?.activityType?.name ?? e.eventType ?? "");
+    const notified = types.indexOf("notifyHold");
+    const cancelled = types.indexOf("EVENT_TYPE_TIMER_CANCELED", notified);
+    expect(notified).toBeGreaterThanOrEqual(0);
+    expect(types.slice(notified).includes("EVENT_TYPE_TIMER_STARTED")).toBe(true);
+    expect(cancelled).toBeGreaterThan(notified);
+    expect(types.slice(cancelled).includes("broadcast")).toBe(sendAfter !== undefined);
   });
 
   it("every recorded history replays against the current workflow code", async () => {
@@ -30,12 +46,14 @@ describe("workflow replay", () => {
 
   it("negative control: an activity added before the hold without patched() fails every history that got that far", async () => {
     expect(await replay(changedWorkflowPath("bare"))).toEqual({
+      "approved-in-hold": "DeterminismViolationError",
       disabled: "ok", // ends before the hold
       failed: "ok",
       "held-out": "DeterminismViolationError",
       "in-hold": "DeterminismViolationError",
       "parked-abort": "ok",
       rejected: "ok", // rejected before the hold was reached
+      "rejected-in-hold": "DeterminismViolationError",
       resume: "DeterminismViolationError",
       sent: "DeterminismViolationError",
     });
