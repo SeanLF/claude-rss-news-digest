@@ -21,6 +21,7 @@ const taskQueue = "digest-test";
 // there, as when that worker is down.
 const emptyFetch = (tasks: FulltextTask[]): Promise<FulltextFetch> => Promise.resolve({ tasks: tasks.length, results: {}, outcome: "completed" });
 const noDecode = (urls: string[]): Promise<GnewsDecode> => Promise.resolve({ links: urls.length, decoded: {}, attempted: urls.length, outcome: "completed" });
+const noFulltext: Activities["planFulltext"] = () => Promise.resolve({ tasks: [], skip: "disabled" as const });
 const noLinks: Activities["planGnews"] = () => Promise.resolve({ urls: [], skip: "no_candidates" as const });
 async function withWorker<T>(fn: () => Promise<T>, overrides: Partial<Activities> = {}, fetcher: ((tasks: FulltextTask[]) => Promise<FulltextFetch>) | null = emptyFetch, decoder: (urls: string[]) => Promise<GnewsDecode> = noDecode): Promise<T> {
   const worker = await Worker.create({
@@ -114,8 +115,8 @@ describe("DigestWorkflow", () => {
     it("goes on without full text when nothing answers on the python queue", async () => {
       stored.length = 0;
       // The test server does not skip time while an activity task sits unclaimed, so the clock is
-      // moved past the schedule-to-start timeout by hand. The decode is skipped here: a second
-      // unclaimed task would hold the clock again, and the gnews tests cover a decode that fails.
+      // moved past the schedule-to-start timeout by hand. The decode is skipped here so the fetch is
+      // the one unclaimed task; the gnews tests take the decode's turn.
       const out = await withWorker(async () => {
         const h = await start("2026-09-29");
         await env.sleep("6 minutes");
@@ -175,7 +176,7 @@ describe("DigestWorkflow", () => {
       expect(rendered).toEqual(["gnews_links.json@0000"]);
       expect(out.broadcast).toBe("sent");
     }, 120_000);
-    it("a decode that fails ships the raw links: stored as unavailable, never retried, and the run goes on", async () => {
+    it("a decode that fails after it started ships the raw links: stored as failed, never retried, and the run goes on", async () => {
       reset();
       let calls = 0;
       const out = await withWorker(() => approveAndWait("2026-10-03"), { storeGnews }, emptyFetch, () => {
@@ -183,9 +184,22 @@ describe("DigestWorkflow", () => {
         return Promise.reject(new Error("decoder blew up"));
       });
       expect(calls).toBe(1);
-      expect(stored).toEqual([{ links: 1, decoded: {}, attempted: 0, outcome: "unavailable" }]);
+      expect(stored).toEqual([{ links: 1, decoded: {}, attempted: 0, outcome: "failed" }]);
       expect(out.broadcast).toBe("sent");
     }, 120_000);
+    it("goes on with the raw links when nothing answers on the python queue, stored as unavailable", async () => {
+      reset();
+      // Full text is switched off so the decode is the one task left unclaimed; the test server
+      // does not skip time past it, so the clock is moved by hand, as for the fetch.
+      const out = await withWorker(async () => {
+        const h = await start("2026-10-06");
+        await env.sleep("6 minutes");
+        await h.signal(approveSignal, { decision: "approve" });
+        return h.result();
+      }, { storeGnews, planFulltext: noFulltext }, null);
+      expect(stored).toEqual([{ links: 1, decoded: {}, attempted: 0, outcome: "unavailable" }]);
+      expect(out.broadcast).toBe("sent");
+    }, 300_000); // this sleep measured about 91 s of wall time, near the default 120 s
     it("records a skipped decode without calling Python", async () => {
       reset();
       let calls = 0;

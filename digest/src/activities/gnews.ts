@@ -6,10 +6,10 @@ import type { ArtifactStore, Pointer } from "../store/artifacts.js";
 import { DECODED_LINKS, type GnewsDecode, type GnewsPlan } from "./index.js";
 
 export const GNEWS_HEALTH = "gnews_health.json";
-// A stored attempt that spent requests is kept on a resume, even a partial one: the constraint is a
-// per-IP daily budget, and a run that was refused or ran out of time must not spend it again.
-// "unavailable" and "disabled" reached no decoder, so they are planned again.
-const SETTLED = new Set(["completed", "no_candidates", "rate_limited", "deadline"]);
+// A stored attempt that may have spent requests is kept on a resume, even a partial or failed one:
+// the constraint is a per-IP daily budget. Only "unavailable" (no worker picked the decode up) and
+// "disabled" reached no decoder, so only they are planned again.
+const SETTLED = new Set(["completed", "no_candidates", "rate_limited", "deadline", "failed"]);
 // digest._CANARY_MIN_ATTEMPTS: one undecodable article is not evidence the contract moved.
 const CANARY_MIN_ATTEMPTS = 3;
 

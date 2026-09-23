@@ -12,6 +12,7 @@ The TypeScript workflow calls each activity by name and does the planning and st
 
 import asyncio
 import os
+import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 
@@ -37,8 +38,24 @@ def fetch_fulltext(tasks: list[list[str]]) -> dict:
     return {"tasks": len(tasks), "results": results, "outcome": outcome}
 
 
+_PASS_LOCK = threading.Lock()
+
+
 @activity.defn(name="decodeLinks")  # the name the TypeScript workflow calls
 def decode_links(urls: list[str]) -> dict:
+    # One pass at a time per process: gnews's cache and tally are module globals, and Google's
+    # budget is per IP, so two runs decoding at once would corrupt both and double the rate.
+    while not _PASS_LOCK.acquire(timeout=5):
+        activity.heartbeat()
+        if activity.is_cancelled():
+            return {"links": len(urls), "decoded": {}, "attempted": 0, "outcome": "cancelled"}
+    try:
+        return _decode_pass(urls)
+    finally:
+        _PASS_LOCK.release()
+
+
+def _decode_pass(urls: list[str]) -> dict:
     # gnews keeps its cache and tally at module level, sized for one run per process; this worker
     # serves every run, so each pass starts from nothing, or one day's failed token stays failed.
     with gnews._cache_lock:
@@ -48,6 +65,11 @@ def decode_links(urls: list[str]) -> dict:
     outcome = "completed"
     end = time.monotonic() + config.GNEWS_RESOLVE_DEADLINE_S
     for url in urls:
+        # A timed-out activity learns it at a heartbeat; its thread is not killed, so it stops here.
+        activity.heartbeat()
+        if activity.is_cancelled():
+            outcome = "cancelled"
+            break
         if time.monotonic() > end:
             outcome = "deadline"
             break

@@ -119,6 +119,73 @@ def test_a_token_is_decoded_once_per_pass_and_afresh_on_the_next(monkeypatch):
     assert len(seen) == 2  # the worker outlives a run: a failure must not be cached into the next
 
 
+def test_heartbeats_before_each_link(monkeypatch):
+    fake_decoder(monkeypatch, {"R1": None, "R2": None})
+    env = ActivityEnvironment()
+    beats = []
+    env.on_heartbeat = lambda *details: beats.append(details)
+    env.run(worker.decode_links, [GN("R1"), GN("R2")])
+    assert len(beats) >= 2
+
+
+def test_a_cancelled_pass_stops_before_the_next_link(monkeypatch):
+    # A timed-out activity is cancelled at its next heartbeat; its thread must stop decoding then.
+    env = ActivityEnvironment()
+    answers = {"R1": "https://www.reuters.com/r1", "R2": "https://www.reuters.com/r2"}
+    seen, _ = fake_decoder(monkeypatch, answers)
+    real_decode = sys.modules["googlenewsdecoder"].decode
+
+    def decode_then_cancel(url, **kw):
+        result = real_decode(url, **kw)
+        env.cancel()
+        return result
+
+    monkeypatch.setattr(sys.modules["googlenewsdecoder"], "decode", decode_then_cancel)
+    out = env.run(worker.decode_links, [GN("R1"), GN("R2")])
+    assert [t for t, _ in seen] == ["R1"]
+    assert out["outcome"] == "cancelled"
+
+
+def test_two_passes_at_once_run_one_after_the_other(monkeypatch):
+    # gnews keeps one cache and one tally per process, and Google counts requests per IP: two runs
+    # decoding at once would corrupt both passes' counts and double the request rate.
+    import threading
+    import time as real_time
+
+    answers = {f"R{i}": f"https://www.reuters.com/r{i}" for i in range(4)}
+    fake_decoder(monkeypatch, answers)
+    real_decode = sys.modules["googlenewsdecoder"].decode
+    state = {"now": 0, "peak": 0}
+    lock = threading.Lock()
+
+    def slow_decode(url, **kw):
+        with lock:
+            state["now"] += 1
+            state["peak"] = max(state["peak"], state["now"])
+        real_time.sleep(0.05)
+        with lock:
+            state["now"] -= 1
+        return real_decode(url, **kw)
+
+    monkeypatch.setattr(sys.modules["googlenewsdecoder"], "decode", slow_decode)
+    results = {}
+
+    def run(name, urls):
+        results[name] = ActivityEnvironment().run(worker.decode_links, urls)
+
+    threads = [
+        threading.Thread(target=run, args=("a", [GN("R0"), GN("R1")])),
+        threading.Thread(target=run, args=("b", [GN("R2"), GN("R3")])),
+    ]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert state["peak"] == 1
+    assert results["a"]["attempted"] == results["b"]["attempted"] == 2
+    assert set(results["a"]["decoded"]) == {GN("R0"), GN("R1")}
+
+
 def test_the_pinned_decoder_is_the_fork_gnews_calls():
     # PyPI's googlenewsdecoder 0.2.x has none of these, and gnews._fetch would fail open on every link.
     from googlenewsdecoder import TransportError, decode, default_transport

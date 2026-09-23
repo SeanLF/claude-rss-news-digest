@@ -68,6 +68,11 @@ describe("gnews", () => {
     expect(store.find(300, `${DECODED_LINKS}.corrupt.1`)).toBeDefined();
     expect(store.find(300, GNEWS_HEALTH)).toBeUndefined();
   });
+  it("a pass that failed after it started is kept on a resume: it may already have spent requests", async () => {
+    const { sel, acts } = setup();
+    const done = await acts.storeGnews(300, { links: 3, decoded: {}, attempted: 0, outcome: "failed" });
+    expect(await acts.planGnews(300, sel)).toEqual({ urls: [], existing: done });
+  });
   it("switched off (GNEWS_RESOLVE_ENABLED=false), it plans nothing and says why", async () => {
     const { sel, acts } = setup(false);
     expect(await acts.planGnews(300, sel)).toEqual({ urls: [], skip: "disabled" });

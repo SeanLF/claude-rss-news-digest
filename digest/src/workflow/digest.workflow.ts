@@ -1,4 +1,4 @@
-import { ActivityFailure, CancelledFailure, condition, isCancellation, proxyActivities, setHandler } from "@temporalio/workflow";
+import { ActivityFailure, CancelledFailure, condition, isCancellation, proxyActivities, setHandler, TimeoutFailure } from "@temporalio/workflow";
 import type { Activities, DigestInput, DigestOutput, FulltextFetch, FulltextFetcher, GnewsDecode, LinkDecoder } from "../activities/index.js";
 import { mapBounded, MODEL_FANOUT_LIMIT } from "./bounded.js";
 import { PYTHON_TASK_QUEUE, MODEL_MAX_ATTEMPTS, NETWORK_MAX_ATTEMPTS } from "./policy.js";
@@ -25,9 +25,13 @@ const verdict = proxyActivities<Activities>({ startToCloseTimeout: "45 minutes",
 // The Python fetch bounds itself (a 120 s deadline plus 30 s grace, then SIGKILL); the start-to-close
 // covers that with room. A worker that never picks the task up is the schedule-to-start timeout.
 const python = proxyActivities<FulltextFetcher>({ taskQueue: PYTHON_TASK_QUEUE, scheduleToStartTimeout: "5 minutes", startToCloseTimeout: "4 minutes", retry: { maximumAttempts: 2 } });
-// The decode bounds itself (GNEWS_RESOLVE_DEADLINE_S, checked between links, so one decode past it).
-// One attempt: a retry would spend the per-IP daily budget again on links the first attempt already tried.
-const decoder = proxyActivities<LinkDecoder>({ taskQueue: PYTHON_TASK_QUEUE, scheduleToStartTimeout: "5 minutes", startToCloseTimeout: "4 minutes", retry: { maximumAttempts: 1 } });
+// The decode checks its 120 s deadline between links, so a pass can overrun it by one link: up to
+// three requests at 15 s connect plus 15 s read each, then the 2 s pace, about 212 s in all. It
+// heartbeats before each link, so a timed-out pass stops at the next one. One attempt: a retry would
+// spend the per-IP daily budget again on links the first attempt already tried.
+const decoder = proxyActivities<LinkDecoder>({ taskQueue: PYTHON_TASK_QUEUE, scheduleToStartTimeout: "5 minutes", startToCloseTimeout: "6 minutes", heartbeatTimeout: "3 minutes", retry: { maximumAttempts: 1 } });
+// Only a decode no worker picked up spent nothing; any other failure may have sent requests.
+const neverStarted = (e: unknown): boolean => e instanceof ActivityFailure && e.cause instanceof TimeoutFailure && e.cause.timeoutType === "SCHEDULE_TO_START";
 
 export async function DigestWorkflow(input: DigestInput): Promise<DigestOutput> {
   let approval: "approve" | "reject" | undefined;
@@ -114,7 +118,7 @@ export async function DigestWorkflow(input: DigestInput): Promise<DigestOutput> 
       ? { links: 0, decoded: {}, attempted: 0, outcome: links.skip }
       : await decoder.decodeLinks(links.urls).catch((e: unknown): GnewsDecode => {
           if (isCancellation(e)) throw e;
-          return { links: links.urls.length, decoded: {}, attempted: 0, outcome: "unavailable" };
+          return { links: links.urls.length, decoded: {}, attempted: 0, outcome: neverStarted(e) ? "unavailable" : "failed" };
         });
     return once.storeGnews(runId, decoded, input.force);
   };

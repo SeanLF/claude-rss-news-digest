@@ -30,8 +30,8 @@ export interface FulltextPlan { tasks: FulltextTask[]; existing?: Pointer; skip?
 // The activity the Python worker serves on PYTHON_TASK_QUEUE.
 export interface FulltextFetcher { fetchFulltext(tasks: FulltextTask[]): Promise<FulltextFetch> }
 // What the Python `decodeLinks` activity returns: the links it was given, those it decoded, the decode
-// requests it made, and how the pass ended ("completed", "rate_limited", "deadline"), or
-// "unavailable" when nothing answered on its queue.
+// requests it made, and how the pass ended ("completed", "rate_limited", "deadline", "cancelled"), or
+// "unavailable" when nothing picked it up and "failed" when it broke after it started.
 export interface GnewsDecode { links: number; decoded: Record<string, string>; attempted: number; outcome: string }
 export interface GnewsPlan { urls: string[]; existing?: Pointer; skip?: "disabled" | "no_candidates" }
 // The activity the Python worker serves on PYTHON_TASK_QUEUE for the decode.
