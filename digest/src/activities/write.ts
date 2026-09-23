@@ -92,7 +92,12 @@ export interface WriteDeps {
   query?: SdkQuery;
   heartbeat?: () => void;
   onUsage?: (row: UsageRow) => void;
+  // A progress line for the off-box monitor (healthchecks.io /log).
+  log?: (message: string) => void;
 }
+
+// The stories SELECT chose that WRITE never ran: run_health's STORIES_DROPPED_AT_WRITE reads `dropped`.
+export const WRITE_BRANCHES = "write_branches.json";
 
 function runArticles(store: ArtifactStore, runId: number): { ids: Set<string>; header: string[]; rows: Record<string, string>[] } {
   const rows: Record<string, string>[] = [];
@@ -112,7 +117,9 @@ export function writeActivities(deps: WriteDeps) {
     planStories: async (runId: number, selected: Pointer, clusters: Pointer): Promise<{ plans: StoryPlan[] }> => {
       const { ids } = runArticles(store, runId);
       const { plans, dropped } = planStories(store.get(selected), store.get(clusters), ids);
+      store.replace(runId, WRITE_BRANCHES, JSON.stringify({ dropped }));
       if (dropped.length) console.error(JSON.stringify({ stage: "write-plan", runId, dropped }));
+      for (const d of dropped) deps.log?.(`write s${String(d.index).padStart(2, "0")} DROPPED (${d.tier}): ${d.reason}`);
       if (plans.length === 0) throw ApplicationFailure.nonRetryable(`run ${runId}: no selected story has evidence to write from`, "NothingToWrite");
       return { plans };
     },

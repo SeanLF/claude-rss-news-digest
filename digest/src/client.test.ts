@@ -3,6 +3,7 @@ import { WorkflowIdConflictPolicy, WorkflowIdReusePolicy } from "@temporalio/com
 import { describe, expect, it } from "vitest";
 import { ensureSchedule, SCHEDULE_ID, scheduleOptions, startOptions } from "./client.js";
 import { temporalNamespace } from "./worker.js";
+import { WORKFLOW_RUN_TIMEOUT } from "./workflow/digest.workflow.js";
 
 describe("startOptions", () => {
   it("a normal day rejects duplicates while running and after completion", () => {
@@ -33,6 +34,10 @@ describe("the daily schedule", () => {
   });
   it("is created paused: only the live-pipeline switch unpauses it", () => {
     expect(scheduleOptions().state).toMatchObject({ paused: true });
+  });
+  it("a scheduled start has the same run budget as a manual one, which the hold and the deadline are cut to", () => {
+    expect(scheduleOptions().action).toMatchObject({ workflowRunTimeout: WORKFLOW_RUN_TIMEOUT });
+    expect(startOptions("2026-09-21", {}).workflowRunTimeout).toBe(WORKFLOW_RUN_TIMEOUT);
   });
   it("ensureSchedule creates once and updates in place when the schedule already exists", async () => {
     const calls: string[] = [];

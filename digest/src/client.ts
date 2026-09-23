@@ -34,7 +34,7 @@ export function scheduleOptions(): ScheduleOptions {
     // Created paused; only the deploy's live-pipeline switch unpauses it. The update in
     // ensureSchedule keeps whatever state the schedule already has.
     state: { paused: true, note: "created paused; the live-pipeline switch unpauses it" },
-    action: { type: "startWorkflow", workflowType: DigestWorkflow, taskQueue: TASK_QUEUE, workflowId: "digest-scheduled", args: [{ runDate: "" }] },
+    action: { type: "startWorkflow", workflowType: DigestWorkflow, taskQueue: TASK_QUEUE, workflowId: "digest-scheduled", args: [{ runDate: "" }], workflowRunTimeout: WORKFLOW_RUN_TIMEOUT },
   };
 }
 
