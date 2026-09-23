@@ -382,6 +382,64 @@ of migrations over today's tables. Instead:
 issue's html byte-equal, every thread's derived label equal to today's `threads.label`); the transition
 triggers (every legal and illegal edge); circulation's suite against an imported clone.
 
+### 5.1 The import, table by table (measured on the prod clone)
+
+Engine-neutral: this is what `bin/import-legacy` must produce whichever engine holds the new schema.
+Counts from `sqlite3 -readonly data/prod-20260923b.db` (runs 1-305, yoyo head `20260916190000`); the
+query for every line is `docs/2026-09-23-import-expectations.sql`. "=" means row for row and column for
+column, except where a column is named.
+
+| new table | from | expected rows on the clone | content check |
+|---|---|---|---|
+| `digest_runs` | `digest_runs` | 294 | `completed` (290, all with `completed_at`) splits by evidence, since Python marked a run completed whether or not it emailed (`newsroom/src/db.py:178`): `outcome='sent'` for the 265 with `articles_emailed > 0`; `outcome='unrecorded'` for the 25 with 0 (12 have an issue, 13 are same-day runs whose issue a later run overwrote). `running` → `failed` (runs 123, 281: the orphans of §4.1); `failed` stays (218, 229) |
+| `run_attempts` | one per run | 294 | `pipeline='python'`; state from the run's new status; `run_usage.attempt_id` and `run_artifacts.attempt_id` point at it |
+| `run_usage` | `run_usage` | 2,205 over 191 runs, $769.74 | = ; `effort` NULL on 1,744 rows stays NULL ("not recorded", never back-filled) |
+| `run_artifacts` | `run_artifacts` ∪ `selections` | 1,981 + 128 = 2,109, all `current` | = with `sha256` of `content`, and `stage`/`kind`/`branch` from the name (Appendix C, one function shared with the writer); the 128 are `selections.json` for runs that have no such artifact; the other 99 `selections` rows equal their artifact (99/99) |
+| `issues` | `digests` | 282, all revision 1 | `html` byte-equal 282/282; `published_at` = `digests.created_at` (never NULL); `run_id` NULL on 5 (2025-12-26, -30, -31, 2026-01-16, -17: saved before runs were linked), so `issues.run_id` is nullable, for those rows only |
+| `broadcasts` | `digests` with a send | 100, all `sent` | `resend_id`, `recipients`, `run_id` = `digests.run_id`; `claim_token`, `claimed_at` unknown, so nullable, for imported rows only. `email_artifact` is dropped: no run has an `email.html` artifact (0 rows), and a TS send's email is its run's `email.html` by name |
+| `shown_narratives` (+ full-text index) | same | 30,063 over 277 runs; index 30,063 | = |
+| `fetched_articles` | same | 136,143 over 229 runs | = |
+| `dedup_log` | same, minus `action` | 24,856 | = (`action` is `filtered` on 24,856 of 24,856) |
+| `source_health` | same | 9,645 | = ; `run_id` NULL on 231 (recorded before runs were tracked) |
+| `threads_all` | `threads` | 951 | `created_run_id` = `first_run_id`; derived `label` = old `label` 951/951; derived `status` = old `status` 951/951 (52 active, 899 dormant; the clone has no merged thread, so `merged` is exercised only by a test) |
+| `thread_installments_all` | `thread_installments` | 1,597 | `continued` = `matched_score IS NOT NULL` (641); `content` 605 set |
+| `thread_questions_all` | `thread_questions` | 3,116 | 2,408 open, 708 resolved, every resolving run published |
+| `thread_question_resolutions` | resolved questions | 708 | `(question, resolved_run_id, resolved_how)` |
+| not carried | `cluster_runs` (99, equal to `clusters.json` 99/99, none without it), `thread_runs` (98), `story_feedback` (37, last 2026-07-05: exported to `docs/2026-09-23-story-feedback.csv`), `threads.slug`, `dedup_log.action`, the yoyo tables | | |
+
+Things the clone showed that §4 did not say:
+- The derived `status` matches only when dormancy is counted up to, and excluding, the newest run: the
+  stored status is the decay the newest run applied before it finished. Counting every completed run
+  gives 943/951 (8 threads that the next run would retire).
+- Every installment's run is in `published_runs` (0 outside it), so gating thread pages on publication
+  hides nothing today, as §2.3 measured with `completed_at`.
+- `threads.updated_at` is not derivable (the decay wrote it): the latest installment's `created_at`
+  equals it on 52 of 951 threads, the active ones. The "older threads" page orders by it, so the dormant
+  threads' order on that page changes.
+- Circulation refuses to start unless `digests` is a *table* (`main.rs` `REQUIRED_TABLES` checks
+  `sqlite_master.type='table'`). On SQLite a `digests` view needs that check widened to views, one line;
+  on Postgres circulation is rusqlite throughout, so there is no one-line version.
+- Circulation reads `threads` (`label`, `status`, `updated_at`, `merged_into`), `thread_installments`
+  and `thread_questions.status` by those names (`thread.rs:100-449`), so all three names must be views
+  (derived, published-only), and the tables the pipeline writes need other names.
+- Outcome spellings: the constraint takes the TypeScript's, `sent`, `disabled`, `rejected`, `held-out`,
+  `skipped`, plus `unrecorded` for imported runs; §4.1's `held_out`/`no_stories` are superseded (no
+  `no_stories` outcome exists). The TS send writes `created` for a draft; `broadcasts.status` calls it
+  `draft`.
+- Step 0 cannot land alone: `startRun`'s retry idempotency reads `digest_runs.workflow_run_id` and the
+  abandoned-run sweep reads `digests.broadcast_run_id`, so both migrations leave with the port to
+  `run_attempts` and `broadcasts`, not before it.
+- `archiveRun` stays as an activity that does nothing: the recorded workflow histories schedule it.
+
+**Lifecycle edges, as test cases** (§4.1). States: `running`, `failed`, and `completed` with each of the
+five pipeline outcomes. Legal: any state to itself (a write that leaves status and outcome alone, which
+§4.1 did not say); `running` → `failed` or any `completed`; `failed` → `running`; `completed(o)` →
+`running` for `o` ≠ `sent`. Everything else is refused, including `failed` → `completed`, `completed` →
+`failed`, `completed(sent)` → `running`, and `completed(a)` → `completed(b)` for a ≠ b: 7 × 7 = 49
+edges, 7 + 6 + 1 + 4 = 18 legal. `completed(unrecorded)` exists only by import and is treated as unsent
+(it may resume). Two row checks besides: `completed` needs an outcome, and an outcome needs
+`completed`.
+
 **The migration tool.** Plain SQL on SQLite with triggers, partial indexes, views and FTS5 rules out an ORM
 as schema owner: Drizzle Kit or Kysely would make TypeScript the source of truth for a schema the Rust tier
 also reads, and neither models FTS5 triggers (unverified for both). node-pg-migrate is Postgres-only.
