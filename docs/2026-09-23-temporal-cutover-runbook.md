@@ -16,7 +16,7 @@ seanfloyd.dev. Spec: §2.1 and §5 of `docs/superpowers/specs/2026-09-21-four-sy
 | Temporal stack (server, Postgres, UI, workers, dumps) | not on the box | running | running |
 | `news-digest.timer` (12:25 Europe/Paris) | enabled | enabled | disabled; the service stays installed |
 | schedule `digest-daily` (10:25Z) | none | paused | unpaused |
-| worker's database (`DIGEST_DB_PATH`) | | `digest-staged.db`, a copy | `digest.db` |
+| worker's database (`DIGEST_DATABASE_URL`; was `DIGEST_DB_PATH`, a SQLite file, before the Postgres schema) | | `digest-staged.db`, a copy | `digest.db` |
 | worker broadcasts (`BROADCAST_ENABLED`) | | `false` | `true` |
 | healthchecks.io success ping | the Python run | the Python run | `news-digest-deadman`, after `--verify-today` |
 | what `bin/deploy` builds and applies | circulation, newsroom | + both workers, the stack, pause and restore; warns (never refuses) when a run is live or Temporal cannot say | same as staged, but refuses those without `--force`, and 10:00-11:45Z too |
@@ -55,7 +55,7 @@ Two guards stop both pipelines from sending the same day:
   through `news-digest-alert@`.
 - The Postgres password is generated on the box, in `/opt/news-digest/temporal-db.env` (0600). It is not
   in tfvars, state or 1Password.
-- `worker.env` (0600) holds `BROADCAST_ENABLED`, `DIGEST_DB_PATH`, `TEMPORAL_UI_URL`
+- `worker.env` (0600) holds `BROADCAST_ENABLED`, `DIGEST_DB_PATH` (to become `DIGEST_DATABASE_URL`: see the data-model design, top), `TEMPORAL_UI_URL`
   (`https://seanfloyd-hetzner.tail739266.ts.net:8233`) and `HEALTH_ALERT_EMAIL`.
 
 ### Memory budget (temporal)

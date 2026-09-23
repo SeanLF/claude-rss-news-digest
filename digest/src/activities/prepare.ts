@@ -10,48 +10,47 @@ import type { FetchSummary } from "./index.js";
 // (fetched_articles) and its source list, so every downstream stage replays from the archive without
 // a refetch. Deterministic, so a re-run writes identical rows; a differing row means the logic or a
 // threshold changed, which only force may overwrite.
-export function prepareActivity(deps: { store: ArtifactStore; dbPath: string }) {
+export function prepareActivity(deps: { store: ArtifactStore; dbUrl: string }) {
   return async (runId: number, _fetched: FetchSummary[], force = false): Promise<{ articles: Pointer[]; index: Pointer }> => {
     const { store } = deps;
-    const sourcesPtr = store.find(runId, "sources.csv");
+    const sourcesPtr = await store.find(runId, "sources.csv");
     if (!sourcesPtr) throw ApplicationFailure.nonRetryable(`run ${runId} has no sources.csv; fetch has not run`, "MissingInput");
-    const sources = parse<Source>(store.get(sourcesPtr), { columns: true, skip_empty_lines: true });
-    const db = openDb(deps.dbPath);
-    try {
+    const sources = parse<Source>(await store.get(sourcesPtr), { columns: true, skip_empty_lines: true });
+    const db = openDb(deps.dbUrl);
+    {
       const fetched = new Map<string, Fetched[]>();
-      for (const r of db.prepare("SELECT source_id, title, url, published, summary FROM fetched_articles WHERE run_id=? ORDER BY id").all(runId) as unknown as (Fetched & { source_id: string })[])
+      for (const r of await db.all<Fetched & { source_id: string }>("SELECT source_id, title, url, published, summary FROM fetched_articles WHERE run_id=$1 ORDER BY id", [runId]))
         fetched.set(r.source_id, [...(fetched.get(r.source_id) ?? []), r]);
       if (fetched.size === 0) throw ApplicationFailure.nonRetryable(`run ${runId} has no fetched_articles`, "MissingInput");
-      const at = runAt(db, runId);
-      const recent = previousHeadlines(db, at);
+      const at = await runAt(db, runId);
+      const recent = await previousHeadlines(db, at);
       const prepared = prepareArticles(sources, fetched, recent.map((h) => h.headline));
       console.log(JSON.stringify({ stage: "prepare", runId, articles: Object.keys(prepared.index).length, deduped: prepared.filtered.length, urlDuplicates: prepared.urlDuplicates }));
-      const write = (name: string, text: string): Pointer => {
+      const write = async (name: string, text: string): Promise<Pointer> => {
         if (force) return store.replace(runId, name, text);
         try {
-          return store.put(runId, name, text);
+          return await store.put(runId, name, text);
         } catch (e) {
           if (e instanceof ConflictError) throw ApplicationFailure.nonRetryable(`prepare for run ${runId}: ${name} differs from the stored one; the logic or a threshold changed, re-run with force`, "PrepareChanged");
           throw e;
         }
       };
-      const articles = prepared.files.map((f) => write(f.name, toCsv(ARTICLE_HEADER, f.rows)));
+      const articles: Pointer[] = [];
+      for (const f of prepared.files) articles.push(await write(f.name, toCsv(ARTICLE_HEADER, f.rows)));
       // One dedup_log row per title dropped as a repeat, as the Python writes; only once per run, so
       // a re-run of a deterministic prepare does not duplicate them.
-      const logged = (db.prepare("SELECT COUNT(*) AS n FROM dedup_log WHERE run_id=?").get(runId) as { n: number }).n;
-      if (!logged) {
-        const ins = db.prepare("INSERT INTO dedup_log (article_title, article_source_id, matched_headline, similarity, threshold, action, run_id) VALUES (?, ?, ?, ?, ?, 'filtered', ?)");
-        for (const d of prepared.filtered) ins.run(d.title, d.source_id, d.matched, d.similarity, DEDUP_SIMILARITY_THRESHOLD, runId);
-      }
-      const index = write("article_index.json", JSON.stringify(prepared.index, null, 2));
-      if (recent.length) write("recent_rss_titles.csv", recentTitlesCsv(recent));
-      const yesterday = yesterdayHeadlines(db, at);
-      if (yesterday.length) write("yesterday_headlines.txt", yesterdayTxt(yesterday));
-      const recentDigest = recentDigestHeadlines(db, at);
-      if (recentDigest.length) write("recent_digest_headlines.txt", recentTxt(recentDigest));
+      await db.tx(async (t) => {
+        if ((await t.one("SELECT 1 FROM dedup_log WHERE run_id=$1 LIMIT 1", [runId])) !== undefined) return;
+        for (const d of prepared.filtered)
+          await t.run("INSERT INTO dedup_log (article_title, article_source_id, matched_headline, similarity, threshold, run_id) VALUES ($1, $2, $3, $4, $5, $6)", [d.title, d.source_id, d.matched, d.similarity, DEDUP_SIMILARITY_THRESHOLD, runId]);
+      }, `dedup ${runId}`);
+      const index = await write("article_index.json", JSON.stringify(prepared.index, null, 2));
+      if (recent.length) await write("recent_rss_titles.csv", recentTitlesCsv(recent));
+      const yesterday = await yesterdayHeadlines(db, at);
+      if (yesterday.length) await write("yesterday_headlines.txt", yesterdayTxt(yesterday));
+      const recentDigest = await recentDigestHeadlines(db, at);
+      if (recentDigest.length) await write("recent_digest_headlines.txt", recentTxt(recentDigest));
       return { articles, index };
-    } finally {
-      db.close();
     }
   };
 }

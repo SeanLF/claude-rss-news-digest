@@ -45,6 +45,12 @@ services:
       context: .
       dockerfile: digest/Dockerfile.ci
     working_dir: /app/digest
+    # PGlite runs the suite in-process; the store's real-Postgres tests (store/postgres.test.ts) need
+    # contended connections, which only a server has.
+    depends_on:
+      digest-pg: { condition: service_healthy }
+    environment:
+      - DIGEST_TEST_DATABASE_URL=postgres://postgres:digest@digest-pg:5432/postgres?sslmode=disable
 
   # The product database locally: the Postgres image and major the box runs for Temporal
   # (seanfloyd.dev news-digest-temporal.tf), with no volume, so every `up` starts empty.

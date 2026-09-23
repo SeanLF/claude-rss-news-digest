@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs";
-import type { DatabaseSync } from "node:sqlite";
+import type { Sql } from "../store/db.js";
 
 // The shape newsroom/src/render.py and render_email.py consume: selections after article ids are
 // resolved and thread context is attached. Fields are optional because the Python reads them with
@@ -152,9 +152,8 @@ export function dates(now: Date) {
   };
 }
 
-// db.get_issue_number: the edition's rank among stored digests, counting this one if it is not yet stored.
-export function issueNumber(db: DatabaseSync, date: string): number {
-  const { n } = db.prepare("SELECT COUNT(*) AS n FROM digests WHERE date <= ?").get(date) as { n: number };
-  const stored = db.prepare("SELECT 1 FROM digests WHERE date = ? LIMIT 1").get(date);
-  return stored ? n : n + 1;
+// db.get_issue_number: the edition's rank among published days, counting this one if it is not yet published.
+export async function issueNumber(db: Sql, date: string): Promise<number> {
+  const r = await db.one<{ n: number; stored: boolean }>("SELECT COUNT(DISTINCT date) AS n, bool_or(date = $1::date) AS stored FROM issues WHERE date <= $1::date", [date]);
+  return r!.stored ? r!.n : r!.n + 1;
 }

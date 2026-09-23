@@ -34,14 +34,14 @@ export interface AssembleReport { shipped: number; dropped: string[]; repaired: 
 // why_it_matters failed → keep, blanked (a brief has none to blank); anything else → drop. No
 // must_know left → abort rather than send an empty digest. Then the reader-facing guards and the
 // contract.
-export function assemble(store: ArtifactStore, runId: number, drafts: Pointer[], report: Pointer, repair: Pointer, preheader: Pointer | null): { selections: Selections; report: AssembleReport } {
-  const draft = draftFrom(store, drafts);
-  const results = CoherenceReportSchema.parse(JSON.parse(store.get(report))).results;
-  const resolution = JSON.parse(store.get(repair)) as ResolutionDoc;
+export async function assemble(store: ArtifactStore, runId: number, drafts: Pointer[], report: Pointer, repair: Pointer, preheader: Pointer | null): Promise<{ selections: Selections; report: AssembleReport }> {
+  const draft = await draftFrom(store, drafts);
+  const results = CoherenceReportSchema.parse(JSON.parse(await store.get(report))).results;
+  const resolution = JSON.parse(await store.get(repair)) as ResolutionDoc;
   const patches = new Map(resolution.results.filter((r) => r.status === "repaired" && r.recheck_pass && validPatch(r.patched_fields)).map((r) => [r.article_ids.toSorted().join(","), r.patched_fields]));
   const owner = new Map<string, string>();
-  const clusters = store.find(runId, "clusters.json");
-  if (clusters) for (const c of (JSON.parse(store.get(clusters)) as { clusters: { story: string; article_ids: string[] }[] }).clusters) for (const a of c.article_ids) owner.set(a, c.story);
+  const clusters = await store.find(runId, "clusters.json");
+  if (clusters) for (const c of (JSON.parse(await store.get(clusters)) as { clusters: { story: string; article_ids: string[] }[] }).clusters) for (const a of c.article_ids) owner.set(a, c.story);
   const out: AssembleReport = { shipped: 0, dropped: [], repaired: 0, blanked: 0 };
   const sel: Record<"must_know" | "should_know", Selections["must_know"]> = { must_know: [], should_know: [] };
   for (const tier of ["must_know", "should_know"] as const)
@@ -77,12 +77,12 @@ export function assemble(store: ArtifactStore, runId: number, drafts: Pointer[],
       sel[tier].push(kept);
     }
   if (!sel.must_know.length) throw ApplicationFailure.nonRetryable(`run ${runId}: no must_know story survived (dropped ${out.dropped.length}); refusing an empty broadcast`, "EmptyDigest");
-  let pre = preheader ? preheaderLine(store.get(preheader)).trim() : "";
+  let pre = preheader ? preheaderLine(await store.get(preheader)).trim() : "";
   if (!pre) pre = [...sel.must_know, ...sel.should_know].map((s) => s.headline.trim()).find(Boolean) ?? "";
-  const selected = store.find(runId, "selected.json");
+  const selected = await store.find(runId, "selected.json");
   let blurb: string | undefined;
   if (selected) {
-    const b = SelectedSchema.safeParse(JSON.parse(store.get(selected))).data?.not_covered_blurb?.trim();
+    const b = SelectedSchema.safeParse(JSON.parse(await store.get(selected))).data?.not_covered_blurb?.trim();
     if (b && !leaksInternalId(b)) blurb = truncateOnWordBoundary(b, NOT_COVERED_BLURB_MAX_LEN);
   }
   const selections = { must_know: sel.must_know, should_know: sel.should_know, preheader: truncateOnWordBoundary(pre, PREHEADER_MAX_CHARS), ...(blurb ? { not_covered_blurb: blurb } : {}) };
@@ -94,11 +94,11 @@ export function assemble(store: ArtifactStore, runId: number, drafts: Pointer[],
 
 export function assembleActivity(deps: { store: ArtifactStore }) {
   return async (runId: number, drafts: Pointer[], report: Pointer, repair: Pointer, preheader: Pointer | null, force = false): Promise<Pointer> => {
-    const { selections, report: r } = assemble(deps.store, runId, drafts, report, repair, preheader);
+    const { selections, report: r } = await assemble(deps.store, runId, drafts, report, repair, preheader);
     console.log(JSON.stringify({ stage: "assemble", runId, ...r }));
     const text = JSON.stringify(selections, null, 2);
-    const existing = deps.store.find(runId, SELECTIONS_OUTPUT);
-    if (existing && !force && deps.store.get(existing) !== text) deps.store.quarantine(runId, SELECTIONS_OUTPUT);
-    return force ? deps.store.replace(runId, SELECTIONS_OUTPUT, text) : deps.store.put(runId, SELECTIONS_OUTPUT, text);
+    const existing = await deps.store.find(runId, SELECTIONS_OUTPUT);
+    if (existing && !force && (await deps.store.get(existing)) !== text) await deps.store.quarantine(runId, SELECTIONS_OUTPUT);
+    return force ? await deps.store.replace(runId, SELECTIONS_OUTPUT, text) : await deps.store.put(runId, SELECTIONS_OUTPUT, text);
   };
 }

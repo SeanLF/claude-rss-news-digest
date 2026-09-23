@@ -16,7 +16,7 @@ const DAY_MS = 86_400_000;
 
 export interface WeeklyRecapDeps {
   store: ArtifactStore;
-  dbPath: string;
+  dbUrl: string;
   agentsDir: string;
   // The attempts the workflow's policy allows; only the last one gives up and carries the old recap.
   maxAttempts: number;
@@ -24,7 +24,7 @@ export interface WeeklyRecapDeps {
   query?: SdkQuery;
   heartbeat?: () => void;
   signal?: () => AbortSignal | undefined;
-  onUsage?: (row: UsageRow) => void;
+  onUsage?: (row: UsageRow) => void | Promise<void>;
 }
 
 const currentAttempt = (): number => {
@@ -41,20 +41,14 @@ const currentAttempt = (): number => {
 export function weeklyRecapActivity(deps: WeeklyRecapDeps): (runId: number, force?: boolean) => Promise<Pointer | null> {
   return async (runId, force = false) => {
     const { store } = deps;
-    const existing = store.find(runId, WEEKLY_RECAP);
+    const existing = await store.find(runId, WEEKLY_RECAP);
     if (existing && !force) return existing;
-    const write = (text: string): Pointer => (force ? store.replace(runId, WEEKLY_RECAP, text) : store.put(runId, WEEKLY_RECAP, text));
-    const db = openDb(deps.dbPath);
-    let prior: string | null;
-    let titles: string;
-    try {
-      prior = (db.prepare("SELECT content FROM run_artifacts WHERE artifact_name=? AND run_id < ? ORDER BY run_id DESC LIMIT 1").get(WEEKLY_RECAP, runId) as { content: string } | undefined)?.content ?? null;
-      titles = previousHeadlines(db, runAt(db, runId)).map((t) => t.headline).filter(Boolean).map((t) => `- ${t}`).join("\n");
-    } finally {
-      db.close();
-    }
-    const carry = (): Pointer | null => (prior === null ? null : write(prior));
-    const today = store.runDate(runId);
+    const write = (text: string): Promise<Pointer> => (force ? store.replace(runId, WEEKLY_RECAP, text) : store.put(runId, WEEKLY_RECAP, text));
+    const db = openDb(deps.dbUrl);
+    const prior = (await db.one<{ content: string }>("SELECT content FROM run_artifacts WHERE artifact_name=$1 AND run_id < $2 AND state = 'current' ORDER BY run_id DESC LIMIT 1", [WEEKLY_RECAP, runId]))?.content ?? null;
+    const titles = (await previousHeadlines(db, await runAt(db, runId))).map((t) => t.headline).filter(Boolean).map((t) => `- ${t}`).join("\n");
+    const carry = async (): Promise<Pointer | null> => (prior === null ? null : write(prior));
+    const today = await store.runDate(runId);
     const last = prior === null ? undefined : [...prior.matchAll(/^## Week of (\d{4}-\d{2}-\d{2})/gm)].at(-1)?.[1];
     const age = last ? (Date.parse(`${today}T00:00:00Z`) - Date.parse(`${last}T00:00:00Z`)) / DAY_MS : Number.NaN;
     if (age < 7) return carry(); // NaN (no entry, or an unreadable date) regenerates
@@ -65,7 +59,7 @@ export function weeklyRecapActivity(deps: WeeklyRecapDeps): (runId: number, forc
       const spec = parseAgentSpec(readFileSync(join(deps.agentsDir, "weekly-recap.md"), "utf8"));
       deps.heartbeat?.();
       const r = await runStage(spec, { userMessage: titles, inputDir: tmpdir() }, { today, ...(deps.query ? { query: deps.query } : {}), ...(deps.heartbeat ? { heartbeat: deps.heartbeat } : {}), ...(deps.signal?.() ? { signal: deps.signal()! } : {}) });
-      deps.onUsage?.({ model: spec.model, thinking: spec.thinking, effort: r.effort, tokens: r.usage, stage: "weekly_recap", runId, costUsd: r.costUsd, durationMs: r.durationMs, numTurns: r.numTurns });
+      await deps.onUsage?.({ model: spec.model, thinking: spec.thinking, prompt: spec, effort: r.effort, tokens: r.usage, stage: "weekly_recap", runId, costUsd: r.costUsd, durationMs: r.durationMs, numTurns: r.numTurns });
       summary = r.text.trim();
       if (!summary) throw new Error("model returned an empty recap");
     } catch (e) {

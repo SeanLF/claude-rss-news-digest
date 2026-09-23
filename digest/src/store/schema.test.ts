@@ -1,6 +1,6 @@
 import type { PGliteInterface as PGlite } from "@electric-sql/pglite";
 import { beforeAll, describe, expect, it } from "vitest";
-import { freshPglite, PARSERS } from "./pglite.js";
+import { emptyPglite } from "./pglite.js";
 
 type State = { status: "running" | "failed" } | { status: "completed"; outcome: string };
 const OUTCOMES = ["sent", "disabled", "rejected", "held-out", "skipped", "unrecorded"] as const;
@@ -17,7 +17,7 @@ function legal(from: State, to: State): boolean {
   return from.status === "completed" && from.outcome !== "sent" && to.status === "running";
 }
 
-const rows = async (db: PGlite, sql: string, params: unknown[] = []) => (await db.query(sql, params, { parsers: PARSERS })).rows;
+const rows = async (db: PGlite, sql: string, params: unknown[] = []) => (await db.query(sql, params)).rows;
 async function runIn(db: PGlite, s: State): Promise<number> {
   const [r] = (await rows(db, "INSERT INTO digest_runs (status, outcome, completed_at) VALUES ($1, $2, CASE WHEN $2 = 'sent' THEN now() END) RETURNING id", [s.status, outcomeOf(s)])) as { id: number }[];
   return r!.id;
@@ -29,7 +29,7 @@ async function runsOn(db: PGlite, days: string[]): Promise<void> {
 describe("digest_runs transitions", () => {
   let db: PGlite;
   beforeAll(async () => {
-    db = await freshPglite();
+    db = await emptyPglite();
   });
   it("covers every edge between the 8 states: 64, of which 21 are legal", () => {
     const edges = STATES.flatMap((f) => STATES.map((t) => legal(f, t)));
@@ -77,12 +77,12 @@ describe("digest_runs transitions", () => {
 
 describe("the product schema", () => {
   it("refuses a row that names a run that does not exist", async () => {
-    const db = await freshPglite();
+    const db = await emptyPglite();
     await expect(db.query("INSERT INTO run_artifacts (run_id, artifact_name, content, sha256) VALUES (999, 'x', 'y', 'z')")).rejects.toThrow(/foreign key/);
   });
 
   it("keeps one current artifact per name, and any number set aside", async () => {
-    const db = await freshPglite();
+    const db = await emptyPglite();
     await runsOn(db, ["2026-09-18"]);
     const put = () => db.query("INSERT INTO run_artifacts (run_id, artifact_name, content, sha256) VALUES (1, 'recap.txt', 'x', 'h')");
     await put();
@@ -99,7 +99,7 @@ describe("the product schema", () => {
   });
 
   it("sends only a published revision, and publishes a run by its send once Resend has it", async () => {
-    const db = await freshPglite();
+    const db = await emptyPglite();
     await runsOn(db, ["2026-09-18"]);
     const published = () => rows(db, "SELECT run_id FROM published_runs");
     await expect(db.query("INSERT INTO broadcasts (date, run_id, revision, status) VALUES ('2026-09-18', 1, 1, 'claimed')")).rejects.toThrow(/foreign key/);
@@ -114,7 +114,7 @@ describe("the product schema", () => {
 
   it("derives a thread's label, last run and status from its published installments", async () => {
     const days = ["2026-09-11", "2026-09-12", "2026-09-13", "2026-09-14", "2026-09-15", "2026-09-16", "2026-09-17"];
-    const db = await freshPglite();
+    const db = await emptyPglite();
     await runsOn(db, days);
     for (const [i, d] of days.entries()) {
       await db.query("UPDATE digest_runs SET status='completed', outcome='sent', completed_at=run_at WHERE id=$1", [i + 1]);
@@ -134,7 +134,7 @@ describe("the product schema", () => {
   });
 
   it("counts dormancy as the newest run's decay did: runs after the last installment, before the newest, more than 3", async () => {
-    const db = await freshPglite();
+    const db = await emptyPglite();
     const days = ["2026-09-11", "2026-09-12", "2026-09-13", "2026-09-14", "2026-09-15", "2026-09-16"];
     await runsOn(db, days);
     for (const [i, d] of days.entries()) {
@@ -150,7 +150,7 @@ describe("the product schema", () => {
   });
 
   it("shows a question resolved only by a published run", async () => {
-    const db = await freshPglite();
+    const db = await emptyPglite();
     await runsOn(db, ["2026-09-11", "2026-09-12"]);
     await db.query("INSERT INTO issues (date, revision, run_id, html) VALUES ('2026-09-11', 1, 1, '')");
     await db.query("INSERT INTO threads (id, created_run_id) VALUES (10, 1)");
@@ -165,7 +165,7 @@ describe("the product schema", () => {
   });
 
   it("searches headlines and source titles, ranking a headline match above a title match", async () => {
-    const db = await freshPglite();
+    const db = await emptyPglite();
     await db.query("INSERT INTO shown_narratives (headline, original_title) VALUES ('Iran and US resume talks in Oman', 'Diplomats meet'), ('Wildfires spread', 'Iran sends aid'), ('Markets fall', 'Stocks slide')");
     const hits = await rows(
       db,

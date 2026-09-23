@@ -106,14 +106,14 @@ const currentAttempt = (): number => {
 export function repairActivity(deps: RepairDeps) {
   return async (runId: number, drafts: Pointer[], report: Pointer, force = false): Promise<Pointer> => {
     const { store } = deps;
-    const draft = draftFrom(store, drafts);
-    const reportText = store.get(report);
+    const draft = await draftFrom(store, drafts);
+    const reportText = await store.get(report);
     const input = `${JSON.stringify(draft)}\n${reportText}`;
-    const existing = store.find(runId, REPAIR_OUTPUT);
+    const existing = await store.find(runId, REPAIR_OUTPUT);
     if (existing && !force) {
-      const prior = JSON.parse(store.get(existing)) as ResolutionDoc;
+      const prior = JSON.parse(await store.get(existing)) as ResolutionDoc;
       if (prior.input === input && prior.fault === undefined) return existing; // a cached fault is rerun
-      store.quarantine(runId, REPAIR_OUTPUT);
+      await store.quarantine(runId, REPAIR_OUTPUT);
     }
     const write = (doc: ResolutionDoc) => (force ? store.replace(runId, REPAIR_OUTPUT, JSON.stringify(doc, null, 2)) : store.put(runId, REPAIR_OUTPUT, JSON.stringify(doc, null, 2)));
     const requests = buildRepairRequests(draft, CoherenceReportSchema.parse(JSON.parse(reportText)));
@@ -124,7 +124,7 @@ export function repairActivity(deps: RepairDeps) {
       let repaired: z.infer<typeof RepairedSchema>;
       try {
         const files: [string, string][] = [["repair_requests.json", JSON.stringify({ requests }, null, 2)]];
-        for (const n of store.names(runId).filter((x) => /^articles_\d+\.csv$/.test(x) || x === "article_fulltext.json")) files.push([n, store.get(store.find(runId, n)!)]);
+        for (const n of (await store.names(runId)).filter((x) => /^articles_\d+\.csv$/.test(x) || x === "article_fulltext.json")) files.push([n, await store.content(runId, n)]);
         for (const [n, raw] of files) {
           const text = scrubUrls(raw);
           assertNoUrls(text);
@@ -132,8 +132,8 @@ export function repairActivity(deps: RepairDeps) {
         }
         const spec = parseAgentSpec(readFileSync(join(deps.agentsDir, "repair.md"), "utf8"));
         deps.heartbeat?.();
-        const r = await runStage(spec, { userMessage: `The input directory is ${dir}. Begin.`, inputDir: dir }, { today: store.runDate(runId), outputSchema: z.toJSONSchema(RepairedSchema, { target: "draft-07" }), ...(deps.query ? { query: deps.query } : {}), ...(deps.heartbeat ? { heartbeat: deps.heartbeat } : {}), ...(deps.signal?.() ? { signal: deps.signal()! } : {}) });
-        deps.onUsage?.({ model: spec.model, thinking: spec.thinking, effort: r.effort, tokens: r.usage, stage: "repair", runId, costUsd: r.costUsd, durationMs: r.durationMs, numTurns: r.numTurns, toolCalls: r.toolCalls.length, unbackedFails: 0 });
+        const r = await runStage(spec, { userMessage: `The input directory is ${dir}. Begin.`, inputDir: dir }, { today: await store.runDate(runId), outputSchema: z.toJSONSchema(RepairedSchema, { target: "draft-07" }), ...(deps.query ? { query: deps.query } : {}), ...(deps.heartbeat ? { heartbeat: deps.heartbeat } : {}), ...(deps.signal?.() ? { signal: deps.signal()! } : {}) });
+        await deps.onUsage?.({ model: spec.model, thinking: spec.thinking, prompt: spec, effort: r.effort, tokens: r.usage, stage: "repair", runId, costUsd: r.costUsd, durationMs: r.durationMs, numTurns: r.numTurns, toolCalls: r.toolCalls.length, unbackedFails: 0 });
         repaired = RepairedSchema.parse(r.structured);
       } finally {
         rmSync(dir, { recursive: true, force: true }); // the mkdtemp directory this call created
@@ -149,7 +149,7 @@ export function repairActivity(deps: RepairDeps) {
           if (p) scoped[tier].push({ ...s, ...p });
         }
       const checked = await runChecker(deps, runId, JSON.stringify(scoped, null, 2));
-      deps.onUsage?.({ model: checked.model, thinking: checked.thinking, effort: checked.effort, tokens: checked.tokens, stage: "repair_recheck", runId, costUsd: checked.costUsd, durationMs: checked.durationMs, numTurns: checked.numTurns, toolCalls: checked.toolCalls, unbackedFails: checked.unbacked });
+      await deps.onUsage?.({ model: checked.model, thinking: checked.thinking, prompt: checked.prompt, effort: checked.effort, tokens: checked.tokens, stage: "repair_recheck", runId, costUsd: checked.costUsd, durationMs: checked.durationMs, numTurns: checked.numTurns, toolCalls: checked.toolCalls, unbackedFails: checked.unbacked });
       return write({ input, results: resolve(applied, checked.report, scoped) });
     } catch (e) {
       // A cancellation is not a fault: Temporal's own, or the SDK's AbortError once our signal fired.

@@ -31,6 +31,7 @@
     "mrml": "1.6.1",
     "p-retry": "8.0.1",
     "parse5": "8.0.1",
+    "pg": "8.23.0",
     "resend": "6.28.1",
     "zod": "4.6.5"
   },
@@ -40,6 +41,7 @@
     "@temporalio/proto": "1.24.0",
     "@temporalio/testing": "1.24.0",
     "@types/node": "26.6.2",
+    "@types/pg": "8.23.1",
     "defuddle": "0.19.4",
     "dom-smoothie-js": "0.16.0",
     "linkedom": "0.18.13",

@@ -7,7 +7,7 @@ import type { ErrorResponse, Resend } from "resend";
 import type { Selections } from "../render/render.js";
 import type { ArtifactStore, Pointer } from "../store/artifacts.js";
 import { openDb } from "../store/db.js";
-import { ACCEPTED_BROADCAST_STATES, CLAIMED, clearClaimCommand } from "../ops/broadcast-state.js";
+import { ACCEPTED_BROADCAST_STATES, broadcastRow, claimText, clearClaimCommand } from "../ops/broadcast-state.js";
 
 // The slice of the Resend client the send uses; tests pass a fake with the same shape.
 export interface Mail {
@@ -28,7 +28,7 @@ const currentExecution = (): Execution => {
 };
 export interface BroadcastDeps {
   store: ArtifactStore;
-  dbPath: string;
+  dbUrl: string;
   mail: () => Mail; // lazy: the Resend client refuses to construct without a key
   env: NodeJS.ProcessEnv;
   retryDelayMs?: number;
@@ -57,7 +57,7 @@ const longDate = (day: string): string => {
 const headlineList = (tier: Selections["must_know"]) => tier.map((s) => `<li>${htmlEscape(s.headline ?? "")}</li>`).join("");
 
 // broadcast.py and run._deliver: Resend audience broadcasts, idempotent per digest date through the
-// broadcast columns on its digests row (the 2026-06-16 incident).
+// date's broadcasts row (the 2026-06-16 incident).
 export function broadcastActivities(deps: BroadcastDeps) {
   const { store, env } = deps;
   // Resend's rate limit is a refusal, never an acceptance, so it alone is retried, as broadcast.py
@@ -77,65 +77,43 @@ export function broadcastActivities(deps: BroadcastDeps) {
     return r.data;
   };
 
+  const db = () => openDb(deps.dbUrl);
   // A read failure throws: "cannot read the broadcast state" must never look like "nothing was sent".
-  const readRow = (date: string) => {
-    const db = openDb(deps.dbPath);
-    try {
-      return db.prepare("SELECT broadcast_id AS id, broadcast_status AS status, broadcast_recipients AS recipients FROM digests WHERE date=?").get(date) as { id: string | null; status: string | null; recipients: number | null } | undefined;
-    } finally {
-      db.close();
-    }
+  const readRow = async (date: string) => {
+    const published = (await db().one("SELECT 1 FROM issues WHERE date=$1 LIMIT 1", [date])) !== undefined;
+    return { published, send: await broadcastRow(db(), date) };
   };
   // Every write after the claim is conditional on it: `holder` is this attempt's claim string, and
   // once a draft exists, its id. A write that matches no row means the date is no longer this
   // attempt's, and nothing more may be sent from it.
-  const record = (date: string, holder: { claim: string } | { id: string }, id: string, status: string, recipients?: number) => {
-    const db = openDb(deps.dbPath);
-    try {
-      const { changes } =
-        "claim" in holder
-          ? db.prepare("UPDATE digests SET broadcast_id=?, broadcast_status=?, broadcast_recipients=COALESCE(?, broadcast_recipients) WHERE date=? AND broadcast_id IS NULL AND broadcast_status=?").run(id, status, recipients ?? null, date, holder.claim)
-          : db.prepare("UPDATE digests SET broadcast_id=?, broadcast_status=?, broadcast_recipients=COALESCE(?, broadcast_recipients) WHERE date=? AND broadcast_id=?").run(id, status, recipients ?? null, date, holder.id);
-      if (Number(changes) !== 1) throw ApplicationFailure.nonRetryable(`this attempt lost its claim on the send for ${date}; broadcast ${id} (${status}) was not recorded and nothing more is sent`, "ClaimLost");
-    } finally {
-      db.close();
-    }
+  const record = async (date: string, holder: { claim: string } | { id: string }, id: string, status: string, recipients?: number) => {
+    const changes =
+      "claim" in holder
+        ? await db().run("UPDATE broadcasts SET resend_id=$1, status=$2, recipients=COALESCE($3, recipients) WHERE date=$4 AND resend_id IS NULL AND status='claimed' AND claim_token=$5", [id, status, recipients ?? null, date, holder.claim])
+        : await db().run("UPDATE broadcasts SET resend_id=$1, status=$2, recipients=COALESCE($3, recipients) WHERE date=$4 AND resend_id=$5", [id, status, recipients ?? null, date, holder.id]);
+    if (changes !== 1) throw ApplicationFailure.nonRetryable(`this attempt lost its claim on the send for ${date}; broadcast ${id} (${status}) was not recorded and nothing more is sent`, "ClaimLost");
   };
 
-  // The date's claim, taken under SQLite's write lock: the one attempt that holds it may create a
-  // broadcast. A claim is never taken over, however old: an attempt that looks dead may still be in
-  // Resend's create, and taking over sent twice. An operator clears it after checking Resend.
-  // It also records the sending run: digests.run_id is whichever run saved the row last.
-  const claim = (date: string, runId: number): string => {
-    const db = openDb(deps.dbPath);
-    try {
-      db.exec("BEGIN IMMEDIATE");
-      try {
-        const row = db.prepare("SELECT broadcast_id AS id, broadcast_status AS status FROM digests WHERE date=?").get(date) as { id: string | null; status: string | null } | undefined;
-        if (!row || row.id !== null || row.status?.startsWith(CLAIMED)) {
-          const why = row?.status?.startsWith(CLAIMED) ? `claimed by another attempt (${row.status}); if Resend shows nothing sent for ${date}, clear it with: ${clearClaimCommand(date)}` : `claimed by another attempt (${row?.id ?? "no row"})`;
-          throw ApplicationFailure.nonRetryable(`the send for ${date} is ${why}; not sending`, "SendClaimed");
-        }
-        const mine = `${CLAIMED}${new Date().toISOString()} ${randomUUID()}`;
-        db.prepare("UPDATE digests SET broadcast_status=?, broadcast_run_id=? WHERE date=?").run(mine, runId, date);
-        db.exec("COMMIT");
-        return mine;
-      } catch (e) {
-        db.exec("ROLLBACK");
-        throw e;
+  // The date's claim is its broadcasts row, inserted under a lock on the date: the one attempt that
+  // inserted it may create a broadcast. A claim is never taken over, however old: an attempt that
+  // looks dead may still be in Resend's create, and taking over sent twice. An operator clears it
+  // after checking Resend. The row names the claiming run and the issue revision it mails.
+  const claim = (date: string, runId: number): Promise<string> =>
+    db().tx(async (t) => {
+      const row = await broadcastRow(t, date);
+      if (row) {
+        const why = row.status === "claimed" ? `claimed by another attempt (${claimText(row)}); if Resend shows nothing sent for ${date}, clear it with: ${clearClaimCommand(date)}` : `claimed by another attempt (${row.id ?? row.status})`;
+        throw ApplicationFailure.nonRetryable(`the send for ${date} is ${why}; not sending`, "SendClaimed");
       }
-    } finally {
-      db.close();
-    }
-  };
-  const release = (date: string, mine: string) => {
-    const db = openDb(deps.dbPath);
-    try {
-      db.prepare("UPDATE digests SET broadcast_status=NULL, broadcast_run_id=NULL WHERE date=? AND broadcast_id IS NULL AND broadcast_status=?").run(date, mine);
-    } finally {
-      db.close();
-    }
-  };
+      const mine = randomUUID();
+      const changes = await t.run(
+        "INSERT INTO broadcasts (date, run_id, claim_token, claimed_at, revision, status) SELECT $1::date, $2::bigint, $3::text, now(), max(revision), 'claimed' FROM issues WHERE date = $1::date HAVING count(*) > 0",
+        [date, runId, mine],
+      );
+      if (changes !== 1) throw ApplicationFailure.nonRetryable(`no issue for ${date} to send: the digest is published before its send`, "MissingDigest");
+      return mine;
+    }, `broadcast ${date}`);
+  const release = (date: string, mine: string) => db().run("DELETE FROM broadcasts WHERE date=$1 AND resend_id IS NULL AND status='claimed' AND claim_token=$2", [date, mine]);
   const stopIfCancelled = () => {
     deps.heartbeat?.();
     deps.signal?.()?.throwIfAborted();
@@ -194,13 +172,14 @@ export function broadcastActivities(deps: BroadcastDeps) {
     sendEnabled: (): Promise<boolean> => Promise.resolve(enabled()),
 
     broadcast: async (runId: number, email: Pointer): Promise<BroadcastResult> => {
-      const date = store.runDate(runId);
+      const date = await store.runDate(runId);
       // The workflow asks sendEnabled first; this refuses anyway, so no path mails the audience
       // from a worker that was not told to.
       if (!enabled()) throw ApplicationFailure.nonRetryable("BROADCAST_ENABLED is not true; nothing sent", "SendDisabled");
-      const html = store.get(email);
-      const row = readRow(date);
-      if (!row) throw ApplicationFailure.nonRetryable(`no digests row for ${date}: the digest is saved before its send, and its row is the send's idempotency record`, "MissingDigest");
+      const html = await store.get(email);
+      const { published, send } = await readRow(date);
+      if (!published) throw ApplicationFailure.nonRetryable(`no issue for ${date}: the digest is published before its send`, "MissingDigest");
+      const row = { id: send?.id ?? null, status: send?.status ?? null, recipients: send?.recipients ?? null };
       const log = (event: string, extra: Record<string, unknown>) => console.log(JSON.stringify({ stage: "broadcast", runId, date, event, ...extra }));
       if (row.id && row.status && ACCEPTED_BROADCAST_STATES.has(row.status)) {
         log("skipped: already accepted", { id: row.id, status: row.status });
@@ -211,13 +190,13 @@ export function broadcastActivities(deps: BroadcastDeps) {
         // re-send the same draft only if it never went out.
         const status = await probe(row.id);
         if (status !== null && ACCEPTED_BROADCAST_STATES.has(status)) {
-          record(date, { id: row.id }, row.id, status);
+          await record(date, { id: row.id }, row.id, status);
           log("recovered: already accepted", { id: row.id, status });
           return { broadcastId: row.id, status, recipients: row.recipients ?? 0 };
         }
         stopIfCancelled();
         const sent = await sendExisting(row.id);
-        record(date, { id: row.id }, row.id, sent);
+        await record(date, { id: row.id }, row.id, sent);
         log("re-sent the existing draft", { id: row.id, status: sent });
         return { broadcastId: row.id, status: sent, recipients: 0 }; // the send API returns no count
       }
@@ -229,7 +208,7 @@ export function broadcastActivities(deps: BroadcastDeps) {
       const recipients = await contactCount(segmentId);
       if (recipients >= CONTACT_THRESHOLD) console.warn(JSON.stringify({ stage: "broadcast", warning: `audience at ${recipients} contacts, near the free tier's 1,000`, recipients }));
       stopIfCancelled();
-      const mine = claim(date, runId);
+      const mine = await claim(date, runId);
       let id: string;
       try {
         const day = longDate(date);
@@ -238,12 +217,12 @@ export function broadcastActivities(deps: BroadcastDeps) {
         ));
         stopIfCancelled(); // a cancelled attempt stops here: a draft is not a send
       } catch (e) {
-        release(date, mine); // no draft recorded, so the next attempt may create one
+        await release(date, mine); // no draft recorded, so the next attempt may create one
         throw e;
       }
-      record(date, { claim: mine }, id, "created"); // before the send, and only while the claim is still ours
+      await record(date, { claim: mine }, id, "draft"); // before the send, and only while the claim is still ours
       const status = await sendExisting(id);
-      record(date, { id }, id, status, recipients);
+      await record(date, { id }, id, status, recipients);
       log("sent", { id, status, recipients });
       return { broadcastId: id, status, recipients };
     },
@@ -251,8 +230,8 @@ export function broadcastActivities(deps: BroadcastDeps) {
     // The pre-broadcast hold's notification (spec §2.3): the run's Temporal UI link and its
     // headlines, to the operator's alert address. Best-effort: the hold proceeds without it.
     notifyHold: async (runId: number, selections: Pointer, holdEndsAt: string | null): Promise<{ sent: boolean }> => {
-      const date = store.runDate(runId);
-      const sel = JSON.parse(store.get(selections)) as Selections;
+      const date = await store.runDate(runId);
+      const sel = JSON.parse(await store.get(selections)) as Selections;
       const to = env["HEALTH_ALERT_EMAIL"];
       const from = env["RESEND_FROM"];
       const until = holdEndsAt?.slice(11, 16);

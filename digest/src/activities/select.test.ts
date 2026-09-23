@@ -23,13 +23,13 @@ function fakeQuery(structured: unknown, seen: { n: number; options?: Options; fi
   }) as unknown as SdkQuery;
 }
 
-function setup(structured: unknown) {
-  const store = new ArtifactStore(freshDb([300]));
-  store.put(300, "articles_1.csv", 'article_id,source_id,title,published,summary\nA1,hn,Jemalloc,2026-09-18,Article URL: https://github.com/x\n"A2",bbc,Vote,2026-09-18,"Count, early"\n');
-  store.put(300, "clusters.json", '{"clusters":[{"story":"s","article_ids":["A1","A2"]}]}');
-  store.put(300, "recap.txt", "recap");
-  store.put(300, "sources.csv", "id,name\nhn,HN\n");
-  store.put(300, "weekly_recap.txt", "weekly");
+async function setup(structured: unknown) {
+  const store = new ArtifactStore(await freshDb([300]));
+  await store.put(300, "articles_1.csv", 'article_id,source_id,title,published,summary\nA1,hn,Jemalloc,2026-09-18,Article URL: https://github.com/x\n"A2",bbc,Vote,2026-09-18,"Count, early"\n');
+  await store.put(300, "clusters.json", '{"clusters":[{"story":"s","article_ids":["A1","A2"]}]}');
+  await store.put(300, "recap.txt", "recap");
+  await store.put(300, "sources.csv", "id,name\nhn,HN\n");
+  await store.put(300, "weekly_recap.txt", "weekly");
   const seen: { n: number; options?: Options; files?: string[]; articles?: string } = { n: 0 };
   return { store, seen, select: selectActivity({ store, agentsDir: AGENTS, query: fakeQuery(structured, seen) }) };
 }
@@ -37,9 +37,9 @@ const good = { must_know: [{ cluster_index: 0, article_ids: ["A1", "A2"] }], sho
 
 describe("select activity", () => {
   it("materialises the inputs with links scrubbed, runs with Read and Grep only, and stores the checked selection", async () => {
-    const { store, seen, select } = setup(good);
+    const { store, seen, select } = await setup(good);
     const p = await select(300, p0, p0);
-    expect(JSON.parse(store.get(p))).toEqual(good);
+    expect(JSON.parse(await store.get(p))).toEqual(good);
     expect(seen.files).toEqual(["articles_1.csv", "clusters.json", "recap.txt", "sources.csv", "weekly_recap.txt"]);
     expect(seen.articles).toContain("Article URL: [link]");
     expect(seen.options?.tools).toEqual(["Read", "Grep"]);
@@ -49,26 +49,26 @@ describe("select activity", () => {
     expect(seen.n).toBe(1);
   });
   it("persists an operator note as an input artifact of the run", async () => {
-    const { store, select } = setup(good);
+    const { store, select } = await setup(good);
     await select(300, p0, p0, "prefer the Sudan story");
-    const name = store.names(300).find((n) => n.startsWith("operator_note.select."));
-    expect(name && store.get(store.find(300, name)!)).toBe("prefer the Sudan story");
+    const name = (await store.names(300)).find((n) => n.startsWith("operator_note.select."));
+    expect(name && await store.content(300, name)).toBe("prefer the Sudan story");
   });
   it("a citation to an id the run does not have is a retryable failure that stores nothing", async () => {
-    const { store, select } = setup({ must_know: [{ cluster_index: 0, article_ids: ["A1", "A77"] }], should_know: [] });
+    const { store, select } = await setup({ must_know: [{ cluster_index: 0, article_ids: ["A1", "A77"] }], should_know: [] });
     await expect(select(300, p0, p0)).rejects.toThrow(/unknown ids A77/);
-    expect(store.find(300, SELECT_OUTPUT)).toBeUndefined();
+    expect(await store.find(300, SELECT_OUTPUT)).toBeUndefined();
   });
-  it("checkSelected flags empty picks and an empty selection", () => {
+  it("checkSelected flags empty picks and an empty selection", async () => {
     expect(checkSelected({ must_know: [], should_know: [] }, new Set())).toEqual(["selected nothing"]);
     expect(checkSelected({ must_know: [{ cluster_index: 0, article_ids: [] }], should_know: [] }, new Set())).toEqual(["must_know[0] cites no articles"]);
   });
   it("force replaces; a missing required input is non-retryable", async () => {
-    const { store, seen, select } = setup(good);
-    store.put(300, SELECT_OUTPUT, '{"must_know":[],"should_know":[]}');
+    const { store, seen, select } = await setup(good);
+    await store.put(300, SELECT_OUTPUT, '{"must_know":[],"should_know":[]}');
     await select(300, p0, p0, undefined, { force: true });
     expect(seen.n).toBe(1);
-    const bare = new ArtifactStore(freshDb([301]));
+    const bare = new ArtifactStore(await freshDb([301]));
     await expect(selectActivity({ store: bare, agentsDir: AGENTS })(301, p0, p0)).rejects.toMatchObject({ nonRetryable: true, type: "MissingInput" });
   });
 });

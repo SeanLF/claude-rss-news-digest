@@ -8,11 +8,19 @@ services:
     volumes: [temporal-data:/data]
     user: "0:0" # the image's own user cannot write a fresh root-owned volume; local dev only
     ports: ["127.0.0.1:7233:7233", "127.0.0.1:8233:8233"]
+  # The product database, as on the box: Postgres 18.6. Load it from a legacy SQLite file with
+  # make db-import (SRC=data/digest.db); a band gets its own copy by CREATE DATABASE ... TEMPLATE.
+  digest-db:
+    image: postgres:18.6-alpine3.24
+    environment: { POSTGRES_PASSWORD: digest, POSTGRES_DB: digest }
+    volumes: [digest-db:/var/lib/postgresql]
+    ports: ["127.0.0.1:5433:5432"]
+    healthcheck: { test: ["CMD", "pg_isready", "-U", "postgres", "-d", "digest"], interval: 1s, retries: 30 }
   digest-worker:
     # GIT_SHA is the worker's build id (Worker Versioning). Every local build is "dev" unless set, so a
     # rebuilt local worker takes over the previous one's runs, as an unversioned worker would.
     build: { context: .., dockerfile: digest/Dockerfile, args: { GIT_SHA: "${GIT_SHA:-dev}" } }
-    depends_on: [temporal]
+    depends_on: { temporal: { condition: service_started }, digest-db: { condition: service_healthy } }
     # Each model call is its own Claude Code CLI process and four run at once in a fan-out; 512 MiB
     # was OOM-killed on the first band. A worker that dies comes back and Temporal resumes the run.
     mem_limit: 2g
@@ -20,7 +28,7 @@ services:
     environment:
       TEMPORAL_ADDRESS: "temporal:7233"
       CLAUDE_CODE_OAUTH_TOKEN: "${CLAUDE_CODE_OAUTH_TOKEN:-}" # from the repo-root .env via --env-file (Makefile)
-      DIGEST_DB_PATH: "${DIGEST_DB_PATH:-/app/data/digest.db}" # point at a scratch copy for a port check
+      DIGEST_DATABASE_URL: "postgres://postgres:digest@digest-db:5432/${DIGEST_DB_NAME:-digest}" # a scratch copy for a port check
       # Off by default, as in config.py; production turns them on. Set them to rehearse a production run.
       THREADS_ENABLED: "${THREADS_ENABLED:-false}"
       THREAD_LATEBIND: "${THREAD_LATEBIND:-false}"
@@ -46,6 +54,7 @@ services:
     profiles: ["judge"]
 volumes:
   temporal-data: {}
+  digest-db: {}
   claude-sessions:
     external: true
     name: news-digest_claude-sessions
