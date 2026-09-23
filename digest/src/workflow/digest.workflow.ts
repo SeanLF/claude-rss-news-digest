@@ -47,7 +47,8 @@ const model = proxyActivities<Activities>({
 const network = proxyActivities<Activities>({ startToCloseTimeout: "2 minutes", retry: { maximumAttempts: NETWORK_MAX_ATTEMPTS, initialInterval: "10 seconds" } });
 const once = proxyActivities<Activities>({ startToCloseTimeout: "10 minutes", retry: { maximumAttempts: 1 } });
 // Render and assemble: the same inputs give the same output (render keeps its timestamp and issue
-// number), so an attempt a deploy interrupts is retried like a fetch instead of failing the run.
+// number), so an attempt a deploy interrupts is retried instead of failing the run: 3 attempts, the
+// retries about 10 s then 20 s after (the default backoff coefficient, 2).
 const rebuild = proxyActivities<Activities>({ startToCloseTimeout: "10 minutes", retry: { maximumAttempts: NETWORK_MAX_ATTEMPTS, initialInterval: "10 seconds" } });
 // The send: one attempt, heartbeating, so a timed-out or cancelled attempt is told to stop.
 const send = proxyActivities<Activities>({ startToCloseTimeout: "10 minutes", heartbeatTimeout: "2 minutes", retry: { maximumAttempts: 1 } });

@@ -794,14 +794,35 @@ SCHEDULE_PAUSED=false
 # A deploy restarts the worker under any run in flight, and that is not always survivable
 # (digest/src/workflow/deploy-safety.test.ts): a one-attempt step it interrupts fails the run or parks
 # it for an operator, and a workflow-code change the run cannot replay leaves it stuck until its run
-# timeout with no alert. So in staged and temporal a deploy refuses while a DigestWorkflow runs.
-# It asks twice: before the builds, to fail fast, and after the pause, the answer that holds, since
-# no scheduled run can start between it and the restart. An answer that is not a complete JSON list
-# (Temporal unreachable, ssh failing, output cut short) refuses too: the CLI can print "[]" and
-# then fail, so the exit code is read as well. --force deploys anyway, loudly.
-# The names are terraform's (news-digest-temporal.tf), the runbook's $T.
+# timeout with no alert. So in temporal a deploy refuses while a DigestWorkflow runs. In staged the
+# runs are rehearsals on a scratch database and Python is live, so it warns and deploys: a Temporal
+# problem must not block Python's deploy.
+# It asks twice: before the builds, to fail fast, and after the pause, so the schedule cannot start a
+# run between the answer and the restart. One path still can: the apply restarts the bootstrap
+# (digest-schedule sync) before the workers, and on a day with no run yet after 10:25Z its missed-day
+# trigger starts one on the old worker. Terraform cannot order it after them (the workers depend on
+# it: it creates the namespace). Such a run gets stuck only on a workflow change made without
+# patched(), which replay.test.ts fails in CI before it can ship.
+# An answer that is not a complete JSON list (Temporal unreachable, ssh failing, output cut short)
+# counts as a problem too: the CLI can print "[]" and then fail, so the exit code is read as well.
+# --force deploys anyway, loudly. The names are terraform's (news-digest-temporal.tf), the runbook's $T.
 TEMPORAL_CLI="docker run --rm --network news-digest-temporal -e TEMPORAL_ADDRESS=news-digest-temporal:7233 -e TEMPORAL_NAMESPACE=news-digest temporalio/admin-tools:1.32.0 temporal"
 RUNNING_DIGESTS_QUERY='WorkflowType="DigestWorkflow" AND ExecutionStatus="Running"'
+
+# Refuses in temporal; in staged, or under --force, logs the problem and lets the deploy go on.
+temporal_problem() {
+  local problem=$1 remedy=$2
+  if [[ $FORCE == true ]]; then
+    log_error "$problem -- deploying under --force"
+    return 0
+  fi
+  if [[ $PIPELINE_MODE == staged ]]; then
+    log_error "$problem -- deploying anyway: in staged the TypeScript runs are rehearsals and Python is live"
+    return 0
+  fi
+  log_error "$problem -- $remedy, or pass --force"
+  return 1
+}
 
 check_no_run_in_flight() {
   temporal_on || return 0
@@ -810,35 +831,34 @@ check_no_run_in_flight() {
   local cmd="test -x $SCHEDULE_CTL || exit 3; $TEMPORAL_CLI workflow list --query '$RUNNING_DIGESTS_QUERY' -o json"
   dry_run_skip "bin/ssh \"$cmd\"" && return 0
 
-  local out rc=0 ids problem wait_for
+  local out rc=0 ids
   out=$("$SCRIPT_DIR/ssh" "$cmd") || rc=$?
   if [[ $rc == 3 ]]; then
     log_info "Temporal not provisioned on the box yet -- no run to wait for"
     return 0
   fi
+  # A run whose workflow task keeps failing (a nondeterminism error) carries the server's
+  # TemporalReportedProblems search attribute, and it cannot take a signal.
   if [[ $rc == 0 ]] && ids=$(python3 -c '
 import json, sys
 runs = json.load(sys.stdin)
 if not isinstance(runs, list):
     sys.exit(1)
-print(" ".join(r["execution"]["workflowId"] for r in runs))
+def label(r):
+    stuck = "TemporalReportedProblems" in ((r.get("searchAttributes") or {}).get("indexedFields") or {})
+    return r["execution"]["workflowId"] + (" (stuck: its workflow task keeps failing)" if stuck else "")
+print(", ".join(label(r) for r in runs))
 ' <<<"$out" 2>/dev/null); then
     if [[ -z $ids ]]; then
       log_success "no digest run in flight"
       return 0
     fi
-    problem="digest workflow(s) running: $ids"
-    wait_for="deploy when they end, or approve or reject them first"
-  else
-    problem="could not list the running digest workflows (exit $rc): $(printf '%.200s' "${out:-<no output>}")"
-    wait_for="refusing rather than guessing"
+    temporal_problem "digest workflow(s) running: $ids" \
+      "deploy when they end; a run in its hold: approve or reject it; a stuck run (workflow-task failures) cannot take a signal: terminate it with bin/ssh \"$TEMPORAL_CLI workflow terminate -w <id> --reason <why>\""
+    return
   fi
-  if [[ $FORCE == true ]]; then
-    log_error "$problem -- deploying under --force"
-    return 0
-  fi
-  log_error "$problem -- $wait_for, or pass --force"
-  return 1
+  temporal_problem "could not list the running digest workflows (exit $rc): $(printf '%.200s' "${out:-<no output>}")" \
+    "refusing rather than guessing"
 }
 
 pause_schedule() {
@@ -860,14 +880,7 @@ pause_schedule() {
     3) log_info "Temporal not provisioned on the box yet -- no schedule to pause" ;;
     # Unpaused, a run can start under the restart, and whatever failed the pause likely hides a
     # live run too. --force is for the deploy that repairs Temporal.
-    *)
-      if [[ $FORCE == true ]]; then
-        log_error "could not pause the Temporal schedule (exit $rc) -- deploying with it armed under --force: ${out:0:300}"
-        return 0
-      fi
-      log_error "could not pause the Temporal schedule (exit $rc) -- refusing; pass --force to deploy with it armed: ${out:0:300}"
-      return 1
-      ;;
+    *) temporal_problem "could not pause the Temporal schedule (exit $rc), so it stays armed: ${out:0:300}" "refusing" ;;
   esac
 }
 

@@ -3,8 +3,12 @@
 A restart under a live run can fail it, park it, or (a workflow-code change it cannot replay)
 leave it stuck with no alert: digest/src/workflow/deploy-safety.test.ts. The guard asks the box's
 Temporal, through a stub of bin/ssh here, so each answer the box can give is played.
+
+Only "temporal" refuses. In "staged" the TypeScript runs are rehearsals on a scratch database and
+Python is live, so a Temporal problem there warns and must not block Python's deploy.
 """
 
+import base64
 import json
 import os
 import subprocess
@@ -24,8 +28,37 @@ RUNNING = [
 ]
 
 
+def _keyword_list(values):
+    return {
+        "metadata": {
+            "encoding": base64.b64encode(b"json/plain").decode(),
+            "type": base64.b64encode(b"KeywordList").decode(),
+        },
+        "data": base64.b64encode(json.dumps(values).encode()).decode(),
+    }
+
+
+# As `workflow list -o json` shows a run whose workflow task keeps failing (server 1.32, observed on a
+# run stuck on a nondeterminism error): the TemporalReportedProblems search attribute.
+STUCK = [
+    {
+        "execution": {"workflowId": "digest-2026-09-22", "runId": "r0"},
+        "type": {"name": "DigestWorkflow"},
+        "status": "WORKFLOW_EXECUTION_STATUS_RUNNING",
+        "searchAttributes": {
+            "indexedFields": {
+                "BuildIds": _keyword_list(["unversioned"]),
+                "TemporalReportedProblems": _keyword_list(
+                    ["category=WorkflowTaskFailed", "cause=WorkflowTaskFailedCauseNonDeterministicError"]
+                ),
+            }
+        },
+    }
+]
+
+
 def run_guard(
-    tmp_path, *, mode="staged", ssh_out="[]\n", ssh_rc=0, force=False, dry_run=False, fn="check_no_run_in_flight"
+    tmp_path, *, mode="temporal", ssh_out="[]\n", ssh_rc=0, force=False, dry_run=False, fn="check_no_run_in_flight"
 ):
     """Source bin/deploy with bin/ssh stubbed; return (rc, output, the commands ssh was given)."""
     calls = tmp_path / "ssh-calls"
@@ -70,9 +103,31 @@ def test_force_deploys_under_a_running_digest_loudly(tmp_path):
     assert "digest-2026-09-23" in out
 
 
-def test_temporal_mode_is_guarded_too(tmp_path):
-    rc, _, _ = run_guard(tmp_path, mode="temporal", ssh_out=json.dumps(RUNNING))
+def test_the_refusal_says_how_to_clear_a_held_run_and_a_stuck_one(tmp_path):
+    rc, out, _ = run_guard(tmp_path, ssh_out=json.dumps(RUNNING))
     assert rc == 1
+    assert "approve or reject" in out
+    assert "workflow terminate" in out
+
+
+def test_a_stuck_run_is_named_as_stuck(tmp_path):
+    rc, out, _ = run_guard(tmp_path, ssh_out=json.dumps(RUNNING + STUCK))
+    assert rc == 1
+    assert "digest-2026-09-22 (stuck" in out
+    assert "digest-2026-09-23 (stuck" not in out
+
+
+def test_staged_warns_under_a_running_digest_and_deploys(tmp_path):
+    rc, out, calls = run_guard(tmp_path, mode="staged", ssh_out=json.dumps(RUNNING))
+    assert rc == 0
+    assert "digest-2026-09-23" in out
+    assert len(calls) == 1
+
+
+def test_staged_warns_past_an_unreachable_temporal(tmp_path):
+    rc, out, _ = run_guard(tmp_path, mode="staged", ssh_out="", ssh_rc=255)
+    assert rc == 0
+    assert "could not list" in out
 
 
 @pytest.mark.parametrize(
@@ -118,6 +173,12 @@ def test_dry_run_never_asks(tmp_path):
 def test_a_pause_that_fails_refuses(tmp_path):
     rc, out, _ = run_guard(tmp_path, fn="pause_schedule", ssh_out="connection refused", ssh_rc=1)
     assert rc == 1, out
+
+
+def test_a_pause_that_fails_in_staged_warns_and_deploys(tmp_path):
+    rc, out, _ = run_guard(tmp_path, mode="staged", fn="pause_schedule", ssh_out="connection refused", ssh_rc=1)
+    assert rc == 0
+    assert "could not pause" in out
 
 
 def test_a_pause_that_fails_deploys_under_force(tmp_path):
