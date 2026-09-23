@@ -34,6 +34,7 @@ export interface DigestOutput {
   runId: number;
   stories: number;
   broadcast: "sent" | "rejected" | "skipped";
+  recipients?: number;
 }
 
 // The activity interface plan A2 fills, one function per stage; every model call and every

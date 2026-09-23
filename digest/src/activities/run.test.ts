@@ -39,7 +39,7 @@ describe("run lifecycle", () => {
     expect(db.prepare("SELECT title FROM fetched_articles WHERE run_id=?").all(runId)).toEqual([{ title: "New" }]);
     await acts.finishRun(runId, { stories: 0, broadcast: "rejected" });
     expect(db.prepare("SELECT completed_at, status FROM digest_runs WHERE id=?").get(runId)).toEqual({ completed_at: null, status: "rejected" });
-    await acts.finishRun(runId, { stories: 12, broadcast: "sent" });
+    await acts.finishRun(runId, { stories: 17, broadcast: "sent", recipients: 12 });
     expect(db.prepare("SELECT status, articles_emailed FROM digest_runs WHERE id=?").get(runId)).toEqual({ status: "completed", articles_emailed: 12 });
   });
   it("a feed that cannot be reached records a failed health row on its last attempt", async () => {
