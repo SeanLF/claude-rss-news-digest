@@ -1,8 +1,9 @@
-import { WorkflowIdConflictPolicy } from "@temporalio/common";
+import { ApplicationFailure, WorkflowIdConflictPolicy } from "@temporalio/common";
 import { TestWorkflowEnvironment } from "@temporalio/testing";
 import { Worker } from "@temporalio/worker";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import type { Activities, FulltextFetch, FulltextTask } from "../activities/index.js";
+import type { Activities, FulltextFetch, FulltextTask, ThreadsReport } from "../activities/index.js";
+import type { Pointer } from "../store/artifacts.js";
 import { stubActivities } from "../activities/stub.js";
 import { DigestWorkflow, workflowIdFor } from "./digest.workflow.js";
 import { FULLTEXT_TASK_QUEUE } from "./policy.js";
@@ -38,6 +39,23 @@ const approveAndWait = async (runDate: string) => {
 };
 const start = (runDate: string, extra: Record<string, unknown> = {}, opts: Record<string, unknown> = {}) =>
   env.client.workflow.start(DigestWorkflow, { taskQueue, workflowId: workflowIdFor(runDate), args: [{ runDate, ...extra }], ...opts });
+
+const nonRetryable = (msg: string) => Promise.reject(ApplicationFailure.nonRetryable(msg, "TestFailure"));
+function spy(overrides: Partial<Activities>) {
+  const seen: { reports: ThreadsReport[]; rendered: Pointer[] } = { reports: [], rendered: [] };
+  const acts: Partial<Activities> = {
+    threadsFinish: (runId, report) => {
+      seen.reports.push(report);
+      return stubActivities().threadsFinish(runId, report);
+    },
+    render: (runId, selections, threads, gnews) => {
+      seen.rendered.push(threads);
+      return stubActivities().render(runId, selections, threads, gnews);
+    },
+    ...overrides,
+  };
+  return { seen, acts };
+}
 
 describe("DigestWorkflow", () => {
   it("runs every stage over stub activities and sends when approved", async () => {
@@ -142,6 +160,46 @@ describe("DigestWorkflow", () => {
       });
       expect(fetched).toBe(0);
       expect(stored).toEqual([]);
+    }, 120_000);
+  });
+  describe("threads are best-effort", () => {
+    it("a linker that fails ships the digest and records why", async () => {
+      const { seen, acts } = spy({ threadsLink: () => nonRetryable("linker down") });
+      const out = await withWorker(() => approveAndWait("2026-10-02"), acts);
+      expect(out.broadcast).toBe("sent");
+      expect(seen.reports).toEqual([{ outcomes: [], failures: [], linkError: "linker down" }]);
+      expect(seen.rendered.map((p) => p.name)).toEqual(["thread_context.json"]);
+    }, 120_000);
+    it("one synthesis that fails is recorded and the rest still land", async () => {
+      const plans = [{ threadId: 7, articleIds: ["A1", "A2"] }, { threadId: 8, articleIds: ["A3", "A4"] }];
+      const { seen, acts } = spy({
+        threadsLink: () => Promise.resolve({ plans }),
+        threadSynthesis: (_runId, plan) => (plan.threadId === 7 ? nonRetryable("synthesis broke") : Promise.resolve({ threadId: 8, auditFailed: true })),
+      });
+      const out = await withWorker(() => approveAndWait("2026-10-03"), acts);
+      expect(out.broadcast).toBe("sent");
+      expect(seen.reports).toEqual([{ outcomes: [{ threadId: 8, auditFailed: true }], failures: [{ threadId: 7, error: "synthesis broke" }] }]);
+    }, 120_000);
+    it("passes a forced start's force to the link", async () => {
+      const forced: (boolean | undefined)[] = [];
+      const { acts } = spy({
+        threadsLink: (_runId, force) => {
+          forced.push(force);
+          return Promise.resolve({ plans: [] });
+        },
+      });
+      await withWorker(async () => {
+        const h = await start("2026-10-06", { force: true });
+        await h.signal(approveSignal, { decision: "approve" });
+        return h.result();
+      }, acts);
+      expect(forced).toEqual([true]);
+    }, 120_000);
+    it("a finish that fails leaves the render a pointer to no context, and the digest ships", async () => {
+      const { seen, acts } = spy({ threadsFinish: () => nonRetryable("db locked") });
+      const out = await withWorker(() => approveAndWait("2026-10-04"), acts);
+      expect(out.broadcast).toBe("sent");
+      expect(seen.rendered).toEqual([{ runId: 1, name: "thread_context.json", sha256: "0".repeat(64) }]);
     }, 120_000);
   });
 });
