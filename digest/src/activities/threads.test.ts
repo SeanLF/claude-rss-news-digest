@@ -427,7 +427,7 @@ describe("an issue that is not sent", () => {
     const s = setup({ answers: { link: [link2] } });
     seedThread(s.db);
     await s.acts.threadsLink(RUN);
-    s.db.exec("CREATE TABLE IF NOT EXISTS digests (date TEXT PRIMARY KEY, run_id INTEGER, html TEXT, broadcast_id TEXT, broadcast_status TEXT)");
+    s.db.exec("CREATE TABLE IF NOT EXISTS digests (date TEXT PRIMARY KEY, run_id INTEGER, html TEXT, broadcast_id TEXT, broadcast_status TEXT, broadcast_run_id INTEGER)");
     s.db.prepare("INSERT INTO digests (date, run_id, broadcast_id, broadcast_status) SELECT date(run_at), id, 'b1', ? FROM digest_runs WHERE id = ?").run(status, RUN);
     const before = s.rows("SELECT * FROM thread_installments ORDER BY id");
     expect(await s.acts.threadsRetract(RUN)).toMatchObject({ retracted: false });
@@ -449,7 +449,7 @@ function fail(db: DatabaseSync, id: number, status = "failed", runAt?: string): 
   if (runAt) db.prepare("UPDATE digest_runs SET run_at = ? WHERE id = ?").run(runAt, id);
 }
 function withDigests(db: DatabaseSync): void {
-  db.exec("CREATE TABLE IF NOT EXISTS digests (date TEXT PRIMARY KEY, run_id INTEGER, html TEXT, broadcast_id TEXT, broadcast_status TEXT)");
+  db.exec("CREATE TABLE IF NOT EXISTS digests (date TEXT PRIMARY KEY, run_id INTEGER, html TEXT, broadcast_id TEXT, broadcast_status TEXT, broadcast_run_id INTEGER)");
 }
 // Runs fn with the JSON log lines on stderr captured and stdout silenced.
 async function quietly<T>(fn: () => Promise<T>): Promise<{ result: T; logged: Record<string, unknown>[] }> {
@@ -522,13 +522,13 @@ describe("a failed run nobody resumed", () => {
     expect(s.rows(`SELECT COUNT(*) AS n FROM thread_installments WHERE run_id = ${RUN}`)).toEqual([{ n: 2 }]);
   });
 
-  it("judges delivery by run: the day's broadcast by a later run that completed does not keep the failed run's writes", async () => {
+  it("judges delivery by sender: a broadcast a later, completed run sent does not keep the failed run's writes", async () => {
     const s = setup();
     seedThread(s.db);
     fail(s.db, EARLIER);
     s.db.prepare("UPDATE digest_runs SET status = 'completed', completed_at = run_at WHERE id = ?").run(RUN);
     withDigests(s.db);
-    s.db.prepare("INSERT INTO digests (date, run_id, html, broadcast_id, broadcast_status) VALUES ('2026-09-18', ?, '', 'b1', 'sent')").run(RUN);
+    s.db.prepare("INSERT INTO digests (date, run_id, html, broadcast_id, broadcast_status, broadcast_run_id) VALUES ('2026-09-18', ?, '', 'b1', 'sent', ?)").run(RUN, RUN);
     await quietly(() => Promise.resolve(retractAbandoned(s.db, 301)));
     expect(earlierRows(s)).toEqual([]);
   });
@@ -550,14 +550,41 @@ describe("a failed run nobody resumed", () => {
   });
 
   // Negative controls: each is a retracting case above with one condition flipped.
-  it("keeps a failed run whose day's broadcast has no owner that completed: it may be the failed run's own send", async () => {
+  // The reviewer's case: 299 sends, then fails after the send; a forced 300 the same day saves over
+  // the row (run_id 300), skips the send as already accepted, and completes. Readers got 299's issue.
+  it("keeps a failed run that sent its issue, though a later completed run saved over the day's row", async () => {
     const s = setup();
     seedThread(s.db);
     const before = earlierRows(s);
     fail(s.db, EARLIER);
-    fail(s.db, RUN); // the later run of the day failed too (its send was refused: the day was already sent)
+    s.db.prepare("UPDATE digest_runs SET status = 'completed', completed_at = run_at WHERE id = ?").run(RUN);
+    withDigests(s.db);
+    s.db.prepare("INSERT INTO digests (date, run_id, html, broadcast_id, broadcast_status, broadcast_run_id) VALUES ('2026-09-18', ?, '', 'b1', 'sent', ?)").run(RUN, EARLIER);
+    const { logged } = await quietly(() => Promise.resolve(retractAbandoned(s.db, 301)));
+    expect(earlierRows(s)).toEqual(before);
+    expect(logged).toContainEqual(expect.objectContaining({ runId: EARLIER, error: "unsent issue's thread writes kept" }));
+  });
+
+  it("keeps a failed run whose day's broadcast names no sender (claimed before the sender was recorded, or Python's)", async () => {
+    const s = setup();
+    seedThread(s.db);
+    const before = earlierRows(s);
+    fail(s.db, EARLIER);
+    s.db.prepare("UPDATE digest_runs SET status = 'completed', completed_at = run_at WHERE id = ?").run(RUN);
     withDigests(s.db);
     s.db.prepare("INSERT INTO digests (date, run_id, html, broadcast_id, broadcast_status) VALUES ('2026-09-18', ?, '', 'b1', 'sent')").run(RUN);
+    await quietly(() => Promise.resolve(retractAbandoned(s.db, 301)));
+    expect(earlierRows(s)).toEqual(before);
+  });
+
+  it("keeps a failed run whose day's broadcast a run that did not complete sent", async () => {
+    const s = setup();
+    seedThread(s.db);
+    const before = earlierRows(s);
+    fail(s.db, EARLIER);
+    fail(s.db, RUN);
+    withDigests(s.db);
+    s.db.prepare("INSERT INTO digests (date, run_id, html, broadcast_id, broadcast_status, broadcast_run_id) VALUES ('2026-09-18', ?, '', 'b1', 'sent', ?)").run(RUN, RUN);
     await quietly(() => Promise.resolve(retractAbandoned(s.db, 301)));
     expect(earlierRows(s)).toEqual(before);
   });

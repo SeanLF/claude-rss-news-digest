@@ -180,12 +180,14 @@ function retract(db: DatabaseSync, runId: number): Retraction {
   const hasDigests = db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'digests'").get() !== undefined;
   const day = hasDigests ? broadcastState(db, runId) : null;
   const mayHaveGone = day !== null && (day.id !== null || (day.status !== null && (ACCEPTED_BROADCAST_STATES.has(day.status) || day.status.startsWith(CLAIMED))));
-  // Delivery is judged per run: the day's broadcast is another run's when that run owns the row and
-  // completed. The row names its last saver, not its sender, so a broadcast whose owner did not
-  // complete may be this run's own send (it failed after sending, and a later run's save took the row).
+  // Delivery is judged by sender: the day's broadcast is another run's only when broadcast_run_id (set
+  // with the claim) names a different, completed run. digests.run_id is the last run to save the row,
+  // which a forced re-run of a sent day takes over, so it says nothing about who sent. A broadcast
+  // with no recorded sender (claimed before the column, or by Python) is unknown, and declines.
   if (day && mayHaveGone) {
-    const owner = db.prepare("SELECT r.id FROM digests d JOIN digest_runs r ON r.id = d.run_id WHERE d.date = ? AND r.id != ? AND r.status = 'completed'").get(day.date, runId);
-    if (owner === undefined) return decline(`the day's broadcast is ${day.status ?? "unknown"}${day.id ? ` (${day.id})` : ""}`);
+    const hasSender = (db.prepare("SELECT COUNT(*) AS n FROM pragma_table_info('digests') WHERE name = 'broadcast_run_id'").get() as { n: number }).n > 0;
+    const other = hasSender && db.prepare("SELECT 1 FROM digests d JOIN digest_runs r ON r.id = d.broadcast_run_id WHERE d.date = ? AND r.id != ? AND r.status = 'completed'").get(day.date, runId) !== undefined;
+    if (!other) return decline(`the day's broadcast is ${day.status ?? "unknown"}${day.id ? ` (${day.id})` : ""}`);
   }
   const later = dependentRuns(db, runId);
   if (later.length) return decline(`later run(s) ${later.join(", ")} build on it`);
