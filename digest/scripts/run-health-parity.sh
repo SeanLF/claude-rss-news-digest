@@ -6,7 +6,11 @@
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 db=$1 first=$2 last=$3
-image=${4:-digest-newsroom:latest}
+image=${4:-}
+if [ -z "$image" ]; then # the newsroom image from this checkout, under its own compose project
+  docker compose -p run-health-parity build -q digest-newsroom
+  image=run-health-parity-digest-newsroom
+fi
 work=$(mktemp -d)
 cp "$db" "$work/digest.db"
 # Two planted runs, because the archive never exercised most rules: 900001 trips every DB-derived
