@@ -68,7 +68,26 @@ function htmlDiff(ours: string, theirs: string): { gnews: number; threadDay: num
   return out;
 }
 
-const present = existsSync(SNAPSHOT) && RUNS.every((r) => existsSync(`${ORACLE}/run${r}-prod/web.archive.html`));
+const present = existsSync(SNAPSHOT) && existsSync(`${ORACLE}/inbox-markup/web.archive.html`) && RUNS.every((r) => existsSync(`${ORACLE}/run${r}-prod/web.archive.html`));
+// A skipped host-only suite says so by name, so a green run without the oracle is not mistaken for one with it.
+describe.runIf(!present)("record parity with the Python (host-only)", () => {
+  it.skip(`SKIPPED: needs the snapshot at ${SNAPSHOT} and bin/record-oracle's output at ${ORACLE}; run bin/record-oracle 300 301 302 303 304`, () => undefined);
+});
+describe.skipIf(!present)("the web copy strips what db.prepare_for_web strips, on a page that carries it", () => {
+  const page = present ? readFileSync(`${ORACLE}/inbox-markup/web.html`, "utf8") : "";
+  const python = present ? readFileSync(`${ORACLE}/inbox-markup/web.archive.html`, "utf8") : "";
+  it("the fixture carries each kind of inbox-only markup, and the Python's copy has none of it", () => {
+    for (const marker of ['class="preheader"', 'email-only"', "[if mso"]) expect(page).toContain(marker);
+    for (const marker of ["Russia votes;", "View in browser", "Unsubscribe", "(via Google News)", "[if mso"]) expect(python).not.toContain(marker);
+    expect(python).toContain("email-only-ish");
+  });
+  it("node for node the Python's", () => {
+    expect(canonical(webArchiveHtml(page))).toEqual(canonical(python));
+  });
+  it("and not the page as it came", () => {
+    expect(canonical(page)).not.toEqual(canonical(python));
+  });
+});
 describe.skipIf(!present)("the recorded tail matches the Python's rows for runs 300-304", () => {
   const original = present ? new DatabaseSync(SNAPSHOT, { readOnly: true }) : undefined;
   const copy = join(mkdtempSync(join(tmpdir(), "record-oracle-")), "digest.db");

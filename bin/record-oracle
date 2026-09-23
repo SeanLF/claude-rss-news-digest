@@ -1,6 +1,8 @@
 #!/bin/bash
 # The Python record as the TypeScript record's oracle: bin/render-oracle's renders of each run, plus
-# web.archive.html beside each web.html, db.prepare_for_web's web copy of it. Then the parity test,
+# web.archive.html beside each web.html, db.prepare_for_web's web copy of it; the same for
+# digest/src/render/fixtures/inbox_markup.html, since no real page carries the inbox-only markup the
+# strip removes. Then the parity test,
 # which records the runs' tail into a COPY of DB and compares it row by row with the Python's rows.
 #
 # Usage:
@@ -16,7 +18,10 @@ export DB="$(cd "$(dirname "$DB")" && pwd)/$(basename "$DB")" OUT="${OUT:-data/r
 bin/render-oracle "$@"
 OUT="$(cd "$OUT" && pwd)"
 IMAGE="$(docker compose config --images digest-newsroom)"
-dirs=()
+# No production page carries inbox-only markup, so the strip is held on a fixture that does.
+mkdir -p "$OUT/inbox-markup"
+cp digest/src/render/fixtures/inbox_markup.html "$OUT/inbox-markup/web.html"
+dirs=(/out/inbox-markup)
 for run in "$@"; do dirs+=("/out/run$run-prod"); done
 docker run --rm -v "$(pwd)/newsroom/src:/app/src:ro" -v "$(pwd)/newsroom/tools:/app/tools:ro" -v "$OUT:/out" \
   -e PYTHONPATH=/app/src --entrypoint /app/.venv/bin/python3 "$IMAGE" /app/tools/web_archive_oracle.py "${dirs[@]}"
