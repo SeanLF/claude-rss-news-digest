@@ -29,6 +29,16 @@ DOCKER_CHECK_TIMEOUT=5
 # desyncs the others silently.
 SERVICE_CIRCULATION="digest-circulation"
 SERVICE_NEWSROOM="digest-newsroom"
+# The TypeScript pipeline's two workers. Terraform names them too (news_digest_worker_image_name,
+# news_digest_fulltext_image_name); a rename here without one there pins a digest to a repository
+# terraform never pulls.
+SERVICE_WORKER="digest-worker"
+SERVICE_FULLTEXT="digest-fulltext"
+
+# Rendered on the box by terraform (news-digest-temporal.tf): pauses the daily Temporal schedule,
+# or re-derives its pause state from which pipeline is live.
+SCHEDULE_CTL="/opt/news-digest/bin/digest-schedule"
+SCHEDULE_BOOTSTRAP_UNIT="news-digest-temporal-bootstrap.service"
 
 SBOM_DIR="sbom"
 DIGEST_DIR=""
@@ -577,16 +587,28 @@ build_and_push() {
   build_and_push_image "$SERVICE_NEWSROOM" "." "newsroom/Dockerfile" "--build-arg GIT_SHA=${SHA:0:7}" image &
   local news_pid=$!
 
-  local circ_failed=false news_failed=false
+  # Image scans, like newsroom: the worker's graph is the pruned node_modules the image ships, and
+  # the fulltext image installs from pyproject.toml pins with no lockfile a source scan could read.
+  build_and_push_image "$SERVICE_WORKER" "." "digest/Dockerfile" "--build-arg GIT_SHA=${SHA:0:7}" image &
+  local worker_pid=$!
+
+  build_and_push_image "$SERVICE_FULLTEXT" "." "digest/fulltext/Dockerfile" "" image &
+  local fulltext_pid=$!
+
+  local circ_failed=false news_failed=false worker_failed=false fulltext_failed=false
   wait "$circ_pid" || circ_failed=true
   wait "$news_pid" || news_failed=true
+  wait "$worker_pid" || worker_failed=true
+  wait "$fulltext_pid" || fulltext_failed=true
 
-  if [ "$circ_failed" = "true" ] || [ "$news_failed" = "true" ]; then
+  if [ "$circ_failed" = "true" ] || [ "$news_failed" = "true" ] || [ "$worker_failed" = "true" ] || [ "$fulltext_failed" = "true" ]; then
     # "or its SBOM audit": generate_sbom runs BEFORE the push, so an image that built cleanly
     # still lands here when it ships a HIGH+ vulnerability -- and it was never pushed. Saying only
     # "build failed" would send the next reader to the Dockerfile for a dependency problem.
-    [ "$circ_failed" = "true" ] && log_error "digest-circulation build or its SBOM audit failed"
-    [ "$news_failed" = "true" ] && log_error "digest-newsroom build or its SBOM audit failed"
+    [ "$circ_failed" = "true" ] && log_error "$SERVICE_CIRCULATION build or its SBOM audit failed"
+    [ "$news_failed" = "true" ] && log_error "$SERVICE_NEWSROOM build or its SBOM audit failed"
+    [ "$worker_failed" = "true" ] && log_error "$SERVICE_WORKER build or its SBOM audit failed"
+    [ "$fulltext_failed" = "true" ] && log_error "$SERVICE_FULLTEXT build or its SBOM audit failed"
     return 1
   fi
 
@@ -689,6 +711,53 @@ run_migrations() {
   log_success "Migrations applied"
 }
 
+# Deploys never overlap the run window (spec §2.1): the daily Temporal schedule is paused before
+# anything is migrated or restarted, and its state is re-derived after the apply. Pausing is
+# idempotent, so it runs whichever pipeline is live; while Python is live the schedule is paused
+# anyway and resume_schedule pauses it again.
+SCHEDULE_PAUSED=false
+
+pause_schedule() {
+  log_step "Pausing the Temporal schedule..."
+  # Marked paused in a dry run too, so the preview shows the resume that pairs with it.
+  dry_run_skip "bin/ssh $SCHEDULE_CTL pause" && { SCHEDULE_PAUSED=true; return 0; }
+
+  local out rc=0
+  # Exit 3 is "Temporal is not on the box yet": the first deploy that carries it has nothing to
+  # pause, and that is not a failure.
+  out=$("$SCRIPT_DIR/ssh" "test -x $SCHEDULE_CTL || exit 3; $SCHEDULE_CTL pause 'deploy ${SHA:0:7}'" 2>&1) || rc=$?
+  case $rc in
+    0)
+      SCHEDULE_PAUSED=true
+      log_success "${out##*$'\n'}"
+      # Not fatal: the worker restart resumes the run from its last completed activity.
+      if [[ $out =~ paused\;\ ([1-9][0-9]*)\ workflow ]]; then
+        log_error "${BASH_REMATCH[1]} digest workflow(s) running -- the worker restarts under them and they resume from their last activity"
+      fi
+      ;;
+    3) log_info "Temporal not provisioned on the box yet -- no schedule to pause" ;;
+    # Loud, not fatal: the deploy may be what repairs Temporal, and a paused-but-unreachable
+    # schedule is the same state either way.
+    *) log_error "could not pause the Temporal schedule (exit $rc) -- deploying with it armed: ${out:0:300}" ;;
+  esac
+}
+
+# The bootstrap unit, not a bare unpause: it knows which pipeline is live, so a deploy while Python
+# is live leaves the schedule paused. It also re-runs ensureSchedule from the new image.
+resume_schedule() {
+  [[ $SCHEDULE_PAUSED == true ]] || return 0
+  log_step "Restoring the Temporal schedule's state..."
+  dry_run_skip "bin/ssh systemctl restart $SCHEDULE_BOOTSTRAP_UNIT" && { SCHEDULE_PAUSED=false; return 0; }
+
+  if "$SCRIPT_DIR/ssh" "systemctl restart $SCHEDULE_BOOTSTRAP_UNIT"; then
+    SCHEDULE_PAUSED=false
+    log_success "Temporal schedule restored for the live pipeline"
+    return 0
+  fi
+  log_error "the Temporal schedule is still PAUSED -- restore it with: bin/ssh systemctl restart $SCHEDULE_BOOTSTRAP_UNIT"
+  return 1
+}
+
 TF_TARGETS=(
   -target=null_resource.news_digest_env
   # Named explicitly even though news_digest_service depends_on it, so a targeted apply would
@@ -704,6 +773,12 @@ TF_TARGETS=(
   -target=null_resource.news_digest_alert
   -target=null_resource.news_digest_deadman
   -target=null_resource.digest_server
+  # The TypeScript pipeline (news-digest-temporal.tf). Every one is named, for the reason above.
+  -target=null_resource.news_digest_temporal_db
+  -target=null_resource.news_digest_temporal_server
+  -target=null_resource.news_digest_temporal_bootstrap
+  -target=null_resource.news_digest_workers
+  -target=null_resource.news_digest_temporal_backup
 )
 
 apply_terraform() {
@@ -712,9 +787,11 @@ apply_terraform() {
 
   # Empty when --skip-build ran (nothing was pushed this time); terraform falls back to :latest,
   # which is the pre-existing behaviour rather than a hard failure on a build-less apply.
-  local newsroom_digest circulation_digest
+  local newsroom_digest circulation_digest worker_digest fulltext_digest
   newsroom_digest=$(cat "$DIGEST_DIR/$SERVICE_NEWSROOM.digest" 2>/dev/null || echo "")
   circulation_digest=$(cat "$DIGEST_DIR/$SERVICE_CIRCULATION.digest" 2>/dev/null || echo "")
+  worker_digest=$(cat "$DIGEST_DIR/$SERVICE_WORKER.digest" 2>/dev/null || echo "")
+  fulltext_digest=$(cat "$DIGEST_DIR/$SERVICE_FULLTEXT.digest" 2>/dev/null || echo "")
 
   local plan_output plan_exit
   set +e
@@ -723,6 +800,8 @@ apply_terraform() {
     -var="news_digest_deploy_sha=$SHA" \
     -var="news_digest_newsroom_digest=$newsroom_digest" \
     -var="news_digest_circulation_digest=$circulation_digest" \
+    -var="news_digest_worker_digest=$worker_digest" \
+    -var="news_digest_fulltext_digest=$fulltext_digest" \
     -detailed-exitcode \
     -out=/tmp/news-digest-tfplan \
     -compact-warnings \
@@ -879,6 +958,13 @@ cleanup() {
   [[ $DEPLOYMENT_SUCCEEDED == false ]] && \
     update_deployment_status "failure" "Deployment failed (exit $exit_code)"
 
+  # A deploy that died after pausing must not leave tomorrow's run silently disarmed. Resuming
+  # re-arms whatever is on the box, which is what the Python timer (never paused) does too.
+  if [[ $SCHEDULE_PAUSED == true ]]; then
+    log_error "deploy stopped with the Temporal schedule paused -- restoring it"
+    resume_schedule || true
+  fi
+
   [[ -n $DIGEST_DIR && -d $DIGEST_DIR ]] && rm -rf "$DIGEST_DIR"
 
   if [[ -f $TAILSCALE_MARKER ]]; then
@@ -923,7 +1009,9 @@ main() {
     echo ""
     echo "About to:"
     [[ $SKIP_BUILD == false ]] && echo "  - Build and push Docker images"
-    echo "  - Apply Terraform (news_digest_env, news_digest_service, news_digest_alert, news_digest_deadman, digest_server)"
+    echo "  - Pause the Temporal schedule for the deploy, and restore it after"
+    echo "  - Apply Terraform (news_digest_env, news_digest_service, news_digest_alert, news_digest_deadman, digest_server,"
+    echo "    and the Temporal stack: news_digest_temporal_db/_server/_bootstrap/_backup, news_digest_workers)"
     echo "  - Run database migrations"
     echo ""
     read -p "Continue? [y/N] " -n 1 -r
@@ -940,6 +1028,9 @@ main() {
   # `--skip-build` would then ship. verify_provenance sits here for the same reason: still ahead of
   # anything deployed or migrated.
   verify_provenance || exit 1
+  # Ahead of the snapshot and the migrations: nothing may start a run against a database that is
+  # about to be copied and then mutated.
+  pause_schedule
   backup_data
   # Migrations BEFORE terraform: circulation fail-closes at boot on missing
   # required tables (REQUIRED_TABLES), and terraform restarts it. Migrating
@@ -952,6 +1043,9 @@ main() {
   run_migrations || exit 1
   apply_terraform
   tag_deployment
+  # After the tag, like the smoke: the deploy is live whether or not this succeeds, and a failure
+  # here must not orphan the tag that records its digests.
+  resume_schedule || exit 1
   # Deploy is LIVE and its image digests are tagged from here; the smoke verifies it rather
   # than gating it (see mcp_smoke), and must not sit ahead of the tag it would orphan.
   mcp_smoke || exit 1
