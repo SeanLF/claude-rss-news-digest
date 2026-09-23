@@ -3,31 +3,32 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { PGlite } from "@electric-sql/pglite";
-import { describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it } from "vitest";
 import { PARSERS } from "./db.js";
-import { dropLegacy, fingerprintDiff, legacyFingerprint, moveAside, sqliteFingerprint, transform, verify } from "./import.js";
+import { dropLegacy, transform, verify } from "./import.js";
+import { copyLegacy } from "./legacy-copy.js";
 import { pgliteDb } from "./pglite.js";
 import { upSections } from "./schema.js";
 
-// The legacy tables as pgloader leaves them (db/import/legacy.load): SQLite's integers as bigint,
-// reals as double precision, times and dates as text. A small fixture holding each case §5.1 names;
-// the real file is imported and checked by `make import-check` (bin/import-legacy on the prod clone).
+// A legacy SQLite file in the prod file's declared types (INTEGER, REAL, TEXT, DATETIME for times),
+// holding each case §5.1 names, imported the way bin/import-legacy imports the real one: copyLegacy,
+// the migrations, transform. The real file is imported and checked by `make import-check`.
 const LEGACY = `
-CREATE TABLE digest_runs (id bigint, run_at text, articles_kept bigint, articles_emailed bigint, completed_at text, git_sha text, status text, error text);
-CREATE TABLE run_usage (id bigint, run_id bigint, subagent text, model text, input_tokens bigint, output_tokens bigint, cache_write_tokens bigint, cache_read_tokens bigint, api_cost_usd double precision, recorded_at text, duration_ms bigint, thinking text, effort text);
-CREATE TABLE run_artifacts (id bigint, run_id bigint, artifact_name text, content text, created_at text);
-CREATE TABLE selections (id bigint, run_id bigint, selections_json text, created_at text);
-CREATE TABLE cluster_runs (id bigint, run_id bigint, clusters_json text, created_at text);
-CREATE TABLE digests (date text, html text, created_at text, preheader text, run_id bigint, broadcast_id text, broadcast_status text, broadcast_recipients bigint);
-CREATE TABLE shown_narratives (id bigint, headline text, tier text, shown_at text, source_id text, run_id bigint, original_title text, cluster_id text);
-CREATE TABLE fetched_articles (id bigint, run_id bigint, source_id text, title text, url text, published text, summary text, fetched_at text);
-CREATE TABLE source_health (id bigint, source_id text, success bigint, error_message text, recorded_at text, articles_fetched bigint, articles_kept bigint, run_id bigint);
-CREATE TABLE dedup_log (id bigint, logged_at text, article_title text, article_source_id text, matched_headline text, similarity double precision, threshold double precision, action text, run_id bigint);
-CREATE TABLE threads (id bigint, slug text, label text, status text, first_run_id bigint, last_run_id bigint, created_at text, updated_at text, merged_into bigint);
-CREATE TABLE thread_installments (id bigint, thread_id bigint, run_id bigint, cluster_story text, matched_score double precision, created_at text, content text);
-CREATE TABLE thread_questions (id bigint, thread_id bigint, question text, status text, raised_run_id bigint, resolved_run_id bigint, resolved_how text, created_at text);
-CREATE TABLE thread_runs (id bigint, run_id bigint, threads_synthesized bigint, audit_failures bigint, created_at text);
-CREATE TABLE story_feedback (id bigint, digest_date text, story text, vote text, created_at text);
+CREATE TABLE digest_runs (id INTEGER, run_at DATETIME, articles_kept INTEGER, articles_emailed INTEGER, completed_at DATETIME, git_sha TEXT, status TEXT, error TEXT);
+CREATE TABLE run_usage (id INTEGER, run_id INTEGER, subagent TEXT, model TEXT, input_tokens INTEGER, output_tokens INTEGER, cache_write_tokens INTEGER, cache_read_tokens INTEGER, api_cost_usd REAL, recorded_at DATETIME, duration_ms INTEGER, thinking TEXT, effort TEXT);
+CREATE TABLE run_artifacts (id INTEGER, run_id INTEGER, artifact_name TEXT, content TEXT, created_at DATETIME);
+CREATE TABLE selections (id INTEGER, run_id INTEGER, selections_json TEXT, created_at DATETIME);
+CREATE TABLE cluster_runs (id INTEGER, run_id INTEGER, clusters_json TEXT, created_at DATETIME);
+CREATE TABLE digests (date TEXT, html TEXT, created_at DATETIME, preheader TEXT, run_id INTEGER, broadcast_id TEXT, broadcast_status TEXT, broadcast_recipients INTEGER);
+CREATE TABLE shown_narratives (id INTEGER, headline TEXT, tier TEXT, shown_at DATETIME, source_id TEXT, run_id INTEGER, original_title TEXT, cluster_id TEXT);
+CREATE TABLE fetched_articles (id INTEGER, run_id INTEGER, source_id TEXT, title TEXT, url TEXT, published TEXT, summary TEXT, fetched_at DATETIME);
+CREATE TABLE source_health (id INTEGER, source_id TEXT, success INTEGER, error_message TEXT, recorded_at DATETIME, articles_fetched INTEGER, articles_kept INTEGER, run_id INTEGER);
+CREATE TABLE dedup_log (id INTEGER, logged_at DATETIME, article_title TEXT, article_source_id TEXT, matched_headline TEXT, similarity REAL, threshold REAL, action TEXT, run_id INTEGER);
+CREATE TABLE threads (id INTEGER, slug TEXT, label TEXT, status TEXT, first_run_id INTEGER, last_run_id INTEGER, created_at DATETIME, updated_at DATETIME, merged_into INTEGER);
+CREATE TABLE thread_installments (id INTEGER, thread_id INTEGER, run_id INTEGER, cluster_story TEXT, matched_score REAL, created_at DATETIME, content TEXT);
+CREATE TABLE thread_questions (id INTEGER, thread_id INTEGER, question TEXT, status TEXT, raised_run_id INTEGER, resolved_run_id INTEGER, resolved_how TEXT, created_at DATETIME);
+CREATE TABLE thread_runs (id INTEGER, run_id INTEGER, threads_synthesized INTEGER, audit_failures INTEGER, created_at DATETIME);
+CREATE TABLE story_feedback (id INTEGER, digest_date TEXT, story TEXT, vote TEXT, created_at DATETIME);
 
 -- 1: sent. 2: completed, emailed nobody, its issue overwritten by 3 the same day. 3: sent. 4: a crash
 -- left running. 5: failed. 6: the newest run, before any installment of thread 2 went dormant.
@@ -65,16 +66,27 @@ INSERT INTO thread_questions VALUES (1, 1, 'Will it hold?', 'resolved', 1, 6, 'I
 // One instance for the file, rebuilt per test: a PGlite instance costs ~250 MiB that closing it does
 // not give back (measured), and vitest runs each file in its own worker.
 let instance: PGlite | undefined;
+let legacyPath: string | undefined;
+function sqliteFile(sql: string): string {
+  const path = join(mkdtempSync(join(tmpdir(), "legacy-")), "digest.db");
+  const db = new DatabaseSync(path);
+  db.exec(sql);
+  db.close();
+  return path;
+}
 async function imported(): Promise<PGlite> {
   const pg = (instance ??= new PGlite({ parsers: PARSERS }));
   await pg.exec("SET TIME ZONE 'UTC'; DROP SCHEMA IF EXISTS legacy CASCADE; DROP SCHEMA public CASCADE; CREATE SCHEMA public");
-  await pg.exec(LEGACY);
   const db = pgliteDb(pg);
-  await moveAside(db);
+  await copyLegacy(db, (legacyPath ??= sqliteFile(LEGACY)));
   for (const up of upSections()) await pg.exec(up);
   await transform(db);
   return pg;
 }
+// Started before the first test, whose 5 s would otherwise include PGlite's start on a loaded host.
+beforeAll(async () => {
+  await (instance ??= new PGlite({ parsers: PARSERS })).query("SELECT 1");
+}, 60_000);
 const broken = async (pg: PGlite) => (await verify(pgliteDb(pg))).filter((c) => c.broken !== 0).map((c) => c.name);
 
 describe("the legacy import (transform and verify)", () => {
@@ -157,38 +169,5 @@ describe("the legacy import (transform and verify)", () => {
     expect(await broken(pg)).toEqual([]);
     await pg.exec(loss);
     expect(await broken(pg)).toContain(name);
-  });
-});
-
-// A legacy file with a text value holding a NUL byte: pgloader drops everything after it, exits 0
-// and logs nothing (reproduced on the pinned image).
-function legacyFile(title: string, wal = false): string {
-  const path = join(mkdtempSync(join(tmpdir(), "legacy-")), "digest.db");
-  const db = new DatabaseSync(path);
-  if (wal) db.exec("PRAGMA journal_mode = WAL");
-  db.exec("CREATE TABLE fetched_articles (id INTEGER PRIMARY KEY, title TEXT, similarity REAL, run_id INTEGER); CREATE TABLE _yoyo_migration (id TEXT)");
-  db.prepare("INSERT INTO fetched_articles VALUES (1, ?, 0.25, 7), (2, 'plain', NULL, NULL)").run(title);
-  db.close();
-  return path;
-}
-async function loaded(title: string): Promise<PGlite> {
-  const pg = new PGlite({ parsers: PARSERS });
-  await pg.exec("CREATE TABLE fetched_articles (id bigint, title text, similarity double precision, run_id bigint)");
-  await pg.query("INSERT INTO fetched_articles VALUES (1, $1, 0.25, 7), (2, 'plain', NULL, NULL)", [title]);
-  return pg;
-}
-
-describe("the load against the file itself", () => {
-  it("fingerprints the loaded tables only, finds a value pgloader cut short, and nothing when the load is the file", async () => {
-    const cut = sqliteFingerprint(legacyFile("a\u0000b"));
-    expect(Object.keys(cut)).toEqual(["fetched_articles"]);
-    const pg = await loaded("a");
-    expect(fingerprintDiff(cut, await legacyFingerprint(pgliteDb(pg), cut, "public"))).toEqual(["fetched_articles.title: file 2 values, sum 8; loaded 2 values, sum 6"]);
-    const whole = sqliteFingerprint(legacyFile("a"));
-    expect(fingerprintDiff(whole, await legacyFingerprint(pgliteDb(pg), whole, "public"))).toEqual([]);
-    await pg.close();
-  });
-  it("refuses a file in WAL mode, whose last commits may not be in the file itself", () => {
-    expect(() => sqliteFingerprint(legacyFile("a", true))).toThrow(/WAL mode/);
   });
 });

@@ -1,25 +1,18 @@
 import { readFileSync } from "node:fs";
-import { DatabaseSync } from "node:sqlite";
 import { artifactKind } from "./artifact-kinds.js";
 import type { Db, Sql } from "./db.js";
 import { RESET_IDENTITIES } from "./schema.js";
 
-// The legacy SQLite database into the product schema (data-model design §5.1). pgloader loads the file
-// into this database's public schema (db/import/legacy.load); moveAside renames that to `legacy`,
-// the migrations then build the product schema in public, and transform copies across in one
-// transaction. verify holds the copy against the legacy tables before they are dropped.
+// The legacy SQLite database into the product schema (data-model design §5.1). copyLegacy
+// (legacy-copy.ts) copies the file table for table into this database's `legacy` schema, the
+// migrations build the product schema in public, and transform copies across in one transaction.
+// verify holds the copy against the legacy tables before they are dropped.
 export const TRANSFORM = new URL("../../db/import/transform.sql", import.meta.url).pathname;
 
 // Refuses a database that already holds anything in public: the import writes a fresh database only.
 export async function assertEmpty(db: Sql): Promise<void> {
   const r = await db.one<{ n: number }>("SELECT count(*) AS n FROM pg_tables WHERE schemaname IN ('public', 'legacy')");
   if (r!.n > 0) throw new Error(`the target database already has ${r!.n} table(s) in public or legacy; the import writes only into a fresh database`);
-}
-
-export async function moveAside(db: Sql): Promise<void> {
-  const r = await db.one<{ n: number }>("SELECT count(*) AS n FROM pg_tables WHERE schemaname = 'public' AND tablename = 'digest_runs'");
-  if (r!.n !== 1) throw new Error("no legacy digest_runs in public: load the SQLite file with pgloader first");
-  await db.exec("ALTER SCHEMA public RENAME TO legacy; CREATE SCHEMA public");
 }
 
 export async function transform(db: Db, sql = readFileSync(TRANSFORM, "utf8")): Promise<void> {
@@ -31,75 +24,6 @@ export async function transform(db: Db, sql = readFileSync(TRANSFORM, "utf8")): 
     }
     await t.exec(RESET_IDENTITIES);
   });
-}
-
-// What pgloader loads, fingerprinted on both sides before anything is copied: per table its row count,
-// and per column its non-null count and a sum (bytes of text, the value of a number). pgloader can lose
-// data and still exit 0 with no error logged (text after a NUL byte is dropped), and every check below
-// compares against its copy, so this is the one comparison with the file itself.
-export interface Fingerprint { [table: string]: { rows: number; columns: Record<string, [count: number, sum: number]> } }
-const LOADED = (name: string) => !/^(sqlite_|_yoyo|yoyo_)/.test(name) && !name.startsWith("shown_narratives_fts");
-
-export function sqliteFingerprint(path: string): Fingerprint {
-  const db = new DatabaseSync(path, { readOnly: true });
-  try {
-    const mode = (db.prepare("PRAGMA journal_mode").get() as { journal_mode: string }).journal_mode;
-    if (mode.toLowerCase() === "wal") throw new Error(`${path} is in WAL mode: commits may sit in its -wal file; import an online-backup snapshot instead`);
-    const out: Fingerprint = {};
-    for (const { name } of db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name").all() as { name: string }[]) {
-      if (!LOADED(name)) continue;
-      const cols = db.prepare(`SELECT name, upper(type) AS type FROM pragma_table_info('${name}')`).all() as { name: string; type: string }[];
-      const parts = cols.flatMap((c) => {
-        const q = `"${c.name}"`;
-        const sum = /INT|REAL|FLOA|DOUB/.test(c.type) ? `total(${q})` : `total(length(CAST(${q} AS BLOB)))`;
-        return [`count(${q})`, sum];
-      });
-      const row = db.prepare(`SELECT count(*) AS n, ${parts.map((p, i) => `${p} AS p${i}`).join(", ")} FROM "${name}"`).get() as Record<string, number>;
-      out[name] = { rows: row["n"]!, columns: Object.fromEntries(cols.map((c, i) => [c.name, [row[`p${2 * i}`]!, row[`p${2 * i + 1}`]!]])) };
-    }
-    return out;
-  } finally {
-    db.close();
-  }
-}
-
-// Of the loaded tables in `schema`: public right after pgloader, legacy once moved aside.
-export async function legacyFingerprint(db: Sql, like: Fingerprint, schema = "legacy"): Promise<Fingerprint> {
-  const out: Fingerprint = {};
-  for (const [table, want] of Object.entries(like)) {
-    const cols = await db.all<{ name: string; type: string }>("SELECT column_name AS name, data_type AS type FROM information_schema.columns WHERE table_schema = $1 AND table_name = $2", [schema, table]);
-    if (!cols.length) {
-      out[table] = { rows: -1, columns: {} };
-      continue;
-    }
-    const names = Object.keys(want.columns).filter((c) => cols.some((x) => x.name === c));
-    const parts = names.flatMap((c) => {
-      const type = cols.find((x) => x.name === c)!.type;
-      const q = `"${c}"`;
-      return [`count(${q})`, type === "text" ? `COALESCE(sum(octet_length(${q})), 0)` : `COALESCE(sum(${q}), 0)`];
-    });
-    const row = (await db.one<Record<string, unknown>>(`SELECT count(*) AS n${parts.map((p, i) => `, ${p} AS p${i}`).join("")} FROM "${schema}"."${table}"`))!;
-    out[table] = { rows: Number(row["n"]), columns: Object.fromEntries(names.map((c, i) => [c, [Number(row[`p${2 * i}`]), Number(row[`p${2 * i + 1}`])]])) };
-  }
-  return out;
-}
-
-// Every difference between the two, as readable lines; a real sum agrees to 1e-9 relative.
-const close = (a: number, b: number) => Math.abs(a - b) <= 1e-9 * Math.max(1, Math.abs(a));
-export function fingerprintDiff(file: Fingerprint, loaded: Fingerprint): string[] {
-  const out: string[] = [];
-  for (const [table, want] of Object.entries(file)) {
-    const got = loaded[table];
-    if (!got || got.rows !== want.rows) {
-      out.push(`${table}: ${want.rows} rows in the file, ${got?.rows ?? "none"} loaded`);
-      continue;
-    }
-    for (const [col, [count, sum]] of Object.entries(want.columns)) {
-      const g = got.columns[col];
-      if (!g || g[0] !== count || !close(g[1], sum)) out.push(`${table}.${col}: file ${count} values, sum ${sum}; loaded ${g ? `${g[0]} values, sum ${g[1]}` : "missing"}`);
-    }
-  }
-  return out;
 }
 
 // Each check is a query over both schemas that returns the number of rows that break it; all must be 0.

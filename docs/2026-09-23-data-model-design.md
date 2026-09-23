@@ -506,28 +506,38 @@ Things the clone showed that §4 did not say:
   `run_attempts` and `broadcasts`, not before it.
 - `archiveRun` stays as an activity that does nothing: the recorded workflow histories schedule it.
 
-**How the import runs (built 2026-09-23, Postgres).** `bin/import-legacy SRC DST_URL`: pgloader loads
-the SQLite file, mounted read-only, table for table into a fresh database
-(`digest/db/import/legacy.load`); the digest image then moves that aside as `legacy`, builds the schema
-with dbmate, copies across in one transaction (`digest/db/import/transform.sql`), checks every row
-against the legacy tables (16 checks in `digest/src/store/import.ts`, each negative-controlled in
-`import.test.ts`), and drops them. pgloader is maintained (pushed 2026-09-14; ghcr image of the same
-day, pinned by digest) though its last release is 3.6.9 of 2022, and it needed two workarounds: its
-default cast writes reals as Lisp floats (`1.0d0`), which Postgres refuses, so reals go through
-`float-to-string` (float fidelity checked: `0.35547812653826977` in both), and it exits 0 when a table
-fails, so the script fails on any ERROR line in its log. Worse, it drops text after a NUL byte with no
-error at all (reviewer-reproduced), and the 16 checks compare against pgloader's own copy; so before
-anything is copied, the load is held to a fingerprint of the SQLite file itself, read with
-`node:sqlite` (per table its rows, per column its non-null count and byte or numeric sum), and a
-WAL-mode file is refused. The image is amd64 only (emulated on the Mac). `issues.published_at` is the
-run's `completed_at` (`digests.created_at` is a backfill stamp on 31 rows); a resolution is dated by its
-resolving run. **Measured on a `cp -c` copy of the prod clone** (`make import-check`): 9-10 s end to
-end (pgloader 4-5 s, fingerprint 0.2 s, schema 0.1-0.2 s, copy 3.1-3.4 s, checks and VACUUM ANALYZE the
-rest), the load matches the file on all 15 tables, all 16 checks and all §5.1 numbers hold
-(`import.clone.test.ts`), the source file's sha256 unchanged, and the database is 169 MB against the
-SQLite file's 202 MB. Run 300's prepare replayed against the imported database reproduces its
-archived article CSVs and context files byte for byte, which found one ordering difference: SQLite left
-same-run ties in descending byte order of the headline, now explicit.
+**How the import runs (built 2026-09-23, Postgres; the copier replaced pgloader the same day).**
+`bin/import-legacy SRC DST_URL` runs one command in the digest image, with SRC mounted read-only
+(`digest/src/cli/import-legacy.ts`). It refuses a target that holds tables and a WAL-mode file, then
+copies the file table for table into a `legacy` schema (`digest/src/store/legacy-copy.ts`: `node:sqlite`
+read-only, one read transaction, batched `INSERT ... SELECT FROM unnest(...)` in one Postgres
+transaction). Integers go across as bigint digits and reals in their shortest round-trip form, so both
+arrive exact; times stay the text SQLite held. A NUL byte (which Postgres text cannot hold), text that
+is not UTF-8, a value whose storage class its column does not declare, or a declared type other than
+INTEGER, REAL, TEXT or DATETIME is refused with its table, column and row, and the copy rolls back.
+The copy is then held to a fingerprint of the file read in the same snapshot: per table its rows, and
+exact digests of each column's values and of its rows (the sum mod 2^64, in two lanes, of each item's
+sha256 over a typed encoding: integer digits, the double's IEEE bytes, the text's UTF-8 bytes),
+computed in JS over the file and in SQL over the copy. A first version compared counts and sums; the
+review showed it passed a changed integer, a sum-preserving pair, a double's last bit and same-length
+text, and `legacy-copy.test.ts` now holds each of those as a negative control. After that the schema is built with dbmate, the
+data copied across in one transaction (`digest/db/import/transform.sql`), every row checked against the
+legacy tables (16 checks in `digest/src/store/import.ts`, each negative-controlled in
+`import.test.ts`), and the legacy tables dropped. pgloader went with its three workarounds (Lisp floats,
+exit 0 on a failed table, text after a NUL dropped silently) and its amd64-only image; the prod file
+has no NUL byte, no invalid UTF-8 and no value outside its declared storage class (measured on the
+clone). `issues.published_at` is the run's `completed_at` (`digests.created_at` is a backfill stamp on
+31 rows); a resolution is dated by its resolving run. **Measured on a `cp -c` copy of the prod clone**
+(`make import-check`, OrbStack on the Mac, host load average 5-9 from other work): 15 s end to end
+against pgloader's 9-10 s (file digests and copy 6.9 s for 211,594 rows of 15 tables, the copy's
+digests 4.0 s, schema 0.1 s, transform 3.0 s, checks and VACUUM ANALYZE the rest), peak RSS 283 MiB in
+the import process (batches of 2,000 rows or 2 Mi characters; 16 Mi gave 487 MiB for no speed; an idle
+node in the same image is 40 MiB and one holding 200 MiB reads 243). The copy matches the file on
+all 15 tables, all 16 checks and all §5.1 numbers hold (`import.clone.test.ts`), the source file's
+sha256 is unchanged, and the database is 167 MB against the SQLite file's 202 MB. Run 300's prepare
+replayed against the imported database reproduces its archived article CSVs and context files byte
+for byte, which found one ordering difference: SQLite left same-run ties in descending byte order of
+the headline, now explicit.
 
 **Lifecycle edges, as test cases** (§4.1). States: `running`, `failed`, and `completed` with each of the
 five pipeline outcomes. Legal: any state to itself (a write that leaves status and outcome alone, which
