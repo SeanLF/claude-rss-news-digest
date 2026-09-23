@@ -3,8 +3,9 @@
 still_active audits an SBOM by purl. The googlenewsdecoder fork installs from a GitHub archive but
 calls itself ``pkg:pypi/googlenewsdecoder@0.2.0``, so the gate looked up PyPI's googlenewsdecoder,
 a different package (SSujitX's rewrite), and reported that project's activity for code nobody
-ships. ``bin/sbom-unregistered`` reads the SBOM's ``vcs`` references instead: a URL install that is
-not a listed exception blocks the deploy, and a listed one is printed as unaudited.
+ships. ``bin/sbom-unregistered`` reads the SBOM's ``vcs`` references instead, and the Cargo and npm
+lockfiles for git dependencies (syft gives those no ``vcs`` reference): one that is not a listed
+exception blocks the deploy, and a listed one is printed as unaudited.
 
 Two canaries keep the exception from outliving its reason:
   - every URL pin must be an exception and every exception a URL pin, so porting to PyPI (which
@@ -45,11 +46,88 @@ def _load():
     return module
 
 
+LOCKFILES = [REPO / "circulation" / "Cargo.lock", REPO / "digest" / "package-lock.json"]
+PIN = re.compile(r'"[A-Za-z0-9_.\[\],-]+ *@ *((?:git\+)?https?://[^"]+)"')
+
+
 def _url_pins() -> set[str]:
     pins = set()
     for p in PYPROJECTS:
-        pins |= set(re.findall(r'"[A-Za-z0-9_.-]+ @ (https?://[^"]+)"', p.read_text(encoding="utf-8")))
-    return pins
+        pins |= set(PIN.findall(p.read_text(encoding="utf-8")))
+    return pins | {source for _, source in _load().lockfile_sources([str(p) for p in LOCKFILES])}
+
+
+def test_the_pin_pattern_reads_git_and_archive_urls():
+    text = '"a @ https://x.test/a.tar.gz",\n"b @ git+https://github.com/o/b@abc",\n"c==1.0",'
+    assert PIN.findall(text) == ["https://x.test/a.tar.gz", "git+https://github.com/o/b@abc"]
+
+
+CARGO_LOCK = """version = 4
+
+[[package]]
+name = "serde"
+version = "1.0.228"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "abc"
+
+[[package]]
+name = "forked"
+version = "0.1.0"
+source = "git+https://github.com/someone/forked?rev=1234#1234abcd"
+
+[[package]]
+name = "circulation"
+version = "0.1.0"
+"""
+
+PACKAGE_LOCK = {
+    "lockfileVersion": 3,
+    "packages": {
+        "": {"name": "digest"},
+        "node_modules/zod": {"version": "4.1.0", "resolved": "https://registry.npmjs.org/zod/-/zod-4.1.0.tgz"},
+        "node_modules/gitdep": {"version": "1.0.0", "resolved": "git+ssh://git@github.com/o/gitdep.git#abc"},
+        "node_modules/shorthand": {"version": "1.0.0", "resolved": "github:o/shorthand#def"},
+        "node_modules/linked": {"resolved": "packages/linked", "link": True},
+    },
+}
+
+
+def _lockfiles(tmp_path):
+    cargo = tmp_path / "Cargo.lock"
+    cargo.write_text(CARGO_LOCK)
+    npm = tmp_path / "package-lock.json"
+    npm.write_text(json.dumps(PACKAGE_LOCK))
+    return cargo, npm
+
+
+def test_git_dependencies_in_lockfiles_are_found(tmp_path):
+    cargo, npm = _lockfiles(tmp_path)
+    assert _load().lockfile_sources([str(cargo), str(npm)]) == [
+        ("forked", "git+https://github.com/someone/forked?rev=1234#1234abcd"),
+        ("gitdep", "git+ssh://git@github.com/o/gitdep.git#abc"),
+        ("shorthand", "github:o/shorthand#def"),
+    ]
+
+
+def test_a_git_dependency_in_a_lockfile_blocks_though_the_sbom_is_clean(tmp_path):
+    # syft reports Cargo and npm git dependencies without a vcs reference; the lockfile is the evidence.
+    cargo, npm = _lockfiles(tmp_path)
+    r = subprocess.run(
+        [sys.executable, str(SCRIPT), str(_sbom(tmp_path)), str(cargo), str(npm)], capture_output=True, text=True
+    )
+    assert r.returncode == 1
+    assert "someone/forked" in r.stderr and "o/gitdep" in r.stderr and "github:o/shorthand" in r.stderr
+
+
+def test_registry_only_lockfiles_pass(tmp_path):
+    cargo = tmp_path / "Cargo.lock"
+    cargo.write_text(CARGO_LOCK.split('[[package]]\nname = "forked"')[0])
+    npm = tmp_path / "package-lock.json"
+    npm.write_text(json.dumps({"packages": {"node_modules/zod": PACKAGE_LOCK["packages"]["node_modules/zod"]}}))
+    r = subprocess.run(
+        [sys.executable, str(SCRIPT), str(_sbom(tmp_path)), str(cargo), str(npm)], capture_output=True, text=True
+    )
+    assert r.returncode == 0 and r.stderr == ""
 
 
 def _sbom(tmp_path, *urls):
