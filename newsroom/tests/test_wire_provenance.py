@@ -16,11 +16,10 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
-import pytest
-from feeds import wire_agency, wire_from_dateline
-
 import digest
+import pytest
 from digest import collapse_reposts
+from feeds import wire_agency, wire_from_dateline
 
 
 @pytest.mark.parametrize(
