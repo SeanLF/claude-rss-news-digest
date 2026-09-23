@@ -58,3 +58,33 @@ low F1 can mean either extractor is wrong.
   `fulltext._collect_isolated`, and the TypeScript workflow calls it by activity name, which is Temporal's
   polyglot model rather than glue. The cost is a second image (python slim, plus trafilatura and lxml), a
   second process, and a second dependency set to pin and audit.
+
+## Result (2026-09-23): the Python activity stays
+
+Corpus: runs 300-304 from a live production clone, 218 candidates, 183 fetched
+(`data/fulltext-fork-20260923T025813Z/`, gitignored). Run with `make fulltext-pages` and then
+`make fulltext-fork`.
+
+| arm | M1 success | M2 median F1 (p25) | M3 boilerplate |
+|---|---|---|---|
+| trafilatura | 151/183 (82.5%) | 1.000 (reference) | 1.62% |
+| dom-smoothie | 151/183 (82.5%) | 0.956 (0.881) | 1.28% |
+| readability | 151/183 (82.5%) | 0.933 (0.853) | 7.58% |
+| defuddle | 145/183 (79.2%) | 0.916 (0.866) | 1.50% |
+
+The best TypeScript arm is dom-smoothie. It passes rules 1-3 and **fails rule 5 at 0/5**:
+
+| page | trafilatura kept | dom-smoothie kept |
+|---|---|---|
+| france24 302-A132 | the article lead | the YouTube consent notice |
+| france24 301-A164 | the full body (3910 ch) | header chrome and a photo caption |
+| france24 302-A137 | the consent notice, then the article | the consent notice, then other stories' headlines |
+| arstechnica 304-A46 | the lead | a later section; the lead is lost |
+| aljazeera 303-A23 | the title and "live page closed" | the site navigation menu |
+
+Rule 4 (fetch parity) was not run: rule 5 already decides the fork.
+
+M3 understates navigation junk, because "skip links" and "navigation menu" are not in the pre-registered
+list. That makes the comparison kinder to the TypeScript arms, not harsher.
+
+Next: the Python branch as costed above, a Python worker on a `fulltext` task queue.
