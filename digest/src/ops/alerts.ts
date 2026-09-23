@@ -1,5 +1,6 @@
 import { htmlEscape } from "escape-goat";
 import type { SendEmail } from "../mail/resend.js";
+import { ACCEPTED_BROADCAST_STATES, CLAIMED, clearClaimCommand } from "./broadcast-state.js";
 
 // The operational alerts broadcast.py sends, to the same address (HEALTH_ALERT_EMAIL), plus
 // run-failed: the systemd OnFailure alert's successor, raised by the workflow itself.
@@ -7,7 +8,13 @@ export type AlertRequest =
   | { kind: "run-health"; runId: number; violations: string[] }
   | { kind: "archival"; runId: number | null; failed: string[] }
   | { kind: "source-health"; failing: [sourceId: string, consecutive: number][]; failedThisRun: number; totalSources: number; threshold: number }
-  | { kind: "run-failed"; workflowId: string; runId: number | null; reason: string; timedOut: boolean };
+  // `sent`: the workflow saw the broadcast return. `broadcastStatus` and `date`: the day's broadcast
+  // columns, which the alert activity reads, so a send the workflow never heard back from still counts.
+  | { kind: "run-failed"; workflowId: string; runId: number | null; reason: string; timedOut: boolean; sent: boolean; broadcastStatus?: string | null; date?: string }
+  // The run ended without a delivery for a reason no exception carries.
+  | { kind: "not-sent"; workflowId: string; runId: number; reason: "disabled" | "held-out"; detail: string };
+
+const resumeHint = (runId: number | null) => `<code>make digest-start DATE=... ARGS="--resume ${runId ?? "N"}"</code>`;
 
 const FOOTER = '<p style="color: #777; font-size: 0.85em;">This is an automated alert from your News Digest system.</p>\n';
 
@@ -57,15 +64,38 @@ ${FOOTER}`,
     case "run-failed": {
       const what = req.timedOut ? "timed out" : "failed";
       const run = req.runId === null ? "run not started" : `run ${req.runId}`;
+      const status = req.broadcastStatus ?? null;
+      const delivered = req.sent || (status !== null && ACCEPTED_BROADCAST_STATES.has(status));
+      const claimed = !delivered && status?.startsWith(CLAIMED);
+      // Never suggest a resume after an accepted broadcast; with a claim held, only once Resend is checked.
+      const [headline, state, next] = delivered
+        ? [`${what} after the digest was sent`, `The digest was sent (broadcast ${htmlEscape(status ?? "accepted")}); the failure came after it.`, "Do not resume or re-send: readers have it. Only the run's record (shown headlines, completed_at) may need repair."]
+        : claimed
+          ? [`${what} with a send claim held`, `A send attempt holds the day's claim (${htmlEscape(status ?? "")}), so whether the digest went out is unknown.`, `Check Resend for the day's broadcast before anything else. If nothing went out, clear the claim in the worker container with <code>${htmlEscape(clearClaimCommand(req.date ?? "DATE"))}</code>, then resume: ${resumeHint(req.runId)}.`]
+          : [what, "Today's digest was not sent.", `Its history is in the Temporal UI under that workflow id. A resume re-runs only what is missing: ${resumeHint(req.runId)}.`];
       return {
-        subject: `[Alert] ${req.workflowId} ${what} (${run})`,
+        subject: `[Alert] ${req.workflowId} ${headline} (${run})`,
         html: `<h2>News Digest Run ${req.timedOut ? "Timed Out" : "Failed"}</h2>
-<p>Workflow <strong>${htmlEscape(req.workflowId)}</strong> (${run}) ${what}; today's digest was not sent.</p>
+<p>Workflow <strong>${htmlEscape(req.workflowId)}</strong> (${run}) ${what}. ${state}</p>
 <pre>${htmlEscape(req.reason)}</pre>
-<p>Its history is in the Temporal UI under that workflow id. A resume re-runs only what is missing:
-<code>make digest-start DATE=... ARGS="--resume ${req.runId ?? "N"}"</code>.</p>
+<p>${next}</p>
 ${FOOTER}`,
-        dropped: `${req.workflowId} ${what} (${run}): ${req.reason}`,
+        dropped: `${req.workflowId} ${headline} (${run}): ${req.reason}`,
+      };
+    }
+    case "not-sent": {
+      const why = req.reason === "disabled" ? "broadcasting disabled on this worker" : "no time left to review it";
+      const next =
+        req.reason === "disabled"
+          ? "Nothing was published or sent. Set BROADCAST_ENABLED=true on the worker that should send."
+          : `The run's time budget could not fit a review before the send, so it was not sent unreviewed. To approve and send by hand, resume it (it holds again, on a fresh budget) and approve in the hold: ${resumeHint(req.runId)}.`;
+      return {
+        subject: `[Alert] Digest not sent: ${why} (run ${req.runId})`,
+        html: `<h2>News Digest Not Sent</h2>
+<p>Workflow <strong>${htmlEscape(req.workflowId)}</strong> (run ${req.runId}) ended without sending: ${htmlEscape(req.detail)}.</p>
+<p>${next}</p>
+${FOOTER}`,
+        dropped: `${req.workflowId} (run ${req.runId}) not sent: ${req.detail}`,
       };
     }
     default: {

@@ -30,7 +30,12 @@ export function stubActivities(): Activities {
     gnews: (runId) => Promise.resolve(ptr(runId, DECODED_LINKS)),
     threads: (runId) => Promise.resolve(ptr(runId, THREAD_CONTEXT)),
     render: (runId) => Promise.resolve({ html: ptr(runId, "digest.html"), email: ptr(runId, "email.html") }),
-    broadcast: () => Promise.resolve({ broadcastId: "stub" }),
+    archiveRun: () => Promise.resolve(),
+    sendEnabled: () => Promise.resolve(true),
+    notifyHold: () => Promise.resolve({ sent: true }),
+    saveDigest: () => Promise.resolve({ date: "2026-09-21" }),
+    broadcast: () => Promise.resolve({ broadcastId: "stub", status: "sent", recipients: 12 }),
+    recordShownHeadlines: () => Promise.resolve({ rows: 1 }),
     finishRun: () => Promise.resolve(),
     weeklyRecap: (runId) => Promise.resolve(ptr(runId, "weekly_recap.txt")),
     healthcheck: () => Promise.resolve(),
@@ -38,5 +43,6 @@ export function stubActivities(): Activities {
     checkFeeds: () => Promise.resolve(null),
     checkRunHealth: () => Promise.resolve(null),
     alert: () => Promise.resolve(),
+    abortRun: () => Promise.resolve(),
   };
 }

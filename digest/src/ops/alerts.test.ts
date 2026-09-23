@@ -37,11 +37,37 @@ describe("alertEmail", () => {
     expect(e.dropped).toBe("archival failed for thread_links, thread_assignments on run 305");
   });
   it("run-failed says whether the run timed out and escapes the error text", () => {
-    const e = alertEmail({ kind: "run-failed", workflowId: "digest-2026-09-23", runId: 305, reason: "Activity task failed: <select>", timedOut: false });
+    const e = alertEmail({ kind: "run-failed", workflowId: "digest-2026-09-23", runId: 305, reason: "Activity task failed: <select>", timedOut: false, sent: false });
     expect(e.subject).toBe("[Alert] digest-2026-09-23 failed (run 305)");
     expect(e.html).toContain("Activity task failed: &lt;select&gt;");
-    const t = alertEmail({ kind: "run-failed", workflowId: "digest-2026-09-23", runId: null, reason: "deadline", timedOut: true });
+    expect(e.html).toContain("was not sent");
+    expect(e.html).toContain("--resume 305");
+    const t = alertEmail({ kind: "run-failed", workflowId: "digest-2026-09-23", runId: null, reason: "deadline", timedOut: true, sent: false });
     expect(t.subject).toBe("[Alert] digest-2026-09-23 timed out (run not started)");
+  });
+  it.each([
+    [{ sent: true }],
+    [{ sent: false, broadcastStatus: "queued", date: "2026-09-23" }],
+  ])("run-failed after an accepted broadcast says it was sent and never suggests a resume (%o)", (over) => {
+    const e = alertEmail({ kind: "run-failed", workflowId: "digest-2026-09-23", runId: 305, reason: "SQLITE_BUSY", timedOut: false, ...over });
+    expect(e.subject).toBe("[Alert] digest-2026-09-23 failed after the digest was sent (run 305)");
+    expect(e.html).toContain("The digest was sent");
+    expect(e.html).not.toContain("--resume");
+    expect(e.html).not.toContain("not sent");
+  });
+  it("run-failed with a send claim held says to check Resend and names the command that clears it", () => {
+    const e = alertEmail({ kind: "run-failed", workflowId: "digest-2026-09-23", runId: 305, reason: "claimed", timedOut: false, sent: false, broadcastStatus: "claimed 2026-09-23T12:00:00.000Z abc", date: "2026-09-23" });
+    expect(e.subject).toBe("[Alert] digest-2026-09-23 failed with a send claim held (run 305)");
+    expect(e.html).toContain("Check Resend");
+    expect(e.html).toContain("node dist/cli/clear-claim.js 2026-09-23");
+  });
+  it("not-sent names why the day was not delivered and what to do", () => {
+    const d = alertEmail({ kind: "not-sent", workflowId: "digest-2026-09-23", runId: 305, reason: "disabled", detail: "broadcasting disabled on this worker" });
+    expect(d.subject).toBe("[Alert] Digest not sent: broadcasting disabled on this worker (run 305)");
+    const h = alertEmail({ kind: "not-sent", workflowId: "digest-2026-09-23", runId: 305, reason: "held-out", detail: "12 minutes left" });
+    expect(h.subject).toBe("[Alert] Digest not sent: no time left to review it (run 305)");
+    expect(h.html).toContain("approve and send by hand");
+    expect(h.html).toContain('ARGS="--resume 305"');
   });
 });
 

@@ -1,6 +1,7 @@
 import { Context } from "@temporalio/activity";
 import { emailSender, resendClient, type SendEmail } from "../mail/resend.js";
 import { sendAlert, type AlertRequest } from "../ops/alerts.js";
+import { broadcastState } from "../ops/broadcast-state.js";
 import { feedHealthAlert } from "../ops/feed-health.js";
 import { healthcheck } from "../ops/healthcheck.js";
 import { coherenceKindCounts, getRunHealth, threadsEnabled, violations } from "../ops/run-health.js";
@@ -30,7 +31,7 @@ export function opsActivities(deps: OpsDeps) {
   const hc = healthcheck(deps.env, deps.fetch);
   const send: SendEmail = deps.send ?? ((email, opts) => emailSender(resendClient(deps.env["RESEND_API_KEY"] ?? "").emails)(email, opts));
   return {
-    healthcheck: (event: "start" | "success" | "fail"): Promise<void> => hc.ping(event === "success" ? undefined : event),
+    healthcheck: (event: "start" | "success" | "fail", note?: string): Promise<void> => hc.ping(event === "success" ? undefined : event, note),
     healthcheckLog: (message: string): Promise<void> => hc.log(message),
 
     // Feeds that keep failing, as run.py alerts on source_health after the fetch.
@@ -70,8 +71,22 @@ export function opsActivities(deps: OpsDeps) {
       }
     },
 
-    alert: async (req: AlertRequest): Promise<void> => {
+    alert: async (request: AlertRequest): Promise<void> => {
       const { attempt, key } = activityInfo();
+      let req = request;
+      if (req.kind === "run-failed" && req.runId !== null) {
+        const runId = req.runId;
+        let db: ReturnType<typeof openDb> | undefined;
+        try {
+          db = openDb(deps.dbPath);
+          const day = broadcastState(db, runId);
+          if (day) req = { ...req, broadcastStatus: day.status, date: day.date };
+        } catch (e) {
+          console.error(`could not read the day's broadcast state for run ${runId}: ${String(e)}`); // the alert goes anyway
+        } finally {
+          db?.close();
+        }
+      }
       await sendAlert(req, { env: deps.env, send, attempt, maxAttempts: deps.maxAttempts, ...(key ? { idempotencyKey: key } : {}) });
     },
   };

@@ -2,6 +2,7 @@ import { DatabaseSync } from "node:sqlite";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Email } from "../mail/resend.js";
 import { ArtifactStore } from "../store/artifacts.js";
+import { migratedDb } from "../store/migrated-db.js";
 import { freshDb } from "../store/test-db.js";
 import { opsActivities } from "./ops.js";
 
@@ -59,6 +60,21 @@ describe("ops activities", () => {
     const ops = opsActivities({ dbPath: db(), env, maxAttempts: 3, send });
     await ops.alert({ kind: "archival", runId: 305, failed: ["thread_links"] });
     expect(sent.map((e) => e.subject)).toEqual(["[Alert] Digest archival failed (thread_links)"]);
+  });
+  it("a run-failed alert reads the day's broadcast state, so a send the workflow never heard back from is not called unsent", async () => {
+    vi.spyOn(console, "log").mockImplementation(() => undefined);
+    const path = migratedDb([{ id: 305, runAt: "2026-09-23 10:25:00" }]);
+    const d = new DatabaseSync(path);
+    d.prepare("INSERT INTO digests (date, html, run_id, broadcast_id, broadcast_status) VALUES ('2026-09-23', '', 305, 'b1', 'sending')").run();
+    d.close();
+    const sent: Email[] = [];
+    const send = (e: Email) => {
+      sent.push(e);
+      return Promise.resolve({ id: "em" });
+    };
+    await opsActivities({ dbPath: path, env, maxAttempts: 3, send }).alert({ kind: "run-failed", workflowId: "digest-2026-09-23", runId: 305, reason: "deadline", timedOut: true, sent: false });
+    expect(sent[0]?.subject).toBe("[Alert] digest-2026-09-23 timed out after the digest was sent (run 305)");
+    expect(sent[0]?.html).not.toContain("--resume");
   });
   it("healthcheck maps success to the bare ping URL and logs through /log", async () => {
     const urls: string[] = [];

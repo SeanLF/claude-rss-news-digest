@@ -35,7 +35,10 @@ export interface FetchSummary { sourceId: string; ok: boolean; fetched: number; 
 export interface DigestOutput {
   runId: number;
   stories: number;
-  broadcast: "sent" | "rejected" | "skipped";
+  // "disabled": BROADCAST_ENABLED is off, so nothing was published, like "rejected".
+  // "held-out": the budget left no time for a review, so it was not sent unreviewed.
+  broadcast: "sent" | "disabled" | "rejected" | "skipped" | "held-out";
+  recipients?: number;
 }
 
 // The activity interface plan A2 fills, one function per stage; every model call and every
@@ -60,15 +63,22 @@ export interface Activities {
   gnews(runId: number, selections: Pointer): Promise<Pointer>;
   threads(runId: number, selections: Pointer): Promise<Pointer>;
   render(runId: number, selections: Pointer, threads: Pointer, gnews: Pointer): Promise<{ html: Pointer; email: Pointer }>;
-  broadcast(runId: number, email: Pointer): Promise<{ broadcastId: string }>;
+  archiveRun(runId: number, selections: Pointer, clusters: Pointer): Promise<void>;
+  sendEnabled(): Promise<boolean>;
+  // holdEndsAt null: no run budget was left for a hold, and the send follows at once.
+  notifyHold(runId: number, selections: Pointer, holdEndsAt: string | null): Promise<{ sent: boolean }>;
+  saveDigest(runId: number, html: Pointer, selections: Pointer): Promise<{ date: string }>;
+  broadcast(runId: number, email: Pointer): Promise<{ broadcastId: string; status: string; recipients: number }>;
+  recordShownHeadlines(runId: number, selections: Pointer): Promise<{ rows: number }>;
   finishRun(runId: number, output: Omit<DigestOutput, "runId">): Promise<void>;
   // Operations (src/activities/ops.ts): best-effort, none can fail a run.
   weeklyRecap(runId: number, force?: boolean): Promise<Pointer | null>;
-  healthcheck(event: "start" | "success" | "fail"): Promise<void>;
+  healthcheck(event: "start" | "success" | "fail", note?: string): Promise<void>;
   healthcheckLog(message: string): Promise<void>;
   checkFeeds(runId: number, sourceIds: string[]): Promise<AlertRequest | null>;
   checkRunHealth(runId: number, broadcasting: boolean): Promise<AlertRequest | null>;
   alert(req: AlertRequest): Promise<void>;
+  abortRun(runId: number, error: string): Promise<void>;
 }
 export const STORY_COUNT_STUB = 3;
 // What threads and gnews hand render: each story's thread context by cluster label, and each

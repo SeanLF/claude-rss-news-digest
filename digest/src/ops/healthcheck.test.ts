@@ -37,6 +37,11 @@ describe("healthcheck", () => {
     ]);
     expect(seen.every((s) => s.signal && s.ua === "news-digest-healthcheck/1")).toBe(true);
   });
+  it("a ping can carry a note, which healthchecks.io shows beside the event", async () => {
+    const { seen, f } = fakeFetch();
+    await healthcheck({ HEALTHCHECK_PING_URL: PING_URL }, f).ping(undefined, "not sent: rejected by the operator");
+    expect(seen).toMatchObject([{ method: "POST", url: "https://hc-ping.com/uuid-1", body: "not sent: rejected by the operator" }]);
+  });
   it("posts a /log message, capped at 1000 bytes", async () => {
     const { seen, f } = fakeFetch();
     await healthcheck({ HEALTHCHECK_PING_URL: PING_URL }, f).log(`write s03 done 41s $0.0712 ${"x".repeat(2000)}`);

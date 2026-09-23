@@ -7,7 +7,8 @@ const MAX_LOG_BYTES = 1000;
 
 export type PingEvent = "start" | "fail";
 export interface Healthcheck {
-  ping(event?: PingEvent): Promise<void>;
+  // `note` is posted as the ping's body, which healthchecks.io shows beside the event.
+  ping(event?: PingEvent, note?: string): Promise<void>;
   // /log records an event without changing up/down state: a stage boundary seen from off-box while
   // the run is still going.
   log(message: string): Promise<void>;
@@ -36,7 +37,7 @@ export function healthcheck(env: Record<string, string | undefined> = process.en
     }
   }
   return {
-    ping: (event) => post(event),
+    ping: (event, note) => post(event, note === undefined ? undefined : truncateUtf8(note, MAX_LOG_BYTES)),
     log: (message) => post("log", truncateUtf8(message, MAX_LOG_BYTES)),
   };
 }

@@ -21,6 +21,9 @@ import { weeklyRecapActivity } from "./weekly-recap.js";
 import { selectActivity } from "./select.js";
 import { writeActivities } from "./write.js";
 import { stubActivities } from "./stub.js";
+import { resendClient } from "../mail/resend.js";
+import { broadcastActivities, type Mail } from "./broadcast.js";
+import { recordActivities } from "./record.js";
 
 export const DEFAULT_AGENTS_DIR = "/app/digest/agents";
 const agentsDir = (): string => process.env["AGENTS_DIR"] ?? DEFAULT_AGENTS_DIR;
@@ -43,6 +46,11 @@ const safeSignal = (): AbortSignal | undefined => {
   }
 };
 
+// Built on first use: the client refuses to construct without RESEND_API_KEY, which a worker with
+// the send disabled need not have.
+let resend: Mail | undefined;
+const mailClient = (): Mail => (resend ??= resendClient(process.env["RESEND_API_KEY"] ?? ""));
+
 export function workerActivities(): Activities {
   const store = new ArtifactStore(dbPath());
   const usageDb = openDb(dbPath());
@@ -53,5 +61,5 @@ export function workerActivities(): Activities {
     void hc.log(stageDoneLine(row));
   };
   const deps = { store, agentsDir: agentsDir(), heartbeat: safeHeartbeat, signal: safeSignal, onUsage: log, log: (m: string) => void hc.log(m) };
-  return { ...stubActivities(), ...clusterActivities(deps), recap: recapActivity(deps), ...writeActivities(deps), select: selectActivity(deps), preheader: preheaderActivity(deps), coherence: coherenceActivity(deps), repair: repairActivity({ ...deps, maxAttempts: MODEL_MAX_ATTEMPTS }), assemble: assembleActivity(deps), ...fulltextActivities({ store, perStory: Number(process.env["FULLTEXT_PER_STORY"] ?? 3), enabled: !["0", "false", "no"].includes((process.env["FULLTEXT_ENABLED"] ?? "true").toLowerCase()) }), render: renderActivity({ store, dbPath: dbPath(), assets: renderAssets(), env: envFrom(process.env) }), prepare: prepareActivity({ store, dbPath: dbPath() }), ...runActivities({ store, dbPath: dbPath(), sourcesFile: process.env["SOURCES_FILE"] ?? "/app/sources.json" }), weeklyRecap: weeklyRecapActivity({ ...deps, dbPath: dbPath(), maxAttempts: WEEKLY_RECAP_MAX_ATTEMPTS }), ...opsActivities({ dbPath: dbPath(), env: process.env, maxAttempts: OPS_MAX_ATTEMPTS }) };
+  return { ...stubActivities(), ...clusterActivities(deps), recap: recapActivity(deps), ...writeActivities(deps), select: selectActivity(deps), preheader: preheaderActivity(deps), coherence: coherenceActivity(deps), repair: repairActivity({ ...deps, maxAttempts: MODEL_MAX_ATTEMPTS }), assemble: assembleActivity(deps), ...fulltextActivities({ store, perStory: Number(process.env["FULLTEXT_PER_STORY"] ?? 3), enabled: !["0", "false", "no"].includes((process.env["FULLTEXT_ENABLED"] ?? "true").toLowerCase()) }), render: renderActivity({ store, dbPath: dbPath(), assets: renderAssets(), env: envFrom(process.env) }), prepare: prepareActivity({ store, dbPath: dbPath() }), ...runActivities({ store, dbPath: dbPath(), sourcesFile: process.env["SOURCES_FILE"] ?? "/app/sources.json" }), weeklyRecap: weeklyRecapActivity({ ...deps, dbPath: dbPath(), maxAttempts: WEEKLY_RECAP_MAX_ATTEMPTS }), ...opsActivities({ dbPath: dbPath(), env: process.env, maxAttempts: OPS_MAX_ATTEMPTS }), ...recordActivities({ store, dbPath: dbPath() }), ...broadcastActivities({ store, dbPath: dbPath(), mail: mailClient, env: process.env }) };
 }
