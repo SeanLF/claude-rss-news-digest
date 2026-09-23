@@ -1,0 +1,14 @@
+# The fulltext extractor fork (docs/2026-09-23-fulltext-extractor-fork.md): every arm over the same saved
+# pages, scored against trafilatura. Run with `make fulltext-fork DIR=data/fulltext-fork-<stamp>`.
+description: fulltext extractor fork
+prompts: ["{{key}}"]
+providers:
+  - { id: file://../dist/gate/extract-provider.js, label: trafilatura, config: { arm: trafilatura } }
+  - { id: file://../dist/gate/extract-provider.js, label: defuddle, config: { arm: defuddle } }
+  - { id: file://../dist/gate/extract-provider.js, label: readability, config: { arm: readability } }
+  - { id: file://../dist/gate/extract-provider.js, label: dom-smoothie, config: { arm: dom-smoothie } }
+tests: file://../dist/gate/extract-tests.js
+defaultTest:
+  assert:
+    - type: javascript
+      value: file://../dist/gate/extract-score.js

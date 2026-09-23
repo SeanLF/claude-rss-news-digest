@@ -14,7 +14,7 @@
     "sbom": "npx --yes @cyclonedx/cyclonedx-npm --output-format JSON --output-file sbom.cdx.json"
   },
   "dependencies": {
-    "@anthropic-ai/claude-agent-sdk": "0.3.278",
+    "@anthropic-ai/claude-agent-sdk": "0.3.280",
     "@temporalio/activity": "1.24.0",
     "@temporalio/client": "1.24.0",
     "@temporalio/common": "1.24.0",
@@ -28,8 +28,12 @@
     "zod": "4.6.5"
   },
   "devDependencies": {
+    "@mozilla/readability": "0.6.0",
     "@temporalio/testing": "1.24.0",
     "@types/node": "26.6.2",
+    "defuddle": "0.19.4",
+    "dom-smoothie-js": "0.16.0",
+    "linkedom": "0.18.13",
     "oxlint": "1.85.0",
     "oxlint-tsgolint": "7.0.2002",
     "typescript": "7.0.2",

@@ -134,6 +134,13 @@ judges: ## Two judge families x5 on the day-300 fixture via promptfoo, in the wo
 planted: ## COHERENCE planted-defect band on the new runner via promptfoo, in the worker container (REPS=3; ~$1/rep)
 	@stamp=$$(date -u +%Y%m%dT%H%M%SZ); $(DIGEST_RUN) npx --yes promptfoo@0.123.1 eval -c gate/planted.yaml --repeat $${REPS:-3} -j 1 --no-cache -o ../data/planted-$$stamp.json
 
+fulltext-pages: ## Fulltext fork corpus: fetch production's candidates for runs >= 300 once, with trafilatura (DB=data/digest.db)
+	@stamp=$$(date -u +%Y%m%dT%H%M%SZ); docker compose run --rm --build -v "$(CURDIR)/newsroom/src:/app/src:ro" -v "$(CURDIR)/newsroom/tools:/app/tools:ro" -e PYTHONPATH=/app/src --entrypoint /app/.venv/bin/python3 digest-newsroom /app/tools/fulltext_fork_pages.py /app/$${DB:-data/digest.db} /app/data/fulltext-fork-$$stamp
+
+fulltext-fork: ## Fulltext fork: every extractor arm over a saved corpus via promptfoo, on the host (DIR=data/fulltext-fork-<stamp>)
+	@test -n "$(DIR)" || { echo "DIR=data/fulltext-fork-<stamp> is required"; exit 2; }
+	cd digest && npm run build --silent && FULLTEXT_FORK_DIR="$(CURDIR)/$(DIR)" npx --yes promptfoo@0.123.1 eval -c gate/fulltext.yaml -j 4 --no-cache -o "$(CURDIR)/$(DIR)/results.json"
+
 # Evals that make model calls run in the worker image, as production calls do: the Claude Code binary
 # the SDK spawns refuses to run nested inside a Claude Code session, and the image is the pinned one.
 DIGEST_RUN = docker compose --env-file .env -f digest/compose.temporal.yml run --rm --build --no-deps -v "$(CURDIR)/docs:/app/docs:ro" digest-worker
