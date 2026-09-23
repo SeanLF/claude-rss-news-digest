@@ -19,7 +19,7 @@ seanfloyd.dev. Spec: §2.1 and §5 of `docs/superpowers/specs/2026-09-21-four-sy
 | worker's database (`DIGEST_DB_PATH`) | | `digest-staged.db`, a copy | `digest.db` |
 | worker broadcasts (`BROADCAST_ENABLED`) | | `false` | `true` |
 | healthchecks.io success ping | the Python run | the Python run | `news-digest-deadman`, after `--verify-today` |
-| what `bin/deploy` builds and applies | circulation, newsroom | + both workers, the stack, pause and restore | same as staged, and refuses 10:00-11:45Z without `--force` |
+| what `bin/deploy` builds and applies | circulation, newsroom | + both workers, the stack, pause and restore; refuses while a run is live without `--force` | same as staged, and refuses 10:00-11:45Z without `--force` |
 
 - **`python`** costs nothing. A Python deploy never builds, gates, targets or pauses anything Temporal,
   so a problem in `digest/` cannot block it.
@@ -186,8 +186,30 @@ history. Rehearsed under systemd in a container: no unit files and no active uni
   - The schedule is paused before the snapshot and the migrations, and restored after the apply and
     the tag. The exit trap restores it too if the deploy dies partway.
   - In temporal mode, a deploy between 10:00Z and 11:45Z needs `--force`.
-  - A run already in progress is reported, not blocked: the worker restarts under it and resumes from
-    its last completed activity.
+  - A deploy refuses while a digest workflow is running, without `--force`. It lists them
+    (`workflow list --query 'WorkflowType="DigestWorkflow" AND ExecutionStatus="Running"'`) before
+    the builds and again after the pause, so no scheduled run can start between the answer and the
+    restart. An unreachable Temporal, a failed pause, or an answer that is not a complete list
+    refuses too; `--force` is for the deploy that repairs Temporal. A run lives until its approval
+    or the end of the 2 h hold (up to 14:25Z), so a same-day deploy waits for it, or approves or
+    rejects it first. A run parked on the retry signal counts as running: answer it first. What a restart does to a live run is measured in
+    `digest/src/workflow/deploy-safety.test.ts`: a model call, render and assemble are retried by
+    their policies, but a one-attempt step (COHERENCE, the send, and the other `once` steps) fails
+    the run or parks it for an operator, and a workflow-code change the run cannot replay leaves it stuck until its 4 h run
+    timeout, with no alert.
+  - **Workflow-code changes are gated with `patched()`** (the convention is at the top of
+    `digest/src/workflow/digest.workflow.ts`). `replay.test.ts` replays recorded histories of every
+    path (`digest/src/workflow/histories/`) against the current code in CI, so an ungated change fails
+    before it ships. Re-record the fixtures only for a new path, never to make a replay pass:
+    `temporal server start-dev` on a spare port, then
+    `cd digest && npm run build && TEMPORAL_ADDRESS=localhost:<port> node dist/cli/record-histories.js`.
+  - Not worker versioning (Worker Deployments, pinned workflows), decided 2026-09-23. Pinning keeps
+    a run on the build that started it, so the old worker must keep running beside the new one until
+    its runs end, up to 4 h. This box has one worker, and it has no room for a second: the caps
+    already sum to 2752 of 2825 MiB free. Pinning also needs a set-current-version and drain step in
+    the deploy. With the guard above, a deploy never overlaps a run unless it is forced, so
+    `patched()` only has to cover a `--force` deploy. Revisit if the pipeline gets a second worker
+    host.
   - Known gap: the apply's own bootstrap step restores the schedule a few seconds before the workers
     restart on the new image.
 

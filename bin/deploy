@@ -10,7 +10,8 @@
 #   --skip-sbom-audit Skip the still_active vulnerability gate on the generated SBOMs
 #   -y, --yes     Skip confirmation prompt
 #   --dry-run     Show what would be done without making changes
-#   --force       Deploy inside the Temporal run window (10:00-11:45Z) when the Temporal pipeline is live
+#   --force       Deploy inside the Temporal run window (10:00-11:45Z) when the Temporal pipeline is live,
+#                 or while a digest workflow is running (staged or temporal)
 #
 # Required environment variables (set in .env):
 #   REGISTRY  - Docker registry URL (e.g., registry.example.com:5000)
@@ -790,6 +791,56 @@ check_run_window() {
 # In "python" there is no schedule and neither function runs.
 SCHEDULE_PAUSED=false
 
+# A deploy restarts the worker under any run in flight, and that is not always survivable
+# (digest/src/workflow/deploy-safety.test.ts): a one-attempt step it interrupts fails the run or parks
+# it for an operator, and a workflow-code change the run cannot replay leaves it stuck until its run
+# timeout with no alert. So in staged and temporal a deploy refuses while a DigestWorkflow runs.
+# It asks twice: before the builds, to fail fast, and after the pause, the answer that holds, since
+# no scheduled run can start between it and the restart. An answer that is not a complete JSON list
+# (Temporal unreachable, ssh failing, output cut short) refuses too: the CLI can print "[]" and
+# then fail, so the exit code is read as well. --force deploys anyway, loudly.
+# The names are terraform's (news-digest-temporal.tf), the runbook's $T.
+TEMPORAL_CLI="docker run --rm --network news-digest-temporal -e TEMPORAL_ADDRESS=news-digest-temporal:7233 -e TEMPORAL_NAMESPACE=news-digest temporalio/admin-tools:1.32.0 temporal"
+RUNNING_DIGESTS_QUERY='WorkflowType="DigestWorkflow" AND ExecutionStatus="Running"'
+
+check_no_run_in_flight() {
+  temporal_on || return 0
+  log_step "Checking for a digest run in flight..."
+  # Exit 3, as in pause_schedule: no Temporal on the box yet, so nothing can be running on it.
+  local cmd="test -x $SCHEDULE_CTL || exit 3; $TEMPORAL_CLI workflow list --query '$RUNNING_DIGESTS_QUERY' -o json"
+  dry_run_skip "bin/ssh \"$cmd\"" && return 0
+
+  local out rc=0 ids problem wait_for
+  out=$("$SCRIPT_DIR/ssh" "$cmd") || rc=$?
+  if [[ $rc == 3 ]]; then
+    log_info "Temporal not provisioned on the box yet -- no run to wait for"
+    return 0
+  fi
+  if [[ $rc == 0 ]] && ids=$(python3 -c '
+import json, sys
+runs = json.load(sys.stdin)
+if not isinstance(runs, list):
+    sys.exit(1)
+print(" ".join(r["execution"]["workflowId"] for r in runs))
+' <<<"$out" 2>/dev/null); then
+    if [[ -z $ids ]]; then
+      log_success "no digest run in flight"
+      return 0
+    fi
+    problem="digest workflow(s) running: $ids"
+    wait_for="deploy when they end, or approve or reject them first"
+  else
+    problem="could not list the running digest workflows (exit $rc): $(printf '%.200s' "${out:-<no output>}")"
+    wait_for="refusing rather than guessing"
+  fi
+  if [[ $FORCE == true ]]; then
+    log_error "$problem -- deploying under --force"
+    return 0
+  fi
+  log_error "$problem -- $wait_for, or pass --force"
+  return 1
+}
+
 pause_schedule() {
   temporal_on || return 0
   log_step "Pausing the Temporal schedule..."
@@ -804,15 +855,19 @@ pause_schedule() {
     0)
       SCHEDULE_PAUSED=true
       log_success "${out##*$'\n'}"
-      # Not fatal: the worker restart resumes the run from its last completed activity.
-      if [[ $out =~ paused\;\ ([1-9][0-9]*)\ workflow ]]; then
-        log_error "${BASH_REMATCH[1]} digest workflow(s) running -- the worker restarts under them and they resume from their last activity"
-      fi
+      check_no_run_in_flight || return 1
       ;;
     3) log_info "Temporal not provisioned on the box yet -- no schedule to pause" ;;
-    # Loud, not fatal: the deploy may be what repairs Temporal, and a paused-but-unreachable
-    # schedule is the same state either way.
-    *) log_error "could not pause the Temporal schedule (exit $rc) -- deploying with it armed: ${out:0:300}" ;;
+    # Unpaused, a run can start under the restart, and whatever failed the pause likely hides a
+    # live run too. --force is for the deploy that repairs Temporal.
+    *)
+      if [[ $FORCE == true ]]; then
+        log_error "could not pause the Temporal schedule (exit $rc) -- deploying with it armed under --force: ${out:0:300}"
+        return 0
+      fi
+      log_error "could not pause the Temporal schedule (exit $rc) -- refusing; pass --force to deploy with it armed: ${out:0:300}"
+      return 1
+      ;;
   esac
 }
 
@@ -1081,6 +1136,7 @@ main() {
   read_pipeline_mode || exit 1
   check_box_matches_mode || exit 1
   check_run_window || exit 1
+  check_no_run_in_flight || exit 1
 
   # Git operations
   log_stage "GIT OPERATIONS"
@@ -1117,7 +1173,7 @@ main() {
   verify_provenance || exit 1
   # Ahead of the snapshot and the migrations: nothing may start a run against a database that is
   # about to be copied and then mutated.
-  pause_schedule
+  pause_schedule || exit 1
   backup_data
   # Migrations BEFORE terraform: circulation fail-closes at boot on missing
   # required tables (REQUIRED_TABLES), and terraform restarts it. Migrating
@@ -1150,4 +1206,7 @@ main() {
   [[ -x "$SCRIPT_DIR/check-versions" ]] && "$SCRIPT_DIR/check-versions" --quiet || true
 }
 
-main
+# Sourced by newsroom/tests/test_deploy_run_guard.py, which calls the guard functions alone.
+if [[ ${BASH_SOURCE[0]} == "$0" ]]; then
+  main
+fi
