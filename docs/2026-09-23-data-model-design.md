@@ -156,8 +156,9 @@ rewritten whichever engine is chosen; that cost no longer separates the options 
 SQLite keeps tests in-process on `node:sqlite` with no server, backups as a file, and FTS5 ranking as today;
 Postgres gives one backup and restore path shared with Temporal, `jsonb`, and readers that need no shared
 volume mount. **A close call; SQLite by a small margin, on test speed and fewer moving parts.** Postgres is
-defensible if Sean prefers one engine on the box. Revisit if a second writer appears (the web tier writing
-subscriptions or feedback) or the Mac needs to query prod live.
+defensible if Sean prefers one engine on the box. The Mac already queries live prod (`bin/ops` over SSH, the
+MCP surface) or clones it (`make db-clone`), so remote access argues for neither. Revisit if a second writer
+appears (the web tier writing subscriptions or feedback).
 
 ## 4. Recommendation: the model
 
