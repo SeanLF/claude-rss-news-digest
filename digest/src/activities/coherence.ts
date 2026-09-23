@@ -101,12 +101,27 @@ export function coherenceActivity(deps: CoherenceDeps) {
 // repair is this same run over a draft holding only the patched stories.
 export async function runChecker(deps: CoherenceDeps, runId: number, draftText: string, note?: string) {
   const { store } = deps;
-  const dir = mkdtempSync(join(tmpdir(), `coherence-${runId}-`));
+  const corpus: [string, string][] = store
+    .names(runId)
+    .filter((n) => /^articles_\d+\.csv$/.test(n) || n === "article_fulltext.json")
+    .toSorted()
+    .map((n) => [n, store.get(store.find(runId, n)!)]);
+  return checkDraft(deps, draftText, corpus, store.runDate(runId), note);
+}
+
+// The checker over explicit files, with no store: what the activity runs, and what the planted-defect
+// band runs over a fixture directory.
+export async function checkDraft(
+  deps: Pick<CoherenceDeps, "agentsDir" | "query" | "heartbeat" | "signal">,
+  draftText: string,
+  corpus: [string, string][],
+  today: string,
+  note?: string,
+) {
+  const dir = mkdtempSync(join(tmpdir(), "coherence-"));
   try {
-    const files: [string, string][] = [[DRAFT_OUTPUT, draftText]];
-    for (const name of store.names(runId).filter((n) => /^articles_\d+\.csv$/.test(n) || n === "article_fulltext.json").toSorted()) files.push([name, store.get(store.find(runId, name)!)]);
     const parts: string[] = [];
-    for (const [name, raw] of files) {
+    for (const [name, raw] of [[DRAFT_OUTPUT, draftText] as [string, string], ...corpus]) {
       const text = scrubUrls(raw);
       assertNoUrls(text);
       writeFileSync(join(dir, name), text);
@@ -116,13 +131,13 @@ export async function runChecker(deps: CoherenceDeps, runId: number, draftText: 
     const body = buildInlineGrepBody(spec.body, dir);
     deps.heartbeat?.();
     const r = await runStage({ ...spec, body }, { userMessage: parts.join("\n\n") + (note ? `\n\nOperator note for this attempt: ${note}` : ""), inputDir: dir }, {
-      today: store.runDate(runId),
+      today,
       outputSchema: coherenceReportJsonSchema(),
       ...(deps.query ? { query: deps.query } : {}), ...(deps.heartbeat ? { heartbeat: deps.heartbeat } : {}), ...(deps.signal?.() ? { signal: deps.signal()! } : {}),
     });
     deps.heartbeat?.();
     const parsed = CoherenceReportSchema.safeParse(r.structured);
-    if (!parsed.success) throw new Error(`coherence for run ${runId}: report does not match the schema`);
+    if (!parsed.success) throw new Error("coherence: report does not match the schema");
     return { model: spec.model, thinking: spec.thinking, tokens: r.usage, report: parsed.data, costUsd: r.costUsd, durationMs: r.durationMs, numTurns: r.numTurns, toolCalls: r.toolCalls.length, unbacked: unbackedFails(parsed.data, r.toolCalls) };
   } finally {
     rmSync(dir, { recursive: true, force: true }); // the mkdtemp directory this call created

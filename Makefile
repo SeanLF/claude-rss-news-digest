@@ -128,5 +128,12 @@ band: ## Same-day curation band of the TypeScript workflow via promptfoo (RUN=30
 	(cd digest && npm run build && BAND_DB=../data/band-$$stamp.db npx --yes promptfoo@0.123.1 eval -c gate/band.yaml --repeat $${REPS:-3} -j 1 --no-cache -o ../data/band-$$stamp.json); status=$$?; \
 	env -u DIGEST_DB_PATH docker compose --env-file .env -f digest/compose.temporal.yml up -d --force-recreate digest-worker >/dev/null; exit $$status  # the worker goes back to data/digest.db
 
-judges: ## Two judge families x5 on the day-300 fixture via promptfoo (model calls, ~$5)
-	@stamp=$$(date -u +%Y%m%dT%H%M%SZ); cd digest && npm run build && npx --yes promptfoo@0.123.1 eval -c gate/judges.yaml --repeat 5 -j 1 --no-cache -o ../data/judges-$$stamp.json && node dist/cli/agreement.js ../data/judges-$$stamp.json
+judges: ## Two judge families x5 on the day-300 fixture via promptfoo, in the worker container (model calls, ~$5)
+	@stamp=$$(date -u +%Y%m%dT%H%M%SZ); $(DIGEST_RUN) sh -c "npx --yes promptfoo@0.123.1 eval -c gate/judges.yaml --repeat 5 -j 1 --no-cache -o ../data/judges-$$stamp.json && node dist/cli/agreement.js ../data/judges-$$stamp.json"
+
+planted: ## COHERENCE planted-defect band on the new runner via promptfoo, in the worker container (REPS=3; ~$1/rep)
+	@stamp=$$(date -u +%Y%m%dT%H%M%SZ); $(DIGEST_RUN) npx --yes promptfoo@0.123.1 eval -c gate/planted.yaml --repeat $${REPS:-3} -j 1 --no-cache -o ../data/planted-$$stamp.json
+
+# Evals that make model calls run in the worker image, as production calls do: the Claude Code binary
+# the SDK spawns refuses to run nested inside a Claude Code session, and the image is the pinned one.
+DIGEST_RUN = docker compose --env-file .env -f digest/compose.temporal.yml run --rm --build --no-deps -v "$(CURDIR)/docs:/app/docs:ro" digest-worker
