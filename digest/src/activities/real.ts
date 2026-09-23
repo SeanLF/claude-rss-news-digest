@@ -11,6 +11,8 @@ import { preheaderActivity } from "./preheader.js";
 import { prepareActivity } from "./prepare.js";
 import { runActivities } from "./run.js";
 import { recapActivity } from "./recap.js";
+import { renderActivity } from "./render.js";
+import { envFrom, loadAssets } from "../render/render.js";
 import { repairActivity } from "./repair.js";
 import { MODEL_MAX_ATTEMPTS } from "../workflow/policy.js";
 import { selectActivity } from "./select.js";
@@ -19,6 +21,8 @@ import { stubActivities } from "./stub.js";
 
 export const DEFAULT_AGENTS_DIR = "/app/digest/agents";
 const agentsDir = (): string => process.env["AGENTS_DIR"] ?? DEFAULT_AGENTS_DIR;
+// The newsroom's template and stylesheet and the shared design tokens, copied into the image.
+const renderAssets = () => loadAssets({ templates: process.env["TEMPLATES_DIR"] ?? "/app/newsroom/templates", design: process.env["DESIGN_DIR"] ?? "/app/design" });
 
 // The worker's activity set: real activities as they are ported (plan A2), stubs for the rest.
 const safeHeartbeat = () => {
@@ -41,5 +45,5 @@ export function workerActivities(): Activities {
   const usageDb = openDb(dbPath());
   const log = (row: UsageRow) => recordUsage(usageDb, row);
   const deps = { store, agentsDir: agentsDir(), heartbeat: safeHeartbeat, signal: safeSignal, onUsage: log };
-  return { ...stubActivities(), ...clusterActivities(deps), recap: recapActivity(deps), ...writeActivities(deps), select: selectActivity(deps), preheader: preheaderActivity(deps), coherence: coherenceActivity(deps), repair: repairActivity({ ...deps, maxAttempts: MODEL_MAX_ATTEMPTS }), assemble: assembleActivity(deps), ...fulltextActivities({ store, perStory: Number(process.env["FULLTEXT_PER_STORY"] ?? 3), enabled: !["0", "false", "no"].includes((process.env["FULLTEXT_ENABLED"] ?? "true").toLowerCase()) }), prepare: prepareActivity({ store, dbPath: dbPath() }), ...runActivities({ store, dbPath: dbPath(), sourcesFile: process.env["SOURCES_FILE"] ?? "/app/sources.json" }) };
+  return { ...stubActivities(), ...clusterActivities(deps), recap: recapActivity(deps), ...writeActivities(deps), select: selectActivity(deps), preheader: preheaderActivity(deps), coherence: coherenceActivity(deps), repair: repairActivity({ ...deps, maxAttempts: MODEL_MAX_ATTEMPTS }), assemble: assembleActivity(deps), ...fulltextActivities({ store, perStory: Number(process.env["FULLTEXT_PER_STORY"] ?? 3), enabled: !["0", "false", "no"].includes((process.env["FULLTEXT_ENABLED"] ?? "true").toLowerCase()) }), render: renderActivity({ store, dbPath: dbPath(), assets: renderAssets(), env: envFrom(process.env) }), prepare: prepareActivity({ store, dbPath: dbPath() }), ...runActivities({ store, dbPath: dbPath(), sourcesFile: process.env["SOURCES_FILE"] ?? "/app/sources.json" }) };
 }

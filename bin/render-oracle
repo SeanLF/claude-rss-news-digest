@@ -1,0 +1,58 @@
+#!/bin/bash
+# The Python render as the TypeScript port's oracle: every case digest/src/render/render.parity.test.ts
+# compares, rendered by newsroom/tools/render_oracle.py with the clock pinned and no network. Each run
+# is rendered at its archived completed_at; each fixture at a fixed time. Both under a production-like
+# environment ("prod") and an empty one ("bare"), since the two take different template branches.
+#
+# Usage:
+#   bin/render-oracle RUN...                      e.g. bin/render-oracle 300
+#   DB=path/to/digest.db  (default data/digest.db, mounted read-only; never written)
+#   OUT=dir               (default data/replay/oracle; case dirs land at OUT/<case>-<env>)
+set -euo pipefail
+cd "$(dirname "${BASH_SOURCE[0]}")/.."
+
+[[ $# -ge 1 ]] || { sed -n '2,11p' "$0"; exit 2; }
+
+DB="$(cd "$(dirname "${DB:-data/digest.db}")" && pwd)/$(basename "${DB:-data/digest.db}")"
+[[ -f "$DB" ]] || { echo "no database at $DB" >&2; exit 1; }
+mkdir -p "${OUT:-data/replay/oracle}"
+OUT="$(cd "${OUT:-data/replay/oracle}" && pwd)"
+FIXTURE_AT=2026-07-05T06:07:00Z
+
+docker compose build -q digest-newsroom
+IMAGE="$(docker compose config --images digest-newsroom)"
+
+PROD=(-e "DIGEST_NAME=Sean's Daily News Digest" -e DIGEST_DOMAIN=news-digest.seanfloyd.dev
+  -e ARCHIVE_URL=https://news-digest.seanfloyd.dev -e AUTHOR_NAME=Sean -e AUTHOR_URL=https://seanfloyd.dev)
+
+# docker run, not compose run: the service passes DIGEST_* through from .env, and "bare" must leave
+# them unset, not empty, to reach the Python's defaults.
+oracle() {
+  local env="$1" case="$2"; shift 2
+  local flags=()
+  [[ "$env" == prod ]] && flags=("${PROD[@]}")
+  mkdir -p "$OUT/$case-$env"
+  docker run --rm ${flags[@]+"${flags[@]}"} \
+    -v "$(pwd)/newsroom/src:/app/src:ro" \
+    -v "$(pwd)/newsroom/tools:/app/tools:ro" \
+    -v "$(pwd)/newsroom/templates:/app/templates:ro" \
+    -v "$(pwd)/design:/app/design:ro" \
+    -v "$(pwd)/newsroom/tests/fixtures:/fixtures/newsroom:ro" \
+    -v "$(pwd)/digest/src/render/fixtures:/fixtures/digest:ro" \
+    -v "$DB:/app/data/digest.db:ro" \
+    -v "$OUT/$case-$env:/out" \
+    -e PYTHONPATH=/app/src \
+    --entrypoint /app/.venv/bin/python3 \
+    "$IMAGE" /app/tools/render_oracle.py "$@" --out /out
+}
+
+for env in prod bare; do
+  for run in "$@"; do
+    at="$(sqlite3 -readonly "$DB" "SELECT strftime('%Y-%m-%dT%H:%M:%SZ', completed_at) FROM digest_runs WHERE id=$((run))")"
+    [[ -n "$at" ]] || { echo "run $run has no completed_at" >&2; exit 1; }
+    oracle "$env" "run$run" --run "$run" --at "$at"
+  done
+  oracle "$env" kitchensink --fixture /fixtures/newsroom/kitchensink_selections.json --at "$FIXTURE_AT"
+  oracle "$env" edge --fixture /fixtures/digest/edge_selections.json --at "$FIXTURE_AT"
+done
+echo "oracle renders in $OUT"

@@ -6,4 +6,8 @@ COPY digest/package.json digest/package-lock.json ./
 RUN npm ci
 # The store's tests apply the repo's own migrations so the schema under test is production's.
 COPY migrations/ /app/migrations/
+# The render's tests read the template, stylesheet and tokens, and the newsroom's kitchen-sink fixture.
+COPY newsroom/templates/digest-template.html newsroom/templates/digest.css /app/newsroom/templates/
+COPY newsroom/tests/fixtures/kitchensink_selections.json /app/newsroom/tests/fixtures/
+COPY design/tokens.css /app/design/tokens.css
 COPY digest/ ./

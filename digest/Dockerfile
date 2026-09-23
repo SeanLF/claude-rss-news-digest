@@ -6,6 +6,9 @@ RUN npm ci
 COPY digest/ ./
 # The feed catalogue fetch reads (newsroom owns it until the Python tree retires).
 COPY newsroom/sources.json /app/sources.json
+# The render's template and stylesheet, and the design tokens the email's colours come from.
+COPY newsroom/templates/digest-template.html newsroom/templates/digest.css /app/newsroom/templates/
+COPY design/tokens.css /app/design/tokens.css
 # Build with the dev toolchain, then drop it: tsc is a devDependency.
 RUN npm run build && npm prune --omit=dev
 USER appuser
