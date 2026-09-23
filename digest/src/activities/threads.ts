@@ -16,6 +16,7 @@ import { applyInstallment, auditPrompt, auditReask, expandNeighbourhood, parseIn
 import { loadArticles } from "./cluster.js";
 import { THREAD_CONTEXT, type ThreadOutcome, type ThreadPlan, type ThreadsLinked, type ThreadsReport } from "./index.js";
 import { ACCEPTED_BROADCAST_STATES, broadcastState, CLAIMED } from "../ops/broadcast-state.js";
+import { RUN_TIMEOUT_HOURS } from "../workflow/policy.js";
 
 // THREADS (run.py::_process_story_threads): link each selected story to a continuing thread or a
 // new one, synthesize and audit today's installment for each continuing thread, then hand the
@@ -169,6 +170,44 @@ export function undoRun(db: DatabaseSync, runId: number): void {
   for (const name of threadArtifacts(db, runId)) quarantineIn(db, runId, name);
 }
 
+export interface Retraction { retracted: boolean; reason?: string }
+
+function retract(db: DatabaseSync, runId: number): Retraction {
+  const decline = (reason: string) => {
+    console.error(JSON.stringify({ stage: "threads", runId, error: "unsent issue's thread writes kept", reason }));
+    return { retracted: false, reason };
+  };
+  const hasDigests = db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'digests'").get() !== undefined;
+  const day = hasDigests ? broadcastState(db, runId) : null;
+  if (day && (day.id !== null || (day.status !== null && (ACCEPTED_BROADCAST_STATES.has(day.status) || day.status.startsWith(CLAIMED)))))
+    return decline(`the day's broadcast is ${day.status ?? "unknown"}${day.id ? ` (${day.id})` : ""}`);
+  const later = dependentRuns(db, runId);
+  if (later.length) return decline(`later run(s) ${later.join(", ")} build on it`);
+  new ThreadStore(db).transaction(() => undoRun(db, runId));
+  return { retracted: true };
+}
+
+// How long a failed run can still be resumed: a resume is a new execution under the same run timeout,
+// so a run older than this has no attempt left that could deliver its installments.
+export const RESUME_HORIZON_HOURS = RUN_TIMEOUT_HOURS;
+
+// abortRun keeps a failed run's thread writes for a resume. Once the horizon has passed and the run's
+// day has no broadcast that may have gone out, nobody was sent them: take them back before this run
+// links, newest first, so a chain of failed runs unwinds without the later one counting as a dependent.
+export function retractAbandoned(db: DatabaseSync, runId: number): number[] {
+  const abandoned = db
+    .prepare(
+      `SELECT id FROM digest_runs
+       WHERE id < ? AND completed_at IS NULL AND status IN ('failed', 'aborted')
+         AND run_at < datetime('now', ?)
+         AND (EXISTS (SELECT 1 FROM thread_installments WHERE run_id = digest_runs.id)
+              OR EXISTS (SELECT 1 FROM thread_questions WHERE raised_run_id = digest_runs.id OR resolved_run_id = digest_runs.id))
+       ORDER BY id DESC`,
+    )
+    .all(runId, `-${RESUME_HORIZON_HOURS} hours`) as { id: number }[];
+  return abandoned.filter(({ id }) => retract(db, id).retracted).map(({ id }) => id);
+}
+
 function withDb<T>(path: string, fn: (db: DatabaseSync) => T | Promise<T>): Promise<T> {
   const db = openDb(path);
   return Promise.resolve()
@@ -256,6 +295,8 @@ export function threadsActivities(deps: ThreadsDeps) {
         };
         const done = read();
         if (done) return { plans: done };
+        const retracted = retractAbandoned(db, runId);
+        if (retracted.length) console.log(JSON.stringify({ stage: "threads", runId, retractedAbandonedRuns: retracted }));
         if (ts.runInstallments(runId) > 0)
           throw ApplicationFailure.nonRetryable(`run ${runId} has thread installments but no ${THREAD_ASSIGNMENTS}; refusing to link again and duplicate them (a forced re-run undoes them)`, "ThreadIdentityUnrecorded");
         const need = (name: string) => {
@@ -352,21 +393,7 @@ export function threadsActivities(deps: ThreadsDeps) {
     // run's synthesis would build on facts no reader was sent. Declines when the database says the
     // day was broadcast (a resume of a delivered run) or a send may be in flight, and when a later
     // run already builds on it, as a force does. A decline is logged: its installments stay public.
-    threadsRetract: (runId: number): Promise<{ retracted: boolean; reason?: string }> =>
-      withDb(deps.dbPath, (db) => {
-        const decline = (reason: string) => {
-          console.error(JSON.stringify({ stage: "threads", runId, error: "unsent issue's thread writes kept", reason }));
-          return { retracted: false, reason };
-        };
-        const hasDigests = db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'digests'").get() !== undefined;
-        const day = hasDigests ? broadcastState(db, runId) : null;
-        if (day && (day.id !== null || (day.status !== null && (ACCEPTED_BROADCAST_STATES.has(day.status) || day.status.startsWith(CLAIMED)))))
-          return decline(`the day's broadcast is ${day.status ?? "unknown"}${day.id ? ` (${day.id})` : ""}`);
-        const later = dependentRuns(db, runId);
-        if (later.length) return decline(`later run(s) ${later.join(", ")} build on it`);
-        new ThreadStore(db).transaction(() => undoRun(db, runId));
-        return { retracted: true };
-      }),
+    threadsRetract: (runId: number): Promise<Retraction> => withDb(deps.dbPath, (db) => retract(db, runId)),
     // Records the phase from the run's thread rows and returns the render's context. Recomputed
     // every time, so a resume that lands what an earlier attempt could not says so.
     threadsFinish: (runId: number, report: ThreadsReport): Promise<Pointer> =>

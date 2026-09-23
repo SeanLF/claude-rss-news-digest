@@ -1,11 +1,11 @@
 import { ActivityFailure, ApplicationFailure, CancellationScope, CancelledFailure, condition, isCancellation, log, proxyActivities, setHandler, TimeoutFailure, workflowInfo } from "@temporalio/workflow";
 import type { Activities, AlertRequest, DigestInput, DigestOutput, FulltextFetch, FulltextFetcher, GnewsDecode, LinkDecoder } from "../activities/index.js";
 import { mapBounded, MODEL_FANOUT_LIMIT } from "./bounded.js";
-import { MODEL_MAX_ATTEMPTS, NETWORK_MAX_ATTEMPTS, OPS_MAX_ATTEMPTS, PYTHON_TASK_QUEUE, WEEKLY_RECAP_MAX_ATTEMPTS } from "./policy.js";
+import { MODEL_MAX_ATTEMPTS, NETWORK_MAX_ATTEMPTS, OPS_MAX_ATTEMPTS, PYTHON_TASK_QUEUE, RUN_TIMEOUT_HOURS, WEEKLY_RECAP_MAX_ATTEMPTS } from "./policy.js";
 import { approveSignal, operatorNoteSignal, retrySignal } from "./signals.js";
 import { threadsPhase } from "./threads.js";
 
-export const WORKFLOW_RUN_TIMEOUT = "4 hours";
+export const WORKFLOW_RUN_TIMEOUT = `${RUN_TIMEOUT_HOURS} hours` as const;
 // The workflow's own deadline, under the run timeout. The server's run timeout ends a run without
 // running any of its code, so a run that reached it would fail silently; at this deadline the run is
 // still alive to alert, ping the dead-man's switch and fail. DEADLINE_MARGIN_MS covers the alert.
