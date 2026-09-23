@@ -150,16 +150,25 @@ snapshot every deploy takes.
 
 ## Teardown (staged -> python)
 
-`bin/deploy` in `python` mode does not target the Temporal resources, so it never tears them down as a
-side effect. Tear down deliberately:
+`bin/deploy` in `python` mode never touches the Temporal resources. If it finds the stack still on the
+box (`digest-schedule` or the server unit present), it refuses and points here. Tear down deliberately,
+with `news_digest_pipeline = "python"` already set:
 ```
-cd "$INFRA_DIR" && bin/tf apply --fresh -target=null_resource.news_digest_workers \
-  -target=null_resource.news_digest_temporal_bootstrap -target=null_resource.news_digest_temporal_backup \
-  -target=null_resource.news_digest_temporal_server -target=null_resource.news_digest_temporal_db
+cd "$INFRA_DIR" && bin/tf apply --fresh -target=null_resource.news_digest_temporal_teardown \
+  -target=null_resource.news_digest_workers -target=null_resource.news_digest_temporal_bootstrap \
+  -target=null_resource.news_digest_temporal_backup -target=null_resource.news_digest_temporal_server \
+  -target=null_resource.news_digest_temporal_db
 ```
-The destroy provisioners pause the schedule, stop and remove the units, and turn off `tailscale serve`
-on :8233. They keep the Postgres volume, `temporal-db.env` and the dumps, so a later `staged` resumes
-the same history.
+The five stack resources leave state with no provisioner run. Destroy provisioners would also run on
+every replacement: a pin bump would stop Postgres, and everything that `Requires=` it would stop with
+it. `news_digest_temporal_teardown`, which exists only in `python`, then does the work:
+- pauses the schedule
+- stops, disables and removes every unit
+- turns off `tailscale serve` on :8233
+- removes the scripts and `worker.env`
+
+It keeps the Postgres volume, `temporal-db.env` and the dumps, so a later `staged` resumes the same
+history. Rehearsed under systemd in a container: no unit files and no active units were left afterwards.
 
 ## Day to day
 
@@ -213,10 +222,14 @@ Local connections inside the container are trusted, so this works without the ol
 
 ## Unverified until the first apply
 
-- **systemd on the box.** Every script and unit ran only in a local rehearsal: Exec lines verbatim
-  against local docker, `systemd-analyze verify` on Ubuntu 24.04, shellcheck. Never under systemd on
-  the box. Boot ordering, `StartLimit*`, `OnFailure`, the destroy provisioners and
-  `docker network prune` against live networks are all unexercised.
+- **systemd on the box.** The scripts and units have run only in local rehearsals:
+  - Exec lines verbatim against local docker
+  - `systemd-analyze verify` on Ubuntu 24.04, and shellcheck
+  - the create steps and the teardown under real systemd in a container (docker stubbed), including
+    a Postgres pin bump that ended with every unit still up
+
+  They have never run on the box. Boot ordering, `StartLimit*`, `OnFailure` and `docker network prune`
+  against live networks are unexercised there.
 - **`tailscale serve --bg --https=8233`.** Its syntax was read from the box's `tailscale serve --help`
   (1.102.4), and the registry already uses the same mechanism on :5443. The command itself has not
   been run.

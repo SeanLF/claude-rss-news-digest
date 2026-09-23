@@ -738,6 +738,24 @@ read_pipeline_mode() {
 
 temporal_on() { [[ $PIPELINE_MODE == staged || $PIPELINE_MODE == temporal ]]; }
 
+# tfvars can say "python" while the box still runs Temporal: set straight from "temporal", skipping
+# the teardown. A deploy would then re-enable the Persistent timer beside a live schedule, and both
+# pipelines would send. So in "python" the box is asked, and a stack still there stops the deploy.
+check_box_matches_mode() {
+  [[ $PIPELINE_MODE == python ]] || return 0
+  log_step "Checking the box has no Temporal stack (mode python)..."
+  dry_run_skip "bin/ssh test -e $SCHEDULE_CTL -o -e /etc/systemd/system/news-digest-temporal.service" && return 0
+
+  local rc=0
+  "$SCRIPT_DIR/ssh" "test -e $SCHEDULE_CTL -o -e /etc/systemd/system/news-digest-temporal.service" || rc=$?
+  case $rc in
+    0) log_error "mode is python but the box still runs the Temporal stack -- tear it down first (docs/2026-09-23-temporal-cutover-runbook.md, \"Teardown\"), or set the mode back"; return 1 ;;
+    1) log_success "no Temporal stack on the box" ;;
+    # 255 is ssh itself: unknown is not "absent".
+    *) log_error "could not check the box for a Temporal stack (exit $rc) -- refusing rather than guessing"; return 1 ;;
+  esac
+}
+
 # A paused schedule drops the slot it misses, and a deploy restarts the worker under a run, so with
 # Temporal live a deploy is refused from 10:00Z (before the 10:25Z start) to 11:45Z (past a normal
 # run's end). digest-schedule sync still starts a missed day once if a --force deploy spans 10:25Z.
@@ -1049,6 +1067,7 @@ main() {
   check_tailscale || exit 1
   check_web || exit 1
   read_pipeline_mode || exit 1
+  check_box_matches_mode || exit 1
   check_run_window || exit 1
 
   # Git operations
