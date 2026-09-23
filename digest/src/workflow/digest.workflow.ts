@@ -1,7 +1,7 @@
 import { ActivityFailure, CancelledFailure, condition, isCancellation, proxyActivities, setHandler } from "@temporalio/workflow";
 import type { Activities, DigestInput, DigestOutput } from "../activities/index.js";
 import { mapBounded, MODEL_FANOUT_LIMIT } from "./bounded.js";
-import { MODEL_MAX_ATTEMPTS } from "./policy.js";
+import { MODEL_MAX_ATTEMPTS, NETWORK_MAX_ATTEMPTS } from "./policy.js";
 import { approveSignal, operatorNoteSignal, retrySignal } from "./signals.js";
 
 export const WORKFLOW_RUN_TIMEOUT = "4 hours";
@@ -17,7 +17,7 @@ const model = proxyActivities<Activities>({
   heartbeatTimeout: "2 minutes",
   retry: { maximumAttempts: MODEL_MAX_ATTEMPTS, initialInterval: "5 minutes", backoffCoefficient: 2 },
 });
-const network = proxyActivities<Activities>({ startToCloseTimeout: "2 minutes", retry: { maximumAttempts: 3, initialInterval: "10 seconds" } });
+const network = proxyActivities<Activities>({ startToCloseTimeout: "2 minutes", retry: { maximumAttempts: NETWORK_MAX_ATTEMPTS, initialInterval: "10 seconds" } });
 const once = proxyActivities<Activities>({ startToCloseTimeout: "10 minutes", retry: { maximumAttempts: 1 } });
 // A verdict is a result, never re-sampled until something passes (spec §2.2 tier 3): one attempt,
 // and a failure parks on the retry signal for an operator.

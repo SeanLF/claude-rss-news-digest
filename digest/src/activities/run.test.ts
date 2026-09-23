@@ -42,6 +42,21 @@ describe("run lifecycle", () => {
     await acts.finishRun(runId, { stories: 12, broadcast: "sent" });
     expect(db.prepare("SELECT status, articles_emailed FROM digest_runs WHERE id=?").get(runId)).toEqual({ status: "completed", articles_emailed: 12 });
   });
+  it("a feed that cannot be reached records a failed health row on its last attempt", async () => {
+    const path = freshDb([]);
+    const sourcesFile = join(mkdtempSync(join(tmpdir(), "src-")), "sources.json");
+    writeFileSync(sourcesFile, JSON.stringify([{ id: "f", name: "F", url: "https://f.test/rss", bias: "center", factuality: "high", perspective: "global" }]));
+    const down = (() => Promise.reject(new Error("ECONNREFUSED"))) as unknown as typeof fetch;
+    const acts = runActivities({ store: new ArtifactStore(path), dbPath: path, sourcesFile, fetch: down });
+    const { runId } = await acts.startRun({ runDate: "2026-09-19" });
+    expect(await acts.fetchFeed(runId, "f", null)).toMatchObject({ ok: false, fetched: 0, kept: 0 });
+    expect(new DatabaseSync(path).prepare("SELECT success, error_message AS e FROM source_health WHERE run_id=?").get(runId)).toMatchObject({ success: 0 });
+  });
+  it("a resume without its sources.csv fails rather than fetching today's catalogue", async () => {
+    const { path, acts } = setup();
+    new DatabaseSync(path).exec("INSERT INTO digest_runs (id, run_at) VALUES (7, '2026-09-18 10:25:40')");
+    await expect(acts.startRun({ runDate: "2026-09-18", resumeRun: 7 })).rejects.toMatchObject({ type: "MissingInput" });
+  });
   it("records a feed that does not parse as a failed source instead of throwing", async () => {
     const { acts } = setup("<html>not a feed</html>");
     const { runId } = await acts.startRun({ runDate: "2026-09-19" });

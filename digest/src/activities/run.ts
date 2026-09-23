@@ -1,5 +1,7 @@
 import { readFileSync } from "node:fs";
+import { Context } from "@temporalio/activity";
 import { ApplicationFailure } from "@temporalio/common";
+import { NETWORK_MAX_ATTEMPTS } from "../workflow/policy.js";
 import { parse } from "csv-parse/sync";
 import { activeSources, newerThan, parseArticles, type CatalogueSource } from "../fetch/feeds.js";
 import { toCsv, type Fetched } from "../prepare/prepare.js";
@@ -19,7 +21,16 @@ export interface RunDeps {
   dbPath: string;
   sourcesFile: string;
   fetch?: typeof fetch;
+  maxAttempts?: number;
 }
+
+const currentAttempt = (): number => {
+  try {
+    return Context.current().info.attempt;
+  } catch {
+    return Number.POSITIVE_INFINITY; // outside an activity every attempt is the last
+  }
+};
 
 export function runActivities(deps: RunDeps) {
   const catalogue = (): CatalogueSource[] => activeSources(JSON.parse(readFileSync(deps.sourcesFile, "utf8")));
@@ -33,7 +44,9 @@ export function runActivities(deps: RunDeps) {
           const row = db.prepare("SELECT run_at FROM digest_runs WHERE id=?").get(input.resumeRun) as { run_at: string } | undefined;
           if (!row) throw ApplicationFailure.nonRetryable(`no run ${input.resumeRun} to resume`, "BadInput");
           const csv = deps.store.find(input.resumeRun, "sources.csv");
-          const ids = csv ? parse<{ id: string }>(deps.store.get(csv), { columns: true }).map((s) => s.id) : catalogue().map((s) => s.id);
+          // Never today's catalogue: a resume refetches what the run was meant to fetch, or nothing.
+          if (!csv) throw ApplicationFailure.nonRetryable(`run ${input.resumeRun} has no sources.csv to resume from`, "MissingInput");
+          const ids = parse<{ id: string }>(deps.store.get(csv), { columns: true }).map((s) => s.id);
           return { runId: input.resumeRun, sourceIds: ids, lastRun: lastCompleted(db, row.run_at) };
         }
         const sources = catalogue();
@@ -57,9 +70,19 @@ export function runActivities(deps: RunDeps) {
         if (health) return { sourceId, ok: health.success === 1, fetched: health.fetched, kept: health.kept, ...(health.error ? { error: health.error } : {}) };
         const source = catalogue().find((s) => s.id === sourceId);
         if (!source) throw ApplicationFailure.nonRetryable(`${sourceId} is not an active source`, "BadInput");
-        const res = await (deps.fetch ?? fetch)(source.url, { headers: { "User-Agent": "Mozilla/5.0" }, signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
-        if (!res.ok) throw new Error(`${sourceId}: HTTP ${res.status}`);
-        const body = await res.text();
+        let body: string;
+        try {
+          const res = await (deps.fetch ?? fetch)(source.url, { headers: { "User-Agent": "Mozilla/5.0" }, signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          body = await res.text();
+        } catch (e) {
+          // Every source's outcome is recorded, as the Python records it: retry while attempts remain,
+          // and on the last one write the failure so health and alerting see it.
+          if (currentAttempt() < (deps.maxAttempts ?? NETWORK_MAX_ATTEMPTS)) throw e;
+          const error = `Failed after ${deps.maxAttempts ?? NETWORK_MAX_ATTEMPTS} attempts: ${String(e).slice(0, 200)}`;
+          db.prepare("INSERT INTO source_health (source_id, success, error_message, articles_fetched, articles_kept, run_id) VALUES (?, 0, ?, 0, 0, ?)").run(sourceId, error, runId);
+          return { sourceId, ok: false, fetched: 0, kept: 0, error };
+        }
         let articles: Fetched[];
         let error: string | undefined;
         try {
