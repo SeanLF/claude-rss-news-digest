@@ -15,6 +15,7 @@ export function deploymentOptions(env: Record<string, string | undefined> = proc
 }
 
 export type Stranded = { workflowId: string; buildId: string };
+const RUNNING_DIGESTS = 'WorkflowType="DigestWorkflow" AND ExecutionStatus="Running"';
 
 // Makes `buildId` the version new runs (manual and scheduled) start on, once a worker of that build
 // polls `taskQueue`: waited for up to `waitMs`, because bin/deploy may already have made the build
@@ -33,11 +34,29 @@ export async function setCurrentVersion(client: Client, buildId: string, taskQue
   }
 }
 
+// The running digests that no worker has taken yet: not pinned, and no workflow task completed. Such a
+// run starts on whatever version is current once that version's worker polls; while current names a
+// build with no worker (a deploy that could not make its build current) it sits, with no alert, and
+// strandedRuns cannot see it, since it is pinned to nothing. set-current names these when it fails.
+export async function waitingRuns(client: Client): Promise<string[]> {
+  const waiting: string[] = [];
+  for await (const w of client.workflow.list({ query: RUNNING_DIGESTS })) {
+    const h = client.workflow.getHandle(w.workflowId, w.runId);
+    const info = (await h.describe()).raw.workflowExecutionInfo?.versioningInfo;
+    if (info?.versioningOverride?.pinned || decodeVersioningBehavior(info?.behavior) === "PINNED") continue;
+    if (!((await h.fetchHistory()).events ?? []).some((e) => e.workflowTaskCompletedEventAttributes)) waiting.push(w.workflowId);
+  }
+  return waiting;
+}
+
+// set-current's line for them, which bin/deploy matches (newsroom/tests/test_deploy_run_guard.py).
+export const waitingLine = (ids: string[]): string => `waiting: ${ids.join(" ")} -- no worker has taken these; they start once a polling build is current`;
+
 // The running digests pinned to a build other than `buildId`. On this one-worker box that build's
 // worker is gone, so each sits, with no alert, until moved (runbook, "Stranded runs").
 export async function strandedRuns(client: Client, buildId: string): Promise<Stranded[]> {
   const stranded: Stranded[] = [];
-  for await (const w of client.workflow.list({ query: 'WorkflowType="DigestWorkflow" AND ExecutionStatus="Running"' })) {
+  for await (const w of client.workflow.list({ query: RUNNING_DIGESTS })) {
     const info = (await client.workflow.getHandle(w.workflowId, w.runId).describe()).raw.workflowExecutionInfo?.versioningInfo;
     const pinnedTo = info?.versioningOverride?.pinned?.version?.buildId ?? (decodeVersioningBehavior(info?.behavior) === "PINNED" ? info?.deploymentVersion?.buildId : undefined);
     if (pinnedTo && pinnedTo !== buildId) stranded.push({ workflowId: w.workflowId, buildId: pinnedTo });

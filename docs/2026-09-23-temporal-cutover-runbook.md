@@ -212,8 +212,11 @@ history. Rehearsed under systemd in a container: no unit files and no active uni
       current, and lists stranded runs. If it fails, the deploy fails and says so.
 
     If the deploy dies after the first step, the exit trap points current at whichever worker is
-    running. If no worker's build can be made current, the trap leaves the schedule paused, because a
-    run would sit. By hand: `bin/ssh docker exec news-digest-worker node dist/cli/set-current.js`,
+    running. A run the apply's bootstrap started meanwhile is pinned to nothing yet, so it follows
+    current and starts on that build (tested in `deployment.test.ts`). If no worker's build can be
+    made current, the trap leaves the schedule paused, and such a run sits: `set-current` names it
+    as `waiting:` and `bin/deploy` logs it. It is not "stranded" (pinned to nothing, so the by-hand
+    step below starts it). By hand: `bin/ssh docker exec news-digest-worker node dist/cli/set-current.js`,
     then `bin/ssh systemctl restart news-digest-temporal-bootstrap`. Check with
     `bin/ssh "$T worker deployment describe --name digest"`.
   - **The first versioned deploy** replaces an unversioned worker. A run still in flight from it

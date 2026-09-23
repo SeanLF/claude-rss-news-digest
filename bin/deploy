@@ -967,6 +967,11 @@ set_current_version() {
       ;;
     *)
       log_error "the new worker's build is NOT the current version, so no run will start on it (exit $rc): ${out:0:300} -- once the worker polls: bin/ssh docker exec $WORKER_CONTAINER node dist/cli/set-current.js"
+      # A run started meanwhile (the apply's bootstrap) is pinned to nothing; it starts once a build
+      # whose worker polls is current (digest/src/deployment.ts, waitingRuns).
+      local waiting
+      waiting=$(sed -n 's/^waiting: \(.*\) -- no worker has taken.*/\1/p' <<<"$out")
+      [[ -n $waiting ]] && log_error "no worker has taken digest run(s) $waiting yet; each starts once a polling build is current (the set-current.js above)"
       return 1
       ;;
   esac
