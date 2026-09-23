@@ -455,9 +455,11 @@ five pipeline outcomes. Legal: any state to itself (a write that leaves status a
 §4.1 did not say); `running` → `failed` or any `completed`; `failed` → `running`; `completed(o)` →
 `running` for `o` ≠ `sent`. Everything else is refused, including `failed` → `completed`, `completed` →
 `failed`, `completed(sent)` → `running`, and `completed(a)` → `completed(b)` for a ≠ b: 7 × 7 = 49
-edges, 7 + 6 + 1 + 4 = 18 legal. `completed(unrecorded)` exists only by import and is treated as unsent
-(it may resume). Two row checks besides: `completed` needs an outcome, and an outcome needs
-`completed`.
+edges, 7 + 6 + 1 + 4 = 18 legal (8 states and 21 with `unrecorded`, which exists only by import). A
+`completed` → `running` edge also needs the run to be absent from `published_runs`: 12 imported
+`unrecorded` runs have an issue on the web, so "not sent" alone would let them resume (reviewer
+finding). Row checks besides: `completed` needs an outcome and an outcome needs `completed`; a sent
+run has `completed_at`, and only a completed run may.
 
 **The migration tool.** Plain SQL on SQLite with triggers, partial indexes, views and FTS5 rules out an ORM
 as schema owner: Drizzle Kit or Kysely would make TypeScript the source of truth for a schema the Rust tier

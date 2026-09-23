@@ -46,6 +46,18 @@ services:
       dockerfile: digest/Dockerfile.ci
     working_dir: /app/digest
 
+  # The product database locally: the Postgres image and major the box runs for Temporal
+  # (seanfloyd.dev news-digest-temporal.tf), with no volume, so every `up` starts empty.
+  digest-pg:
+    image: postgres:18.6-alpine3.24
+    environment:
+      - POSTGRES_PASSWORD=digest
+      - POSTGRES_DB=digest
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "postgres", "-d", "digest"]
+      interval: 1s
+      retries: 30
+
   # The Python worker's own image, so its tests run against what ships.
   ci-python:
     build:
