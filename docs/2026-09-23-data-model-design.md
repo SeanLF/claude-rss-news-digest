@@ -151,10 +151,13 @@ data on the machine that cannot run the experiments. **Recommendation: C.**
 **After Sean's answers.** Downtime is acceptable and Python retires at cut-over, so the "readers
 unaffected" and "when it can happen" rows no longer separate A from B, and a fresh schema plus a one-shot
 import costs the same into either engine. That makes cut-over the cheapest moment Postgres will ever have.
-It is still not worth it: the remaining difference is the circulation port (60 SQLite date/FTS calls, FTS5
-ranking replaced by `tsvector`, a PG in every TS and Rust test) against gains nobody has measured a need
-for. Revisit if a second writer appears (the web tier writing subscriptions or feedback), or if the Mac
-needs to query prod live instead of a clone.
+Circulation is being ported to TypeScript anyway (spec, plan B), so its 60 SQLite date/FTS calls get
+rewritten whichever engine is chosen; that cost no longer separates the options either. What is left:
+SQLite keeps tests in-process on `node:sqlite` with no server, backups as a file, and FTS5 ranking as today;
+Postgres gives one backup and restore path shared with Temporal, `jsonb`, and readers that need no shared
+volume mount. **A close call; SQLite by a small margin, on test speed and fewer moving parts.** Postgres is
+defensible if Sean prefers one engine on the box. Revisit if a second writer appears (the web tier writing
+subscriptions or feedback) or the Mac needs to query prod live.
 
 ## 4. Recommendation: the model
 
