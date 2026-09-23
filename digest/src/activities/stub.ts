@@ -1,6 +1,6 @@
 import { ApplicationFailure } from "@temporalio/common";
 import type { Pointer } from "../store/artifacts.js";
-import { STORY_COUNT_STUB, type Activities, type DigestInput } from "./index.js";
+import { DECODED_LINKS, STORY_COUNT_STUB, THREAD_CONTEXT, type Activities, type DigestInput } from "./index.js";
 
 const ptr = (runId: number, name: string): Pointer => ({ runId, name, sha256: "0".repeat(64) });
 
@@ -26,9 +26,9 @@ export function stubActivities(): Activities {
     coherence: (runId) => Promise.resolve(ptr(runId, "coherence_report.json")),
     repair: (runId) => Promise.resolve(ptr(runId, "repair_resolution.json")),
     assemble: (runId) => Promise.resolve(ptr(runId, "selections.json")),
-    gnews: (runId) => Promise.resolve(ptr(runId, "gnews.json")),
-    threads: (runId) => Promise.resolve(ptr(runId, "thread_links.json")),
-    render: (runId) => Promise.resolve({ html: ptr(runId, "digest.html"), email: ptr(runId, "digest.mjml.html") }),
+    gnews: (runId) => Promise.resolve(ptr(runId, DECODED_LINKS)),
+    threads: (runId) => Promise.resolve(ptr(runId, THREAD_CONTEXT)),
+    render: (runId) => Promise.resolve({ html: ptr(runId, "digest.html"), email: ptr(runId, "email.html") }),
     broadcast: () => Promise.resolve({ broadcastId: "stub" }),
     finishRun: () => Promise.resolve(),
   };

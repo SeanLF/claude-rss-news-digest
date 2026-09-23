@@ -53,3 +53,8 @@ export interface Activities {
   finishRun(runId: number, output: Omit<DigestOutput, "runId">): Promise<void>;
 }
 export const STORY_COUNT_STUB = 3;
+// What threads and gnews hand render: each story's thread context by cluster label, and each
+// decoded Google-News link. Named apart from the Python's thread_links.json trace, which a resumed
+// run's archive already holds.
+export const THREAD_CONTEXT = "thread_context.json";
+export const DECODED_LINKS = "gnews_links.json";
