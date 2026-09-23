@@ -5,8 +5,8 @@ description: whole-digest judges, band first
 prompts: [file://../dist/gate/judge-prompt.js]
 providers:
   - id: anthropic:claude-agent-sdk
-    label: claude-opus-5
-    config: { model: claude-opus-5, working_dir: ../docs/proposed/gate-fixtures/day-300/inputs, permission_mode: dontAsk }
+    label: claude-opus-5-5
+    config: { model: claude-opus-5-5, working_dir: ../docs/proposed/gate-fixtures/day-300/inputs, permission_mode: dontAsk }
   - id: openai:codex-sdk
     label: codex
     config: { working_dir: ../docs/proposed/gate-fixtures/day-300/inputs, sandbox_mode: read-only, skip_git_repo_check: true }
