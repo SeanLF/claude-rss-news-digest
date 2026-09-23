@@ -21,6 +21,14 @@ export interface StoryPlan {
   contextIds: string[];
   clusterIndex?: number;
 }
+export type FulltextTask = [articleId: string, url: string];
+// What the Python fulltext activity returns: fulltext._collect_isolated's outcome, or "unavailable"
+// when nothing answered on its queue.
+export interface FulltextFetch { tasks: number; results: Record<string, string>; outcome: string }
+// `existing`: the run already has its full text. `skip`: there is nothing to fetch, and why.
+export interface FulltextPlan { tasks: FulltextTask[]; existing?: Pointer; skip?: "disabled" | "no_candidates" }
+// The activity the Python worker serves on FULLTEXT_TASK_QUEUE.
+export interface FulltextFetcher { fetchFulltext(tasks: FulltextTask[]): Promise<FulltextFetch> }
 export interface FetchSummary { sourceId: string; ok: boolean; fetched: number; kept: number; error?: string }
 export interface DigestOutput {
   runId: number;
@@ -39,7 +47,8 @@ export interface Activities {
   joinClusters(runId: number, tagBatches: (Pointer | null)[], force?: boolean): Promise<Pointer>;
   recap(runId: number, force?: boolean): Promise<Pointer>;
   select(runId: number, clusters: Pointer, recap: Pointer, note?: string, input?: DigestInput): Promise<Pointer>;
-  fulltext(runId: number, selected: Pointer): Promise<Pointer>;
+  planFulltext(runId: number, selected: Pointer, force?: boolean): Promise<FulltextPlan>;
+  storeFulltext(runId: number, fetched: FulltextFetch, force?: boolean): Promise<Pointer>;
   planStories(runId: number, selected: Pointer, clusters: Pointer): Promise<{ plans: StoryPlan[] }>;
   writeStory(runId: number, plan: StoryPlan, selected: Pointer, note?: string, force?: boolean): Promise<Pointer>;
   preheader(runId: number, drafts: Pointer[], force?: boolean): Promise<Pointer>;

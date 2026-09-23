@@ -1,7 +1,7 @@
 import { ActivityFailure, CancelledFailure, condition, isCancellation, proxyActivities, setHandler } from "@temporalio/workflow";
-import type { Activities, DigestInput, DigestOutput } from "../activities/index.js";
+import type { Activities, DigestInput, DigestOutput, FulltextFetch, FulltextFetcher } from "../activities/index.js";
 import { mapBounded, MODEL_FANOUT_LIMIT } from "./bounded.js";
-import { MODEL_MAX_ATTEMPTS, NETWORK_MAX_ATTEMPTS } from "./policy.js";
+import { FULLTEXT_TASK_QUEUE, MODEL_MAX_ATTEMPTS, NETWORK_MAX_ATTEMPTS } from "./policy.js";
 import { approveSignal, operatorNoteSignal, retrySignal } from "./signals.js";
 
 export const WORKFLOW_RUN_TIMEOUT = "4 hours";
@@ -22,6 +22,9 @@ const once = proxyActivities<Activities>({ startToCloseTimeout: "10 minutes", re
 // A verdict is a result, never re-sampled until something passes (spec §2.2 tier 3): one attempt,
 // and a failure parks on the retry signal for an operator.
 const verdict = proxyActivities<Activities>({ startToCloseTimeout: "45 minutes", heartbeatTimeout: "2 minutes", retry: { maximumAttempts: 1 } });
+// The Python fetch bounds itself (a 120 s deadline plus 30 s grace, then SIGKILL); the start-to-close
+// covers that with room. A worker that never picks the task up is the schedule-to-start timeout.
+const python = proxyActivities<FulltextFetcher>({ taskQueue: FULLTEXT_TASK_QUEUE, scheduleToStartTimeout: "5 minutes", startToCloseTimeout: "4 minutes", retry: { maximumAttempts: 2 } });
 
 export async function DigestWorkflow(input: DigestInput): Promise<DigestOutput> {
   let approval: "approve" | "reject" | undefined;
@@ -71,7 +74,17 @@ export async function DigestWorkflow(input: DigestInput): Promise<DigestOutput> 
   const [clusters, recap] = await Promise.all([once.joinClusters(runId, tagBatches, input.force), recapP]);
   const selected = await guarded(() => model.select(runId, clusters, recap, notes["select"], input));
   if (!selected) return finish({ stories: 0, broadcast: "skipped" });
-  const fulltext = await network.fulltext(runId, selected);
+  // Full text is best-effort, as in production: a fetcher that is down or fails leaves the run on
+  // the RSS summaries, recorded as "unavailable" in fulltext_health.json.
+  const plan = await once.planFulltext(runId, selected, input.force);
+  const fetch = async (): Promise<FulltextFetch> => {
+    if (plan.skip) return { tasks: 0, results: {}, outcome: plan.skip }; // nothing to send to Python
+    return python.fetchFulltext(plan.tasks).catch((e: unknown): FulltextFetch => {
+      if (isCancellation(e)) throw e;
+      return { tasks: plan.tasks.length, results: {}, outcome: "unavailable" };
+    });
+  };
+  const fulltext = plan.existing ?? (await once.storeFulltext(runId, await fetch(), input.force));
   // WRITE fans out one story per call, four at a time; a story that exhausts its retries fails the
   // phase rather than letting the digest ship one story short.
   const { plans } = await once.planStories(runId, selected, clusters);

@@ -46,6 +46,12 @@ services:
       dockerfile: digest/Dockerfile.ci
     working_dir: /app/digest
 
+  # The Python fulltext worker's own image, so its tests run against what ships.
+  ci-fulltext:
+    build:
+      context: .
+      dockerfile: digest/fulltext/Dockerfile
+
   ci-rust:
     build:
       context: ./circulation

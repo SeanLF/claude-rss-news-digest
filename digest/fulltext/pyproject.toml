@@ -1,0 +1,13 @@
+[project]
+name = "digest-fulltext"
+version = "0.1.0"
+description = "The fulltext fetch (trafilatura) as a Temporal activity for the digest workflow"
+requires-python = ">=3.14"
+# lxml is the parser the fulltext fork measured, so it is pinned with trafilatura.
+dependencies = ["temporalio==1.33.0", "trafilatura==2.2.0", "lxml==6.1.3"]
+
+[dependency-groups]
+dev = ["pytest==9.1.1"]
+
+[tool.uv]
+package = false

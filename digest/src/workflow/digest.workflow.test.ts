@@ -2,8 +2,10 @@ import { WorkflowIdConflictPolicy } from "@temporalio/common";
 import { TestWorkflowEnvironment } from "@temporalio/testing";
 import { Worker } from "@temporalio/worker";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import type { Activities, FulltextFetch, FulltextTask } from "../activities/index.js";
 import { stubActivities } from "../activities/stub.js";
 import { DigestWorkflow, workflowIdFor } from "./digest.workflow.js";
+import { FULLTEXT_TASK_QUEUE } from "./policy.js";
 import { approveSignal, retrySignal } from "./signals.js";
 
 let env: TestWorkflowEnvironment;
@@ -15,15 +17,25 @@ afterAll(async () => {
 });
 
 const taskQueue = "digest-test";
-async function withWorker<T>(fn: () => Promise<T>): Promise<T> {
+// `fetcher` stands in for the Python fulltext worker on its own queue; null means nothing answers
+// there, as when that worker is down.
+const emptyFetch = (tasks: FulltextTask[]): Promise<FulltextFetch> => Promise.resolve({ tasks: tasks.length, results: {}, outcome: "completed" });
+async function withWorker<T>(fn: () => Promise<T>, overrides: Partial<Activities> = {}, fetcher: ((tasks: FulltextTask[]) => Promise<FulltextFetch>) | null = emptyFetch): Promise<T> {
   const worker = await Worker.create({
     connection: env.nativeConnection,
     taskQueue,
     workflowsPath: new URL("./digest.workflow.ts", import.meta.url).pathname,
-    activities: stubActivities(),
+    activities: { ...stubActivities(), ...overrides },
   });
-  return worker.runUntil(fn());
+  if (!fetcher) return worker.runUntil(fn());
+  const python = await Worker.create({ connection: env.nativeConnection, taskQueue: FULLTEXT_TASK_QUEUE, activities: { fetchFulltext: fetcher } });
+  return python.runUntil(worker.runUntil(fn()));
 }
+const approveAndWait = async (runDate: string) => {
+  const h = await start(runDate);
+  await h.signal(approveSignal, { decision: "approve" });
+  return h.result();
+};
 const start = (runDate: string, extra: Record<string, unknown> = {}, opts: Record<string, unknown> = {}) =>
   env.client.workflow.start(DigestWorkflow, { taskQueue, workflowId: workflowIdFor(runDate), args: [{ runDate, ...extra }], ...opts });
 
@@ -80,4 +92,56 @@ describe("DigestWorkflow", () => {
     });
     expect(out).toMatchObject({ runId: 303, broadcast: "sent" });
   }, 120_000);
+  describe("fulltext across the language line", () => {
+    const stored: FulltextFetch[] = [];
+    const storeFulltext: Activities["storeFulltext"] = (runId, fetched) => {
+      stored.push(fetched);
+      return stubActivities().storeFulltext(runId, fetched);
+    };
+    it("hands the planned tasks to the fulltext queue and stores what comes back", async () => {
+      stored.length = 0;
+      const seen: FulltextTask[][] = [];
+      const out = await withWorker(() => approveAndWait("2026-09-28"), { storeFulltext }, (tasks) => {
+        seen.push(tasks);
+        return Promise.resolve({ tasks: tasks.length, results: { A1: "Body." }, outcome: "completed" });
+      });
+      expect(seen).toEqual([[["A1", "https://example.com/a1"]]]);
+      expect(stored).toEqual([{ tasks: 1, results: { A1: "Body." }, outcome: "completed" }]);
+      expect(out.broadcast).toBe("sent");
+    }, 120_000);
+    it("goes on without full text when nothing answers on the fulltext queue", async () => {
+      stored.length = 0;
+      // The test server does not skip time while an activity task sits unclaimed, so the clock is
+      // moved past the schedule-to-start timeout by hand.
+      const out = await withWorker(async () => {
+        const h = await start("2026-09-29");
+        await env.sleep("6 minutes");
+        await h.signal(approveSignal, { decision: "approve" });
+        return h.result();
+      }, { storeFulltext }, null);
+      expect(stored).toEqual([{ tasks: 1, results: {}, outcome: "unavailable" }]);
+      expect(out.broadcast).toBe("sent");
+    }, 120_000);
+    it("records a skipped fetch without calling Python", async () => {
+      stored.length = 0;
+      let fetched = 0;
+      await withWorker(() => approveAndWait("2026-10-01"), { storeFulltext, planFulltext: () => Promise.resolve({ tasks: [], skip: "disabled" as const }) }, () => {
+        fetched++;
+        return Promise.resolve({ tasks: 0, results: {}, outcome: "completed" });
+      });
+      expect(fetched).toBe(0);
+      expect(stored).toEqual([{ tasks: 0, results: {}, outcome: "disabled" }]);
+    }, 120_000);
+    it("skips the fetch when the run already has its full text", async () => {
+      stored.length = 0;
+      let fetched = 0;
+      const existing = { runId: 1, name: "article_fulltext.json", sha256: "1".repeat(64) };
+      await withWorker(() => approveAndWait("2026-09-30"), { storeFulltext, planFulltext: () => Promise.resolve({ tasks: [], existing }) }, () => {
+        fetched++;
+        return Promise.resolve({ tasks: 0, results: {}, outcome: "completed" });
+      });
+      expect(fetched).toBe(0);
+      expect(stored).toEqual([]);
+    }, 120_000);
+  });
 });

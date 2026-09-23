@@ -3,3 +3,5 @@
 export const MODEL_MAX_ATTEMPTS = 3;
 // The network policy's attempts; a feed records its failure as a health row only on the last one.
 export const NETWORK_MAX_ATTEMPTS = 3;
+// The Python fulltext worker's queue (digest/fulltext/worker.py): trafilatura stays in Python.
+export const FULLTEXT_TASK_QUEUE = "fulltext";

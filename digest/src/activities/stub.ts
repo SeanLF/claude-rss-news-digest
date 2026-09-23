@@ -19,7 +19,8 @@ export function stubActivities(): Activities {
       if (input?.failStage === "select") return Promise.reject(ApplicationFailure.nonRetryable("select failed for the test", "StubFailure"));
       return Promise.resolve(ptr(runId, "selected.json"));
     },
-    fulltext: (runId) => Promise.resolve(ptr(runId, "article_fulltext.json")),
+    planFulltext: () => Promise.resolve({ tasks: [["A1", "https://example.com/a1"]] }),
+    storeFulltext: (runId) => Promise.resolve(ptr(runId, "article_fulltext.json")),
     planStories: () => Promise.resolve({ plans: Array.from({ length: STORY_COUNT_STUB }, (_, i) => ({ index: i, tier: "must_know" as const, storyIds: ["A1"], contextIds: ["A1"] })) }),
     writeStory: (runId, plan) => Promise.resolve(ptr(runId, `draft_s${plan.index}.json`)),
     preheader: (runId) => Promise.resolve(ptr(runId, "preheader.txt")),

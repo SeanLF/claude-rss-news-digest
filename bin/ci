@@ -72,6 +72,16 @@ def run_in_docker() -> int:
             **capture,
         )
 
+    # Start the fulltext worker's tests (if it exists), inside the image it ships as.
+    ft_proc = None
+    if (ROOT / "digest" / "fulltext" / "Dockerfile").exists():
+        ft_cmd = ["python", "-m", "pytest", "-q", "-p", "no:cacheprovider", "test_worker.py"]
+        ft_proc = subprocess.Popen(
+            ["docker", "compose", "run", "--rm", "--build", "ci-fulltext", *ft_cmd],
+            cwd=ROOT,
+            **capture,
+        )
+
     # Wait for all
     py_out = py_proc.communicate()[0]
     py_rc = py_proc.returncode
@@ -79,6 +89,8 @@ def run_in_docker() -> int:
     rust_rc = rust_proc.returncode if rust_proc else 0
     ts_out = ts_proc.communicate()[0] if ts_proc else None
     ts_rc = ts_proc.returncode if ts_proc else 0
+    ft_out = ft_proc.communicate()[0] if ft_proc else None
+    ft_rc = ft_proc.returncode if ft_proc else 0
 
     if py_rc != 0:
         print(f"\n{RED}Python CI failed (exit {py_rc}){RESET}")
@@ -93,14 +105,21 @@ def run_in_docker() -> int:
         if ts_out:
             print(ts_out.decode(errors="replace"))
 
-    if py_rc == 0 and rust_rc == 0 and ts_rc == 0 and QUIET:
+    if ft_rc != 0:
+        print(f"\n{RED}Fulltext worker CI failed (exit {ft_rc}){RESET}")
+        if ft_out:
+            print(ft_out.decode(errors="replace"))
+
+    if py_rc == 0 and rust_rc == 0 and ts_rc == 0 and ft_rc == 0 and QUIET:
         print(f"{GREEN}CI passed{RESET}")
 
     if py_rc != 0:
         return py_rc
     if rust_rc != 0:
         return rust_rc
-    return ts_rc
+    if ts_rc != 0:
+        return ts_rc
+    return ft_rc
 
 
 def run_step(name: str, cmd: list[str], cwd: Path | None = None) -> bool:
