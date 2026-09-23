@@ -1,7 +1,7 @@
 import { Client, Connection, ScheduleAlreadyRunning, ScheduleOverlapPolicy, type ScheduleOptions, type WorkflowStartOptions } from "@temporalio/client";
 import { WorkflowIdConflictPolicy, WorkflowIdReusePolicy } from "@temporalio/common";
 import type { DigestInput } from "./activities/index.js";
-import { TASK_QUEUE } from "./worker.js";
+import { TASK_QUEUE, temporalNamespace } from "./worker.js";
 import { DigestWorkflow, WORKFLOW_RUN_TIMEOUT, workflowIdFor } from "./workflow/digest.workflow.js";
 
 export type StartOpts = { resumeRun?: number; force?: boolean };
@@ -36,7 +36,7 @@ export function scheduleOptions(): ScheduleOptions {
 }
 
 export async function connect(address = process.env["TEMPORAL_ADDRESS"] ?? DEFAULT_ADDRESS): Promise<Client> {
-  return new Client({ connection: await Connection.connect({ address }) });
+  return new Client({ connection: await Connection.connect({ address }), namespace: temporalNamespace() });
 }
 
 export async function startDigest(client: Client, runDate: string, opts: StartOpts = {}) {

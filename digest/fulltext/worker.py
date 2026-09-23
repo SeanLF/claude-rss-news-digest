@@ -30,8 +30,13 @@ def fetch_fulltext(tasks: list[list[str]]) -> dict:
     return {"tasks": len(tasks), "results": results, "outcome": outcome}
 
 
+def namespace() -> str:
+    # Production sets the repo's own namespace; the local dev server only has "default".
+    return os.environ.get("TEMPORAL_NAMESPACE", "default")
+
+
 async def main() -> None:
-    client = await Client.connect(os.environ.get("TEMPORAL_ADDRESS", "localhost:7233"))
+    client = await Client.connect(os.environ.get("TEMPORAL_ADDRESS", "localhost:7233"), namespace=namespace())
     with ThreadPoolExecutor(max_workers=2) as pool:
         await Worker(client, task_queue=TASK_QUEUE, activities=[fetch_fulltext], activity_executor=pool).run()
 

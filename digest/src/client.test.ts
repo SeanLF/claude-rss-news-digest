@@ -2,6 +2,7 @@ import { ScheduleAlreadyRunning, ScheduleOverlapPolicy, type Client } from "@tem
 import { WorkflowIdConflictPolicy, WorkflowIdReusePolicy } from "@temporalio/common";
 import { describe, expect, it } from "vitest";
 import { ensureSchedule, SCHEDULE_ID, scheduleOptions, startOptions } from "./client.js";
+import { temporalNamespace } from "./worker.js";
 
 describe("startOptions", () => {
   it("a normal day rejects duplicates while running and after completion", () => {
@@ -58,5 +59,14 @@ describe("the daily schedule", () => {
   it("ensureSchedule rethrows anything but already-running", async () => {
     const fake = { schedule: { create: () => Promise.reject(new Error("connection refused")) } } as unknown as Client;
     await expect(ensureSchedule(fake)).rejects.toThrow(/connection refused/);
+  });
+});
+
+describe("the Temporal namespace", () => {
+  it("is TEMPORAL_NAMESPACE when set, so production runs in the repo's own namespace", () => {
+    expect(temporalNamespace({ TEMPORAL_NAMESPACE: "news-digest" })).toBe("news-digest");
+  });
+  it("is the dev server's default otherwise", () => {
+    expect(temporalNamespace({})).toBe("default");
   });
 });

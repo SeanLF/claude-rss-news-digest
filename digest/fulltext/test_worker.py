@@ -26,3 +26,10 @@ def test_the_real_child_process_starts_and_answers(monkeypatch):
     # PYTHONPATH shows up here rather than as a silent "no full text" in production.
     out = ActivityEnvironment().run(worker.fetch_fulltext, [])
     assert out == {"tasks": 0, "results": {}, "outcome": "completed"}
+
+
+def test_the_namespace_is_temporal_namespace_so_production_uses_the_repos_own(monkeypatch):
+    monkeypatch.setenv("TEMPORAL_NAMESPACE", "news-digest")
+    assert worker.namespace() == "news-digest"
+    monkeypatch.delenv("TEMPORAL_NAMESPACE")
+    assert worker.namespace() == "default"
