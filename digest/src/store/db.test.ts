@@ -1,6 +1,6 @@
 import net from "node:net";
 import { describe, expect, it, vi } from "vitest";
-import { openDb, utcText } from "./db.js";
+import { dbUrl, openDb, utcText } from "./db.js";
 
 // A stand-in Postgres: accepts a connection without a password, answers one simple query, then drops
 // the connection while the client sits idle in the pool, as a Postgres restart does.
@@ -59,5 +59,13 @@ describe("utcText", () => {
     expect(utcText("2026-09-18 06:25:40.123-04")).toBe("2026-09-18 10:25:40");
     expect(utcText("2026-09-18 10:25:40")).toBe("2026-09-18 10:25:40");
     expect(() => utcText("not a time")).toThrow(/not a timestamp/);
+  });
+});
+
+describe("dbUrl", () => {
+  it("refuses an unset DIGEST_DATABASE_URL instead of guessing localhost, so a misconfigured worker dies at startup", () => {
+    expect(() => dbUrl({})).toThrow(/DIGEST_DATABASE_URL/);
+    expect(() => dbUrl({ DIGEST_DATABASE_URL: "" })).toThrow(/DIGEST_DATABASE_URL/);
+    expect(dbUrl({ DIGEST_DATABASE_URL: "postgres://d@db:5432/d" })).toBe("postgres://d@db:5432/d");
   });
 });
