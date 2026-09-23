@@ -149,6 +149,12 @@ Expected divergences, each a decided change rather than a regression, reported b
    error codes are held to parity.
 5. **Headers are a superset**: the security-header set (CSP with a nonce, HSTS with preload,
    permissions-policy, referrer-policy, nosniff, frame-options) is new on every response.
+6. **JSON is compared as values**, not bytes: serde_json prints a whole float as `1.0` where
+   JavaScript prints `1`, and sorts object keys. A consumer parsing the JSON sees the same values.
+
+A divergence a request is expected to show is marked `known` in `requests.ts` with its reason; the
+comparison still runs and is reported, and the gate counts it apart from unexplained failures. Search
+answers capped at 50 are compared by count, since two rankings pick different fifties.
 
 Held to parity rather than excused: the trailing-slash and 405 behaviour of §1 (Hono in strict mode
 answers `/stats/` with 404, so the app is built non-strict and answers wrong methods with 405).

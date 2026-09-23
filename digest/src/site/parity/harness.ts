@@ -1,0 +1,165 @@
+import { isDeepStrictEqual } from "node:util";
+import { MANIFEST } from "./requests.js";
+
+// The parity harness (docs/2026-09-23-web-tier-typescript-fork.md §5): the same requests go to the Rust
+// server and to the TypeScript app, and each answer is held to its contract. Rust answers are recorded
+// once (cli/site-parity.ts) as goldens; the TypeScript side is compared against them in-process.
+
+export type Contract = "body" | "json" | "markdown" | "search" | "headers";
+export interface Entry {
+  name: string;
+  method?: "GET" | "POST" | "DELETE" | "HEAD";
+  path?: string;
+  headers?: Record<string, string>;
+  body?: string;
+  rpc?: { method: string; params?: unknown };
+  compare: Contract;
+  // Sent this many times, the last answer recorded: a rate limit's refusal is the answer after the quota.
+  repeat?: number;
+  // A difference this port makes on purpose (fork doc §5), with the reason. Still compared and reported;
+  // the parity gate counts it apart from failures.
+  known?: string;
+}
+export interface Manifest {
+  headers: Record<string, string>;
+  requests: Entry[];
+}
+export interface Answer {
+  status: number;
+  headers: Record<string, string>;
+  body: string;
+  encoding: "utf8" | "base64";
+}
+export interface Golden extends Answer {
+  name: string;
+}
+
+export const manifest = (): Manifest => MANIFEST;
+
+// Headers the contracts cover. Everything else a server adds (date, content-length, the new security
+// headers) is outside the comparison.
+export const COMPARED_HEADERS = ["content-type", "location", "cache-control", "link", "vary", "allow"] as const;
+
+const MCP_ACCEPT = "application/json, text/event-stream";
+
+// The request an entry describes. `{font}` is the hashed font path, which only the server knows;
+// `{x201}` is an argument one character over the bridge's 200-character cap.
+export function toRequest(base: string, m: Manifest, e: Entry, fontPath: string): Request {
+  const headers = new Headers({ ...m.headers, ...e.headers });
+  if (e.rpc) {
+    if (!headers.has("accept")) headers.set("accept", MCP_ACCEPT);
+    if (!headers.has("content-type")) headers.set("content-type", "application/json");
+    const body = e.body ?? JSON.stringify({ jsonrpc: "2.0", id: 1, method: e.rpc.method, ...(e.rpc.params === undefined ? {} : { params: e.rpc.params }) });
+    return new Request(`${base}/mcp`, { method: "POST", headers, body });
+  }
+  const path = (e.path ?? "/").replace("{font}", fontPath).replace("{x201}", "x".repeat(201));
+  const method = e.method ?? "GET";
+  return new Request(`${base}${path}`, { method, headers, redirect: "manual", ...(e.body === undefined ? {} : { body: e.body }) });
+}
+
+const BINARY = /^(image|font)\//;
+export async function capture(res: Response): Promise<Answer> {
+  const headers: Record<string, string> = {};
+  for (const h of COMPARED_HEADERS) {
+    const v = res.headers.get(h);
+    if (v !== null) headers[h] = v;
+  }
+  const bytes = Buffer.from(await res.arrayBuffer());
+  const binary = BINARY.test(res.headers.get("content-type") ?? "");
+  return { status: res.status, headers, body: bytes.toString(binary ? "base64" : "utf8"), encoding: binary ? "base64" : "utf8" };
+}
+
+// Spelling a header differently is not a difference: `text/html; charset=utf-8` against
+// `text/html;charset=UTF-8`, or `Accept` against `accept` in vary.
+function normaliseHeader(name: string, v: string): string {
+  if (name === "content-type") return v.toLowerCase().replaceAll(/\s*;\s*/g, "; ");
+  if (name === "vary") return v.toLowerCase().split(",").map((s) => s.trim()).toSorted().join(", ");
+  return v;
+}
+
+// Search results as a set: the result lines of a search_headlines answer, without the count line
+// (FTS5's BM25 and Postgres's ts_rank order and count differently; §5 item 1).
+export function searchLines(text: string): string[] {
+  return [...new Set(text.split("\n").filter((l) => l.startsWith("- ")))].toSorted();
+}
+// search_headlines stops at 50: two engines that match the same rows but rank them differently return
+// different fifties, so a capped answer says nothing about membership.
+export const SEARCH_CAP = 50;
+const resultCount = (text: string): number => Number(/^(\d+) results?, most relevant first\./m.exec(text)?.[1] ?? 0);
+const toolText = (body: string): string => {
+  const parsed = JSON.parse(body) as { result?: { content?: { text?: string }[] }; content?: { text?: string }[] };
+  const content = parsed.result?.content ?? parsed.content ?? [];
+  return content.map((c) => c.text ?? "").join("\n");
+};
+
+export interface Verdict {
+  name: string;
+  ok: boolean;
+  known?: string;
+  diffs: string[];
+  // search only: how far the two result sets agree
+  overlap?: { golden: number; actual: number; shared: number };
+}
+
+function firstDifference(a: string, b: string): string {
+  const la = a.split("\n");
+  const lb = b.split("\n");
+  for (let i = 0; i < Math.max(la.length, lb.length); i++) {
+    if (la[i] !== lb[i]) return `line ${i + 1}: rust ${JSON.stringify(la[i] ?? null)} | ts ${JSON.stringify(lb[i] ?? null)}`;
+  }
+  return "equal line by line (a trailing difference)";
+}
+
+const parseOrKeep = (s: string): unknown => {
+  try {
+    return JSON.parse(s);
+  } catch {
+    return { unparseable: s };
+  }
+};
+
+export function compare(e: Entry, golden: Answer, actual: Answer): Verdict {
+  const diffs: string[] = [];
+  if (golden.status !== actual.status) diffs.push(`status ${golden.status} != ${actual.status}`);
+  for (const h of COMPARED_HEADERS) {
+    const g = golden.headers[h];
+    const a = actual.headers[h];
+    if ((g === undefined) !== (a === undefined) || (g !== undefined && a !== undefined && normaliseHeader(h, g) !== normaliseHeader(h, a))) {
+      diffs.push(`${h}: ${JSON.stringify(g ?? null)} != ${JSON.stringify(a ?? null)}`);
+    }
+  }
+  let overlap: Verdict["overlap"];
+  switch (e.compare) {
+    case "headers":
+      // The body is judged on its requirement plus a11y and Lighthouse (fork doc §1), not here.
+      break;
+    case "body":
+    case "markdown":
+      if (golden.encoding !== actual.encoding) diffs.push(`encoding ${golden.encoding} != ${actual.encoding}`);
+      else if (golden.body !== actual.body) diffs.push(`body: ${golden.encoding === "base64" ? `${golden.body.length} != ${actual.body.length} base64 chars or content` : firstDifference(golden.body, actual.body)}`);
+      break;
+    case "json": {
+      // As values: a whole float that serde_json prints as 1.0 and JavaScript as 1 is the same value
+      // (fork doc §5).
+      const g = parseOrKeep(golden.body);
+      const a = parseOrKeep(actual.body);
+      if (!isDeepStrictEqual(g, a)) diffs.push(`json: ${firstDifference(JSON.stringify(g, null, 1), JSON.stringify(a, null, 1))}`);
+      break;
+    }
+    case "search": {
+      const gt = toolText(golden.body);
+      const at = toolText(actual.body);
+      const g = searchLines(gt);
+      const a = new Set(searchLines(at));
+      const shared = g.filter((l) => a.has(l)).length;
+      overlap = { golden: g.length, actual: a.size, shared };
+      const [gn, an] = [resultCount(gt), resultCount(at)];
+      if (g.length === 0 || a.size === 0) diffs.push(`search: an empty result set (${g.length} rust, ${a.size} ts)`);
+      else if (gn === SEARCH_CAP || an === SEARCH_CAP) {
+        if (gn !== an) diffs.push(`search: ${gn} results against ${an}, one of them capped at ${SEARCH_CAP}`);
+      } else if (shared !== g.length || shared !== a.size) diffs.push(`search: ${shared} shared of ${g.length} rust and ${a.size} ts`);
+      break;
+    }
+  }
+  return { name: e.name, ok: diffs.length === 0, diffs, ...(overlap ? { overlap } : {}), ...(e.known ? { known: e.known } : {}) };
+}

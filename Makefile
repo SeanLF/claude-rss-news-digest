@@ -123,6 +123,9 @@ digest-start: ## Start one DigestWorkflow on local Temporal and wait for it (usa
 digest-schedule: ## Create or update the daily 10:25Z schedule on local Temporal
 	docker compose --env-file .env -f digest/compose.temporal.yml run --rm digest-worker node dist/cli/schedule.js
 
+site-parity-record: ## Record the Rust circulation server's answers on a copy of the prod clone: the goldens the TypeScript site is held to (SRC=data/prod-20260923b.db; host-only)
+	bin/site-parity-record $${SRC:-data/prod-20260923b.db}
+
 import-check: ## Import a copy of the prod clone into a fresh Postgres and hold it to the design's §5.1 and prepare's parity (SRC=data/prod-20260923b.db; host-only, ~1 min)
 	@src=$${SRC:-data/prod-20260923b.db}; copy=data/import-check.db; db=import_check; \
 	test -r "$$src" || { echo "no $$src (make db-clone)"; exit 2; }; \
