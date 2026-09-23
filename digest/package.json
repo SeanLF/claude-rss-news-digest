@@ -25,6 +25,7 @@
     "entities": "8.1.0",
     "escape-goat": "4.0.0",
     "feedsmith": "3.0.0",
+    "gnews-decoder": "0.1.0",
     "lightningcss": "1.33.0",
     "ml-hclust": "4.0.0",
     "mrml": "1.6.1",

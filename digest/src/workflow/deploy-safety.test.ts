@@ -30,7 +30,6 @@ beforeAll(async () => {
     taskQueue: PYTHON_TASK_QUEUE,
     activities: {
       fetchFulltext: (tasks: unknown[]) => Promise.resolve({ tasks: tasks.length, results: {}, outcome: "completed" }),
-      decodeLinks: (urls: string[]) => Promise.resolve({ links: urls.length, decoded: {}, attempted: urls.length, outcome: "completed" }),
     },
   });
   python = { shutdown: () => w.shutdown(), done: w.run() };

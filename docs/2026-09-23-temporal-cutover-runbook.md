@@ -46,7 +46,7 @@ Two guards stop both pipelines from sending the same day:
 | `news-digest-temporal-ui` | `temporalio/ui:2.54.1` on 127.0.0.1:8233, and on the tailnet via `tailscale serve` | 128 MiB |
 | `news-digest-temporal-bootstrap` | one-shot: namespace `news-digest` (30-day retention), `ensureSchedule`, pause state, missed-slot start | |
 | `news-digest-worker` | the TypeScript worker, queue `digest`; env `.env` then `worker.env` | 1280 MiB |
-| `news-digest-python` | the Python worker (fulltext, gnews), queue `python` | 448 MiB |
+| `news-digest-python` | the Python worker (fulltext), queue `python` | 448 MiB |
 | `news-digest-temporal-backup.timer` | nightly `pg_dump` at 03:15 UTC, kept 14 days | |
 
 - Everything sits on the docker network `news-digest-temporal`. The workers also join `digest-v6`:
@@ -72,7 +72,7 @@ headroom. The worker was OOM-killed at 512 MiB. If the fan-out width (Semaphore 
 changes with it.
 
 Idle, measured locally: server + Postgres 213-277 MiB (262 on prod on 2026-09-21), worker 137-208,
-Python worker 67-79 (measured as the fulltext worker, before gnews joined it), UI 7.
+Python worker 67-79, UI 7.
 
 ## Staged verification
 
@@ -270,7 +270,7 @@ The cut-over retires the Python pipeline, not `newsroom/`. Deleting it breaks th
 
 | what | reads from the Python tree | how |
 |---|---|---|
-| the Python worker image (`digest/python/Dockerfile`) | `newsroom/src/fulltext.py`, `newsroom/src/gnews.py`, `newsroom/src/config.py` | copied into `/app/src/`; trafilatura keeps the worker in Python whatever happens to gnews |
+| the Python worker image (`digest/python/Dockerfile`) | `newsroom/src/fulltext.py`, `newsroom/src/config.py` | copied into `/app/src/`; trafilatura keeps the worker in Python |
 | the TypeScript worker image (`digest/Dockerfile`) | `newsroom/sources.json`, `newsroom/templates/digest-template.html`, `newsroom/templates/digest.css` | copied; the feed catalogue and the render's template |
 | the ci-ts image (`digest/Dockerfile.ci`) | `migrations/`, the two templates above, `newsroom/tests/fixtures/kitchensink_selections.json` | copied for the store, render and parity tests |
 | migrations | the newsroom image | `bin/migrate` runs yoyo in `digest-newsroom`, locally and on the box; `bin/deploy` migrates through it |

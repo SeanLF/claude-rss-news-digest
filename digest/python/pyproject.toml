@@ -1,17 +1,13 @@
 [project]
 name = "digest-python"
 version = "0.1.0"
-description = "The digest workflow's Python activities on one Temporal worker"
+description = "The digest workflow's Python activity (fulltext) on its own Temporal worker"
 requires-python = ">=3.14"
 # lxml is the parser the fulltext fork measured, so it is pinned with trafilatura.
-# googlenewsdecoder is newsroom's pin (see newsroom/pyproject.toml): the fork's HEAD, whose API
-# gnews.py calls. PyPI's 0.2.x is a rewrite without `decode(timeout=)` or the transport that reports a 429.
-# The SBOM audit cannot see a URL install; it is a named exception in bin/sbom-unregistered.
 dependencies = [
     "temporalio==1.33.0",
     "trafilatura==2.2.0",
     "lxml==6.1.3",
-    "googlenewsdecoder @ https://github.com/SeanLF/google-news-url-decoder/archive/4860ab58e633c08d86fded1af69ae249ab6de2cb.tar.gz",
 ]
 
 [dependency-groups]

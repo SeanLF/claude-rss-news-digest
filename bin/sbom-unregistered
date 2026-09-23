@@ -24,8 +24,8 @@ import tomllib
 # is here, and nothing else is (tested).
 EXCEPTIONS = {
     "https://github.com/SeanLF/google-news-url-decoder/archive/4860ab58e633c08d86fded1af69ae249ab6de2cb.tar.gz": (
-        "the googlenewsdecoder fork gnews.py calls: PyPI's 0.2.1 has no structured 429, connect retry, or "
-        "decode/default_transport/TransportError. Maintained by Sean alone; review it by hand."
+        "the googlenewsdecoder fork newsroom's gnews.py calls, until the Python pipeline retires at the "
+        "cut-over (the digest decodes with gnews-decoder from npm). Maintained by Sean alone; review it by hand."
     ),
 }
 

@@ -6,7 +6,7 @@
 // moved onto this build by hand (runbook, "Stranded runs") fails with a nondeterminism error.
 // Activity bodies are free, and so are an activity's options: replay matches an activity by type,
 // not by timeout or retry policy.
-import { ActivityFailure, ApplicationFailure, CancellationScope, CancelledFailure, condition, isCancellation, log, proxyActivities, setHandler, TimeoutFailure, workflowInfo } from "@temporalio/workflow";
+import { ActivityFailure, ApplicationFailure, CancellationScope, CancelledFailure, condition, isCancellation, log, proxyActivities, setHandler, workflowInfo } from "@temporalio/workflow";
 import type { Activities, AlertRequest, DigestInput, DigestOutput, FulltextFetch, FulltextFetcher, GnewsDecode, LinkDecoder } from "../activities/index.js";
 import { mapBounded, MODEL_FANOUT_LIMIT } from "./bounded.js";
 import { MODEL_MAX_ATTEMPTS, NETWORK_MAX_ATTEMPTS, OPS_MAX_ATTEMPTS, PYTHON_TASK_QUEUE, RUN_TIMEOUT_HOURS, WEEKLY_RECAP_MAX_ATTEMPTS } from "./policy.js";
@@ -61,13 +61,12 @@ const verdict = proxyActivities<Activities>({ startToCloseTimeout: "45 minutes",
 // The Python fetch bounds itself (a 120 s deadline plus 30 s grace, then SIGKILL); the start-to-close
 // covers that with room. A worker that never picks the task up is the schedule-to-start timeout.
 const python = proxyActivities<FulltextFetcher>({ taskQueue: PYTHON_TASK_QUEUE, scheduleToStartTimeout: "5 minutes", startToCloseTimeout: "4 minutes", retry: { maximumAttempts: 2 } });
-// The decode checks its 120 s deadline between links, so a pass can overrun it by one link: up to
-// three requests at 15 s connect plus 15 s read each, then the 2 s pace, about 212 s in all. It
-// heartbeats before each link, so a timed-out pass stops at the next one. One attempt: a retry would
-// spend the per-IP daily budget again on links the first attempt already tried.
-const decoder = proxyActivities<LinkDecoder>({ taskQueue: PYTHON_TASK_QUEUE, scheduleToStartTimeout: "5 minutes", startToCloseTimeout: "6 minutes", heartbeatTimeout: "3 minutes", retry: { maximumAttempts: 1 } });
-// Only a decode no worker picked up spent nothing; any other failure may have sent requests.
-const neverStarted = (e: unknown): boolean => e instanceof ActivityFailure && e.cause instanceof TimeoutFailure && e.cause.timeoutType === "SCHEDULE_TO_START";
+// The decode (gnews-decode.ts) checks its 120 s deadline between links, so a pass can overrun it by
+// one link: the 2 s pace and one 15 s decode, which the library bounds as a whole. A pass queued
+// behind another waits up to 60 s first. It heartbeats before each link, so a timed-out pass stops at
+// the next one. One attempt: a retry would spend the per-IP daily budget again on links the first
+// attempt already tried.
+const decoder = proxyActivities<LinkDecoder>({ startToCloseTimeout: "6 minutes", heartbeatTimeout: "3 minutes", retry: { maximumAttempts: 1 } });
 // Alerts and pings: quick retries, and the activity gives up (logging what it would have said) on the last.
 const ops = proxyActivities<Activities>({ startToCloseTimeout: "2 minutes", retry: { maximumAttempts: OPS_MAX_ATTEMPTS, initialInterval: "10 seconds" } });
 // The tail after the hold: quick, bounded retries, so its worst case is a known sum (below) that the
@@ -224,7 +223,7 @@ async function runDigest(input: DigestInput, state: RunState): Promise<DigestOut
     if (!report) return await finish({ stories: 0, broadcast: "skipped" });
     const repair = await model.repair(runId, drafts, report, input.force);
     const selections = await rebuild.assemble(runId, drafts, report, repair, preheader, input.force);
-    // Best-effort, as in production: a decoder that is down or fails ships the raw Google-News links.
+    // Best-effort, as in production: a decode that fails ships the raw Google-News links.
     const decodeLinks = async () => {
       const links = await once.planGnews(runId, selections, input.force);
       if (links.existing) return links.existing;
@@ -232,7 +231,7 @@ async function runDigest(input: DigestInput, state: RunState): Promise<DigestOut
         ? { links: 0, decoded: {}, attempted: 0, outcome: links.skip }
         : await decoder.decodeLinks(links.urls).catch((e: unknown): GnewsDecode => {
             if (isCancellation(e)) throw e;
-            return { links: links.urls.length, decoded: {}, attempted: 0, outcome: neverStarted(e) ? "unavailable" : "failed" };
+            return { links: links.urls.length, decoded: {}, attempted: 0, outcome: "failed" };
           });
       return once.storeGnews(runId, decoded, input.force);
     };
