@@ -38,3 +38,6 @@ scratch/
 digest/node_modules
 digest/dist
 digest/sbom.cdx.json
+
+# make judges writes the fixture-specific config here
+digest/gate/judges.run.yaml

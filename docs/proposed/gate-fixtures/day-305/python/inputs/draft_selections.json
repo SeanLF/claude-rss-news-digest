@@ -1,0 +1,389 @@
+{
+  "must_know": [
+    {
+      "headline": "Xi arrives in Washington as Chinese business leaders skip Trump summit",
+      "summary": "Xi Jinping arrives in Washington Wednesday for his second meeting with Donald Trump since May, with US law enforcement tightening security as welcome and protest events are planned. Chinese business leaders are likely to skip the trip, as talks between Washington and Beijing over investment agreements have stalled. Ahead of the meeting, China's ambassador called Taiwan and human rights \"red lines\" for Beijing, while AI cooperation is expected to be a major topic of discussion.",
+      "why_it_matters": "The two sides spent weeks negotiating the ceremonial trappings of Xi's welcome while leaving the biggest sources of tension largely untouched, suggesting the summit's pageantry may outpace any substantive agreement on trade or Taiwan.",
+      "sources": [
+        {
+          "article_id": "A566"
+        },
+        {
+          "article_id": "A506"
+        },
+        {
+          "article_id": "A495"
+        },
+        {
+          "article_id": "A502"
+        },
+        {
+          "article_id": "A701"
+        },
+        {
+          "article_id": "A390"
+        },
+        {
+          "article_id": "A84"
+        },
+        {
+          "article_id": "A333"
+        },
+        {
+          "article_id": "A684"
+        }
+      ]
+    },
+    {
+      "headline": "Trump threatens to 'annihilate' Iran at UN, but US and Iran hold first talks since June ceasefire collapse",
+      "summary": "In his UN General Assembly speech, Trump said he must decide whether to strike a deal with Iran or \"annihilate\" the Islamic Republic, warning he could \"drive them into hell with no chance of survival.\" Hours later, US envoys Steve Witkoff and Jared Kushner held a three-hour meeting with Iranian officials including Foreign Minister Abbas Araghchi -- the first such contact since a ceasefire collapsed in June -- which Trump called \"very good,\" while Iran's military warned it was ready for \"crushing\" retaliation. A senior Iranian official said Tehran could reopen the Strait of Hormuz within days if the US eases military pressure and lifts its blockade on Iranian ports.",
+      "why_it_matters": "Iran's military dismissed Trump's annihilation threat as \"a sign of their strategic desperation\" rather than strength, suggesting that pairing a threat of destruction with a same-day 'very good' meeting may undercut the leverage Washington needs to secure the Strait of Hormuz concessions it is negotiating for.",
+      "sources": [
+        {
+          "article_id": "A5"
+        },
+        {
+          "article_id": "A19"
+        },
+        {
+          "article_id": "A55"
+        },
+        {
+          "article_id": "A130"
+        },
+        {
+          "article_id": "A225"
+        },
+        {
+          "article_id": "A348"
+        }
+      ]
+    },
+    {
+      "headline": "Zelensky offers Russia energy ceasefire; Kyiv hit again hours after Trump meeting",
+      "summary": "Ukrainian President Volodymyr Zelensky met U.S. President Donald Trump in New York on Tuesday and proposed a bilateral halt on strikes against each other's energy infrastructure, asking Washington to relay the offer to Moscow. Russia kept striking anyway: it killed eight people across Ukraine on Tuesday and, hours after the Trump meeting, hit two Kyiv petrol stations with jet-powered drones early Wednesday, killing one. Zelensky said Ukrainian intelligence shows Russia is preparing a new mass attack, asked Trump for a winter arms package, and said he hopes Trump can help end the war before winter.",
+      "why_it_matters": "Zelensky told the Wall Street Journal that Putin is 'neither winning nor losing' the war and 'doesn't feel that he has to stop' fighting, which explains why an energy-ceasefire offer relayed through Washington produced a fresh Kyiv strike within hours rather than a pause.",
+      "sources": [
+        {
+          "article_id": "A92"
+        },
+        {
+          "article_id": "A129"
+        },
+        {
+          "article_id": "A147"
+        },
+        {
+          "article_id": "A201"
+        },
+        {
+          "article_id": "A213"
+        },
+        {
+          "article_id": "A227"
+        },
+        {
+          "article_id": "A309"
+        },
+        {
+          "article_id": "A346"
+        },
+        {
+          "article_id": "A394"
+        },
+        {
+          "article_id": "A455"
+        },
+        {
+          "article_id": "A522"
+        },
+        {
+          "article_id": "A544"
+        },
+        {
+          "article_id": "A568"
+        },
+        {
+          "article_id": "A598"
+        },
+        {
+          "article_id": "A687"
+        }
+      ]
+    },
+    {
+      "headline": "EU drops sanctions on Russian oligarchs as Azerbaijan pardons jailed Frenchman",
+      "summary": "The EU has removed Russian-Uzbek billionaire Alisher Usmanov and Russian-Israeli businessman Mikhail Fridman from its Russia sanctions list, while extending restrictions on nearly 3,000 other individuals and entities for three years as part of the compromise. Ukraine's foreign minister called the delisting \"unacceptable,\" and Estonia said France, which had pushed for Usmanov's removal citing \"national security concerns,\" must explain itself. A day after the EU decision, Azerbaijan's President Ilham Aliyev pardoned French national Martin Ryan, jailed for espionage, in what is reportedly part of a secret prisoner-release deal Paris struck with Baku.",
+      "why_it_matters": "By trading an exemption for a Kremlin-linked billionaire to help secure a prisoner's release, France handed Kremlin spokesman Dmitry Peskov grounds to claim the EU's sanctions regime lacks legitimacy \u2014 undermining the credibility of the sanctions Brussels just extended on nearly 3,000 other people and entities for three more years.",
+      "sources": [
+        {
+          "article_id": "A64"
+        },
+        {
+          "article_id": "A146"
+        },
+        {
+          "article_id": "A152"
+        },
+        {
+          "article_id": "A178"
+        },
+        {
+          "article_id": "A206"
+        },
+        {
+          "article_id": "A209"
+        },
+        {
+          "article_id": "A275"
+        },
+        {
+          "article_id": "A435"
+        },
+        {
+          "article_id": "A573"
+        },
+        {
+          "article_id": "A633"
+        },
+        {
+          "article_id": "A680"
+        }
+      ],
+      "reporting_varies": [
+        {
+          "source": "BBC/Guardian",
+          "angle": "Frame the story around Ukraine's anger and Latvia's initial veto before it agreed to a compromise",
+          "bias": "Ukraine-sympathetic framing"
+        },
+        {
+          "source": "Financial Times/Le Monde",
+          "angle": "Emphasize the secret prisoner-release deal, reporting that Paris blindsided allies by pushing Usmanov's exemption as part of a Azerbaijan bargain",
+          "bias": "investigative framing"
+        },
+        {
+          "source": "Straits Times (Estonia's foreign minister)",
+          "angle": "Frames the episode as a demand for French accountability over its motives",
+          "bias": "Baltic-state skepticism of France"
+        }
+      ]
+    },
+    {
+      "headline": "Yemen government claims recapture of Mount Qarfan as Saudi Arabia tests damaged pipeline for restart",
+      "summary": "Yemeni government forces say they have retaken Mount Qarfan, a strategic peak in Taiz overlooking the Red Sea coast, from Iran-aligned Houthi fighters, killing five and wounding 20 in the battle. The fighting is part of a broader Houthi offensive that has displaced more than 100,000 people and left up to 169 dead, as Turkey, Saudi Arabia, Pakistan and Egypt affirmed Riyadh's right to defend itself. Saudi Arabia has begun testing its East-West pipeline, knocked out by earlier attacks, and could resume flows within days, even as oil traders also weigh U.S.-Iran talks.",
+      "why_it_matters": "Mount Qarfan sits on high ground the Houthis need to shield their Red Sea gains and, an analyst told Al Jazeera, to eventually pressure government-held Aden; losing it could blunt a campaign that has already pushed Brent crude past $100 a barrel and forced Saudi Arabia back onto the vulnerable Strait of Hormuz route it had spent months trying to bypass.",
+      "sources": [
+        {
+          "article_id": "A1"
+        },
+        {
+          "article_id": "A156"
+        },
+        {
+          "article_id": "A314"
+        },
+        {
+          "article_id": "A323"
+        },
+        {
+          "article_id": "A440"
+        },
+        {
+          "article_id": "A538"
+        },
+        {
+          "article_id": "A632"
+        },
+        {
+          "article_id": "A690"
+        },
+        {
+          "article_id": "A704"
+        },
+        {
+          "article_id": "A705"
+        }
+      ]
+    }
+  ],
+  "should_know": [
+    {
+      "headline": "Japan's Takaichi meets Trump, urges UN to drop 'enemy state' label",
+      "summary": "Japanese Prime Minister Sanae Takaichi met President Trump in New York on Tuesday, days before Trump's summit with Chinese leader Xi Jinping, with Trump praising her as doing a 'tremendous job.' At the UN General Assembly, Takaichi called for the UN Charter to drop its World War II-era 'enemy state' label, which she said China and Russia have used to attack Japan, and voiced support for the International Criminal Court after Trump called it 'out of control.'",
+      "sources": [
+        {
+          "article_id": "A286"
+        },
+        {
+          "article_id": "A299"
+        },
+        {
+          "article_id": "A326"
+        },
+        {
+          "article_id": "A330"
+        },
+        {
+          "article_id": "A340"
+        },
+        {
+          "article_id": "A507"
+        },
+        {
+          "article_id": "A600"
+        },
+        {
+          "article_id": "A685"
+        }
+      ]
+    },
+    {
+      "headline": "South Korea's Lee seeks new approach to North Korea as missile tests loom over Xi-Trump summit",
+      "summary": "South Korean President Lee is pushing for a change of course on North Korea, including possible easing of sanctions, even as Pyongyang's military buildup deepens the nuclear threat facing the South. North Korea's recent missile tests may be intended to keep denuclearization off the agenda of the upcoming Xi-Trump summit and to press its demand to be recognized as a nuclear power as a precondition for talks with Washington.",
+      "sources": [
+        {
+          "article_id": "A154"
+        },
+        {
+          "article_id": "A347"
+        },
+        {
+          "article_id": "A500"
+        }
+      ]
+    },
+    {
+      "headline": "Philippine Senate lowers conviction threshold in Sara Duterte impeachment trial",
+      "summary": "The Philippine Senate impeachment court ruled Wednesday that absent senators cannot vote in Vice President Sara Duterte's trial, lowering the vote total needed for conviction. The decision overturns presiding officer Chiz Escudero's July 6 ruling that had fixed the threshold at 16 votes, and could reduce it to 14 by excluding senators who are detained, in hiding, or on medical leave, including Jinggoy Estrada, Rodante Marcoleta, Bato dela Rosa and Loren Legarda. Prosecutors called it a more feasible path to conviction but said the case remains difficult to prove.",
+      "sources": [
+        {
+          "article_id": "A292"
+        },
+        {
+          "article_id": "A364"
+        },
+        {
+          "article_id": "A368"
+        },
+        {
+          "article_id": "A373"
+        },
+        {
+          "article_id": "A380"
+        }
+      ]
+    },
+    {
+      "headline": "Sri Lanka convicts 15 men over 2019 Easter Sunday bombings",
+      "summary": "A Sri Lankan court convicted 15 men on terrorism charges over the 2019 Easter Sunday bombings, which killed 270 people and injured more than 500 at three churches and three luxury hotels. Each defendant received a prison term of 200 to 260 years; among those convicted was Naufer Moulavi, whom prosecutors said masterminded the suicide bombings. The verdict followed a trial that lasted nearly five years.",
+      "sources": [
+        {
+          "article_id": "A68"
+        },
+        {
+          "article_id": "A198"
+        }
+      ]
+    },
+    {
+      "headline": "Moroccans vote in parliamentary election shaped by Ceuta migrant crisis",
+      "summary": "Morocco held parliamentary elections Wednesday, with nearly 16 million people registered to elect 395 members of the House of Representatives. The vote follows a summer surge in which about 60,000 people crossed to the Spanish enclave of Ceuta, at least 100 of whom died, amid youth unemployment that reached 37.3% and Gen Z-led protests demanding jobs and better services. The next government will oversee the final stages of a $20 billion push to prepare for the 2030 World Cup, which Morocco co-hosts with Spain and Portugal.",
+      "sources": [
+        {
+          "article_id": "A32"
+        },
+        {
+          "article_id": "A63"
+        },
+        {
+          "article_id": "A210"
+        },
+        {
+          "article_id": "A335"
+        },
+        {
+          "article_id": "A563"
+        }
+      ]
+    },
+    {
+      "headline": "Mexico bans cellphones in primary and secondary schools from November",
+      "summary": "Mexico unveiled nationwide rules restricting cellphone and tablet use in primary and secondary schools, taking effect November 3. President Claudia Sheinbaum said state education officials reached consensus on the measure, with high schools left to set their own limits; Education Minister Mario Delgado called it a step to protect children's mental health and learning.",
+      "sources": [
+        {
+          "article_id": "A224"
+        },
+        {
+          "article_id": "A342"
+        },
+        {
+          "article_id": "A557"
+        }
+      ]
+    },
+    {
+      "headline": "Iraq's PM al-Zaidi vows to disarm Iran-backed militias",
+      "summary": "Iraqi Prime Minister Ali al-Zaidi says he will disarm Iran-backed militias, laying out a timeline in an interview. He is a political newcomer attempting a goal that has eluded his predecessors.",
+      "sources": [
+        {
+          "article_id": "A325"
+        }
+      ]
+    },
+    {
+      "headline": "US withholds Sudan army chief's UN visa over ceasefire dispute",
+      "summary": "The United States is withholding a visa for Sudanese army chief Abdel Fattah al-Burhan ahead of his scheduled UN General Assembly address, tying the visa to a US-backed 90-day ceasefire proposal that Khartoum has resisted, sources told Reuters. Burhan postponed his trip to New York, Sudan's foreign minister will address the assembly in his place, and Sudan's government called the move a violation of the UN Convention. The dispute comes amid Sudan's civil war between the army and the Rapid Support Forces, which the UN calls the world's largest humanitarian crisis.",
+      "sources": [
+        {
+          "article_id": "A37"
+        },
+        {
+          "article_id": "A217"
+        },
+        {
+          "article_id": "A438"
+        }
+      ]
+    },
+    {
+      "headline": "China tightens exit rules on tech talent and capital",
+      "summary": "New entry-exit rules that took effect last week let Chinese authorities stop engineers, founders and other specialists from leaving the country if their expertise in batteries, rare earths or AI is deemed a threat to \"industrial and technological security.\" Beijing has also tightened outbound-investment rules and restricted overseas postings of technical staff, moves an SMU law professor says reflect concern about capital outflows and departing entrepreneurs.",
+      "sources": [
+        {
+          "article_id": "A160"
+        }
+      ]
+    },
+    {
+      "headline": "France to open talks on Latvia joining nuclear deterrence initiative",
+      "summary": "France agreed to open talks on Latvia joining a nuclear deterrence initiative, according to Latvia's leader.",
+      "sources": [
+        {
+          "article_id": "A460"
+        }
+      ]
+    },
+    {
+      "headline": "UK launches RAF squadron to defend satellites in orbit",
+      "summary": "Britain unveiled the No III Space Effects Squadron on Wednesday, a Royal Air Force unit tasked with disrupting, degrading and denying hostile activity targeting British satellites. Defence Secretary Wes Streeting said Britain must \"keep pace in the new space race,\" and the Ministry of Defence said the unit will use advanced technology, including electronic warfare, to counter threats to satellites used for communications and missile-attack warnings.",
+      "sources": [
+        {
+          "article_id": "A542"
+        },
+        {
+          "article_id": "A639"
+        }
+      ]
+    },
+    {
+      "headline": "Ethiopian rebel groups form coalition against government, call PM dictatorial",
+      "summary": "Half a dozen Ethiopian rebel groups have announced the formation of a coalition against the government, accusing the prime minister of being dictatorial. The alliance forms in a country already scarred by war.",
+      "sources": [
+        {
+          "article_id": "A319"
+        }
+      ]
+    }
+  ],
+  "preheader": "Xi in Washington as trade talks stall; Trump meets Iran envoys after military threat; Kyiv hit after Zelensky proposes energy ceasefire."
+}

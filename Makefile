@@ -128,8 +128,10 @@ band: ## Same-day curation band of the TypeScript workflow via promptfoo (RUN=30
 	(cd digest && npm run build && BAND_DB=../data/band-$$stamp.db npx --yes promptfoo@0.123.1 eval -c gate/band.yaml --repeat $${REPS:-3} -j 1 --no-cache -o ../data/band-$$stamp.json); status=$$?; \
 	env -u DIGEST_DB_PATH docker compose --env-file .env -f digest/compose.temporal.yml up -d --force-recreate digest-worker >/dev/null; exit $$status  # the worker goes back to data/digest.db
 
-judges: ## Two judge families x5 (REPS=5) on the day-300 fixture via promptfoo, in the worker container (model calls, ~$5)
-	@stamp=$$(date -u +%Y%m%dT%H%M%SZ); $(JUDGE_RUN) sh -c "mkdir -p /tmp/codex && cp /run/codex-auth.json /tmp/codex/auth.json && npx --yes promptfoo@0.123.1 eval -c gate/judges.yaml --repeat $${REPS:-5} -j 1 --no-cache -o ../data/judges-$$stamp.json && node dist/cli/agreement.js ../data/judges-$$stamp.json"
+judges: ## Two judge families x5 (REPS=5) on a gate fixture (FIXTURE=day-300, or e.g. day-305/python) via promptfoo, in the worker container (model calls, ~$5)
+	@stamp=$$(date -u +%Y%m%dT%H%M%SZ); fx=$${FIXTURE:-day-300}; test -f docs/proposed/gate-fixtures/$$fx/digest.html || { echo "no fixture docs/proposed/gate-fixtures/$$fx/{digest.html,inputs/}"; exit 2; }; \
+	sed "s#gate-fixtures/day-300/#gate-fixtures/$$fx/#g" digest/gate/judges.yaml > digest/gate/judges.run.yaml; \
+	$(JUDGE_RUN) sh -c "mkdir -p /tmp/codex && cp /run/codex-auth.json /tmp/codex/auth.json && $(CODEX_INSTALL) && npx --yes promptfoo@0.123.1 eval -c gate/judges.run.yaml --repeat $${REPS:-5} -j 1 --no-cache -o ../data/judges-$$(echo $$fx | tr / -)-$$stamp.json && node dist/cli/agreement.js ../data/judges-$$(echo $$fx | tr / -)-$$stamp.json"
 
 planted: ## COHERENCE planted-defect band on the new runner via promptfoo, in the worker container (REPS=3; ~$1/rep)
 	@stamp=$$(date -u +%Y%m%dT%H%M%SZ); $(DIGEST_RUN) npx --yes promptfoo@0.123.1 eval -c gate/planted.yaml --repeat $${REPS:-3} -j 1 --no-cache -o ../data/planted-$$stamp.json
@@ -146,5 +148,10 @@ fulltext-fork: ## Fulltext fork: every extractor arm over a saved corpus via pro
 # The Codex judge signs in with a copy of the host's Codex login in a writable CODEX_HOME (the login
 # is mounted read-only; Codex writes beside it). Without a login the SDK hangs rather than failing.
 # PROMPTFOO_EVAL_TIMEOUT_MS bounds each judgement, so a stuck judge fails its test.
+# The Codex CLI the judge runs, installed per run at a pinned version with its platform binary named
+# explicitly: npx's own resolution sometimes drops that optional dependency (npm/cli#4828), and the
+# judge then fails with "Unable to locate Codex CLI binaries". judges.yaml points codex_path_override here.
+CODEX_VERSION = 0.156.1
+CODEX_INSTALL = arch=\$$(uname -m | sed 's/aarch64/arm64/;s/x86_64/x64/') && npm i --silent --prefix /tmp/cx @openai/codex@$(CODEX_VERSION) @openai/codex-linux-\$$arch@npm:@openai/codex@$(CODEX_VERSION)-linux-\$$arch && test -x /tmp/cx/node_modules/.bin/codex
 JUDGE_RUN = docker compose --env-file .env -f digest/compose.temporal.yml run --rm --build --no-deps -v "$(CURDIR)/docs:/app/docs:ro" -v "$(HOME)/.codex/auth.json:/run/codex-auth.json:ro" -e CODEX_HOME=/tmp/codex -e PROMPTFOO_EVAL_TIMEOUT_MS=1200000 digest-judge
 DIGEST_RUN = docker compose --env-file .env -f digest/compose.temporal.yml run --rm --build --no-deps -v "$(CURDIR)/docs:/app/docs:ro" digest-worker

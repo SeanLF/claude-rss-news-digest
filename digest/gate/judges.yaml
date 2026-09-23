@@ -11,7 +11,7 @@ providers:
   - id: openai:codex-sdk
     label: codex
     # promptfoo withholds CODEX_HOME from the Codex process unless cli_env names it; the Makefile copies the login there.
-    config: { working_dir: ../../docs/proposed/gate-fixtures/day-300/inputs, sandbox_mode: read-only, skip_git_repo_check: true, cli_env: { CODEX_HOME: /tmp/codex } }
+    config: { working_dir: ../../docs/proposed/gate-fixtures/day-300/inputs, sandbox_mode: read-only, skip_git_repo_check: true, cli_env: { CODEX_HOME: /tmp/codex }, codex_path_override: /tmp/cx/node_modules/.bin/codex }
 tests:
   # Every path here resolves against this file's directory (gate/), not the working directory.
   - vars: { digest: file://../../docs/proposed/gate-fixtures/day-300/digest.html }
