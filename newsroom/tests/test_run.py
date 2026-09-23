@@ -11,6 +11,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 from config import DEDUP_SIMILARITY_THRESHOLD
 from dedup import TfidfMatcher, tokenize
+from digest import resolve_article_ids
 from feeds import parse_date
 from render import (
     _has_article_path,
@@ -22,8 +23,6 @@ from render import (
     slugify,
     strip_html,
 )
-
-from digest import resolve_article_ids
 
 
 class TestEstimateTokens:

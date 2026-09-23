@@ -17,9 +17,8 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 import config
 import db
-import threads
-
 import digest
+import threads
 
 MIGRATIONS_DIR = Path(__file__).parent.parent.parent / "migrations"
 
