@@ -1,6 +1,7 @@
 # Data model: design before more of the rewrite lands (2026-09-23)
 
-**Status:** proposal, no code changed. Decisions marked *default* hold until Sean rules (section 6).
+**Status:** proposal, no code changed. Sean answered section 6 the same day; sections 0, 3, 4.4, 5 and 6
+are revised to match.
 **Evidence base:** prod clone `data/prod-20260923b.db` (the brief named `prod-20260923.db`; only the `b` copy
 exists, runs 1-305, opened read-only), the TypeScript A/B copy `data/ab305-20260923.db`, the box itself
 (read-only `df`/`ls`), and a local Postgres harness (Appendix D). `$P` below is
@@ -8,9 +9,9 @@ exists, runs 1-305, opened read-only), the TypeScript A/B copy `data/ab305-20260
 
 ## 0. The answer in six lines
 
-1. **Keep the product database in SQLite.** Postgres RAM is not the reason (measured: ~10 MiB per 4
-   connections, the rest reclaimable cache). The reason is that Temporal's Postgres belongs to the pipeline
-   stack, which `python` mode tears down, and readers must survive the pipeline.
+1. **Keep the product database in SQLite.** Neither RAM (measured: ~10 MiB per 4 connections, the rest
+   reclaimable cache) nor downtime (the site is not HA, Sean 2026-09-23) decides it. What decides it is that
+   Postgres buys nothing this pipeline measures and costs a circulation port (section 3).
 2. **Make runs, attempts and model calls first-class**, so a forced or resumed run stops overwriting its own
    record, and the self-improvement loop can ask "every WRITE call under prompt X, with its inputs, output
    and verdict" without parsing artifact names.
@@ -20,8 +21,9 @@ exists, runs 1-305, opened read-only), the TypeScript A/B copy `data/ab305-20260
    status string.
 5. **Experiments stay off the box.** Production traces live in `digest.db`; experiment runs, scores and judge
    output live in promptfoo's store on the Mac; human labels and planted keys live in git.
-6. **Migration tool follows the model:** plain SQL on SQLite, so dbmate when yoyo's image retires; yoyo until
-   then. Nothing destructive before the rollback-to-Python path is retired.
+6. **No migration chain into the new shape.** Python retires at the deploy that switches to TypeScript, so
+   the new schema is written fresh and today's data is imported once, by a script tested on the prod clone.
+   dbmate owns the new schema; yoyo retires with Python.
 
 ## 1. Scope
 
@@ -90,8 +92,8 @@ file is 211,456,000 bytes on the box and in the clone (51,625 pages of 4 KiB).
   (`rg -n sqlite3_busy_timeout ~/.cargo/registry/src/*/rusqlite-0.40.2/src/inner_connection.rs`, line 118).
   Spec §5's "the reader has nothing" is wrong.
 - **Retention.** Grows by decision (spec §2). Temporal history: 30 days. Everything else: forever.
-- **Schema evolution.** Forward-only, applied at deploy after a snapshot. Until Python is deleted, every
-  schema change must keep the Python writer working, because the rollback runbook flips back to it.
+- **Schema evolution.** Forward-only, applied at deploy after a snapshot. Python retires at cut-over, so the
+  new schema owes it nothing; the rollback is the old file plus the Python tag (section 5, step 4).
 - **Privacy.** No PII in the database (spec §3). Article text is publisher content.
 - **Testability.** TS tests build a temp database from `migrations/` (`digest/src/store/migrated-db.ts`);
   20 non-test TS files run SQL (`rg -l '\.prepare\(' digest/src -g '!*.test.ts' | wc -l`).
@@ -123,7 +125,7 @@ file is 211,456,000 bytes on the box and in the clone (51,625 pages of 4 KiB).
    which is why `runCost` takes a `since` argument. An attempt dimension fixes this; replacing rows does not.
 5. **Web copy vs emailed copy.** `saveDigest` upserts `html` and `run_id` before the send claim. A forced
    re-run of a day already sent replaces the archived issue, then fails at the claim (`SendClaimed`), so the
-   web archive shows a version nobody was emailed. Question 2 below.
+   web archive shows a version nobody was emailed. Decided: replace, never re-send (section 4.4).
 6. **A stale premise, not a conflict.** Spec §5 keeps WAL off "unless the backup becomes WAL-aware". It is:
    `backup-volumes` and the staged refresh both use the online-backup API. Two things still break under
    WAL: `bin/db-clone --live` copies the file with `cat`, and the dead-man mounts the volume `:ro`
@@ -137,13 +139,21 @@ file is 211,456,000 bytes on the box and in the clone (51,625 pages of 4 KiB).
 | Disk | 202 MiB, +~0.7 GiB/yr | 165 MiB loaded (TOAST compresses artifacts 57.5 → 28 MiB) | same as A |
 | Readers during a pipeline outage | unaffected (a file) | down whenever the Temporal stack is (teardown, pin bump, OOM at 384 MiB) | unaffected |
 | Rewrite cost | additive migrations, some table rebuilds | circulation from rusqlite to a pooled PG client, FTS5 to `tsvector` (ranking changes); 60 SQLite date/FTS calls in circulation outside `util.rs`, 39 of them in `stats.rs`, inline tests included (`rg -c 'datetime\(|strftime\(|date\(|MATCH' circulation/src`); 8 of 16 analytics queries (`rg -l 'datetime\(|julianday|json_each' analytics/queries`); TS tests need a PG | A |
-| When it can happen | now, additively | only after Python stops writing, and it breaks the rollback to Python | now |
+| When it can happen | at cut-over, by import | at cut-over, by import (was: only after Python retires) | at cut-over |
 | Backups | exists and is verified | add `digest` to the nightly `pg_dump`; the Mac-side clone and analytics workflow move to `pg_restore` | A |
 | What it buys | fixes the smells | MVCC, `jsonb`, `ALTER ... ADD CONSTRAINT` | A, plus a clean line between record and experiment |
 
 Postgres wins on nothing this pipeline measures: one writer a day, no lock contention observed, 5 s busy
 timeouts on both sides. Split variants (product in SQLite, eval data in Postgres on the box) put experiment
 data on the machine that cannot run the experiments. **Recommendation: C.**
+
+**After Sean's answers.** Downtime is acceptable and Python retires at cut-over, so the "readers
+unaffected" and "when it can happen" rows no longer separate A from B, and a fresh schema plus a one-shot
+import costs the same into either engine. That makes cut-over the cheapest moment Postgres will ever have.
+It is still not worth it: the remaining difference is the circulation port (60 SQLite date/FTS calls, FTS5
+ranking replaced by `tsvector`, a PG in every TS and Rust test) against gains nobody has measured a need
+for. Revisit if a second writer appears (the web tier writing subscriptions or feedback), or if the Mac
+needs to query prod live instead of a clone.
 
 ## 4. Recommendation: the model
 
@@ -258,13 +268,16 @@ ALTER TABLE run_usage ADD COLUMN result          TEXT;  -- ok|invalid|error|time
 ### 4.4 Issues and broadcasts (replace `digests`)
 
 ```sql
-CREATE TABLE issues (
-  date         TEXT PRIMARY KEY,
-  run_id       INTEGER NOT NULL REFERENCES digest_runs(id),  -- the run readers got
+CREATE TABLE issues (          -- append-only: a forced re-run adds a revision, never overwrites
+  date         TEXT NOT NULL,
+  revision     INTEGER NOT NULL,                             -- 1 = first publication
+  run_id       INTEGER NOT NULL REFERENCES digest_runs(id),  -- the run that produced this revision
   html         TEXT NOT NULL,
   preheader    TEXT NOT NULL DEFAULT '',
-  published_at TEXT NOT NULL
+  published_at TEXT NOT NULL,
+  PRIMARY KEY (date, revision)
 ) STRICT;
+-- the web serves the highest revision; broadcasts.revision says which one subscribers got
 
 CREATE TABLE broadcasts (
   date          TEXT PRIMARY KEY,
@@ -272,14 +285,15 @@ CREATE TABLE broadcasts (
   claim_token   TEXT,            -- today packed into broadcast_status as 'claimed <iso> <uuid>'
   claimed_at    TEXT NOT NULL,
   resend_id     TEXT UNIQUE,
+  revision      INTEGER NOT NULL,                              -- the issues revision that was emailed
   status        TEXT NOT NULL CHECK (status IN ('claimed','draft','queued','sending','sent','failed')),
   recipients    INTEGER,
   email_artifact TEXT NOT NULL DEFAULT 'email.html'          -- (run_id, name) in run_artifacts
 ) STRICT;
 
-CREATE VIEW published_runs AS
-  SELECT id AS run_id FROM digest_runs WHERE completed_at IS NOT NULL                 -- Python-era and sent
-  UNION SELECT run_id FROM broadcasts WHERE status IN ('queued','sending','sent');    -- landed, record step failed
+CREATE VIEW published_runs AS   -- published = on the web or emailed (Sean, 2026-09-23)
+  SELECT run_id FROM issues
+  UNION SELECT run_id FROM broadcasts WHERE status IN ('queued','sending','sent');
 
 CREATE VIEW digests AS  -- compatibility for circulation until the web rewrite
   SELECT i.date, i.html, i.preheader, i.run_id, b.resend_id AS broadcast_id, b.status AS broadcast_status,
@@ -290,8 +304,11 @@ CREATE VIEW digests AS  -- compatibility for circulation until the web rewrite
 - `published_runs` encodes the rule `retract()` already uses (`mayHaveGone`: accepted states or a claim), once.
 - `digest_runs.articles_emailed` duplicates `broadcasts.recipients`; it stays until the web rewrite
   because /stats reads it.
-- Whether a forced re-run may replace `issues.html` is question 2; the default is that it may not, and the
-  re-run's html stays an artifact.
+- A forced re-run of a sent day publishes a new revision to the web and never re-sends (Sean,
+  2026-09-23). The broadcast claim is per date, so the send step already refuses; the change is that the
+  run then ends `published`, not `failed`. The page can show "updated since the email" when the served
+  revision is newer than `broadcasts.revision`. An operator-approved notice to subscribers is a later
+  option, not built.
 
 ### 4.5 Threads
 
@@ -336,56 +353,49 @@ CREATE VIEW thread_state AS ...  -- label, first/last run, active|dormant|merged
 
 ## 5. Migration path
 
-The constraint: until `newsroom/` is deleted, the rollback runbook can flip back to Python, so every step
-before that must keep the Python writer working. Staged mode refreshes its scratch DB from the migrated
-`digest.db`, so the three gate days exercise the new columns under TypeScript while Python proves backwards
-compatibility on prod. Every step runs after the deploy's verified snapshot, and each has a stated inverse.
+Python retires at the deploy that switches production to TypeScript (Sean, 2026-09-23; it stays in git
+history). Nothing has to keep a Python writer working after that, so the model is not reached by a chain
+of migrations over today's tables. Instead:
 
-| step | when | change | Python still works because | inverse |
-|---|---|---|---|---|
-| 0 | before the next deploy | fold the **unshipped** `20260923120000` (`digest_runs.workflow_run_id`) into `run_attempts`; keep `20260923180000` (`broadcast_run_id`) as the future `broadcasts.run_id`. Both are unapplied on prod (`$P "SELECT migration_id FROM _yoyo_migration ORDER BY 1 DESC LIMIT 1"` → `20260916190000`) | nothing shipped | edit the files |
-| 1a | with plan A | `run_attempts`, `prompts`, new `run_usage` and `run_artifacts` columns, partial unique index; TS writes them | Python leaves NULLs; its `INSERT OR REPLACE` hits the partial index for `state='current'` rows (unverified: needs a test) | drop columns/tables, restore the full index |
-| 1b | with plan A | `digest_runs.outcome` + transition triggers; an AFTER trigger sets `outcome='sent'` when a write sets `completed` without one (Python only completes on send) | Python's three writes are all legal | drop triggers and column |
-| 1c | with plan A | `published_runs` view; circulation's thread queries and the TS linker filter on it | read-side only | revert the queries |
-| 1d | with plan A | WAL, after `db-clone --live` uses the backup API and the `:ro` dead-man is tested | Python does not care about journal mode | `PRAGMA journal_mode=DELETE` |
-| 1e | anytime | drop the seven redundant indexes; TS `foreign_keys=ON`; TS records `effort` | | recreate |
-| 2 | cut-over day | **no schema change.** The flip and its rollback stay a config change | | |
-| 3 | after the rollback path is retired (question 4) | `issues` + `broadcasts` + `digests` view; threads restructure; drop `selections` (after backfilling 128 runs), `cluster_runs` (after repointing 3 analytics queries), `thread_runs`, `story_feedback`, `threads.slug`, `dedup_log.action`; delete the retract and sweep code | Python is gone | restore from the pre-migration snapshot (the deploy's rollback path today) |
-| 4 | with plan B, web rewrite | rename `completed_at`→`published_at`, drop compatibility views, optionally normalise stories | | |
+| step | when | change | inverse |
+|---|---|---|---|
+| 0 | now | drop the two unshipped 2026-09-23 migrations (`workflow_run_id`, `broadcast_run_id`); both are unapplied on prod (`$P "SELECT migration_id FROM _yoyo_migration ORDER BY 1 DESC LIMIT 1"` → `20260916190000`) and their jobs move into `run_attempts` and `broadcasts` | revert the commit |
+| 1 | with plan A | write the new schema as dbmate migration 1 (`digest/db/migrations/`); point the TS store and its tests at it; staged mode runs on a scratch DB built from it | revert |
+| 2 | with plan A | `bin/import-legacy`: `ATTACH` today's `digest.db` read-only and `INSERT ... SELECT` into the new schema. Carries runs, usage, artifacts, issues (as revision 1), broadcasts, threads, installments, questions, source health, shown narratives. Leaves behind `selections` (backfilled into artifacts first for the 128 runs that exist only there), `cluster_runs`, `thread_runs`, `story_feedback` (exported to a CSV under `docs/`), `threads.slug`, `dedup_log.action` | delete the new file |
+| 3 | gate days | staged mode refreshes its scratch DB by running the import against the latest prod backup, so all three gate days exercise the import as well as the schema | |
+| 4 | cut-over deploy | stop the timer, take the verified snapshot, run the import, swap the file, deploy circulation reading the new schema (through the `digests` compatibility view if its port is not ready), start the timer | put the old file back and redeploy the Python tag. Valid until the first TypeScript run writes; after that, restore the snapshot and lose that day |
+| 5 | after cut-over | delete `newsroom/`, yoyo, the retract and sweep code, and the compatibility views as circulation is ported | |
 
-**Tests the path needs:** transition triggers (every legal and illegal edge); the `digests` view returns
-the old table's rows for every date on a prod clone; circulation's suite against a migrated clone; one
-Python run in CI against the step-1 schema.
+**Tests the path needs:** the import on the prod clone with row-count and content checks per table (every
+issue's html byte-equal, every thread's derived label equal to today's `threads.label`); the transition
+triggers (every legal and illegal edge); circulation's suite against an imported clone.
 
-**What the model implies for the migration tool.** Plain SQL on SQLite with triggers, partial indexes,
-views, table rebuilds for constraints, and FTS5. That rules out an ORM as schema owner: Drizzle Kit or
-Kysely would make TypeScript the source of truth for a schema the Rust tier reads until plan B, and
-neither models FTS5 triggers (unverified for both; they would sit in raw SQL anyway). node-pg-migrate is
-Postgres-only. **dbmate** fits: one binary, plain SQL with up/down blocks, SQLite and Postgres, a
-`schema_migrations(version)` table, maintained (pushed 2026-09-23, 7.4k stars:
-`gh repo view amacneil/dbmate --json pushedAt,isArchived`). The switch is cheap because yoyo keys applied
-migrations on `sha256(migration_id)`, not content (`printf %s 20260916190000_add_threads_merged_into | shasum -a 256`
-equals the stored hash), so the 27 files can gain `-- migrate:up` markers while yoyo still runs them; at
-step 3, seed `schema_migrations` with the 27 versions and swap the runner. `migrated-db.ts` must then apply
-only the up block. Until step 3, keep yoyo: it runs in the newsroom image, which the rollback path needs
-anyway.
+**The migration tool.** Plain SQL on SQLite with triggers, partial indexes, views and FTS5 rules out an ORM
+as schema owner: Drizzle Kit or Kysely would make TypeScript the source of truth for a schema the Rust tier
+also reads, and neither models FTS5 triggers (unverified for both). node-pg-migrate is Postgres-only.
+**dbmate** fits: one binary, plain SQL with up/down blocks, SQLite and Postgres, maintained (pushed
+2026-09-23: `gh repo view amacneil/dbmate --json pushedAt,isArchived`). With a fresh schema there is no
+yoyo history to carry over.
 
-## 6. Questions for Sean, most costly-if-wrong first
+## 6. Decisions and open questions
 
-1. **SQLite for the product database, Postgres for Temporal only?** Default yes. If wrong the other way, the
-   cost is a circulation port and tying readers to the pipeline stack.
-2. **May a forced re-run replace a sent day's public issue?** Today it does, then fails at the send claim,
-   so the archive shows an issue nobody got. Default: no; the issue is what was sent, and replacing it is an
-   explicit operator step.
-3. **Are an unsent run's thread installments private until it is published?** Default yes (0 rows affected
-   today). This is what lets the retract and sweep code go.
-4. **When is the rollback to Python retired?** Destructive steps wait for it. Default: when `newsroom/` is
-   deleted per spec §7.5, not at cut-over.
-5. **Retention: keep everything?** Default yes: ~0.7 GiB a year against 28 GB free; the thinking traces
-   are the only candidates for pruning and are ~0.3 MiB per run.
-6. **Experiments and labels off the box (promptfoo store on the Mac, labels in git)?** Default yes.
-7. **`story_feedback`'s 37 rows (last vote 2026-07-05):** export to a CSV under `docs/` and drop?
-   Default yes. The compose comment calling the circulation mount rw "for /feedback" is stale too.
+**Decided by Sean, 2026-09-23:**
+1. The site is not HA; short downtime is acceptable.
+2. Postgres for the product only if the trade-offs justify it. They don't yet (section 3).
+3. A forced re-run may replace the public issue, and never re-sends (section 4.4).
+4. An unsent run's thread installments stay private until the run is published by email or on the web.
+5. Python retires at the deploy that switches to TypeScript.
+6. Eval and training data live off the box.
+7. Today's data is not reshaped by migrations: a fresh schema and a one-shot import instead.
+
+**Still open:**
+1. **PostHog.** Sean is open to it for monitoring. Two different jobs, and they should be decided
+   separately. For readers, it needs a privacy policy change and a reason to measure; by the
+   distribution memo, prod reach is about zero. For the pipeline, its LLM analytics could hold per-call
+   traces off the box, which would overlap with section 4.3 and with promptfoo's store. Either way, reader
+   events never enter `digest.db`.
+2. **Retention: keep everything?** Default yes: ~0.7 GiB a year against 28 GB free.
+3. **`story_feedback`'s 37 rows (last vote 2026-07-05):** export to CSV and drop? Default yes.
 
 ## Appendix A: reproducers
 
