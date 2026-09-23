@@ -1,0 +1,214 @@
+{
+  "preheader": "Quote \"x\" & <y>: Russia's $24 billion {{DATE}} week",
+  "not_covered_blurb": "  Tariffs & the 'other' story, $1 each  ",
+  "must_know": [
+    {
+      "headline": "Russia's \"$24 billion\" deal & <b>AFP</b> copy: a `code` {{ user.name }} test 🚀🚀",
+      "summary": "Base summary the delta replaces.",
+      "why_it_matters": "Because $1 & $& and $' matter; <script>alert(1)</script>",
+      "reporting_varies": [
+        {
+          "source": "Le Monde & Co",
+          "angle": "Frames it as \"historic\" -- $5",
+          "bias": "center"
+        },
+        {
+          "source": "Fox",
+          "angle": "Doubts it's real",
+          "bias": "right"
+        }
+      ],
+      "cluster_id": "c-one",
+      "thread": {
+        "thread_id": 12,
+        "day": 4,
+        "delta": "  Today's delta: \"new\" facts & more.  ",
+        "url": "https://news.example/thread/12?a=1&b=2"
+      },
+      "sources": [
+        {
+          "name": "South China Morning Post",
+          "url": "https://www.scmp.com/news/one",
+          "bias": "centre-left",
+          "wire_agency": "afp"
+        },
+        {
+          "name": "Reuters",
+          "url": "https://www.reuters.com/world/one",
+          "bias": "center",
+          "wire_agency": "reuters"
+        },
+        {
+          "name": "Reuters",
+          "url": "https://www.reuters.com/world/one-b?x=1&y=\"2\"",
+          "bias": "center",
+          "wire_agency": "reuters"
+        },
+        {
+          "name": "Kyodo Mirror",
+          "url": "https://kyodo.example/a/1",
+          "bias": "populist",
+          "wire_agency": "kyodo news"
+        },
+        {
+          "name": "Bad Scheme",
+          "url": "javascript:alert(1)",
+          "bias": "left"
+        },
+        {
+          "name": "Bare Domain",
+          "url": "https://bare.example/",
+          "bias": "right"
+        },
+        {
+          "name": "",
+          "url": "https://nameless.example/a",
+          "bias": "left"
+        },
+        {
+          "name": "Daily Wire",
+          "url": "https://www.dailywire.com/news/one",
+          "bias": "far-right"
+        }
+      ]
+    },
+    {
+      "headline": "Russia's \"$24 billion\" deal & <b>AFP</b> copy: a `code` {{ user.name }} test 🚀🚀",
+      "summary": "Second story, same headline, so its anchor must be deduplicated; it quotes {{DATE}} literally.",
+      "why_it_matters": "   ",
+      "cluster_id": "c-two",
+      "thread": {
+        "thread_id": 7,
+        "day": 2,
+        "delta": "",
+        "url": "/thread/7"
+      },
+      "sources": [
+        {
+          "name": "The Guardian",
+          "url": "https://www.theguardian.com/world/two",
+          "bias": "lean-left"
+        }
+      ]
+    },
+    {
+      "headline": "!!!",
+      "summary": "A headline with no slug characters; no sources at all.",
+      "why_it_matters": "",
+      "cluster_id": "c-three",
+      "thread": {
+        "thread_id": 3,
+        "day": 1,
+        "delta": "ignored on day one?"
+      },
+      "sources": []
+    },
+    {
+      "headline": "An exceptionally long headline built so that the sixty character slug cut lands on a hyphen-boundary",
+      "summary": "Long.",
+      "why_it_matters": "Short why.",
+      "reporting_varies": [],
+      "sources": [
+        {
+          "name": "Bloomberg",
+          "url": "https://www.bloomberg.com/news/long",
+          "bias": "lean-right"
+        },
+        {
+          "name": "NPR",
+          "url": "http://www.npr.org/long",
+          "bias": ""
+        }
+      ]
+    }
+  ],
+  "should_know": [
+    {
+      "headline": "Brief with a thread and a stray why",
+      "summary": "Brief base summary.",
+      "why_it_matters": "Briefs render no why.",
+      "cluster_id": "c-five",
+      "thread": {
+        "thread_id": 55,
+        "day": 9,
+        "delta": "Brief delta.",
+        "url": "https://news.example/thread/55"
+      },
+      "sources": [
+        {
+          "name": "Vox",
+          "url": "https://www.vox.com/five",
+          "bias": "left"
+        },
+        {
+          "name": "Associated Press",
+          "url": "https://apnews.com/article/five",
+          "bias": "center",
+          "wire_agency": "associated press"
+        }
+      ]
+    },
+    {
+      "headline": "???",
+      "summary": "A second slugless headline: story-2.",
+      "sources": [
+        {
+          "name": "Washington Examiner",
+          "url": "https://www.washingtonexaminer.com/six",
+          "bias": "right"
+        }
+      ]
+    },
+    {
+      "headline": "Zürich café — 文A ■ İstanbul",
+      "summary": "Non-ASCII headline.",
+      "thread": {
+        "thread_id": 70,
+        "day": 3,
+        "url": "/thread/70"
+      },
+      "sources": [
+        {
+          "name": "SRF",
+          "url": "https://www.srf.ch/news/seven",
+          "bias": "center"
+        },
+        {
+          "name": "NZZ",
+          "url": "https://www.nzz.ch/seven",
+          "bias": "lean-right"
+        },
+        {
+          "name": "WOZ",
+          "url": "https://www.woz.ch/seven",
+          "bias": "center"
+        },
+        {
+          "name": "Blick",
+          "url": "https://www.blick.ch/seven",
+          "bias": "center"
+        },
+        {
+          "name": "Tages-Anzeiger",
+          "url": "https://www.tagesanzeiger.ch/seven",
+          "bias": "lean-left"
+        },
+        {
+          "name": "20 Minuten",
+          "url": "https://www.20min.ch/seven",
+          "bias": "center"
+        },
+        {
+          "name": "Weltwoche",
+          "url": "https://weltwoche.ch/seven",
+          "bias": "right"
+        },
+        {
+          "name": "Le Temps",
+          "url": "https://www.letemps.ch/seven",
+          "bias": "center"
+        }
+      ]
+    }
+  ]
+}
