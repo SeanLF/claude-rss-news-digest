@@ -1,3 +1,4 @@
+import { wireAgency, wireFromDateline } from "./wire.js";
 import { describe, expect, it } from "vitest";
 import { TfidfMatcher, tokenize } from "./dedup.js";
 import { prepareArticles, toCsv, ARTICLE_HEADER } from "./prepare.js";
@@ -40,5 +41,18 @@ describe("prepareArticles", () => {
     expect(out.urlDuplicates).toBe(1);
     expect(out.filtered.map((x) => x.title)).toEqual(["Japan raises rates"]);
     expect(toCsv(ARTICLE_HEADER, out.files[0]!.rows)).toBe("article_id,source_id,title,published,summary\nA1,a,A one,2026-09-18,s\nA2,b,B one,2026-09-18,s\n");
+  });
+});
+
+describe("wire detection", () => {
+  it("matches an agency exactly, never as a substring", () => {
+    expect(wireAgency("  The Associated Press. ")).toBe("associated press");
+    expect(wireAgency("Reuters Institute")).toBeNull();
+    expect(wireAgency("Michael Bloomberg")).toBeNull();
+  });
+  it("reads a dateline at the start of a body", () => {
+    expect(wireFromDateline("WASHINGTON (Reuters) - The Senate voted")).toBe("reuters");
+    expect(wireFromDateline("By Jane Doe RIO DE JANEIRO, July 24 (AP) — Police")).toBe("ap");
+    expect(wireFromDateline("Officials told AP the talks stalled")).toBeNull();
   });
 });

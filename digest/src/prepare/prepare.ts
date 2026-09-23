@@ -2,6 +2,7 @@ import { stringify } from "csv-stringify/sync";
 import { TfidfMatcher } from "./dedup.js";
 import { scrubUrls } from "../contracts/ids.js";
 import { canonicalUrl, escapeHtml, estimateTokens, isSafeUrl, stripHtml, truncate } from "./text.js";
+import { wireAgency, wireFromDateline } from "./wire.js";
 
 export const MAX_TITLE_LENGTH = 500;
 export const MAX_SUMMARY_LENGTH = 200;
@@ -10,8 +11,9 @@ export const DEDUP_SIMILARITY_THRESHOLD = 0.8;
 export const ARTICLE_HEADER = ["article_id", "source_id", "title", "published", "summary"] as const;
 
 export interface Source { id: string; name: string; bias: string; factuality: string; perspective: string }
-export interface Fetched { title: string; url: string; published: string | null; summary: string | null }
-export interface IndexEntry { url: string; source_id: string; bias: string; original_title: string; name: string; wire: boolean }
+// author is optional: the live fetch has it, the archive (fetched_articles) never stored it.
+export interface Fetched { title: string; url: string; published: string | null; summary: string | null; author?: string | null }
+export interface IndexEntry { url: string; source_id: string; bias: string; original_title: string; name: string; wire: boolean; wire_agency: string | null }
 export interface Prepared {
   files: { name: string; rows: string[][] }[];
   index: Record<string, IndexEntry>;
@@ -43,8 +45,9 @@ export function prepareArticles(sources: Source[], fetched: Map<string, Fetched[
         continue;
       }
       seen.add(canonical);
-      const title = truncate(escapeHtml(stripHtml(a.title ?? "")), MAX_TITLE_LENGTH);
-      const summary = truncate(escapeHtml(stripHtml(a.summary ?? "")), MAX_SUMMARY_LENGTH);
+      // Links are scrubbed before the cap, so a cap never leaves half a URL behind.
+      const title = truncate(escapeHtml(scrub(stripHtml(a.title ?? ""))), MAX_TITLE_LENGTH);
+      const summary = truncate(escapeHtml(scrub(stripHtml(a.summary ?? ""))), MAX_SUMMARY_LENGTH);
       if (matcher && title) {
         const m = matcher.findMostSimilar(title);
         if (m.score >= DEDUP_SIMILARITY_THRESHOLD) {
@@ -53,8 +56,9 @@ export function prepareArticles(sources: Source[], fetched: Map<string, Fetched[
         }
       }
       const id = `A${rows.length + 1}`;
-      index[id] = { url, source_id: source.id, bias: source.bias, original_title: title, name: source.name, wire: source.perspective === "wire_service" };
-      rows.push([id, source.id, scrub(title), a.published ?? "", scrub(summary)]);
+      const wire = source.perspective === "wire_service";
+      index[id] = { url, source_id: source.id, bias: source.bias, original_title: title, name: source.name, wire, wire_agency: wireAgency(a.author) ?? wireFromDateline(summary) ?? (wire ? wireAgency(source.name) : null) };
+      rows.push([id, source.id, title, a.published ?? "", summary]);
     }
   const files: Prepared["files"] = [];
   let current: string[][] = [];

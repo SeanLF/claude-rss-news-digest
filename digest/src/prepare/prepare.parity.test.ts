@@ -9,6 +9,9 @@ import { ARTICLE_HEADER, prepareArticles, toCsv, type Fetched, type Source } fro
 // archived raw fetch and source list and holds the result equal to the archived article CSVs.
 const flat = (fs: { rows: string[][] }[]) => fs.flatMap((f) => f.rows);
 const stripWire = (i: Record<string, Record<string, unknown>>) => Object.fromEntries(Object.entries(i).map(([k, v]) => [k, { ...v, wire_agency: undefined }]));
+// The archive never stored author, so an author-derived label cannot be replayed; every other label must match.
+const wireMismatches = (ours: Record<string, { wire_agency: string | null }>, arch: Record<string, Record<string, unknown>>) =>
+  Object.entries(ours).filter(([k, v]) => v.wire_agency !== null && v.wire_agency !== arch[k]?.["wire_agency"]).map(([k]) => k);
 const DB = new URL("../../../data/digest.db", import.meta.url).pathname;
 
 describe.skipIf(!existsSync(DB))("prepare parity with the Python on run 300", () => {
@@ -36,5 +39,9 @@ describe.skipIf(!existsSync(DB))("prepare parity with the Python on run 300", ()
     expect(recentTxt(recentDigestHeadlines(db, at))).toBe(art("recent_digest_headlines.txt"));
     const archivedIndex = JSON.parse(art("article_index.json")!) as Record<string, Record<string, unknown>>;
     expect(stripWire(ours.index as unknown as Record<string, Record<string, unknown>>)).toEqual(stripWire(archivedIndex));
+    expect(wireMismatches(ours.index, archivedIndex)).toEqual([]);
+    const derived = Object.values(ours.index).filter((v) => v.wire_agency).length;
+    const archivedLabels = Object.values(archivedIndex).filter((v) => v["wire_agency"]).length;
+    console.log(`wire labels: ${derived} derivable of ${archivedLabels} archived (the rest came from author)`);
   });
 });

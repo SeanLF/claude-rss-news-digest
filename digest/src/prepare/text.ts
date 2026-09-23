@@ -27,4 +27,4 @@ export function canonicalUrl(url: string): string {
 }
 
 // render.estimate_tokens: ~4 characters a token.
-export const estimateTokens = (text: string): number => Math.floor(text.length / 4);
+export const estimateTokens = (text: string): number => Math.floor(Array.from(text).length / 4); // code points, as Python's len()

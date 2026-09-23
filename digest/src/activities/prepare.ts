@@ -1,7 +1,7 @@
 import { ApplicationFailure } from "@temporalio/common";
 import { parse } from "csv-parse/sync";
 import { previousHeadlines, recentDigestHeadlines, recentTitlesCsv, recentTxt, runAt, yesterdayHeadlines, yesterdayTxt } from "../prepare/context.js";
-import { ARTICLE_HEADER, prepareArticles, toCsv, type Fetched, type Source } from "../prepare/prepare.js";
+import { ARTICLE_HEADER, DEDUP_SIMILARITY_THRESHOLD, prepareArticles, toCsv, type Fetched, type Source } from "../prepare/prepare.js";
 import { ConflictError, type ArtifactStore, type Pointer } from "../store/artifacts.js";
 import { openDb } from "../store/db.js";
 
@@ -35,6 +35,13 @@ export function prepareActivity(deps: { store: ArtifactStore; dbPath: string }) 
         }
       };
       const articles = prepared.files.map((f) => write(f.name, toCsv(ARTICLE_HEADER, f.rows)));
+      // One dedup_log row per title dropped as a repeat, as the Python writes; only once per run, so
+      // a re-run of a deterministic prepare does not duplicate them.
+      const logged = (db.prepare("SELECT COUNT(*) AS n FROM dedup_log WHERE run_id=?").get(runId) as { n: number }).n;
+      if (!logged) {
+        const ins = db.prepare("INSERT INTO dedup_log (article_title, article_source_id, matched_headline, similarity, threshold, action, run_id) VALUES (?, ?, ?, ?, ?, 'filtered', ?)");
+        for (const d of prepared.filtered) ins.run(d.title, d.source_id, d.matched, d.similarity, DEDUP_SIMILARITY_THRESHOLD, runId);
+      }
       const index = write("article_index.json", JSON.stringify(prepared.index, null, 2));
       if (recent.length) write("recent_rss_titles.csv", recentTitlesCsv(recent));
       const yesterday = yesterdayHeadlines(db, at);
