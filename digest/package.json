@@ -23,8 +23,11 @@
     "csv-parse": "7.0.2",
     "csv-stringify": "6.8.3",
     "entities": "8.1.0",
+    "escape-goat": "4.0.0",
     "feedsmith": "3.0.0",
+    "lightningcss": "1.33.0",
     "ml-hclust": "4.0.0",
+    "mrml": "1.6.1",
     "zod": "4.6.5"
   },
   "devDependencies": {
@@ -48,6 +51,9 @@
     "@oxlint-tsgolint/linux-x64": "7.0.2002",
     "@oxlint/binding-darwin-arm64": "1.85.0",
     "@oxlint/binding-linux-arm64-gnu": "1.85.0",
-    "@oxlint/binding-linux-x64-gnu": "1.85.0"
+    "@oxlint/binding-linux-x64-gnu": "1.85.0",
+    "lightningcss-darwin-arm64": "1.33.0",
+    "lightningcss-linux-arm64-gnu": "1.33.0",
+    "lightningcss-linux-x64-gnu": "1.33.0"
   }
 }
