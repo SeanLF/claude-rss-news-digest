@@ -1,0 +1,59 @@
+#!/usr/bin/env python3
+"""Packages an image installs from a URL instead of a registry, which the SBOM audit cannot see.
+
+usage: bin/sbom-unregistered SBOM.cdx.json
+
+still_active audits by purl, and a URL install keeps its registry purl: the googlenewsdecoder fork
+reads as pkg:pypi/googlenewsdecoder@0.2.0, so the audit reports PyPI's googlenewsdecoder, another
+package. syft records where it really came from as a `vcs` reference, and that is what this reads.
+
+Exit 0: none, or only listed exceptions (each printed as unaudited). Exit 1: an unlisted URL
+install. Exit 2: the SBOM could not be read. Tested by newsroom/tests/test_sbom_exceptions.py.
+"""
+
+import json
+import sys
+
+# URL -> why it ships unaudited. Every URL pin in a pyproject is here and nothing else is (tested).
+EXCEPTIONS = {
+    "https://github.com/SeanLF/google-news-url-decoder/archive/4860ab58e633c08d86fded1af69ae249ab6de2cb.tar.gz": (
+        "the googlenewsdecoder fork gnews.py calls: PyPI's 0.2.1 has no structured 429, connect retry, or "
+        "decode/default_transport/TransportError. Maintained by Sean alone; review it by hand."
+    ),
+}
+
+
+def main(path: str) -> int:
+    try:
+        with open(path, encoding="utf-8") as f:
+            components = json.load(f)["components"]
+    except (OSError, ValueError, KeyError, TypeError) as e:
+        print(f"sbom-unregistered: cannot read {path}: {e}", file=sys.stderr)
+        return 2
+    rc = 0
+    for c in components:
+        for ref in c.get("externalReferences") or []:
+            if ref.get("type") != "vcs":
+                continue
+            url, name = ref.get("url", ""), c.get("name", "?")
+            if url in EXCEPTIONS:
+                print(
+                    f"EXCEPTION: {name} ships from {url} and is NOT audited by still_active ({c.get('purl')} "
+                    f"is another package): {EXCEPTIONS[url]}",
+                    file=sys.stderr,
+                )
+            else:
+                print(
+                    f"UNAUDITED: {name} ships from {url}, which no registry audit covers; pin a registry "
+                    f"release or add a named exception to bin/sbom-unregistered",
+                    file=sys.stderr,
+                )
+                rc = 1
+    return rc
+
+
+if __name__ == "__main__":
+    if len(sys.argv) != 2:
+        print(__doc__.strip().splitlines()[2], file=sys.stderr)
+        sys.exit(2)
+    sys.exit(main(sys.argv[1]))
