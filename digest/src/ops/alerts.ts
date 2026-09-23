@@ -72,7 +72,10 @@ ${FOOTER}`,
         ? [`${what} after the digest was sent`, `The digest was sent (broadcast ${htmlEscape(status ?? "accepted")}); the failure came after it.`, "Do not resume or re-send: readers have it. Only the run's record (shown headlines, completed_at) may need repair."]
         : claimed
           ? [`${what} with a send claim held`, `A send attempt holds the day's claim (${htmlEscape(status ?? "")}), so whether the digest went out is unknown.`, `Check Resend for the day's broadcast before anything else. If nothing went out, clear the claim in the worker container with <code>${htmlEscape(clearClaimCommand(req.date ?? "DATE"))}</code>, then resume: ${resumeHint(req.runId)}.`]
-          : [what, "Today's digest was not sent.", `Its history is in the Temporal UI under that workflow id. A resume re-runs only what is missing: ${resumeHint(req.runId)}.`];
+          : status !== null
+            ? // A draft exists (status "created"): its send may or may not have been accepted.
+              [`${what} with delivery unknown`, `A broadcast draft exists (status ${htmlEscape(status)}), and whether Resend accepted its send is unknown.`, `Check Resend for the day's broadcast before any resume. A resume probes that draft and sends it only if it never went out: ${resumeHint(req.runId)}.`]
+            : [what, "Today's digest was not sent.", `Its history is in the Temporal UI under that workflow id. A resume re-runs only what is missing: ${resumeHint(req.runId)}.`];
       return {
         subject: `[Alert] ${req.workflowId} ${headline} (${run})`,
         html: `<h2>News Digest Run ${req.timedOut ? "Timed Out" : "Failed"}</h2>

@@ -171,6 +171,7 @@ export function broadcastActivities(deps: BroadcastDeps) {
     let count = 0;
     let after: string | undefined;
     do {
+      stopIfCancelled(); // a large audience is many pages: beat on each, and stop when told
       const r = await call(() => deps.mail().contacts.list({ segmentId, limit: 100, ...(after ? { after } : {}) }));
       if (r.error) return 0; // informational only, as broadcast.get_audience_contact_count
       count += r.data.data.filter((c) => !c.unsubscribed).length;

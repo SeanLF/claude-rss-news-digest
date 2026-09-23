@@ -135,6 +135,26 @@ describe("broadcast: at most once per digest date (the 2026-06-16 rule)", () => 
       expect(fake.names().filter((n) => n === "create" || n === "send")).toEqual([]);
     }
   });
+  it("heartbeats on every page of the audience count, and stops when cancelled mid-count", async () => {
+    const { email, make } = setup({});
+    const beats: number[] = [];
+    const ac = new AbortController();
+    const pages = [page(["c1"], true), page(["c2"], true), page(["c3"], false)];
+    const fake = fakeMail({ contacts: pages });
+    await make(fake.mail, { heartbeat: () => beats.push(1) }).broadcast(300, email);
+    expect(beats.length).toBeGreaterThanOrEqual(3 + 2); // one per page, and the send's own checks
+    const stopped = fakeMail({
+      contacts: [
+        () => {
+          ac.abort();
+          return page(["c1"], true)();
+        },
+      ],
+    });
+    const fresh = setup({});
+    await expect(fresh.make(stopped.mail, { signal: () => ac.signal }).broadcast(300, fresh.email)).rejects.toThrow();
+    expect(stopped.names()).toEqual(["contacts"]);
+  });
   it("takes the claim only after counting the audience, the slow part", async () => {
     const { email, state, make } = setup({});
     let atCount: unknown;

@@ -5,7 +5,7 @@ import { Worker } from "@temporalio/worker";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { Activities, AlertRequest, FulltextFetch, FulltextTask } from "../activities/index.js";
 import { stubActivities } from "../activities/stub.js";
-import { DEADLINE_MARGIN_MS, DigestWorkflow, HOLD_MINIMUM_MS, TAIL_MARGIN_MS, WORKFLOW_RUN_TIMEOUT, workflowIdFor } from "./digest.workflow.js";
+import { DEADLINE_MARGIN_MS, DigestWorkflow, HOLD_MINIMUM_MS, TAIL_MARGIN_MS, TAIL_WORST_CASE_MS, WORKFLOW_RUN_TIMEOUT, workflowIdFor } from "./digest.workflow.js";
 import { FULLTEXT_TASK_QUEUE } from "./policy.js";
 import { approveSignal, retrySignal } from "./signals.js";
 
@@ -83,16 +83,6 @@ function parkedOnce(over: Partial<Activities> = {}) {
   const select: Activities["select"] = (runId, ...rest) => (n++ === 0 ? Promise.reject(ApplicationFailure.nonRetryable("transient", "T")) : stubActivities().select(runId, ...rest));
   return recorder({ select, ...over });
 }
-// A retried step that takes nearly its whole 2-minute budget and fails until its last attempt.
-function slow<T>(value: T, attempts = 3) {
-  let n = 0;
-  return async () => {
-    await env.sleep("110 seconds");
-    if (++n < attempts) throw new Error("SQLITE_BUSY: database is locked");
-    return value;
-  };
-}
-
 describe("DigestWorkflow", () => {
   it("runs every stage over stub activities and sends when approved", async () => {
     const out = await withWorker(async () => {
@@ -288,7 +278,7 @@ describe("DigestWorkflow", () => {
         await h.signal(approveSignal, { decision: "reject" });
         return h.result();
       }, acts);
-      expect(calls).toEqual(["archiveRun", "render", "sendEnabled", "notifyHold", "finishRun"]);
+      expect(calls).toEqual(["archiveRun", "render", "sendEnabled", "finishRun"]); // rejected before the hold: no hold notice
       expect(out.broadcast).toBe("rejected");
     }, 120_000);
     it("a send that fails is not retried: the run is marked failed and the workflow fails", async () => {
@@ -349,6 +339,28 @@ describe("DigestWorkflow", () => {
       expect(named(ops.calls, "healthcheck")).toEqual([["healthcheck", "start"], ["healthcheck", "fail"]]);
     }, 120_000);
     describe("one budget: the deadline never cuts a send, and the hold is cut to it", () => {
+      it("the tail's worst case, every step timing out on every attempt, fits its margin", () => {
+        expect(TAIL_WORST_CASE_MS).toBeLessThanOrEqual(TAIL_MARGIN_MS);
+      });
+      it("an early approval does not skip the budget: approved, then parked to 229 minutes, the run is held out", async () => {
+        const sends: string[] = [];
+        const { calls, acts } = parkedOnce({
+          broadcast: () => {
+            sends.push("sent");
+            return Promise.resolve({ broadcastId: "b1", status: "sent", recipients: 5 });
+          },
+        });
+        const out = await withWorker(async () => {
+          const h = await start("2026-11-23", {}, { workflowRunTimeout: WORKFLOW_RUN_TIMEOUT });
+          await h.signal(approveSignal, { decision: "approve" });
+          await env.sleep("229 minutes");
+          await h.signal(retrySignal, { decision: "retry" });
+          return h.result();
+        }, acts);
+        expect(out.broadcast).toBe("held-out");
+        expect(sends).toEqual([]);
+        expect(named(calls, "alert")).toMatchObject([["alert", { kind: "not-sent", reason: "held-out" }]]);
+      }, 120_000);
       it("an operator's retry at 115 minutes still gets a held, sent digest (the reviewer's case)", async () => {
         const { calls, acts } = parkedOnce();
         const out = await withWorker(async () => {
@@ -386,38 +398,38 @@ describe("DigestWorkflow", () => {
         expect(named(calls, "alert")).toEqual([]);
         expect(named(calls, "healthcheck")).toEqual([["healthcheck", "start"], ["healthcheck", "success"]]);
       }, 120_000);
-      it("a deadline that lands in the tail after a send cancels neither the send nor its record", async () => {
-        // Each retried step of the tail takes nearly its whole budget, so the tail outlasts its 30-minute
-        // margin and the deadline lands inside it, after the send. (Record-policy steps, since heartbeats
-        // are throttled in wall time and cannot keep the send alive across skipped server time.)
+      it("a cancellation that lands mid-send cancels neither the send nor its record", async () => {
+        // The tail's worst case fits its margin, so the deadline cannot reach it; an operator's
+        // cancellation can, and the send and its record are shielded from it the same way.
+        const flags = { started: false };
+        let release!: () => void;
+        const gate = new Promise<void>((r) => (release = r));
         const sends: string[] = [];
         const finished: string[] = [];
-        const finishSlow = slow(undefined);
-        const pingSlow = slow(undefined);
-        const pings: string[] = [];
-        const { calls, acts } = recorder({
-          saveDigest: slow({ date: "2026-11-22" }),
-          broadcast: () => {
+        const { acts } = recorder({
+          broadcast: async () => {
+            flags.started = true;
+            await gate;
             sends.push("sent");
-            return Promise.resolve({ broadcastId: "b1", status: "sent", recipients: 12 });
+            return { broadcastId: "b1", status: "sent", recipients: 12 };
           },
-          recordShownHeadlines: slow({ rows: 3 }),
-          healthcheck: async (event) => {
-            if (event === "success") await pingSlow();
-            pings.push(event);
-          },
-          finishRun: async (_r, out) => {
-            await finishSlow();
+          finishRun: (_r, out) => {
             finished.push(out.broadcast);
+            return Promise.resolve();
           },
-          checkRunHealth: slow(null),
         });
-        const out = await withWorker(async () => (await start("2026-11-22", {}, { workflowRunTimeout: "100 minutes" })).result(), acts);
+        const out = await withWorker(async () => {
+          const h = await start("2026-11-22");
+          await h.signal(approveSignal, { decision: "approve" });
+          while (!flags.started) await new Promise((r) => setTimeout(r, 20));
+          await h.cancel();
+          await new Promise((r) => setTimeout(r, 500));
+          release();
+          return h.result();
+        }, acts);
         expect(out).toMatchObject({ broadcast: "sent", recipients: 12 });
         expect(sends).toEqual(["sent"]);
         expect(finished).toEqual(["sent"]);
-        expect(named(calls, "alert")).toEqual([]);
-        expect(pings).toEqual(["start", "success"]);
       }, 120_000);
     });
   });

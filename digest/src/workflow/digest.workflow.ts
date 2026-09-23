@@ -13,8 +13,7 @@ export const DEADLINE_MARGIN_MS = 10 * 60 * 1000;
 export const HOLD_TIMEOUT = 2 * 60 * 60 * 1000; // 2 h, in ms: the hold notification names its end
 // A review shorter than this is no review: a run that cannot hold this long is not sent unreviewed.
 export const HOLD_MINIMUM_MS = 30 * 60 * 1000;
-// What the tail after the hold needs of the budget: the web copy and the send (10 min, one attempt)
-// and the record's retried writes.
+// What the tail after the hold is given of the budget; a test holds TAIL_WORST_CASE_MS under it.
 export const TAIL_MARGIN_MS = 30 * 60 * 1000;
 
 // One budget: the deadline, and under the run timeout when a start sets one.
@@ -51,6 +50,16 @@ const verdict = proxyActivities<Activities>({ startToCloseTimeout: "45 minutes",
 const python = proxyActivities<FulltextFetcher>({ taskQueue: FULLTEXT_TASK_QUEUE, scheduleToStartTimeout: "5 minutes", startToCloseTimeout: "4 minutes", retry: { maximumAttempts: 2 } });
 // Alerts and pings: quick retries, and the activity gives up (logging what it would have said) on the last.
 const ops = proxyActivities<Activities>({ startToCloseTimeout: "2 minutes", retry: { maximumAttempts: OPS_MAX_ATTEMPTS, initialInterval: "10 seconds" } });
+// The tail after the hold: quick, bounded retries, so its worst case is a known sum (below) that the
+// budget reserves before the send may start. Everything here is an idempotent write or a ping.
+const TAIL_ATTEMPT_MS = 60_000;
+const TAIL_ATTEMPTS = 2;
+const TAIL_RETRY_MS = 5_000;
+const tail = proxyActivities<Activities>({ startToCloseTimeout: TAIL_ATTEMPT_MS, retry: { maximumAttempts: TAIL_ATTEMPTS, initialInterval: TAIL_RETRY_MS, maximumInterval: TAIL_RETRY_MS } });
+const SEND_MS = 10 * 60 * 1000; // the send proxy's start-to-close, one attempt
+const OPS_WORST_MS = 3 * 2 * 60 * 1000 + 30_000; // the ops policy: 3 attempts of 2 min, 10 s then 20 s apart
+// saveDigest, the send, recordShownHeadlines, finishRun, the success ping, the health check, its alert.
+export const TAIL_WORST_CASE_MS = SEND_MS + 5 * (TAIL_ATTEMPTS * TAIL_ATTEMPT_MS + (TAIL_ATTEMPTS - 1) * TAIL_RETRY_MS) + OPS_WORST_MS;
 const weekly = proxyActivities<Activities>({ startToCloseTimeout: "5 minutes", heartbeatTimeout: "2 minutes", retry: { maximumAttempts: WEEKLY_RECAP_MAX_ATTEMPTS, initialInterval: "10 seconds" } });
 
 // Never fails the run it serves; only a cancellation passes through.
@@ -94,6 +103,7 @@ export async function DigestWorkflow(input: DigestInput): Promise<DigestOutput> 
 
 async function runDigest(input: DigestInput, state: RunState): Promise<DigestOutput> {
   let approval: "approve" | "reject" | undefined;
+  const approvalNow = () => approval; // read through a call: signals change it across awaits
   const retryDecisions: ("retry" | "abort")[] = []; // a queue: a decision sent before the failure is kept
   const notes: Record<string, string> = {};
   setHandler(approveSignal, ({ decision }) => {
@@ -120,13 +130,13 @@ async function runDigest(input: DigestInput, state: RunState): Promise<DigestOut
   // signal about a run that did deliver. An operator's reject or abort is deliberate, so it closes the
   // day's /start with a note rather than leaving it to page. Disabled is no delivery: no ping.
   async function finish(out: Omit<DigestOutput, "runId">): Promise<DigestOutput> {
-    await record.finishRun(runId, out);
-    if (out.broadcast === "sent") await bestEffort(() => ops.healthcheck("success"));
-    else if (monitored && (out.broadcast === "rejected" || out.broadcast === "skipped")) await bestEffort(() => ops.healthcheck("success", `not sent: ${out.broadcast === "rejected" ? "rejected" : "aborted"} by the operator`));
-    else if (out.broadcast === "held-out") await bestEffort(() => ops.healthcheck("fail"));
+    await tail.finishRun(runId, out);
+    if (out.broadcast === "sent") await bestEffort(() => tail.healthcheck("success"));
+    else if (monitored && (out.broadcast === "rejected" || out.broadcast === "skipped")) await bestEffort(() => tail.healthcheck("success", `not sent: ${out.broadcast === "rejected" ? "rejected" : "aborted"} by the operator`));
+    else if (out.broadcast === "held-out") await bestEffort(() => tail.healthcheck("fail"));
     // Judged on delivered runs only: the shown headlines are recorded by the send, so every other
     // outcome would read as ZERO_STORIES, and each of those already told the operator itself.
-    if (out.broadcast === "sent") await alertOn(() => ops.checkRunHealth(runId, true));
+    if (out.broadcast === "sent") await alertOn(() => tail.checkRunHealth(runId, true));
     return { runId, ...out };
   }
 
@@ -212,9 +222,11 @@ async function runDigest(input: DigestInput, state: RunState): Promise<DigestOut
     }
     // Pre-broadcast hold (spec §2.3 signal 1): 2 h, then proceed, cut to the run's budget. A run
     // whose budget cannot fit a real review is not sent unreviewed: at most once beats unreviewed.
+    // Checked whatever the approval: an early approve skips the review, never the tail's budget.
+    if (approval === "reject") return await finish({ stories: storyCount, broadcast: "rejected" });
     const hold = holdFor();
-    if (hold < HOLD_MINIMUM_MS && approval === undefined) {
-      log.warn("no run budget left for a review; not sending", { runId, holdMs: hold });
+    if (hold < (approval === "approve" ? 1 : HOLD_MINIMUM_MS)) {
+      log.warn("no run budget left for a review and the send; not sending", { runId, holdMs: hold });
       await notSent("held-out", `the run's budget left ${Math.floor(hold / 60_000)} minutes for the hold, under the ${HOLD_MINIMUM_MS / 60_000}-minute minimum`);
       return await finish({ stories: storyCount, broadcast: "held-out" });
     }
@@ -228,17 +240,17 @@ async function runDigest(input: DigestInput, state: RunState): Promise<DigestOut
     });
     const left = holdEnds - Date.now();
     if (left > 0) await condition(() => approval !== undefined, left);
-    if (approval === "reject") return await finish({ stories: storyCount, broadcast: "rejected" });
+    if (approvalNow() === "reject") return await finish({ stories: storyCount, broadcast: "rejected" });
     // From here the deadline cannot cut in: a send in progress and the record of one that landed are
     // never cancelled, since a cancelled send can still reach readers and a cut record would call it
     // failed. The hold's budget left the tail its margin.
     return await CancellationScope.nonCancellable(async () => {
-      await record.saveDigest(runId, html, selections);
+      await tail.saveDigest(runId, html, selections);
       const sent = await send.broadcast(runId, email); // at most once: one attempt (spec §2.1)
       state.sent = true;
       // After a delivered send every step is an idempotent write, retried: a locked database here
       // must not mark a run that reached readers failed.
-      await record.recordShownHeadlines(runId, selections);
+      await tail.recordShownHeadlines(runId, selections);
       return await finish({ stories: storyCount, broadcast: "sent", recipients: sent.recipients });
     });
   } catch (e) {

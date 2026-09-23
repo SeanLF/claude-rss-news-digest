@@ -61,6 +61,12 @@ describe("alertEmail", () => {
     expect(e.html).toContain("Check Resend");
     expect(e.html).toContain("node dist/cli/clear-claim.js 2026-09-23");
   });
+  it("run-failed with a draft created but its send unconfirmed says delivery is unknown, and to check Resend before any resume", () => {
+    const e = alertEmail({ kind: "run-failed", workflowId: "digest-2026-09-23", runId: 305, reason: "send timed out", timedOut: false, sent: false, broadcastStatus: "created", date: "2026-09-23" });
+    expect(e.subject).toBe("[Alert] digest-2026-09-23 failed with delivery unknown (run 305)");
+    expect(e.html).toContain("Check Resend");
+    expect(e.html).not.toContain("not sent");
+  });
   it("not-sent names why the day was not delivered and what to do", () => {
     const d = alertEmail({ kind: "not-sent", workflowId: "digest-2026-09-23", runId: 305, reason: "disabled", detail: "broadcasting disabled on this worker" });
     expect(d.subject).toBe("[Alert] Digest not sent: broadcasting disabled on this worker (run 305)");
