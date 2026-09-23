@@ -1,8 +1,8 @@
-"""The fulltext fetch as a Temporal activity on the `fulltext` task queue.
+"""The activities that stay in Python, on the `python` task queue.
 
-trafilatura stays in Python (docs/2026-09-23-fulltext-extractor-fork.md), so this worker runs the
-production fetch, fulltext._collect_isolated, unchanged: its child process and SIGKILL are the
-bound. The TypeScript workflow calls it by name and does the planning and storing itself.
+fulltext: trafilatura stays in Python (docs/2026-09-23-fulltext-extractor-fork.md), so this worker
+runs the production fetch, fulltext._collect_isolated, unchanged: its child process and SIGKILL are
+the bound. The TypeScript workflow calls each activity by name and does the planning and storing.
 """
 
 import asyncio
@@ -16,7 +16,7 @@ from temporalio.worker import Worker
 import config
 import fulltext
 
-TASK_QUEUE = "fulltext"
+TASK_QUEUE = "python"
 
 
 @activity.defn(name="fetchFulltext")  # the name the TypeScript workflow calls

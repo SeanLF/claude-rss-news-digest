@@ -1,7 +1,7 @@
 import { ActivityFailure, CancelledFailure, condition, isCancellation, proxyActivities, setHandler } from "@temporalio/workflow";
 import type { Activities, DigestInput, DigestOutput, FulltextFetch, FulltextFetcher } from "../activities/index.js";
 import { mapBounded, MODEL_FANOUT_LIMIT } from "./bounded.js";
-import { FULLTEXT_TASK_QUEUE, MODEL_MAX_ATTEMPTS, NETWORK_MAX_ATTEMPTS } from "./policy.js";
+import { PYTHON_TASK_QUEUE, MODEL_MAX_ATTEMPTS, NETWORK_MAX_ATTEMPTS } from "./policy.js";
 import { approveSignal, operatorNoteSignal, retrySignal } from "./signals.js";
 
 export const WORKFLOW_RUN_TIMEOUT = "4 hours";
@@ -24,7 +24,7 @@ const once = proxyActivities<Activities>({ startToCloseTimeout: "10 minutes", re
 const verdict = proxyActivities<Activities>({ startToCloseTimeout: "45 minutes", heartbeatTimeout: "2 minutes", retry: { maximumAttempts: 1 } });
 // The Python fetch bounds itself (a 120 s deadline plus 30 s grace, then SIGKILL); the start-to-close
 // covers that with room. A worker that never picks the task up is the schedule-to-start timeout.
-const python = proxyActivities<FulltextFetcher>({ taskQueue: FULLTEXT_TASK_QUEUE, scheduleToStartTimeout: "5 minutes", startToCloseTimeout: "4 minutes", retry: { maximumAttempts: 2 } });
+const python = proxyActivities<FulltextFetcher>({ taskQueue: PYTHON_TASK_QUEUE, scheduleToStartTimeout: "5 minutes", startToCloseTimeout: "4 minutes", retry: { maximumAttempts: 2 } });
 
 export async function DigestWorkflow(input: DigestInput): Promise<DigestOutput> {
   let approval: "approve" | "reject" | undefined;

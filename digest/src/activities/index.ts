@@ -27,7 +27,7 @@ export type FulltextTask = [articleId: string, url: string];
 export interface FulltextFetch { tasks: number; results: Record<string, string>; outcome: string }
 // `existing`: the run already has its full text. `skip`: there is nothing to fetch, and why.
 export interface FulltextPlan { tasks: FulltextTask[]; existing?: Pointer; skip?: "disabled" | "no_candidates" }
-// The activity the Python worker serves on FULLTEXT_TASK_QUEUE.
+// The activity the Python worker serves on PYTHON_TASK_QUEUE.
 export interface FulltextFetcher { fetchFulltext(tasks: FulltextTask[]): Promise<FulltextFetch> }
 export interface FetchSummary { sourceId: string; ok: boolean; fetched: number; kept: number; error?: string }
 export interface DigestOutput {

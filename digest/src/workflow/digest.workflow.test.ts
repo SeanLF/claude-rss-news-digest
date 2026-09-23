@@ -5,7 +5,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { Activities, FulltextFetch, FulltextTask } from "../activities/index.js";
 import { stubActivities } from "../activities/stub.js";
 import { DigestWorkflow, workflowIdFor } from "./digest.workflow.js";
-import { FULLTEXT_TASK_QUEUE } from "./policy.js";
+import { PYTHON_TASK_QUEUE } from "./policy.js";
 import { approveSignal, retrySignal } from "./signals.js";
 
 let env: TestWorkflowEnvironment;
@@ -17,7 +17,7 @@ afterAll(async () => {
 });
 
 const taskQueue = "digest-test";
-// `fetcher` stands in for the Python fulltext worker on its own queue; null means nothing answers
+// `fetcher` stands in for the Python worker on its own queue; null means nothing answers
 // there, as when that worker is down.
 const emptyFetch = (tasks: FulltextTask[]): Promise<FulltextFetch> => Promise.resolve({ tasks: tasks.length, results: {}, outcome: "completed" });
 async function withWorker<T>(fn: () => Promise<T>, overrides: Partial<Activities> = {}, fetcher: ((tasks: FulltextTask[]) => Promise<FulltextFetch>) | null = emptyFetch): Promise<T> {
@@ -28,7 +28,7 @@ async function withWorker<T>(fn: () => Promise<T>, overrides: Partial<Activities
     activities: { ...stubActivities(), ...overrides },
   });
   if (!fetcher) return worker.runUntil(fn());
-  const python = await Worker.create({ connection: env.nativeConnection, taskQueue: FULLTEXT_TASK_QUEUE, activities: { fetchFulltext: fetcher } });
+  const python = await Worker.create({ connection: env.nativeConnection, taskQueue: PYTHON_TASK_QUEUE, activities: { fetchFulltext: fetcher } });
   return python.runUntil(worker.runUntil(fn()));
 }
 const approveAndWait = async (runDate: string) => {
@@ -109,7 +109,7 @@ describe("DigestWorkflow", () => {
       expect(stored).toEqual([{ tasks: 1, results: { A1: "Body." }, outcome: "completed" }]);
       expect(out.broadcast).toBe("sent");
     }, 120_000);
-    it("goes on without full text when nothing answers on the fulltext queue", async () => {
+    it("goes on without full text when nothing answers on the python queue", async () => {
       stored.length = 0;
       // The test server does not skip time while an activity task sits unclaimed, so the clock is
       // moved past the schedule-to-start timeout by hand.

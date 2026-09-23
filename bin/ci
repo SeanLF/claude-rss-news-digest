@@ -72,12 +72,12 @@ def run_in_docker() -> int:
             **capture,
         )
 
-    # Start the fulltext worker's tests (if it exists), inside the image it ships as.
-    ft_proc = None
-    if (ROOT / "digest" / "fulltext" / "Dockerfile").exists():
-        ft_cmd = ["python", "-m", "pytest", "-q", "-p", "no:cacheprovider", "test_worker.py"]
-        ft_proc = subprocess.Popen(
-            ["docker", "compose", "run", "--rm", "--build", "ci-fulltext", *ft_cmd],
+    # Start the Python worker's tests (if it exists), inside the image it ships as.
+    pw_proc = None
+    if (ROOT / "digest" / "python" / "Dockerfile").exists():
+        pw_cmd = ["python", "-m", "pytest", "-q", "-p", "no:cacheprovider", "test_worker.py"]
+        pw_proc = subprocess.Popen(
+            ["docker", "compose", "run", "--rm", "--build", "ci-python", *pw_cmd],
             cwd=ROOT,
             **capture,
         )
@@ -89,8 +89,8 @@ def run_in_docker() -> int:
     rust_rc = rust_proc.returncode if rust_proc else 0
     ts_out = ts_proc.communicate()[0] if ts_proc else None
     ts_rc = ts_proc.returncode if ts_proc else 0
-    ft_out = ft_proc.communicate()[0] if ft_proc else None
-    ft_rc = ft_proc.returncode if ft_proc else 0
+    pw_out = pw_proc.communicate()[0] if pw_proc else None
+    pw_rc = pw_proc.returncode if pw_proc else 0
 
     if py_rc != 0:
         print(f"\n{RED}Python CI failed (exit {py_rc}){RESET}")
@@ -105,12 +105,12 @@ def run_in_docker() -> int:
         if ts_out:
             print(ts_out.decode(errors="replace"))
 
-    if ft_rc != 0:
-        print(f"\n{RED}Fulltext worker CI failed (exit {ft_rc}){RESET}")
-        if ft_out:
-            print(ft_out.decode(errors="replace"))
+    if pw_rc != 0:
+        print(f"\n{RED}Python worker CI failed (exit {pw_rc}){RESET}")
+        if pw_out:
+            print(pw_out.decode(errors="replace"))
 
-    if py_rc == 0 and rust_rc == 0 and ts_rc == 0 and ft_rc == 0 and QUIET:
+    if py_rc == 0 and rust_rc == 0 and ts_rc == 0 and pw_rc == 0 and QUIET:
         print(f"{GREEN}CI passed{RESET}")
 
     if py_rc != 0:
@@ -119,7 +119,7 @@ def run_in_docker() -> int:
         return rust_rc
     if ts_rc != 0:
         return ts_rc
-    return ft_rc
+    return pw_rc
 
 
 def run_step(name: str, cmd: list[str], cwd: Path | None = None) -> bool:

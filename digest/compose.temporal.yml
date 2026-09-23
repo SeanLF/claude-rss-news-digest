@@ -1,5 +1,5 @@
 # Local Temporal for the digest worker: the Temporal CLI's dev server (Server 1.32.0 + UI, SQLite on a
-# volume), the worker, and the Python fulltext worker. Production's Postgres-backed server is plan C's; this is for local runs.
+# volume), the worker, and the Python worker. Production's Postgres-backed server is plan C's; this is for local runs.
 # Usage: make temporal-up / make digest-start DATE=YYYY-MM-DD / make temporal-down
 services:
   temporal:
@@ -22,10 +22,10 @@ services:
     volumes:
       - ../data:/app/data
       - claude-sessions:/home/appuser/.claude
-  # trafilatura stays in Python (docs/2026-09-23-fulltext-extractor-fork.md): the fetch is an activity
-  # on the `fulltext` task queue. If it is down, a run goes on without full text after 5 minutes.
-  fulltext-worker:
-    build: { context: .., dockerfile: digest/fulltext/Dockerfile }
+  # The activities that stay in Python, on the `python` task queue. If it is down, a run goes on
+  # without full text after 5 minutes.
+  python-worker:
+    build: { context: .., dockerfile: digest/python/Dockerfile }
     depends_on: [temporal]
     mem_limit: 512m
     restart: unless-stopped
