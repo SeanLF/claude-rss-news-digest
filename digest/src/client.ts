@@ -31,6 +31,9 @@ export function scheduleOptions(): ScheduleOptions {
     scheduleId: SCHEDULE_ID,
     spec: { calendars: [{ hour: 10, minute: 25 }] },
     policies: { overlap: ScheduleOverlapPolicy.SKIP, catchupWindow: "1 day" },
+    // Created paused; only the deploy's live-pipeline switch unpauses it. The update in
+    // ensureSchedule keeps whatever state the schedule already has.
+    state: { paused: true, note: "created paused; the live-pipeline switch unpauses it" },
     action: { type: "startWorkflow", workflowType: DigestWorkflow, taskQueue: TASK_QUEUE, workflowId: "digest-scheduled", args: [{ runDate: "" }] },
   };
 }

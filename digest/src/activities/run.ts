@@ -49,6 +49,16 @@ export function runActivities(deps: RunDeps) {
           const ids = parse<{ id: string }>(deps.store.get(csv), { columns: true }).map((s) => s.id);
           return { runId: input.resumeRun, sourceIds: ids, lastRun: lastCompleted(db, row.run_at) };
         }
+        // Both pipelines write digest_runs, so this is the one place a half-applied switch that
+        // armed both is caught: a day already sent, or one still running (under the 4 h run
+        // budget, so a crashed run's stale "running" row does not block the day), is refused.
+        const day = input.runDate || new Date().toISOString().slice(0, 10);
+        if (!input.force) {
+          const clash = db
+            .prepare("SELECT id, status FROM digest_runs WHERE date(run_at) = ? AND (completed_at IS NOT NULL OR (status = 'running' AND run_at >= datetime('now', '-4 hours'))) ORDER BY id DESC LIMIT 1")
+            .get(day);
+          if (clash) throw ApplicationFailure.nonRetryable(`${day} already has run ${String(clash["id"])} (${String(clash["status"])}); start with force to run it again`, "AlreadyRan");
+        }
         const sources = catalogue();
         const lastRun = lastCompleted(db);
         const { lastInsertRowid } = db.prepare("INSERT INTO digest_runs (articles_kept, articles_emailed, git_sha) VALUES (NULL, NULL, ?)").run(process.env["GIT_SHA"] ?? null);

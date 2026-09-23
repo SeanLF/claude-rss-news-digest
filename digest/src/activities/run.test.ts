@@ -57,6 +57,32 @@ describe("run lifecycle", () => {
     new DatabaseSync(path).exec("INSERT INTO digest_runs (id, run_at) VALUES (7, '2026-09-18 10:25:40')");
     await expect(acts.startRun({ runDate: "2026-09-18", resumeRun: 7 })).rejects.toMatchObject({ type: "MissingInput" });
   });
+  describe("the cross-pipeline guard: one digest per day, whichever pipeline started it", () => {
+    const today = new Date().toISOString().slice(0, 10);
+    it("refuses a day that already has a completed run", async () => {
+      const { path, acts } = setup();
+      new DatabaseSync(path).exec(`INSERT INTO digest_runs (run_at, completed_at, status) VALUES ('${today} 10:25:40', '${today} 10:45:00', 'completed')`);
+      await expect(acts.startRun({ runDate: today })).rejects.toMatchObject({ type: "AlreadyRan", nonRetryable: true });
+    });
+    it("refuses while another run of the day started within the last 4 h and is still running", async () => {
+      const { path, acts } = setup();
+      new DatabaseSync(path).exec("INSERT INTO digest_runs (run_at, status) VALUES (datetime('now', '-30 minutes'), 'running')");
+      await expect(acts.startRun({ runDate: "" })).rejects.toMatchObject({ type: "AlreadyRan" });
+    });
+    it("starts over a run that failed, or one still marked running after 4 h (a crash)", async () => {
+      const { path, acts } = setup();
+      const db = new DatabaseSync(path);
+      db.exec("INSERT INTO digest_runs (run_at, status) VALUES (datetime('now', '-10 minutes'), 'failed')");
+      db.exec("INSERT INTO digest_runs (run_at, status) VALUES (datetime('now', '-5 hours'), 'running')");
+      if (db.prepare("SELECT date(datetime('now', '-5 hours')) = date('now') AS same").get()!["same"] !== 1) db.exec("DELETE FROM digest_runs WHERE status = 'running'");
+      await expect(acts.startRun({ runDate: "" })).resolves.toMatchObject({ sourceIds: ["f"] });
+    });
+    it("force starts regardless (the successor of --force)", async () => {
+      const { path, acts } = setup();
+      new DatabaseSync(path).exec(`INSERT INTO digest_runs (id, run_at, completed_at, status) VALUES (9, '${today} 10:25:40', '${today} 10:45:00', 'completed')`);
+      await expect(acts.startRun({ runDate: today, force: true })).resolves.toMatchObject({ sourceIds: ["f"] });
+    });
+  });
   it("records a feed that does not parse as a failed source instead of throwing", async () => {
     const { acts } = setup("<html>not a feed</html>");
     const { runId } = await acts.startRun({ runDate: "2026-09-19" });
