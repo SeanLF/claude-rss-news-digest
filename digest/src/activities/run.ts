@@ -103,13 +103,14 @@ export function runActivities(deps: RunDeps) {
       }
     },
 
-    // completed_at is what "readers saw this run" means to every context query, so only a sent digest sets it.
+    // completed_at is what "readers saw this run" means to every context query, so only a published digest
+    // (sent, or recorded with the send disabled, as the Python's --no-email completes) sets it.
     // db.complete_run: articles_emailed is the send's recipient count (the column is misnamed), and
     // articles_kept the fetch-time count, SUM(source_health.articles_kept), as the Python snapshots it.
     finishRun: async (runId: number, out: Omit<DigestOutput, "runId">): Promise<void> => {
       const db = openDb(deps.dbPath);
       try {
-        if (out.broadcast === "sent")
+        if (out.broadcast === "sent" || out.broadcast === "disabled")
           db.prepare("UPDATE digest_runs SET completed_at = COALESCE(completed_at, datetime('now', 'utc')), status='completed', articles_emailed=?, articles_kept=(SELECT SUM(articles_kept) FROM source_health WHERE run_id=?) WHERE id=?").run(out.recipients ?? 0, runId, runId);
         else db.prepare("UPDATE digest_runs SET status=? WHERE id=? AND completed_at IS NULL").run(out.broadcast, runId);
       } finally {

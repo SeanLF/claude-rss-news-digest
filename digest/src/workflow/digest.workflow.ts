@@ -1,11 +1,11 @@
-import { ActivityFailure, CancelledFailure, condition, isCancellation, proxyActivities, setHandler } from "@temporalio/workflow";
+import { ActivityFailure, CancellationScope, CancelledFailure, condition, isCancellation, log, proxyActivities, setHandler } from "@temporalio/workflow";
 import type { Activities, DigestInput, DigestOutput, FulltextFetch, FulltextFetcher } from "../activities/index.js";
 import { mapBounded, MODEL_FANOUT_LIMIT } from "./bounded.js";
 import { FULLTEXT_TASK_QUEUE, MODEL_MAX_ATTEMPTS, NETWORK_MAX_ATTEMPTS } from "./policy.js";
 import { approveSignal, operatorNoteSignal, retrySignal } from "./signals.js";
 
 export const WORKFLOW_RUN_TIMEOUT = "4 hours";
-export const HOLD_TIMEOUT = "2 hours";
+export const HOLD_TIMEOUT = 2 * 60 * 60 * 1000; // 2 h, in ms: the hold notification names its end
 // Workflow identity replaces the dup-run guard for every kind of start (spec §2.1).
 export const workflowIdFor = (runDate: string): string => `digest-${runDate}`;
 
@@ -19,6 +19,8 @@ const model = proxyActivities<Activities>({
 });
 const network = proxyActivities<Activities>({ startToCloseTimeout: "2 minutes", retry: { maximumAttempts: NETWORK_MAX_ATTEMPTS, initialInterval: "10 seconds" } });
 const once = proxyActivities<Activities>({ startToCloseTimeout: "10 minutes", retry: { maximumAttempts: 1 } });
+// The run's record: idempotent database writes, so a retry is safe, retried like a fetch.
+const record = proxyActivities<Activities>({ startToCloseTimeout: "2 minutes", retry: { maximumAttempts: NETWORK_MAX_ATTEMPTS, initialInterval: "10 seconds" } });
 // A verdict is a result, never re-sampled until something passes (spec §2.2 tier 3): one attempt,
 // and a failure parks on the retry signal for an operator.
 const verdict = proxyActivities<Activities>({ startToCloseTimeout: "45 minutes", heartbeatTimeout: "2 minutes", retry: { maximumAttempts: 1 } });
@@ -41,74 +43,96 @@ export async function DigestWorkflow(input: DigestInput): Promise<DigestOutput> 
   });
 
   const { runId, sourceIds, lastRun } = await once.startRun(input);
+  try {
 
-  async function finish(out: Omit<DigestOutput, "runId">): Promise<DigestOutput> {
-    await once.finishRun(runId, out);
-    return { runId, ...out };
-  }
+    async function finish(out: Omit<DigestOutput, "runId">): Promise<DigestOutput> {
+      await once.finishRun(runId, out);
+      return { runId, ...out };
+    }
 
-  // Retries exhausted: park on the retry signal (spec §2.3 signal 2). Returns undefined on abort.
-  // Only an activity's own failure parks; a cancellation or a workflow-code error propagates.
-  async function guarded<T>(fn: () => Promise<T>): Promise<T | undefined> {
-    for (;;) {
-      try {
-        return await fn();
-      } catch (e) {
-        if (!(e instanceof ActivityFailure) || e.cause instanceof CancelledFailure) throw e;
-        await condition(() => retryDecisions.length > 0);
-        if (retryDecisions.shift() === "abort") return undefined;
+    // Retries exhausted: park on the retry signal (spec §2.3 signal 2). Returns undefined on abort.
+    // Only an activity's own failure parks; a cancellation or a workflow-code error propagates.
+    async function guarded<T>(fn: () => Promise<T>): Promise<T | undefined> {
+      for (;;) {
+        try {
+          return await fn();
+        } catch (e) {
+          if (!(e instanceof ActivityFailure) || e.cause instanceof CancelledFailure) throw e;
+          await condition(() => retryDecisions.length > 0);
+          if (retryDecisions.shift() === "abort") return undefined;
+        }
       }
     }
-  }
 
-  // One activity per feed under the network policy; a feed that fails is recorded and the run goes on
-  // thin (a thin day ships and logs, spec §2), so failures are settled rather than thrown.
-  const fetched = (await Promise.allSettled(sourceIds.map((s) => network.fetchFeed(runId, s, lastRun)))).flatMap((r) => (r.status === "fulfilled" ? [r.value] : []));
-  const { articles } = await once.prepare(runId, fetched, input.force);
-  // CLUSTER = plan → extract fan-out (one model call per batch, each under its own retry policy)
-  // → deterministic join; a batch that exhausts its retries is a lost batch the join title-falls back.
-  const recapP = model.recap(runId, input.force);
-  const { batches } = await once.planBatches(runId, articles);
-  const settled = await mapBounded(batches, MODEL_FANOUT_LIMIT, (b) => model.extractBatch(runId, b, input.force));
-  const tagBatches = settled.map((s) => (s.status === "fulfilled" ? s.value : null));
-  const [clusters, recap] = await Promise.all([once.joinClusters(runId, tagBatches, input.force), recapP]);
-  const selected = await guarded(() => model.select(runId, clusters, recap, notes["select"], input));
-  if (!selected) return finish({ stories: 0, broadcast: "skipped" });
-  // Full text is best-effort, as in production: a fetcher that is down or fails leaves the run on
-  // the RSS summaries, recorded as "unavailable" in fulltext_health.json.
-  const plan = await once.planFulltext(runId, selected, input.force);
-  const fetch = async (): Promise<FulltextFetch> => {
-    if (plan.skip) return { tasks: 0, results: {}, outcome: plan.skip }; // nothing to send to Python
-    return python.fetchFulltext(plan.tasks).catch((e: unknown): FulltextFetch => {
-      if (isCancellation(e)) throw e;
-      return { tasks: plan.tasks.length, results: {}, outcome: "unavailable" };
+    // One activity per feed under the network policy; a feed that fails is recorded and the run goes on
+    // thin (a thin day ships and logs, spec §2), so failures are settled rather than thrown.
+    const fetched = (await Promise.allSettled(sourceIds.map((s) => network.fetchFeed(runId, s, lastRun)))).flatMap((r) => (r.status === "fulfilled" ? [r.value] : []));
+    const { articles } = await once.prepare(runId, fetched, input.force);
+    // CLUSTER = plan → extract fan-out (one model call per batch, each under its own retry policy)
+    // → deterministic join; a batch that exhausts its retries is a lost batch the join title-falls back.
+    const recapP = model.recap(runId, input.force);
+    const { batches } = await once.planBatches(runId, articles);
+    const settled = await mapBounded(batches, MODEL_FANOUT_LIMIT, (b) => model.extractBatch(runId, b, input.force));
+    const tagBatches = settled.map((s) => (s.status === "fulfilled" ? s.value : null));
+    const [clusters, recap] = await Promise.all([once.joinClusters(runId, tagBatches, input.force), recapP]);
+    const selected = await guarded(() => model.select(runId, clusters, recap, notes["select"], input));
+    if (!selected) return await finish({ stories: 0, broadcast: "skipped" });
+    // Full text is best-effort, as in production: a fetcher that is down or fails leaves the run on
+    // the RSS summaries, recorded as "unavailable" in fulltext_health.json.
+    const plan = await once.planFulltext(runId, selected, input.force);
+    const fetch = async (): Promise<FulltextFetch> => {
+      if (plan.skip) return { tasks: 0, results: {}, outcome: plan.skip }; // nothing to send to Python
+      return python.fetchFulltext(plan.tasks).catch((e: unknown): FulltextFetch => {
+        if (isCancellation(e)) throw e;
+        return { tasks: plan.tasks.length, results: {}, outcome: "unavailable" };
+      });
+    };
+    const fulltext = plan.existing ?? (await once.storeFulltext(runId, await fetch(), input.force));
+    // WRITE fans out one story per call, four at a time; a story that exhausts its retries fails the
+    // phase rather than letting the digest ship one story short.
+    const { plans } = await once.planStories(runId, selected, clusters);
+    const storyCount = plans.length;
+    const written = await mapBounded(plans, MODEL_FANOUT_LIMIT, (p) => model.writeStory(runId, p, selected, notes["write"], input.force));
+    const failed = written.find((w) => w.status === "rejected");
+    if (failed) throw failed.reason;
+    const drafts = written.flatMap((w) => (w.status === "fulfilled" ? [w.value] : []));
+    const preheaderP = model.preheader(runId, drafts, input.force).catch((e: unknown) => {
+      if (isCancellation(e)) throw e; // best-effort, never at the cost of a cancellation
+      return null;
     });
-  };
-  const fulltext = plan.existing ?? (await once.storeFulltext(runId, await fetch(), input.force));
-  // WRITE fans out one story per call, four at a time; a story that exhausts its retries fails the
-  // phase rather than letting the digest ship one story short.
-  const { plans } = await once.planStories(runId, selected, clusters);
-  const storyCount = plans.length;
-  const written = await mapBounded(plans, MODEL_FANOUT_LIMIT, (p) => model.writeStory(runId, p, selected, notes["write"], input.force));
-  const failed = written.find((w) => w.status === "rejected");
-  if (failed) throw failed.reason;
-  const drafts = written.flatMap((w) => (w.status === "fulfilled" ? [w.value] : []));
-  const preheaderP = model.preheader(runId, drafts, input.force).catch((e: unknown) => {
-    if (isCancellation(e)) throw e; // best-effort, never at the cost of a cancellation
-    return null;
-  });
-  preheaderP.catch(() => undefined); // observed while the checker may be parked; awaited below
-  const report = await guarded(() => verdict.coherence(runId, drafts, fulltext, notes["coherence"], input.force));
-  const preheader = await preheaderP;
-  if (!report) return finish({ stories: 0, broadcast: "skipped" });
-  const repair = await model.repair(runId, drafts, report, input.force);
-  const selections = await once.assemble(runId, drafts, report, repair, preheader, input.force);
-  const [gnews, threads] = await Promise.all([network.gnews(runId, selections), model.threads(runId, selections)]);
-  const { email } = await once.render(runId, selections, threads, gnews);
+    preheaderP.catch(() => undefined); // observed while the checker may be parked; awaited below
+    const report = await guarded(() => verdict.coherence(runId, drafts, fulltext, notes["coherence"], input.force));
+    const preheader = await preheaderP;
+    if (!report) return await finish({ stories: 0, broadcast: "skipped" });
+    const repair = await model.repair(runId, drafts, report, input.force);
+    const selections = await once.assemble(runId, drafts, report, repair, preheader, input.force);
+    const [gnews, threads] = await Promise.all([network.gnews(runId, selections), model.threads(runId, selections)]);
 
-  // Pre-broadcast hold (spec §2.3 signal 1): 2 h, then proceed.
-  await condition(() => approval !== undefined, HOLD_TIMEOUT);
-  if (approval === "reject") return finish({ stories: storyCount, broadcast: "rejected" });
-  await once.broadcast(runId, email);
-  return finish({ stories: storyCount, broadcast: "sent" });
+    // db.archive_selections/archive_clusters: a trace, fail-soft as in the Python, never at the
+    // cost of the issue.
+    await record.archiveRun(runId, selections, clusters).catch((e: unknown) => {
+      if (isCancellation(e)) throw e;
+      log.warn("archiving the run's selections and clusters failed; the issue goes on", { runId, error: String(e) });
+    });
+    const { html, email } = await once.render(runId, selections, threads, gnews);
+
+    // Pre-broadcast hold (spec §2.3 signal 1): 2 h, then proceed. The operator hears of it by email,
+    // best-effort. Nothing reaches readers before the hold ends: the web copy, the send and the
+    // shown headlines (the next day's dedup) all follow it.
+    const holdEndsAt = new Date(Date.now() + HOLD_TIMEOUT).toISOString();
+    await once.notifyHold(runId, selections, holdEndsAt).catch((e: unknown) => {
+      if (isCancellation(e)) throw e;
+      log.warn("the hold notification failed; holding anyway", { runId, error: String(e) });
+    });
+    await condition(() => approval !== undefined, HOLD_TIMEOUT);
+    if (approval === "reject") return await finish({ stories: storyCount, broadcast: "rejected" });
+    await record.saveDigest(runId, html, selections);
+    const sent = await once.broadcast(runId, email); // at most once: one attempt (spec §2.1)
+    await record.recordShownHeadlines(runId, selections);
+    return await finish({ stories: storyCount, broadcast: sent.status === "disabled" ? "disabled" : "sent", recipients: sent.recipients });
+  } catch (e) {
+    // db.abort_run: marked failed, never deleted, whatever the cause, cancellation included.
+    await CancellationScope.nonCancellable(() => record.abortRun(runId, e instanceof Error ? `${e.name}: ${e.message}${e.cause instanceof Error ? ` (${e.cause.message})` : ""}` : String(e)));
+    throw e;
+  }
 }

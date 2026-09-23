@@ -1,4 +1,4 @@
-import { WorkflowIdConflictPolicy } from "@temporalio/common";
+import { ApplicationFailure, WorkflowIdConflictPolicy } from "@temporalio/common";
 import { TestWorkflowEnvironment } from "@temporalio/testing";
 import { Worker } from "@temporalio/worker";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -38,6 +38,21 @@ const approveAndWait = async (runDate: string) => {
 };
 const start = (runDate: string, extra: Record<string, unknown> = {}, opts: Record<string, unknown> = {}) =>
   env.client.workflow.start(DigestWorkflow, { taskQueue, workflowId: workflowIdFor(runDate), args: [{ runDate, ...extra }], ...opts });
+
+// Every tail activity logs its name; the stubs answer.
+function tail(overrides: Partial<Activities> = {}) {
+  const calls: string[] = [];
+  const stub = stubActivities();
+  const spy = (name: keyof Activities): Partial<Activities> => ({
+    [name]: (...args: unknown[]) => {
+      calls.push(name);
+      const impl = (overrides[name] ?? stub[name]) as (...a: unknown[]) => Promise<unknown>;
+      return impl(...args);
+    },
+  });
+  const names = ["archiveRun", "render", "notifyHold", "saveDigest", "broadcast", "recordShownHeadlines", "finishRun", "abortRun"] as const;
+  return { calls, acts: Object.assign({}, ...names.map((n) => spy(n))) as Partial<Activities> };
+}
 
 describe("DigestWorkflow", () => {
   it("runs every stage over stub activities and sends when approved", async () => {
@@ -142,6 +157,42 @@ describe("DigestWorkflow", () => {
       });
       expect(fetched).toBe(0);
       expect(stored).toEqual([]);
+    }, 120_000);
+  });
+  describe("the tail: record, hold, send", () => {
+    it("archives before the hold, and publishes, sends and records the shown headlines only after it", async () => {
+      const { calls, acts } = tail();
+      const out = await withWorker(() => approveAndWait("2026-10-02"), acts);
+      expect(calls).toEqual(["archiveRun", "render", "notifyHold", "saveDigest", "broadcast", "recordShownHeadlines", "finishRun"]);
+      expect(out).toMatchObject({ broadcast: "sent", recipients: 12 });
+    }, 120_000);
+    it("a rejected issue is neither published, sent nor recorded as shown", async () => {
+      const { calls, acts } = tail();
+      const out = await withWorker(async () => {
+        const h = await start("2026-10-03");
+        await h.signal(approveSignal, { decision: "reject" });
+        return h.result();
+      }, acts);
+      expect(calls).toEqual(["archiveRun", "render", "notifyHold", "finishRun"]);
+      expect(out.broadcast).toBe("rejected");
+    }, 120_000);
+    it("a send that fails is not retried: the run is marked failed and the workflow fails", async () => {
+      const { calls, acts } = tail({ broadcast: () => Promise.reject(new Error("read timeout")) });
+      await expect(withWorker(() => approveAndWait("2026-10-04"), acts)).rejects.toThrow();
+      expect(calls.filter((c) => c === "broadcast")).toHaveLength(1);
+      expect(calls.slice(-2)).toEqual(["broadcast", "abortRun"]);
+    }, 120_000);
+    it("a hold notification that fails does not hold up the send", async () => {
+      const { calls, acts } = tail({ notifyHold: () => Promise.reject(ApplicationFailure.nonRetryable("resend down")) });
+      const out = await withWorker(() => approveAndWait("2026-10-05"), acts);
+      expect(out.broadcast).toBe("sent");
+      expect(calls).toContain("broadcast");
+    }, 120_000);
+    it("with the send disabled the issue is still published and recorded, and says so", async () => {
+      const { calls, acts } = tail({ broadcast: () => Promise.resolve({ broadcastId: "", status: "disabled", recipients: 0 }) });
+      const out = await withWorker(() => approveAndWait("2026-10-06"), acts);
+      expect(calls).toEqual(["archiveRun", "render", "notifyHold", "saveDigest", "broadcast", "recordShownHeadlines", "finishRun"]);
+      expect(out).toMatchObject({ broadcast: "disabled", recipients: 0 });
     }, 120_000);
   });
 });

@@ -30,7 +30,12 @@ export function stubActivities(): Activities {
     gnews: (runId) => Promise.resolve(ptr(runId, DECODED_LINKS)),
     threads: (runId) => Promise.resolve(ptr(runId, THREAD_CONTEXT)),
     render: (runId) => Promise.resolve({ html: ptr(runId, "digest.html"), email: ptr(runId, "email.html") }),
-    broadcast: () => Promise.resolve({ broadcastId: "stub" }),
+    archiveRun: () => Promise.resolve(),
+    notifyHold: () => Promise.resolve({ sent: true }),
+    saveDigest: () => Promise.resolve({ date: "2026-09-21" }),
+    broadcast: () => Promise.resolve({ broadcastId: "stub", status: "sent", recipients: 12 }),
+    recordShownHeadlines: () => Promise.resolve({ rows: 1 }),
     finishRun: () => Promise.resolve(),
+    abortRun: () => Promise.resolve(),
   };
 }

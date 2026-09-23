@@ -18,6 +18,9 @@ import { MODEL_MAX_ATTEMPTS } from "../workflow/policy.js";
 import { selectActivity } from "./select.js";
 import { writeActivities } from "./write.js";
 import { stubActivities } from "./stub.js";
+import { Resend } from "resend";
+import { broadcastActivities, type Mail } from "./broadcast.js";
+import { recordActivities } from "./record.js";
 
 export const DEFAULT_AGENTS_DIR = "/app/digest/agents";
 const agentsDir = (): string => process.env["AGENTS_DIR"] ?? DEFAULT_AGENTS_DIR;
@@ -40,10 +43,15 @@ const safeSignal = (): AbortSignal | undefined => {
   }
 };
 
+// Built on first use: the client refuses to construct without RESEND_API_KEY, which a worker with
+// the send disabled need not have.
+let resend: Mail | undefined;
+const resendClient = (): Mail => (resend ??= new Resend(process.env["RESEND_API_KEY"]));
+
 export function workerActivities(): Activities {
   const store = new ArtifactStore(dbPath());
   const usageDb = openDb(dbPath());
   const log = (row: UsageRow) => recordUsage(usageDb, row);
   const deps = { store, agentsDir: agentsDir(), heartbeat: safeHeartbeat, signal: safeSignal, onUsage: log };
-  return { ...stubActivities(), ...clusterActivities(deps), recap: recapActivity(deps), ...writeActivities(deps), select: selectActivity(deps), preheader: preheaderActivity(deps), coherence: coherenceActivity(deps), repair: repairActivity({ ...deps, maxAttempts: MODEL_MAX_ATTEMPTS }), assemble: assembleActivity(deps), ...fulltextActivities({ store, perStory: Number(process.env["FULLTEXT_PER_STORY"] ?? 3), enabled: !["0", "false", "no"].includes((process.env["FULLTEXT_ENABLED"] ?? "true").toLowerCase()) }), render: renderActivity({ store, dbPath: dbPath(), assets: renderAssets(), env: envFrom(process.env) }), prepare: prepareActivity({ store, dbPath: dbPath() }), ...runActivities({ store, dbPath: dbPath(), sourcesFile: process.env["SOURCES_FILE"] ?? "/app/sources.json" }) };
+  return { ...stubActivities(), ...clusterActivities(deps), recap: recapActivity(deps), ...writeActivities(deps), select: selectActivity(deps), preheader: preheaderActivity(deps), coherence: coherenceActivity(deps), repair: repairActivity({ ...deps, maxAttempts: MODEL_MAX_ATTEMPTS }), assemble: assembleActivity(deps), ...fulltextActivities({ store, perStory: Number(process.env["FULLTEXT_PER_STORY"] ?? 3), enabled: !["0", "false", "no"].includes((process.env["FULLTEXT_ENABLED"] ?? "true").toLowerCase()) }), render: renderActivity({ store, dbPath: dbPath(), assets: renderAssets(), env: envFrom(process.env) }), prepare: prepareActivity({ store, dbPath: dbPath() }), ...runActivities({ store, dbPath: dbPath(), sourcesFile: process.env["SOURCES_FILE"] ?? "/app/sources.json" }), ...recordActivities({ store, dbPath: dbPath() }), ...broadcastActivities({ store, dbPath: dbPath(), mail: resendClient, env: process.env }) };
 }
