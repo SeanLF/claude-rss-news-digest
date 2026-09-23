@@ -56,9 +56,11 @@ export function unbackedFails(report: CoherenceReport, toolCalls: { name: string
 export type Draft = { must_know: DraftStory[]; should_know: DraftStory[]; preheader: string };
 
 // Fan-in in SELECT's order onto SELECT's tier (write_fanout.assemble_draft).
-export function draftFrom(store: ArtifactStore, drafts: Pointer[]): Draft {
+export async function draftFrom(store: ArtifactStore, drafts: Pointer[]): Promise<Draft> {
   const out: Draft = { must_know: [], should_know: [], preheader: "" };
-  const items = drafts.map((d) => JSON.parse(store.get(d)) as { plan: StoryPlan; story: DraftStory }).toSorted((a, b) => a.plan.index - b.plan.index);
+  const items: { plan: StoryPlan; story: DraftStory }[] = [];
+  for (const d of drafts) items.push(JSON.parse(await store.get(d)) as { plan: StoryPlan; story: DraftStory });
+  items.sort((a, b) => a.plan.index - b.plan.index);
   for (const { plan, story } of items) out[plan.tier].push(story);
   return out;
 }
@@ -77,7 +79,7 @@ export interface CoherenceDeps {
   agentsDir: string;
   query?: SdkQuery;
   heartbeat?: () => void;
-  onUsage?: (row: UsageRow) => void;
+  onUsage?: (row: UsageRow) => void | Promise<void>;
 }
 
 // The checker is a verdict: one attempt (spec §2.1), so a failure here parks or fails the run
@@ -85,28 +87,28 @@ export interface CoherenceDeps {
 export function coherenceActivity(deps: CoherenceDeps) {
   return async (runId: number, drafts: Pointer[], _fulltext: Pointer, note?: string, force = false): Promise<Pointer> => {
     const { store } = deps;
-    const draft = draftFrom(store, drafts);
+    const draft = await draftFrom(store, drafts);
     const draftText = JSON.stringify(draft, null, 2);
-    const existingDraft = store.find(runId, DRAFT_OUTPUT);
-    const sameDraft = existingDraft !== undefined && store.get(existingDraft) === draftText;
-    const existing = store.find(runId, COHERENCE_OUTPUT);
+    const existingDraft = await store.find(runId, DRAFT_OUTPUT);
+    const sameDraft = existingDraft !== undefined && await store.get(existingDraft) === draftText;
+    const existing = await store.find(runId, COHERENCE_OUTPUT);
     if (existing && sameDraft && !force) {
-      const parsed = CoherenceReportSchema.safeParse(JSON.parse(store.get(existing)));
+      const parsed = CoherenceReportSchema.safeParse(JSON.parse(await store.get(existing)));
       if (parsed.success && uncovered(parsed.data, draft).length === 0) return existing;
     }
     if (!force) {
-      if (existing) store.quarantine(runId, COHERENCE_OUTPUT);
-      if (existingDraft && !sameDraft) store.quarantine(runId, DRAFT_OUTPUT); // a matching draft is kept
+      if (existing) await store.quarantine(runId, COHERENCE_OUTPUT);
+      if (existingDraft && !sameDraft) await store.quarantine(runId, DRAFT_OUTPUT); // a matching draft is kept
     }
-    recordOperatorNote(store, runId, "coherence", note);
+    await recordOperatorNote(store, runId, "coherence", note);
     const checked = await runChecker(deps, runId, draftText, note);
     const { report: parsedReport, costUsd, durationMs, numTurns, toolCalls, unbacked } = checked;
-      deps.onUsage?.({ model: checked.model, thinking: checked.thinking, effort: checked.effort, tokens: checked.tokens, stage: "coherence", runId, costUsd, durationMs, numTurns, toolCalls, unbackedFails: unbacked });
+      await deps.onUsage?.({ model: checked.model, thinking: checked.thinking, prompt: checked.prompt, effort: checked.effort, tokens: checked.tokens, stage: "coherence", runId, costUsd, durationMs, numTurns, toolCalls, unbackedFails: unbacked });
       const parsed = { data: parsedReport };
     const gaps = uncovered(parsed.data, draft);
     if (gaps.length) throw new Error(`coherence for run ${runId}: no result matches ${gaps.length} draft story(ies): ${gaps.slice(0, 3).join("; ")}`);
     const write = (name: string, text: string) => (force ? store.replace(runId, name, text) : store.put(runId, name, text));
-    if (force || !sameDraft) write(DRAFT_OUTPUT, draftText);
+    if (force || !sameDraft) await write(DRAFT_OUTPUT, draftText);
     return write(COHERENCE_OUTPUT, JSON.stringify(parsed.data, null, 2));
   };
 }
@@ -116,12 +118,9 @@ export function coherenceActivity(deps: CoherenceDeps) {
 // repair is this same run over a draft holding only the patched stories.
 export async function runChecker(deps: CoherenceDeps, runId: number, draftText: string, note?: string) {
   const { store } = deps;
-  const corpus: [string, string][] = store
-    .names(runId)
-    .filter((n) => /^articles_\d+\.csv$/.test(n) || n === "article_fulltext.json")
-    .toSorted()
-    .map((n) => [n, store.get(store.find(runId, n)!)]);
-  return checkDraft(deps, draftText, corpus, store.runDate(runId), note);
+  const corpus: [string, string][] = [];
+  for (const n of (await store.names(runId)).filter((x) => /^articles_\d+\.csv$/.test(x) || x === "article_fulltext.json").toSorted()) corpus.push([n, await store.content(runId, n)]);
+  return checkDraft(deps, draftText, corpus, await store.runDate(runId), note);
 }
 
 // The checker over explicit files, with no store: what the activity runs, and what the planted-defect
@@ -147,7 +146,8 @@ export async function checkDraft(
     const body = shape === "inline-grep" ? buildInlineGrepBody(spec.body, dir) : buildReadLoopBody(spec.body);
     deps.heartbeat?.();
     const message = shape === "inline-grep" ? parts.join("\n\n") : `The files are in your working directory, ${dir}. Begin.`;
-    const r = await runStage({ ...spec, body, ...(shape === "read-loop" ? { tools: ["Read" as const] } : {}) }, { userMessage: message + (note ? `\n\nOperator note for this attempt: ${note}` : ""), inputDir: dir }, {
+    const sent = { ...spec, body, ...(shape === "read-loop" ? { tools: ["Read" as const] } : {}) };
+    const r = await runStage(sent, { userMessage: message + (note ? `\n\nOperator note for this attempt: ${note}` : ""), inputDir: dir }, {
       today,
       outputSchema: coherenceReportJsonSchema(),
       ...(deps.query ? { query: deps.query } : {}), ...(deps.heartbeat ? { heartbeat: deps.heartbeat } : {}), ...(deps.signal?.() ? { signal: deps.signal()! } : {}),
@@ -155,7 +155,7 @@ export async function checkDraft(
     deps.heartbeat?.();
     const parsed = CoherenceReportSchema.safeParse(r.structured);
     if (!parsed.success) throw new Error("coherence: report does not match the schema");
-    return { model: spec.model, thinking: spec.thinking, effort: r.effort, tokens: r.usage, report: parsed.data, costUsd: r.costUsd, durationMs: r.durationMs, numTurns: r.numTurns, toolCalls: r.toolCalls.length, unbacked: shape === "inline-grep" ? unbackedFails(parsed.data, r.toolCalls) : null };
+    return { model: spec.model, thinking: spec.thinking, effort: r.effort, prompt: sent, tokens: r.usage, report: parsed.data, costUsd: r.costUsd, durationMs: r.durationMs, numTurns: r.numTurns, toolCalls: r.toolCalls.length, unbacked: shape === "inline-grep" ? unbackedFails(parsed.data, r.toolCalls) : null };
   } finally {
     rmSync(dir, { recursive: true, force: true }); // the mkdtemp directory this call created
   }

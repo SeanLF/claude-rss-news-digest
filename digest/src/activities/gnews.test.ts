@@ -24,90 +24,90 @@ const selections = {
   ],
 };
 
-function setup(enabled = true) {
-  const store = new ArtifactStore(freshDb([300]));
-  const sel = store.put(300, "selections.json", JSON.stringify(selections));
-  store.put(300, "article_index.json", JSON.stringify(index));
+async function setup(enabled = true) {
+  const store = new ArtifactStore(await freshDb([300]));
+  const sel = await store.put(300, "selections.json", JSON.stringify(selections));
+  await store.put(300, "article_index.json", JSON.stringify(index));
   return { store, sel, acts: gnewsActivities({ store, enabled }) };
 }
 function warned() {
   const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
   return () => warn.mock.calls.map((c) => String(c[0])).filter((m) => m.includes("decoder contract"));
 }
-afterEach(() => {
+afterEach(async () => {
   vi.restoreAllMocks();
 });
 
 describe("gnews", () => {
-  it("recognises a Google-News article link as gnews.is_gnews_url does", () => {
+  it("recognises a Google-News article link as gnews.is_gnews_url does", async () => {
     expect(isGnewsUrl(GN("X"))).toBe(true);
     expect(isGnewsUrl("https://news.google.com/rss/search?q=reuters")).toBe(false);
     expect(isGnewsUrl("https://www.reuters.com/articles/x")).toBe(false);
     expect(isGnewsUrl("")).toBe(false);
   });
-  it("takes only the links the rendered issue shows: resolved, reposts collapsed, deduped, in reading order", () => {
+  it("takes only the links the rendered issue shows: resolved, reposts collapsed, deduped, in reading order", async () => {
     expect(survivingLinks(selections, index)).toEqual([GN("R1"), GN("R3"), GN("N4")]);
   });
   it("plans the surviving links of the run's selections", async () => {
-    const { sel, acts } = setup();
+    const { sel, acts } = await setup();
     expect(await acts.planGnews(300, sel)).toEqual({ urls: [GN("R1"), GN("R3"), GN("N4")] });
   });
   it("plans nothing when the run already has its decoded links, unless forced", async () => {
-    const { store, sel, acts } = setup();
+    const { store, sel, acts } = await setup();
     const done = await acts.storeGnews(300, { links: 3, decoded: {}, attempted: 3, outcome: "rate_limited" });
-    expect(store.find(300, DECODED_LINKS)).toEqual(done);
+    expect(await store.find(300, DECODED_LINKS)).toEqual(done);
     expect(await acts.planGnews(300, sel)).toEqual({ urls: [], existing: done });
     expect((await acts.planGnews(300, sel, true)).urls).toHaveLength(3);
   });
   it("an attempt that reached no decoder is quarantined and planned again on a resume", async () => {
-    const { store, sel, acts } = setup();
+    const { store, sel, acts } = await setup();
     await acts.storeGnews(300, { links: 3, decoded: {}, attempted: 0, outcome: "unavailable" });
     const plan = await acts.planGnews(300, sel);
     expect(plan.urls).toHaveLength(3);
     expect(plan.existing).toBeUndefined();
-    expect(store.find(300, `${DECODED_LINKS}.corrupt.1`)).toBeDefined();
-    expect(store.find(300, GNEWS_HEALTH)).toBeUndefined();
+    expect(await store.states(300, DECODED_LINKS)).toContain("quarantined");
+    expect(await store.find(300, GNEWS_HEALTH)).toBeUndefined();
   });
   it.each(["busy", "cancelled"])("a %s pass spent nothing, so a resume plans it again", async (outcome) => {
-    const { sel, acts } = setup();
+    const { sel, acts } = await setup();
     await acts.storeGnews(300, { links: 3, decoded: {}, attempted: 0, outcome });
     expect((await acts.planGnews(300, sel)).urls).toHaveLength(3);
   });
   it("a pass that failed after it started is kept on a resume: it may already have spent requests", async () => {
-    const { sel, acts } = setup();
+    const { sel, acts } = await setup();
     const done = await acts.storeGnews(300, { links: 3, decoded: {}, attempted: 0, outcome: "failed" });
     expect(await acts.planGnews(300, sel)).toEqual({ urls: [], existing: done });
   });
   it("switched off (GNEWS_RESOLVE_ENABLED=false), it plans nothing and says why", async () => {
-    const { sel, acts } = setup(false);
+    const { sel, acts } = await setup(false);
     expect(await acts.planGnews(300, sel)).toEqual({ urls: [], skip: "disabled" });
   });
   it("with no Google-News links shown it plans nothing and says why", async () => {
-    const { store, acts } = setup();
-    const direct = store.put(300, "selections_direct.json", JSON.stringify({ must_know: [{ headline: "h", sources: [{ article_id: "A2" }] }], should_know: [] }));
+    const { store, acts } = await setup();
+    const direct = await store.put(300, "selections_direct.json", JSON.stringify({ must_know: [{ headline: "h", sources: [{ article_id: "A2" }] }], should_know: [] }));
     expect(await acts.planGnews(300, direct)).toEqual({ urls: [], skip: "no_candidates" });
   });
   it("stores the decoded map render reads, and records health", async () => {
-    const { store, acts } = setup();
+    const { store, acts } = await setup();
     const p = await acts.storeGnews(300, { links: 3, decoded: { [GN("R1")]: "https://www.reuters.com/world/r1" }, attempted: 3, outcome: "completed" });
     expect(p.name).toBe(DECODED_LINKS);
-    expect(JSON.parse(store.get(p))).toEqual({ [GN("R1")]: "https://www.reuters.com/world/r1" });
-    expect(JSON.parse(store.get(store.find(300, GNEWS_HEALTH)!))).toEqual({ links: 3, decoded: 1, attempted: 3, outcome: "completed" });
+    expect(JSON.parse(await store.get(p))).toEqual({ [GN("R1")]: "https://www.reuters.com/world/r1" });
+    expect(JSON.parse(await store.content(300, GNEWS_HEALTH))).toEqual({ links: 3, decoded: 1, attempted: 3, outcome: "completed" });
   });
   it("never stores a decoded link a reader could not click", async () => {
-    const { store, acts } = setup();
+    const { store, acts } = await setup();
     const p = await acts.storeGnews(300, { links: 2, decoded: { [GN("R1")]: "javascript:alert(1)", [GN("R3")]: "https://www.reuters.com/r3" }, attempted: 2, outcome: "completed" });
-    expect(JSON.parse(store.get(p))).toEqual({ [GN("R3")]: "https://www.reuters.com/r3" });
+    expect(JSON.parse(await store.get(p))).toEqual({ [GN("R3")]: "https://www.reuters.com/r3" });
   });
   describe("the canary (digest._resolve_gnews_links)", () => {
     it("warns when enough decodes ran and none of the shown links was upgraded", async () => {
       const calls = warned();
-      await setup().acts.storeGnews(300, { links: 3, decoded: {}, attempted: 3, outcome: "completed" });
+      await (await setup()).acts.storeGnews(300, { links: 3, decoded: {}, attempted: 3, outcome: "completed" });
       expect(calls()).toHaveLength(1);
     });
     it("stays quiet on a 429, which has its own outcome, and under three attempts", async () => {
       const calls = warned();
-      const { acts } = setup();
+      const { acts } = await setup();
       await acts.storeGnews(300, { links: 3, decoded: {}, attempted: 3, outcome: "rate_limited" });
       await acts.storeGnews(300, { links: 2, decoded: {}, attempted: 2, outcome: "completed" }, true);
       await acts.storeGnews(300, { links: 3, decoded: { [GN("R1")]: "https://www.reuters.com/r1" }, attempted: 3, outcome: "completed" }, true);

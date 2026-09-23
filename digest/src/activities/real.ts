@@ -1,4 +1,4 @@
-import { openDb, dbPath } from "../store/db.js";
+import { openDb, dbUrl } from "../store/db.js";
 import { recordUsage, type UsageRow } from "../store/usage.js";
 import { Context, heartbeat } from "@temporalio/activity";
 import { ArtifactStore } from "../store/artifacts.js";
@@ -55,14 +55,14 @@ let resend: Mail | undefined;
 const mailClient = (): Mail => (resend ??= resendClient(process.env["RESEND_API_KEY"] ?? "", { signal: safeSignal }));
 
 export function workerActivities(): Activities {
-  const store = new ArtifactStore(dbPath());
-  const usageDb = openDb(dbPath());
+  const store = new ArtifactStore(dbUrl());
+  const usageDb = openDb(dbUrl());
   const hc = healthcheck(process.env);
   // Each finished model call is also a progress line off-box, so a hung run is visible while it hangs.
-  const log = (row: UsageRow) => {
-    recordUsage(usageDb, row);
+  const log = async (row: UsageRow) => {
+    await recordUsage(usageDb, row);
     void hc.log(stageDoneLine(row));
   };
   const deps = { store, agentsDir: agentsDir(), heartbeat: safeHeartbeat, signal: safeSignal, onUsage: log, log: (m: string) => void hc.log(m) };
-  return { ...stubActivities(), ...clusterActivities(deps), recap: recapActivity(deps), ...writeActivities(deps), select: selectActivity(deps), preheader: preheaderActivity(deps), coherence: coherenceActivity(deps), repair: repairActivity({ ...deps, maxAttempts: MODEL_MAX_ATTEMPTS }), assemble: assembleActivity(deps), ...fulltextActivities({ store, perStory: Number(process.env["FULLTEXT_PER_STORY"] ?? 3), enabled: !["0", "false", "no"].includes((process.env["FULLTEXT_ENABLED"] ?? "true").toLowerCase()) }), ...gnewsActivities({ store, enabled: ["1", "true", "yes"].includes((process.env["GNEWS_RESOLVE_ENABLED"] ?? "true").toLowerCase()) }), ...linkDecoderFromEnv(process.env, { heartbeat: safeHeartbeat, signal: safeSignal }), render: renderActivity({ store, dbPath: dbPath(), assets: renderAssets(), env: envFrom(process.env) }), prepare: prepareActivity({ store, dbPath: dbPath() }), ...threadsActivities({ ...deps, dbPath: dbPath(), config: threadsConfigFrom(process.env), maxAttempts: MODEL_MAX_ATTEMPTS }), ...runActivities({ store, dbPath: dbPath(), sourcesFile: process.env["SOURCES_FILE"] ?? "/app/sources.json" }), weeklyRecap: weeklyRecapActivity({ ...deps, dbPath: dbPath(), maxAttempts: WEEKLY_RECAP_MAX_ATTEMPTS }), ...opsActivities({ dbPath: dbPath(), env: process.env, maxAttempts: OPS_MAX_ATTEMPTS }), ...recordActivities({ store, dbPath: dbPath() }), ...broadcastActivities({ store, dbPath: dbPath(), mail: mailClient, env: process.env, signal: safeSignal, heartbeat: safeHeartbeat }) };
+  return { ...stubActivities(), ...clusterActivities(deps), recap: recapActivity(deps), ...writeActivities(deps), select: selectActivity(deps), preheader: preheaderActivity(deps), coherence: coherenceActivity(deps), repair: repairActivity({ ...deps, maxAttempts: MODEL_MAX_ATTEMPTS }), assemble: assembleActivity(deps), ...fulltextActivities({ store, perStory: Number(process.env["FULLTEXT_PER_STORY"] ?? 3), enabled: !["0", "false", "no"].includes((process.env["FULLTEXT_ENABLED"] ?? "true").toLowerCase()) }), ...gnewsActivities({ store, enabled: ["1", "true", "yes"].includes((process.env["GNEWS_RESOLVE_ENABLED"] ?? "true").toLowerCase()) }), ...linkDecoderFromEnv(process.env, { heartbeat: safeHeartbeat, signal: safeSignal }), render: renderActivity({ store, dbUrl: dbUrl(), assets: renderAssets(), env: envFrom(process.env) }), prepare: prepareActivity({ store, dbUrl: dbUrl() }), ...threadsActivities({ ...deps, dbUrl: dbUrl(), config: threadsConfigFrom(process.env), maxAttempts: MODEL_MAX_ATTEMPTS }), ...runActivities({ store, dbUrl: dbUrl(), sourcesFile: process.env["SOURCES_FILE"] ?? "/app/sources.json" }), weeklyRecap: weeklyRecapActivity({ ...deps, dbUrl: dbUrl(), maxAttempts: WEEKLY_RECAP_MAX_ATTEMPTS }), ...opsActivities({ dbUrl: dbUrl(), env: process.env, maxAttempts: OPS_MAX_ATTEMPTS }), ...recordActivities({ store, dbUrl: dbUrl() }), ...broadcastActivities({ store, dbUrl: dbUrl(), mail: mailClient, env: process.env, signal: safeSignal, heartbeat: safeHeartbeat }) };
 }

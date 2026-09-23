@@ -189,7 +189,7 @@ export function readAudit(text: string, n: number): { supported: boolean[]; unre
 
 // apply_installment: drop the unsupported facts, resolve the carried questions today answers, raise
 // the new ones, and store the verified installment. The caller owns the transaction.
-export function applyInstallment(store: ThreadStore, threadId: number, openNow: string[], installment: Installment, supported: boolean[], runId: number): Installment {
+export async function applyInstallment(store: ThreadStore, threadId: number, openNow: string[], installment: Installment, supported: boolean[], runId: number): Promise<Installment> {
   const whatsNew = whatsNewOf(installment);
   const kept = whatsNew.filter((_, i) => supported[i] === true);
   // PRE-audit citations: the grounding scope for this run's questions (a dropped fact's ids too).
@@ -199,13 +199,13 @@ export function applyInstallment(store: ThreadStore, threadId: number, openNow: 
   for (const r of list(installment["resolved"])) {
     if (!isObject(r)) throw new Error(`thread ${threadId}: a resolved entry is not an object`);
     const question = typeof r["question"] === "string" ? r["question"] : "";
-    if (open.has(question)) store.resolveQuestion(threadId, question, runId, typeof r["how"] === "string" ? r["how"] : "");
+    if (open.has(question)) await store.resolveQuestion(threadId, question, runId, typeof r["how"] === "string" ? r["how"] : "");
   }
   const fresh = list(installment["new_questions"]).filter((q): q is string => typeof q === "string");
   // Stored unchanged and suppressed at render time: dropping one here would erase it for good.
   if (fresh.length && JSON.stringify(cleanQuestions(fresh, citedIds)) !== JSON.stringify(fresh))
     console.warn(JSON.stringify({ stage: "threads", warning: "a new question cites an article id inline; the public ledger will suppress it", thread_id: threadId }));
-  if (fresh.length) store.addQuestions(threadId, fresh, runId);
-  store.setInstallmentContent(threadId, runId, JSON.stringify(verified));
+  if (fresh.length) await store.addQuestions(threadId, fresh, runId);
+  await store.setInstallmentContent(threadId, runId, JSON.stringify(verified));
   return verified;
 }

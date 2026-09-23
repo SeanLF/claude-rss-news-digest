@@ -1,0 +1,17 @@
+-- pgloader: the legacy SQLite digest.db, table for table, into the public schema of a fresh database
+-- (bin/import-legacy moves it aside to `legacy` before building the product schema). `include no drop`:
+-- a table already there fails the load rather than being replaced. Times stay text,
+-- as SQLite held them; reals go through float-to-string, since pgloader's default cast writes Lisp
+-- floats ("1.0d0") that Postgres refuses. The full-text index and yoyo's bookkeeping are not data.
+LOAD DATABASE
+  FROM sqlite:///src/legacy.db
+  INTO {{DST_URL}}
+
+WITH include no drop, create tables, create no indexes, no foreign keys, reset no sequences, quote identifiers
+
+SET PostgreSQL PARAMETERS timezone TO 'UTC'
+
+CAST type datetime to text drop typemod,
+     type real to "double precision" drop typemod using float-to-string
+
+EXCLUDING TABLE NAMES LIKE 'shown_narratives_fts%', '_yoyo%', 'yoyo_lock', 'sqlite_sequence';

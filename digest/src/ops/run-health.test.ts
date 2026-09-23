@@ -1,8 +1,6 @@
-import { mkdtempSync, readdirSync, readFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vitest";
+import { openDb, type Db } from "../store/db.js";
+import { migratedDb } from "../store/test-db.js";
 import { coherenceKindCounts, getRunHealth, REQUIRED_KEYS, violations, type RunHealth } from "./run-health.js";
 
 const healthy = (over: Partial<RunHealth> = {}): RunHealth => ({
@@ -114,30 +112,28 @@ describe("coherenceKindCounts", () => {
   });
 });
 
-const MIGRATIONS = new URL("../../../migrations/", import.meta.url).pathname;
-function migratedDb(): DatabaseSync {
-  const db = new DatabaseSync(join(mkdtempSync(join(tmpdir(), "health-")), "digest.db"));
-  for (const f of readdirSync(MIGRATIONS).filter((n) => n.endsWith(".sql")).toSorted()) db.exec(readFileSync(join(MIGRATIONS, f), "utf8"));
+async function runs(): Promise<Db> {
+  const db = openDb(await migratedDb([{ id: 9, runAt: "2026-09-01 10:00:00" }, { id: 10, runAt: "2026-09-02 10:00:00" }]));
+  await db.exec("INSERT INTO issues (date, revision, run_id, html) VALUES ('2026-09-01', 1, 9, ''), ('2026-09-02', 1, 10, '')");
   return db;
 }
+const artifact = (db: Db, name: string, content: string) => db.run("INSERT INTO run_artifacts (run_id, artifact_name, content, sha256) VALUES (10, $1, $2, '')", [name, content]);
 
 describe("getRunHealth", () => {
   const opts = { broadcasting: true, threadsEnabled: true, usageRowsDropped: 0 };
-  it("reads the counts and the health artifacts of the run", () => {
-    const db = migratedDb();
-    db.exec("INSERT INTO digest_runs (id, run_at) VALUES (9, '2026-09-01 10:00:00'), (10, '2026-09-02 10:00:00')");
-    const art = db.prepare("INSERT INTO run_artifacts (run_id, artifact_name, content) VALUES (10, ?, ?)");
-    art.run("cluster_health.json", JSON.stringify({ batches_lost: 1, title_only_fallback: 38 }));
-    art.run("fulltext_health.json", JSON.stringify({ tasks: 40, extracted: 0, outcome: "timeout" }));
-    art.run("selections.json", JSON.stringify({ must_know: [{ why_it_matters: " " }, { why_it_matters: "x" }, {}], should_know: [] }));
-    art.run("write_branches.json", JSON.stringify({ dropped: [{ index: 3 }] }));
-    art.run("thread_links.json", JSON.stringify({ linker_ok: false, stories: [{ refused: "already_claimed" }, {}] }));
-    art.run("repair_health.json", JSON.stringify({ outcome: "spec_error", detail: "repair.md" }));
-    db.exec("INSERT INTO shown_narratives (headline, tier, run_id) VALUES ('a', 'must_know', 10), ('a', 'must_know', 10), ('b', 'should_know', 10)");
-    db.exec("INSERT INTO run_usage (run_id, subagent, model) VALUES (10, 'select', 'm'), (10, 'write', 'm'), (10, 'write', 'm')");
-    db.exec("INSERT INTO threads (id, label, status, first_run_id, last_run_id) VALUES (1, 's', 'active', 9, 9), (2, 't', 'active', 10, 10)");
-    db.exec("INSERT INTO thread_installments (thread_id, run_id, cluster_story, matched_score) VALUES (1, 9, 's', NULL), (1, 10, 's', 0.9), (2, 10, 't', NULL)");
-    const h = getRunHealth(db, 10, opts);
+  it("reads the counts and the health artifacts of the run", async () => {
+    const db = await runs();
+    await artifact(db, "cluster_health.json", JSON.stringify({ batches_lost: 1, title_only_fallback: 38 }));
+    await artifact(db, "fulltext_health.json", JSON.stringify({ tasks: 40, extracted: 0, outcome: "timeout" }));
+    await artifact(db, "selections.json", JSON.stringify({ must_know: [{ why_it_matters: " " }, { why_it_matters: "x" }, {}], should_know: [] }));
+    await artifact(db, "write_branches.json", JSON.stringify({ dropped: [{ index: 3 }] }));
+    await artifact(db, "thread_links.json", JSON.stringify({ linker_ok: false, stories: [{ refused: "already_claimed" }, {}] }));
+    await artifact(db, "repair_health.json", JSON.stringify({ outcome: "spec_error", detail: "repair.md" }));
+    await db.exec("INSERT INTO shown_narratives (headline, tier, run_id) VALUES ('a', 'must_know', 10), ('a', 'must_know', 10), ('b', 'should_know', 10)");
+    await db.exec("INSERT INTO run_usage (run_id, subagent, model) VALUES (10, 'select', 'm'), (10, 'write', 'm'), (10, 'write', 'm')");
+    await db.exec("INSERT INTO threads (id, created_run_id) VALUES (1, 9), (2, 10)");
+    await db.exec("INSERT INTO thread_installments (thread_id, run_id, cluster_story, continued) VALUES (1, 9, 's', false), (1, 10, 's', true), (2, 10, 't', false)");
+    const h = await getRunHealth(db, 10, opts);
     expect(h).toEqual({
       run_id: 10, shipped: 2, stages: 2, artifacts: 6, recipients: null, thread_continuations: 1, threads_available: 1,
       broadcasting: true, usage_rows_dropped: 0, threads_enabled: true, batches_lost: 1, title_only_fallback: 38,
@@ -145,14 +141,28 @@ describe("getRunHealth", () => {
       dropped_continuations: 1, linker_ok: false, repair_outcome: "spec_error", repair_detail: "repair.md", stories_dropped_at_write: 1,
     });
   });
-  it("a malformed artifact reads as cannot-judge instead of blanking every invariant", () => {
-    const db = migratedDb();
-    db.exec("INSERT INTO digest_runs (id) VALUES (10)");
-    const art = db.prepare("INSERT INTO run_artifacts (run_id, artifact_name, content) VALUES (10, ?, ?)");
-    art.run("cluster_health.json", "{truncated");
-    art.run("thread_links.json", JSON.stringify({ linker_ok: "yes", stories: ["already_claimed"] }));
-    art.run("selections.json", JSON.stringify({ must_know: {} }));
-    const h = getRunHealth(db, 10, opts);
+  it("a malformed artifact reads as cannot-judge instead of blanking every invariant", async () => {
+    const db = await runs();
+    await artifact(db, "cluster_health.json", "{truncated");
+    await artifact(db, "thread_links.json", JSON.stringify({ linker_ok: "yes", stories: ["already_claimed"] }));
+    await artifact(db, "selections.json", JSON.stringify({ must_know: {} }));
+    const h = await getRunHealth(db, 10, opts);
     expect(h).toMatchObject({ batches_lost: null, dropped_continuations: null, linker_ok: null, blanked_why: null, must_know_shipped: null, artifacts: 3 });
+  });
+  it("reads a boolean as SQLite's json_extract did, and counts a send's recipients by its run", async () => {
+    const db = await runs();
+    await artifact(db, "thread_links.json", JSON.stringify({ linker_ok: true, stories: [] }));
+    await db.exec("INSERT INTO broadcasts (date, run_id, revision, status, recipients) VALUES ('2026-09-02', 10, 1, 'sent', 12)");
+    expect(await getRunHealth(db, 10, opts)).toMatchObject({ linker_ok: true, dropped_continuations: 0, recipients: 12 });
+    expect(await getRunHealth(db, 9, opts)).toMatchObject({ recipients: null, artifacts: 0 });
+  });
+  it("counts the threads the run's linker could have been offered, by the configured dormancy", async () => {
+    const db = openDb(await migratedDb([7, 8, 9, 10, 11].map((id) => ({ id, runAt: `2026-09-0${id - 6} 10:00:00` }))));
+    for (const id of [7, 8, 9, 10]) await db.run("UPDATE digest_runs SET status='completed', outcome='sent', completed_at=run_at WHERE id=$1", [id]);
+    await db.exec("INSERT INTO issues (date, revision, run_id, html) SELECT (run_at AT TIME ZONE 'UTC')::date, 1, id, '' FROM digest_runs WHERE id <= 10");
+    await db.exec("INSERT INTO threads (id, created_run_id) VALUES (1, 7), (2, 11); INSERT INTO thread_installments (thread_id, run_id, cluster_story, continued) VALUES (1, 7, 's', false), (2, 11, 't', false)");
+    // Thread 1 was last seen in run 7, with runs 8, 9, 10 completed since: 3 runs.
+    expect(await getRunHealth(db, 11, { ...opts, dormantAfter: 3 })).toMatchObject({ threads_available: 1 });
+    expect(await getRunHealth(db, 11, { ...opts, dormantAfter: 2 })).toMatchObject({ threads_available: 0 });
   });
 });

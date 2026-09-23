@@ -1,7 +1,7 @@
-import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it, vi } from "vitest";
 import { ArtifactStore } from "../store/artifacts.js";
-import { migratedDb } from "../store/migrated-db.js";
+import { openDb } from "../store/db.js";
+import { migratedDb } from "../store/test-db.js";
 import { broadcastActivities, type BroadcastDeps, type Mail } from "./broadcast.js";
 
 type Call = [string, unknown];
@@ -38,126 +38,130 @@ function fakeMail(script: { create?: (() => Reply)[]; send?: (() => Reply)[]; ge
 const page = (ids: string[], more: boolean) => () => ok({ object: "list", has_more: more, data: ids.map((id) => ({ id, unsubscribed: id.startsWith("u") })) });
 const ENV = { BROADCAST_ENABLED: "true", RESEND_API_KEY: "re_test", RESEND_FROM: "digest@news.test", RESEND_AUDIENCE_ID: "aud-1", DIGEST_NAME: "Sean's Daily News Digest", CONTACT_EMAIL: "hello@news.test", HEALTH_ALERT_EMAIL: "ops@news.test", TEMPORAL_UI_URL: "http://digest-box:8233" };
 
-function setup(row?: { id?: string; status?: string; recipients?: number }, env: Record<string, string> = ENV) {
-  const path = migratedDb([{ id: 300, runAt: "2026-09-08 10:25:40" }]);
-  const db = new DatabaseSync(path);
-  if (row) db.prepare("INSERT INTO digests (date, html, run_id, broadcast_id, broadcast_status, broadcast_recipients) VALUES ('2026-09-08', '<html></html>', 300, ?, ?, ?)").run(row.id ?? null, row.status ?? null, row.recipients ?? null);
-  const store = new ArtifactStore(path);
-  const email = store.put(300, "email.html", "<mjml-rendered>issue</mjml-rendered>");
-  const selections = store.put(300, "selections.json", JSON.stringify({ must_know: [{ headline: "Deal <signed>", sources: [] }], should_know: [{ headline: "Yen falls", sources: [] }] }));
-  const state = () => db.prepare("SELECT broadcast_id AS id, broadcast_status AS status, broadcast_recipients AS recipients FROM digests WHERE date='2026-09-08'").get();
-  const make = (mail: Mail, extra: Partial<BroadcastDeps> = {}) => broadcastActivities({ store, dbPath: path, mail: () => mail, env, retryDelayMs: 0, execution: () => ({ namespace: "default", workflowId: "digest-2026-09-08", runId: "r-123" }), ...extra });
-  return { email, selections, state, make, path };
+// `row`: the day's issue is published; with an id or a status, the day's send is in that state too.
+async function setup(row?: { id?: string; status?: string; recipients?: number }, env: Record<string, string> = ENV) {
+  const url = await migratedDb([{ id: 300, runAt: "2026-09-08 10:25:40" }]);
+  const db = openDb(url);
+  if (row) await db.run("INSERT INTO issues (date, revision, run_id, html) VALUES ('2026-09-08', 1, 300, '<html></html>')");
+  if (row?.id || row?.status)
+    await db.run("INSERT INTO broadcasts (date, run_id, revision, resend_id, status, recipients, claim_token, claimed_at) VALUES ('2026-09-08', 300, 1, $1, $2, $3, 'someone', now())", [row.id ?? null, row.status ?? "claimed", row.recipients ?? null]);
+  const store = new ArtifactStore(url);
+  const email = await store.put(300, "email.html", "<mjml-rendered>issue</mjml-rendered>");
+  const selections = await store.put(300, "selections.json", JSON.stringify({ must_know: [{ headline: "Deal <signed>", sources: [] }], should_know: [{ headline: "Yen falls", sources: [] }] }));
+  // The day's send as the tests read it: no row reads as nothing claimed.
+  const state = async () => (await db.one("SELECT resend_id AS id, status, recipients FROM broadcasts WHERE date='2026-09-08'")) ?? { id: null, status: null, recipients: null };
+  const make = (mail: Mail, extra: Partial<BroadcastDeps> = {}) => broadcastActivities({ store, dbUrl: url, mail: () => mail, env, retryDelayMs: 0, execution: () => ({ namespace: "default", workflowId: "digest-2026-09-08", runId: "r-123" }), ...extra });
+  return { email, selections, state, make, url, db };
 }
 
 describe("broadcast: at most once per digest date (the 2026-06-16 rule)", () => {
   it("fresh: creates a draft for the audience, persists its id before the send, then records the send", async () => {
-    const { email, state, make } = setup({});
+    const { email, state, make } = await setup({});
     let atSend: unknown;
-    const fake = fakeMail({}, () => (atSend = state()));
+    const fake = fakeMail({}, () => {
+      atSend = state();
+    });
     const out = await make(fake.mail).broadcast(300, email);
     expect(fake.names()).toEqual(["contacts", "create", "send"]);
     expect(fake.calls[1]![1]).toEqual({ from: "Sean's Daily News Digest <digest@news.test>", segmentId: "aud-1", subject: "Sean's Daily News Digest – September 08, 2026", html: "<mjml-rendered>issue</mjml-rendered>", name: "Digest September 08, 2026", replyTo: "hello@news.test" });
-    expect(atSend).toEqual({ id: "b-new", status: "created", recipients: null });
-    expect(state()).toEqual({ id: "b-new", status: "sent", recipients: 2 });
+    expect(await atSend).toEqual({ id: "b-new", status: "draft", recipients: null });
+    expect(await state()).toEqual({ id: "b-new", status: "sent", recipients: 2 });
     expect(out).toEqual({ broadcastId: "b-new", status: "sent", recipients: 2 });
   });
   it.each(["queued", "sending", "sent"])("accepted (%s): an already accepted broadcast is never touched again", async (status) => {
-    const { email, state, make } = setup({ id: "b-old", status, recipients: 11 });
+    const { email, state, make } = await setup({ id: "b-old", status, recipients: 11 });
     const fake = fakeMail({});
     expect(await make(fake.mail).broadcast(300, email)).toEqual({ broadcastId: "b-old", status, recipients: 11 });
     expect(fake.names()).toEqual([]);
-    expect(state()).toEqual({ id: "b-old", status, recipients: 11 });
+    expect(await state()).toEqual({ id: "b-old", status, recipients: 11 });
   });
-  it("created, not accepted: re-probes, and re-sends the same draft only when it never went out", async () => {
-    const { email, state, make } = setup({ id: "b-old", status: "created" });
+  it("a draft, not accepted: re-probes, and re-sends the same draft only when it never went out", async () => {
+    const { email, state, make } = await setup({ id: "b-old", status: "draft" });
     const fake = fakeMail({ get: [() => ok({ id: "b-old", status: "draft" })] });
     expect(await make(fake.mail).broadcast(300, email)).toEqual({ broadcastId: "b-old", status: "sent", recipients: 0 });
     expect(fake.calls).toEqual([["get", "b-old"], ["send", "b-old"]]);
-    expect(state()).toEqual({ id: "b-old", status: "sent", recipients: null });
+    expect(await state()).toEqual({ id: "b-old", status: "sent", recipients: null });
   });
-  it("created, and the probe finds it accepted: records the status and does not send", async () => {
-    const { email, state, make } = setup({ id: "b-old", status: "created" });
+  it("a draft, and the probe finds it accepted: records the status and does not send", async () => {
+    const { email, state, make } = await setup({ id: "b-old", status: "draft" });
     const fake = fakeMail({ get: [() => ok({ id: "b-old", status: "queued" })] });
     expect(await make(fake.mail).broadcast(300, email)).toEqual({ broadcastId: "b-old", status: "queued", recipients: 0 });
     expect(fake.names()).toEqual(["get"]);
-    expect(state()).toMatchObject({ id: "b-old", status: "queued" });
+    expect(await state()).toMatchObject({ id: "b-old", status: "queued" });
   });
   it("a send that fails after creation leaves the draft's id for the next attempt, which sends that draft instead of a new one", async () => {
-    const { email, state, make } = setup({});
+    const { email, state, make } = await setup({});
     const down = fakeMail({ send: [() => fail("application_error", "read timeout")], get: [() => ok({ id: "b-new", status: "draft" })] });
     await expect(make(down.mail).broadcast(300, email)).rejects.toThrow(/read timeout/);
     expect(down.names()).toEqual(["contacts", "create", "send", "get"]);
-    expect(state()).toEqual({ id: "b-new", status: "created", recipients: null });
+    expect(await state()).toEqual({ id: "b-new", status: "draft", recipients: null });
     const up = fakeMail({ get: [() => ok({ id: "b-new", status: "draft" })] });
     expect(await make(up.mail).broadcast(300, email)).toMatchObject({ broadcastId: "b-new", status: "sent" });
     expect(up.names()).toEqual(["get", "send"]);
   });
   it("a send whose response fails but which Resend accepted counts as delivered", async () => {
-    const { email, state, make } = setup({});
+    const { email, state, make } = await setup({});
     const fake = fakeMail({ send: [() => fail("application_error", "read timeout")], get: [() => ok({ id: "b-new", status: "queued" })] });
     expect(await make(fake.mail).broadcast(300, email)).toEqual({ broadcastId: "b-new", status: "queued", recipients: 2 });
-    expect(state()).toEqual({ id: "b-new", status: "queued", recipients: 2 });
+    expect(await state()).toEqual({ id: "b-new", status: "queued", recipients: 2 });
   });
   it("a failed create sends nothing and records nothing", async () => {
-    const { email, state, make, path } = setup({});
+    const { email, state, make } = await setup({});
     const fake = fakeMail({ create: [() => fail("validation_error", "bad from")] });
     await expect(make(fake.mail).broadcast(300, email)).rejects.toThrow(/bad from/);
     expect(fake.names()).toEqual(["contacts", "create"]);
-    expect(state()).toEqual({ id: null, status: null, recipients: null });
-    expect(new DatabaseSync(path).prepare("SELECT broadcast_run_id AS r FROM digests").get()).toEqual({ r: null });
+    expect(await state()).toEqual({ id: null, status: null, recipients: null });
   });
-  // digests.run_id is the last run to save the row; a forced re-run of a sent day takes it over. The
-  // sender is recorded with the claim, so the thread cleanup can tell which run's issue went out.
-  it("records the sending run with the claim, and keeps it when a later run saves over the row", async () => {
-    const { email, make, path } = setup({});
-    const db = new DatabaseSync(path);
+  // The claim names the sending run and the revision it mails, so a forced re-run that publishes a
+  // later revision leaves the record of who sent what.
+  it("records the sending run and the mailed revision with the claim, and keeps them when a later revision is published", async () => {
+    const { email, make, db } = await setup({});
     let atCreate: unknown;
     const fake = fakeMail({
       create: [
         () => {
-          atCreate = db.prepare("SELECT broadcast_run_id AS r FROM digests").get();
+          atCreate = db.one("SELECT run_id, revision, status FROM broadcasts");
           return ok({ id: "b-new" });
         },
       ],
     });
     await make(fake.mail).broadcast(300, email);
-    expect(atCreate).toEqual({ r: 300 });
-    db.prepare("INSERT INTO digest_runs (id, run_at) VALUES (301, '2026-09-08 14:00:00')").run();
-    db.prepare("UPDATE digests SET run_id = 301").run(); // a forced re-run's saveDigest
-    expect(db.prepare("SELECT broadcast_run_id AS r, broadcast_status AS s FROM digests").get()).toEqual({ r: 300, s: "sent" });
+    expect(await atCreate).toEqual({ run_id: 300, revision: 1, status: "claimed" });
+    await db.exec("INSERT INTO digest_runs (id, run_at) VALUES (301, '2026-09-08 14:00:00'); INSERT INTO issues (date, revision, run_id, html) VALUES ('2026-09-08', 2, 301, '')");
+    expect(await db.one("SELECT run_id, revision, status FROM broadcasts")).toEqual({ run_id: 300, revision: 1, status: "sent" });
   });
   it("unless BROADCAST_ENABLED is true it says so and refuses to send, never calling Resend", async () => {
     for (const flag of [undefined, "", "false", "1", "yes"]) {
       const { BROADCAST_ENABLED: _on, ...rest } = ENV;
-      const { email, state, make } = setup({}, flag === undefined ? rest : { ...rest, BROADCAST_ENABLED: flag });
+      const { email, state, make } = await setup({}, flag === undefined ? rest : { ...rest, BROADCAST_ENABLED: flag });
       const fake = fakeMail({});
       expect(await make(fake.mail).sendEnabled()).toBe(false);
       await expect(make(fake.mail).broadcast(300, email)).rejects.toThrow(/BROADCAST_ENABLED/);
       expect(fake.names()).toEqual([]);
-      expect(state()).toEqual({ id: null, status: null, recipients: null });
+      expect(await state()).toEqual({ id: null, status: null, recipients: null });
     }
   });
   it("two sends for the same date at once: one claims the date and sends, the other sends nothing", async () => {
-    const { email, state, make } = setup({});
+    const { email, state, make } = await setup({});
     const fake = fakeMail({});
     const results = await Promise.allSettled([make(fake.mail).broadcast(300, email), make(fake.mail).broadcast(300, email)]);
     expect(fake.names().filter((n) => n === "create")).toHaveLength(1);
     expect(fake.names().filter((n) => n === "send")).toHaveLength(1);
     expect(results.map((r) => r.status).toSorted()).toEqual(["fulfilled", "rejected"]);
     expect(String((results.find((r) => r.status === "rejected") as PromiseRejectedResult).reason)).toMatch(/claimed/);
-    expect(state()).toEqual({ id: "b-new", status: "sent", recipients: 2 });
+    expect(await state()).toEqual({ id: "b-new", status: "sent", recipients: 2 });
   });
   it("a claim of any age holds the date: none is taken over, and the refusal names the command that clears it", async () => {
     for (const at of [new Date(), new Date(Date.now() - 24 * 60 * 60 * 1000)]) {
-      const s = setup({ status: `claimed ${at.toISOString()} someone` });
+      const s = await setup({ status: "claimed" });
+      await s.db.run("UPDATE broadcasts SET claimed_at = $1", [at.toISOString()]);
       const fake = fakeMail({});
       await expect(s.make(fake.mail).broadcast(300, s.email)).rejects.toThrow(/claimed.*node dist\/cli\/clear-claim\.js 2026-09-08/);
       expect(fake.names().filter((n) => n === "create" || n === "send")).toEqual([]);
     }
   });
   it("heartbeats on every page of the audience count, and stops when cancelled mid-count", async () => {
-    const { email, make } = setup({});
+    const { email, make } = await setup({});
     const beats: number[] = [];
     const ac = new AbortController();
     const pages = [page(["c1"], true), page(["c2"], true), page(["c3"], false)];
@@ -172,12 +176,12 @@ describe("broadcast: at most once per digest date (the 2026-06-16 rule)", () => 
         },
       ],
     });
-    const fresh = setup({});
+    const fresh = await setup({});
     await expect(fresh.make(stopped.mail, { signal: () => ac.signal }).broadcast(300, fresh.email)).rejects.toThrow();
     expect(stopped.names()).toEqual(["contacts"]);
   });
   it("takes the claim only after counting the audience, the slow part", async () => {
-    const { email, state, make } = setup({});
+    const { email, state, make } = await setup({});
     let atCount: unknown;
     const fake = fakeMail({ contacts: [
         () => {
@@ -186,10 +190,10 @@ describe("broadcast: at most once per digest date (the 2026-06-16 rule)", () => 
         },
       ] });
     await make(fake.mail).broadcast(300, email);
-    expect(atCount).toMatchObject({ status: null });
+    expect(await atCount).toMatchObject({ status: null });
   });
   it("an attempt hung in create past any timeout, then a second attempt: exactly one send", async () => {
-    const { email, state, make } = setup({});
+    const { email, state, make } = await setup({});
     let release!: () => void;
     const gate = new Promise<void>((r) => (release = r));
     const slow = fakeMail({ create: [() => gate.then(() => ok({ id: "b-a" })) as Reply] });
@@ -205,27 +209,25 @@ describe("broadcast: at most once per digest date (the 2026-06-16 rule)", () => 
     release();
     await a;
     expect([...slow.names(), ...other.names()].filter((n) => n === "send")).toHaveLength(1);
-    expect(state()).toMatchObject({ id: "b-a", status: "sent" });
+    expect(await state()).toMatchObject({ id: "b-a", status: "sent" });
   });
   it("an attempt whose claim was cleared while it hung in create records nothing and sends nothing", async () => {
-    const { email, state, make, path } = setup({});
+    const { email, state, make, db } = await setup({});
     let release!: () => void;
     const gate = new Promise<void>((r) => (release = r));
     const slow = fakeMail({ create: [() => gate.then(() => ok({ id: "b-a" })) as Reply] });
     const a = make(slow.mail).broadcast(300, email).catch((e: unknown) => e);
     await new Promise((r) => setTimeout(r, 20));
-    const d = new DatabaseSync(path);
-    d.prepare("UPDATE digests SET broadcast_status=NULL WHERE date='2026-09-08'").run(); // the operator clears it
-    d.close();
+    await db.run("DELETE FROM broadcasts WHERE date='2026-09-08'"); // the operator clears it
     const b = fakeMail({ create: [() => ok({ id: "b-b" })] });
     await make(b.mail).broadcast(300, email);
     release();
     expect(String(await a)).toMatch(/claim/);
     expect([...slow.names(), ...b.names()].filter((n) => n === "send")).toHaveLength(1);
-    expect(state()).toMatchObject({ id: "b-b", status: "sent" });
+    expect(await state()).toMatchObject({ id: "b-b", status: "sent" });
   });
   it("a cancelled attempt stops before sending, and gives the claim back", async () => {
-    const { email, state, make } = setup({});
+    const { email, state, make } = await setup({});
     const ac = new AbortController();
     const fake = fakeMail({ create: [
         () => {
@@ -235,22 +237,22 @@ describe("broadcast: at most once per digest date (the 2026-06-16 rule)", () => 
       ] });
     await expect(make(fake.mail, { signal: () => ac.signal }).broadcast(300, email)).rejects.toThrow();
     expect(fake.names()).not.toContain("send");
-    expect(state()).toMatchObject({ id: null, status: null });
+    expect(await state()).toMatchObject({ id: null, status: null });
   });
-  it("refuses to send a digest that has no saved row, since the row is its idempotency record", async () => {
-    const { email, make } = setup();
+  it("refuses to send a digest that was never published: the send mails a published revision", async () => {
+    const { email, make } = await setup();
     const fake = fakeMail({});
-    await expect(make(fake.mail).broadcast(300, email)).rejects.toThrow(/no digests row/);
+    await expect(make(fake.mail).broadcast(300, email)).rejects.toThrow(/no issue for 2026-09-08/);
     expect(fake.names()).toEqual([]);
   });
   it("retries a rate-limited call, which Resend did not accept", async () => {
-    const { email, make } = setup({});
+    const { email, make } = await setup({});
     const fake = fakeMail({ create: [() => fail("rate_limit_exceeded"), () => fail("rate_limit_exceeded"), () => ok({ id: "b-new" })] });
     expect(await make(fake.mail).broadcast(300, email)).toMatchObject({ broadcastId: "b-new", status: "sent" });
     expect(fake.names()).toEqual(["contacts", "create", "create", "create", "send"]);
   });
   it("counts subscribed contacts across every page of the audience", async () => {
-    const { email, make } = setup({});
+    const { email, make } = await setup({});
     const fake = fakeMail({ contacts: [page(["c1", "u2"], true), page(["c3"], false)] });
     expect(await make(fake.mail).broadcast(300, email)).toMatchObject({ recipients: 2 });
     expect(fake.calls.filter(([c]) => c === "contacts").map(([, p]) => p)).toEqual([{ segmentId: "aud-1", limit: 100 }, { segmentId: "aud-1", limit: 100, after: "u2" }]);
@@ -259,7 +261,7 @@ describe("broadcast: at most once per digest date (the 2026-06-16 rule)", () => 
 
 describe("notifyHold", () => {
   it("emails the operator the run's Temporal UI link and its headlines", async () => {
-    const { selections, make } = setup({});
+    const { selections, make } = await setup({});
     const fake = fakeMail({});
     expect(await make(fake.mail).notifyHold(300, selections, "2026-09-08T12:45:00.000Z")).toEqual({ sent: true });
     expect(fake.names()).toEqual(["email"]);
@@ -273,7 +275,7 @@ describe("notifyHold", () => {
     expect(p.html).toContain("12:45");
   });
   it("with no budget left for a hold, says the issue is sending now, unheld", async () => {
-    const { selections, make } = setup({});
+    const { selections, make } = await setup({});
     const fake = fakeMail({});
     expect(await make(fake.mail).notifyHold(300, selections, null)).toEqual({ sent: true });
     const p = fake.calls[0]![1] as { subject: string; html: string };
@@ -282,13 +284,13 @@ describe("notifyHold", () => {
     expect(p.html).not.toContain("To stop it");
   });
   it("without an operator address it sends nothing and says so, rather than failing the run", async () => {
-    const { selections, make } = setup({}, { ...ENV, HEALTH_ALERT_EMAIL: "" });
+    const { selections, make } = await setup({}, { ...ENV, HEALTH_ALERT_EMAIL: "" });
     const fake = fakeMail({});
     expect(await make(fake.mail).notifyHold(300, selections, "2026-09-08T12:45:00.000Z")).toEqual({ sent: false });
     expect(fake.names()).toEqual([]);
   });
   it("a Resend error is reported, not thrown", async () => {
-    const { selections, make } = setup({});
+    const { selections, make } = await setup({});
     const fake = fakeMail({ email: [() => fail("application_error")] });
     expect(await make(fake.mail).notifyHold(300, selections, "2026-09-08T12:45:00.000Z")).toEqual({ sent: false });
   });

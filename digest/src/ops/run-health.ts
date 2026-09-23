@@ -1,4 +1,4 @@
-import type { DatabaseSync } from "node:sqlite";
+import type { Sql } from "../store/db.js";
 import { COHERENCE_FIELDS, FAILURE_KINDS } from "../contracts/coherence.js";
 
 // newsroom/src/run_health.py and db.get_run_health, ported over the same tables. The keys stay
@@ -136,86 +136,96 @@ export function coherenceKindCounts(reportText: string | null | undefined): Kind
   return counts;
 }
 
-// db.get_run_health's query, verbatim. json_valid/json_type guard every extract: json_extract raises on
-// malformed input, and one raise here would blank every invariant instead of the one it feeds.
-const HEALTH_SQL = `
-SELECT
-  (SELECT COUNT(DISTINCT headline) FROM shown_narratives WHERE run_id = :r) AS shipped,
-  (SELECT COUNT(DISTINCT subagent)  FROM run_usage       WHERE run_id = :r) AS stages,
-  (SELECT COUNT(*)                  FROM run_artifacts   WHERE run_id = :r) AS artifacts,
-  (SELECT SUM(broadcast_recipients) FROM digests WHERE run_id = :r) AS recipients,
-  (SELECT COUNT(*) FROM thread_installments
-     WHERE run_id = :r AND matched_score IS NOT NULL) AS thread_continuations,
-  (SELECT COUNT(*) FROM threads t
-     WHERE t.status = 'active'
-       AND EXISTS (SELECT 1 FROM thread_installments p
-                    WHERE p.thread_id = t.id AND p.run_id < :r)) AS threads_available,
-  (SELECT CASE WHEN json_valid(content) THEN json_extract(content, '$.batches_lost') END
-     FROM run_artifacts WHERE run_id = :r AND artifact_name = 'cluster_health.json') AS batches_lost,
-  (SELECT CASE WHEN json_valid(content) THEN json_extract(content, '$.title_only_fallback') END
-     FROM run_artifacts WHERE run_id = :r AND artifact_name = 'cluster_health.json') AS title_only_fallback,
-  (SELECT CASE WHEN json_valid(content) THEN json_extract(content, '$.tasks') END
-     FROM run_artifacts WHERE run_id = :r AND artifact_name = 'fulltext_health.json') AS fulltext_tasks,
-  (SELECT CASE WHEN json_valid(content) THEN json_extract(content, '$.extracted') END
-     FROM run_artifacts WHERE run_id = :r AND artifact_name = 'fulltext_health.json') AS fulltext_extracted,
-  (SELECT CASE WHEN json_valid(content) THEN json_extract(content, '$.outcome') END
-     FROM run_artifacts WHERE run_id = :r AND artifact_name = 'fulltext_health.json') AS fulltext_outcome,
-  (SELECT CASE WHEN json_valid(content) AND json_type(content, '$.must_know') = 'array'
-               THEN (SELECT COUNT(*) FROM json_each(json_extract(content, '$.must_know'))
-                      WHERE TRIM(COALESCE(value ->> '$.why_it_matters', '')) = '') END
-     FROM run_artifacts WHERE run_id = :r AND artifact_name = 'selections.json') AS blanked_why,
-  (SELECT CASE WHEN json_valid(content) AND json_type(content, '$.stories') = 'array'
-               THEN (
-     SELECT CASE WHEN COALESCE(SUM(CASE WHEN type = 'object' THEN 0 ELSE 1 END), 0) > 0
-                 THEN NULL
-                 ELSE COALESCE(SUM(CASE WHEN type = 'object'
-                       THEN (CASE WHEN json_extract(value, '$.refused') = 'already_claimed' THEN 1 ELSE 0 END)
-                       ELSE 0 END), 0) END
-       FROM json_each(run_artifacts.content, '$.stories')) END
-     FROM run_artifacts WHERE run_id = :r AND artifact_name = 'thread_links.json') AS dropped_continuations,
-  (SELECT CASE WHEN json_valid(content) THEN json_extract(content, '$.linker_ok') END
-     FROM run_artifacts WHERE run_id = :r AND artifact_name = 'thread_links.json') AS linker_ok,
-  (SELECT CASE WHEN json_valid(content) THEN json_extract(content, '$.outcome') END
-     FROM run_artifacts WHERE run_id = :r AND artifact_name = 'repair_health.json') AS repair_outcome,
-  (SELECT CASE WHEN json_valid(content) THEN json_extract(content, '$.detail') END
-     FROM run_artifacts WHERE run_id = :r AND artifact_name = 'repair_health.json') AS repair_detail,
-  (SELECT CASE WHEN json_valid(content) AND json_type(content, '$.dropped') = 'array'
-               THEN json_array_length(json_extract(content, '$.dropped')) END
-     FROM run_artifacts WHERE run_id = :r AND artifact_name = 'write_branches.json') AS stories_dropped_at_write,
-  (SELECT CASE WHEN json_valid(content) AND json_type(content, '$.must_know') = 'array'
-               THEN json_array_length(json_extract(content, '$.must_know')) END
-     FROM run_artifacts WHERE run_id = :r AND artifact_name = 'selections.json') AS must_know_shipped`;
+// db.get_run_health, over the product schema. The artifact fields are read as SQLite's json_extract
+// read them in the Python's query, so a malformed artifact blanks only the field it feeds: a number
+// or string as itself, a boolean as 1 or 0, null or absent as null, an object or array as its text.
+type Json = null | boolean | number | string | Json[] | { [k: string]: Json };
+const parsed = (text: string | undefined): Json | undefined => {
+  if (text === undefined) return undefined;
+  try {
+    return JSON.parse(text) as Json;
+  } catch {
+    return undefined;
+  }
+};
+const isObj = (v: Json | undefined): v is { [k: string]: Json } => typeof v === "object" && v !== null && !Array.isArray(v);
+function extract(doc: Json | undefined, key: string): number | string | null {
+  if (!isObj(doc)) return null;
+  const v = doc[key];
+  if (v === undefined || v === null) return null;
+  if (typeof v === "boolean") return v ? 1 : 0;
+  if (typeof v === "number" || typeof v === "string") return v;
+  return JSON.stringify(v);
+}
+// Passed through as json_extract gives it: the rules read a wrong-typed value as the Python does.
+const num = (v: number | string | null): number | null => v as number | null;
+const str = (v: number | string | null): string | null => v as string | null;
+// SQLite's `value ->> '$.k'` on one element: text of a scalar, NULL off an object.
+const textOf = (v: Json | undefined, key: string): string | null => {
+  if (!isObj(v)) return null;
+  const x = v[key];
+  if (x === undefined || x === null) return null;
+  if (typeof x === "boolean") return x ? "1" : "0";
+  return typeof x === "string" ? x : typeof x === "number" ? String(x) : JSON.stringify(x);
+};
 
-type Row = Omit<RunHealth, "run_id" | "broadcasting" | "threads_enabled" | "usage_rows_dropped" | "linker_ok"> & { linker_ok: unknown };
-
-// `broadcasting` and `threadsEnabled` are the run's own configuration, not DB state;
+// `broadcasting`, `threadsEnabled` and `dormantAfter` are the run's own configuration, not DB state;
 // `usageRowsDropped` is process state (rows that never reached the table cannot be counted from it).
-export function getRunHealth(db: DatabaseSync, runId: number, opts: { broadcasting: boolean; threadsEnabled: boolean; usageRowsDropped: number }): RunHealth {
-  const row = db.prepare(HEALTH_SQL).get({ r: runId }) as unknown as Row;
+// threads_available is what the run's linker could have been offered: published threads last seen
+// within `dormantAfter` completed runs before this one, as ThreadStore.activeThreads counts them.
+export async function getRunHealth(db: Sql, runId: number, opts: { broadcasting: boolean; threadsEnabled: boolean; usageRowsDropped: number; dormantAfter?: number }): Promise<RunHealth> {
+  const counts = (await db.one<{ shipped: number; stages: number; artifacts: number; recipients: number | null; thread_continuations: number; threads_available: number }>(
+    `SELECT
+       (SELECT COUNT(DISTINCT headline) FROM shown_narratives WHERE run_id = $1) AS shipped,
+       (SELECT COUNT(DISTINCT subagent) FROM run_usage WHERE run_id = $1) AS stages,
+       (SELECT COUNT(*) FROM run_artifacts WHERE run_id = $1 AND state = 'current') AS artifacts,
+       (SELECT SUM(recipients) FROM broadcasts WHERE run_id = $1) AS recipients,
+       (SELECT COUNT(*) FROM thread_installments WHERE run_id = $1 AND continued) AS thread_continuations,
+       (SELECT COUNT(*) FROM threads t
+          JOIN (SELECT thread_id, max(run_id) AS last_run_id FROM thread_installments
+                WHERE run_id < $1 AND run_id IN (SELECT run_id FROM published_runs) GROUP BY thread_id) l ON l.thread_id = t.id
+          WHERE t.merged_into IS NULL
+            AND (SELECT COUNT(*) FROM digest_runs r WHERE r.id > l.last_run_id AND r.id < $1 AND r.completed_at IS NOT NULL) <= $2) AS threads_available`,
+    [runId, opts.dormantAfter ?? 3],
+  ))!;
+  const names = ["cluster_health.json", "fulltext_health.json", "selections.json", "thread_links.json", "repair_health.json", "write_branches.json"];
+  const docs = new Map<string, Json | undefined>();
+  for (const r of await db.all<{ n: string; c: string }>("SELECT artifact_name AS n, content AS c FROM run_artifacts WHERE run_id = $1 AND state = 'current' AND artifact_name = ANY($2::text[])", [runId, names]))
+    docs.set(r.n, parsed(r.c));
+  const cluster = docs.get("cluster_health.json");
+  const fulltext = docs.get("fulltext_health.json");
+  const selections = docs.get("selections.json");
+  const links = docs.get("thread_links.json");
+  const repair = docs.get("repair_health.json");
+  const branches = docs.get("write_branches.json");
+  const mustKnow = isObj(selections) && Array.isArray(selections["must_know"]) ? selections["must_know"] : null;
+  const stories = isObj(links) && Array.isArray(links["stories"]) ? links["stories"] : null;
+  const dropped = isObj(branches) && Array.isArray(branches["dropped"]) ? branches["dropped"] : null;
+  const linkerOk = extract(links, "linker_ok");
   return {
     run_id: runId,
-    shipped: row.shipped,
-    stages: row.stages,
-    artifacts: row.artifacts,
-    recipients: row.recipients,
-    thread_continuations: row.thread_continuations,
-    threads_available: row.threads_available,
+    shipped: counts.shipped,
+    stages: counts.stages,
+    artifacts: counts.artifacts,
+    recipients: counts.recipients,
+    thread_continuations: counts.thread_continuations,
+    threads_available: counts.threads_available,
     broadcasting: opts.broadcasting,
     usage_rows_dropped: opts.usageRowsDropped,
     threads_enabled: opts.threadsEnabled,
-    batches_lost: row.batches_lost,
-    title_only_fallback: row.title_only_fallback,
-    fulltext_tasks: row.fulltext_tasks,
-    fulltext_extracted: row.fulltext_extracted,
-    fulltext_outcome: row.fulltext_outcome,
-    blanked_why: row.blanked_why,
-    must_know_shipped: row.must_know_shipped,
-    dropped_continuations: row.dropped_continuations,
+    batches_lost: num(extract(cluster, "batches_lost")),
+    title_only_fallback: num(extract(cluster, "title_only_fallback")),
+    fulltext_tasks: num(extract(fulltext, "tasks")),
+    fulltext_extracted: num(extract(fulltext, "extracted")),
+    fulltext_outcome: str(extract(fulltext, "outcome")),
+    blanked_why: mustKnow === null ? null : mustKnow.filter((s) => (textOf(s, "why_it_matters") ?? "").replace(/^ +| +$/g, "") === "").length,
+    must_know_shipped: mustKnow === null ? null : mustKnow.length,
+    dropped_continuations: stories === null ? null : stories.some((s) => !isObj(s)) ? null : stories.filter((s) => isObj(s) && s["refused"] === "already_claimed").length,
     // Only 1 and 0 are answers; anything else in that slot is a malformed trace, never "healthy".
-    linker_ok: row.linker_ok === 1 ? true : row.linker_ok === 0 ? false : null,
-    repair_outcome: row.repair_outcome,
-    repair_detail: row.repair_detail,
-    stories_dropped_at_write: row.stories_dropped_at_write,
+    linker_ok: linkerOk === 1 ? true : linkerOk === 0 ? false : null,
+    repair_outcome: str(extract(repair, "outcome")),
+    repair_detail: str(extract(repair, "detail")),
+    stories_dropped_at_write: dropped === null ? null : dropped.length,
   };
 }
 

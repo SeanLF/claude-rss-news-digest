@@ -33,19 +33,19 @@ export function fulltextActivities(deps: { store: ArtifactStore; perStory: numbe
   const { store } = deps;
   return {
     async planFulltext(runId: number, selected: Pointer, force = false): Promise<FulltextPlan> {
-      const existing = store.find(runId, FULLTEXT_OUTPUT);
+      const existing = await store.find(runId, FULLTEXT_OUTPUT);
       if (existing && !force) {
-        const health = store.find(runId, FULLTEXT_HEALTH);
-        const outcome = health ? (JSON.parse(store.get(health)) as { outcome?: unknown }).outcome : undefined;
+        const health = await store.find(runId, FULLTEXT_HEALTH);
+        const outcome = health ? (JSON.parse(await store.get(health)) as { outcome?: unknown }).outcome : undefined;
         // An archived output with no health record is kept: nothing says it failed.
         if (!health || SETTLED.has(String(outcome))) return { tasks: [], existing };
-        store.quarantine(runId, FULLTEXT_OUTPUT);
-        store.quarantine(runId, FULLTEXT_HEALTH);
+        await store.quarantine(runId, FULLTEXT_OUTPUT);
+        await store.quarantine(runId, FULLTEXT_HEALTH);
       }
       if (!deps.enabled) return { tasks: [], skip: "disabled" };
-      const indexPtr = store.find(runId, "article_index.json");
-      const index = indexPtr ? (JSON.parse(store.get(indexPtr)) as Record<string, { url?: unknown } | undefined>) : {};
-      const tasks = candidateIds(JSON.parse(store.get(selected)), deps.perStory).flatMap((id): FulltextTask[] => {
+      const indexPtr = await store.find(runId, "article_index.json");
+      const index = indexPtr ? (JSON.parse(await store.get(indexPtr)) as Record<string, { url?: unknown } | undefined>) : {};
+      const tasks = candidateIds(JSON.parse(await store.get(selected)), deps.perStory).flatMap((id): FulltextTask[] => {
         const url = index[id]?.url;
         return typeof url === "string" && url ? [[id, url]] : [];
       });
@@ -55,7 +55,7 @@ export function fulltextActivities(deps: { store: ArtifactStore; perStory: numbe
     async storeFulltext(runId: number, fetched: FulltextFetch, force = false): Promise<Pointer> {
       const payload = Object.fromEntries(Object.entries(fetched.results).map(([id, text]) => [id, { text: scrubUrls(text) }]));
       const write = (name: string, text: string) => (force ? store.replace(runId, name, text) : store.put(runId, name, text));
-      write(FULLTEXT_HEALTH, JSON.stringify({ tasks: fetched.tasks, extracted: Object.keys(payload).length, outcome: fetched.outcome }));
+      await write(FULLTEXT_HEALTH, JSON.stringify({ tasks: fetched.tasks, extracted: Object.keys(payload).length, outcome: fetched.outcome }));
       return write(FULLTEXT_OUTPUT, Object.keys(payload).length ? JSON.stringify(payload, null, 2) : "{}");
     },
   };

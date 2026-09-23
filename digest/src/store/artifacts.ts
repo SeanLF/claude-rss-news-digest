@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
-import type { DatabaseSync } from "node:sqlite";
-import { openDb } from "./db.js";
+import { artifactKind } from "./artifact-kinds.js";
+import { openDb, type Db, type Sql } from "./db.js";
 
 export interface Pointer {
   runId: number;
@@ -10,74 +10,96 @@ export interface Pointer {
 export class IntegrityError extends Error {}
 export class ConflictError extends Error {}
 
-const sha = (s: string) => createHash("sha256").update(s, "utf8").digest("hex");
-type Row = { content: string } | undefined;
+export const sha256 = (s: string): string => createHash("sha256").update(s, "utf8").digest("hex");
 
-// Over the production run_artifacts table: one row per (run_id, artifact_name), content as text.
-// A pointer is (run, name, sha256): the hash is an integrity check, never a lookup key. put never
-// replaces a row; the explicit force path is replace, and a row that fails its validator is
-// quarantined under a new name so the activity can produce a fresh sample (spec §2.1).
+// These take the caller's connection, so they join its transaction. At most one row per
+// (run_id, artifact_name) is 'current'; the partial unique index makes a second writer fail rather
+// than duplicate it.
+export async function artifactIn(db: Sql, runId: number, name: string): Promise<string | undefined> {
+  return (await db.one<{ content: string }>("SELECT content FROM run_artifacts WHERE run_id=$1 AND artifact_name=$2 AND state='current'", [runId, name]))?.content;
+}
+
+// Attributed to the run's latest attempt: one attempt runs at a time.
+export async function putIn(db: Sql, runId: number, name: string, content: string): Promise<void> {
+  const k = artifactKind(name);
+  await db.run(
+    `INSERT INTO run_artifacts (run_id, attempt_id, artifact_name, content, sha256, stage, kind, branch)
+     VALUES ($1, (SELECT max(id) FROM run_attempts WHERE run_id = $1), $2, $3, $4, $5, $6, $7)`,
+    [runId, name, content, sha256(content), k.stage, k.kind, k.branch],
+  );
+}
+
+// Set aside, never deleted: the row stays under its name, attributed to its attempt.
+export async function quarantineIn(db: Sql, runId: number, name: string): Promise<boolean> {
+  return (await db.run("UPDATE run_artifacts SET state='quarantined' WHERE run_id=$1 AND artifact_name=$2 AND state='current'", [runId, name])) === 1;
+}
+
+// A new current row over the old one, which is kept as 'replaced'. Equal content changes nothing.
+export async function setIn(db: Sql, runId: number, name: string, content: string): Promise<void> {
+  const old = await artifactIn(db, runId, name);
+  if (old === content) return;
+  if (old !== undefined) await db.run("UPDATE run_artifacts SET state='replaced' WHERE run_id=$1 AND artifact_name=$2 AND state='current'", [runId, name]);
+  await putIn(db, runId, name, content);
+}
+
+// The run's UTC day: the one date every stage reasons from (spec §1, run date).
+export async function runDateIn(db: Sql, runId: number): Promise<string> {
+  const r = await db.one<{ d: string }>("SELECT to_char(run_at AT TIME ZONE 'UTC', 'YYYY-MM-DD') AS d FROM digest_runs WHERE id=$1", [runId]);
+  if (!r) throw new IntegrityError(`no run ${runId}`);
+  return r.d;
+}
+
+// Over the production run_artifacts table, content as text. A pointer is (run, name, sha256): the
+// hash is an integrity check, never a lookup key. put never replaces a row; the explicit force path
+// is replace, and a row that fails its validator is quarantined so the activity can produce a fresh
+// sample (spec §2.1). Reads see the current row only.
 export class ArtifactStore {
-  private readonly db: DatabaseSync;
-  constructor(dbPath: string) {
-    this.db = openDb(dbPath);
+  private readonly db: Db;
+  constructor(dbUrl: string) {
+    this.db = openDb(dbUrl);
   }
-  private row(runId: number, name: string): Row {
-    return this.db.prepare("SELECT content FROM run_artifacts WHERE run_id=? AND artifact_name=?").get(runId, name) as Row;
+  async find(runId: number, name: string): Promise<Pointer | undefined> {
+    const c = await artifactIn(this.db, runId, name);
+    return c === undefined ? undefined : { runId, name, sha256: sha256(c) };
   }
-  find(runId: number, name: string): Pointer | undefined {
-    const r = this.row(runId, name);
-    return r ? { runId, name, sha256: sha(r.content) } : undefined;
-  }
-  put(runId: number, name: string, content: string): Pointer {
-    const existing = this.row(runId, name);
-    if (existing) {
-      if (existing.content === content) return { runId, name, sha256: sha(content) };
+  async put(runId: number, name: string, content: string): Promise<Pointer> {
+    const existing = await artifactIn(this.db, runId, name);
+    if (existing !== undefined) {
+      if (existing === content) return { runId, name, sha256: sha256(content) };
       throw new ConflictError(`artifact ${name} for run ${runId} exists with different content; quarantine or replace explicitly`);
     }
-    this.db.prepare("INSERT INTO run_artifacts (run_id, artifact_name, content) VALUES (?, ?, ?)").run(runId, name, content);
-    return { runId, name, sha256: sha(content) };
+    await putIn(this.db, runId, name, content);
+    return { runId, name, sha256: sha256(content) };
   }
-  get(p: Pointer): string {
-    const r = this.row(p.runId, p.name);
-    if (!r) throw new IntegrityError(`no artifact ${p.name} for run ${p.runId}`);
-    if (sha(r.content) !== p.sha256) throw new IntegrityError(`artifact ${p.name} for run ${p.runId} does not match its pointer`);
-    return r.content;
+  async get(p: Pointer): Promise<string> {
+    const c = await artifactIn(this.db, p.runId, p.name);
+    if (c === undefined) throw new IntegrityError(`no artifact ${p.name} for run ${p.runId}`);
+    if (sha256(c) !== p.sha256) throw new IntegrityError(`artifact ${p.name} for run ${p.runId} does not match its pointer`);
+    return c;
   }
-  quarantine(runId: number, name: string): string {
-    // Count and rename under one write lock, and refuse to report a rename that touched no row:
-    // a second caller on an already-quarantined name would otherwise get a fabricated name back.
-    this.db.exec("BEGIN IMMEDIATE");
-    try {
-      const { c } = this.db
-        .prepare("SELECT COUNT(*) AS c FROM run_artifacts WHERE run_id=? AND artifact_name LIKE ?")
-        .get(runId, `${name}.corrupt.%`) as { c: number };
-      const renamed = `${name}.corrupt.${c + 1}`;
-      const { changes } = this.db
-        .prepare("UPDATE run_artifacts SET artifact_name=? WHERE run_id=? AND artifact_name=?")
-        .run(renamed, runId, name);
-      if (Number(changes) !== 1) throw new IntegrityError(`no artifact ${name} for run ${runId} to quarantine`);
-      this.db.exec("COMMIT");
-      return renamed;
-    } catch (e) {
-      this.db.exec("ROLLBACK");
-      throw e;
-    }
+  // Refuses to report a quarantine that touched no row: a second caller on an already-quarantined
+  // name would otherwise be told it set aside something it never saw.
+  async quarantine(runId: number, name: string): Promise<void> {
+    if (!(await quarantineIn(this.db, runId, name))) throw new IntegrityError(`no artifact ${name} for run ${runId} to quarantine`);
   }
-  replace(runId: number, name: string, content: string): Pointer {
-    this.db.prepare("INSERT OR REPLACE INTO run_artifacts (run_id, artifact_name, content) VALUES (?, ?, ?)").run(runId, name, content);
-    return { runId, name, sha256: sha(content) };
+  async replace(runId: number, name: string, content: string): Promise<Pointer> {
+    await this.db.tx((t) => setIn(t, runId, name, content), `artifact ${runId} ${name}`);
+    return { runId, name, sha256: sha256(content) };
   }
-  names(runId: number): string[] {
-    return (this.db.prepare("SELECT artifact_name AS n FROM run_artifacts WHERE run_id=? ORDER BY artifact_name").all(runId) as { n: string }[]).map((r) => r.n);
+  // Every row under the name, oldest first: 'current', 'quarantined' or 'replaced'.
+  async states(runId: number, name: string): Promise<string[]> {
+    return (await this.db.all<{ state: string }>("SELECT state FROM run_artifacts WHERE run_id=$1 AND artifact_name=$2 ORDER BY id", [runId, name])).map((r) => r.state);
   }
-  // The run's UTC day: the one date every stage reasons from (spec §1, run date).
-  runDate(runId: number): string {
-    const r = this.db.prepare("SELECT date(run_at) AS d FROM digest_runs WHERE id=?").get(runId) as { d: string | null } | undefined;
-    if (!r?.d) throw new IntegrityError(`no run ${runId}`);
-    return r.d;
+  async names(runId: number): Promise<string[]> {
+    return (await this.db.all<{ n: string }>(`SELECT artifact_name AS n FROM run_artifacts WHERE run_id=$1 AND state='current' ORDER BY artifact_name COLLATE "C"`, [runId])).map((r) => r.n);
   }
-  close(): void {
-    this.db.close();
+  // The current content under a name, which must exist.
+  async content(runId: number, name: string): Promise<string> {
+    const c = await artifactIn(this.db, runId, name);
+    if (c === undefined) throw new IntegrityError(`no artifact ${name} for run ${runId}`);
+    return c;
+  }
+  runDate(runId: number): Promise<string> {
+    return runDateIn(this.db, runId);
   }
 }

@@ -1,7 +1,7 @@
-import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vitest";
 import { ArtifactStore } from "../store/artifacts.js";
-import { migratedDb } from "../store/migrated-db.js";
+import { openDb } from "../store/db.js";
+import { migratedDb } from "../store/test-db.js";
 import { recordActivities, shownHeadlines } from "./record.js";
 import { runActivities } from "./run.js";
 
@@ -17,15 +17,14 @@ const INDEX = {
 };
 const PAGE = `<!DOCTYPE html><html><head><title>T</title></head><body><span class="preheader">Deal signed; yen falls.</span><div class="paper"><p class="footer-meta">m</p></div></body></html>`;
 
-function setup(selections: unknown = SELECTIONS) {
-  const path = migratedDb([{ id: 300, runAt: "2026-09-18 10:25:40" }]);
-  const store = new ArtifactStore(path);
-  const sel = store.put(300, "selections.json", JSON.stringify(selections, null, 2));
-  store.put(300, "article_index.json", JSON.stringify(INDEX));
-  const clusters = store.put(300, "clusters.json", JSON.stringify({ clusters: [{ story: "c1", articles: ["A1", "A2"] }] }));
-  const html = store.put(300, "digest.html", PAGE);
-  const db = new DatabaseSync(path);
-  return { path, store, sel, clusters, html, db, acts: recordActivities({ store, dbPath: path }) };
+async function setup(selections: unknown = SELECTIONS) {
+  const url = await migratedDb([{ id: 300, runAt: "2026-09-18 10:25:40" }]);
+  const store = new ArtifactStore(url);
+  const sel = await store.put(300, "selections.json", JSON.stringify(selections, null, 2));
+  await store.put(300, "article_index.json", JSON.stringify(INDEX));
+  const clusters = await store.put(300, "clusters.json", JSON.stringify({ clusters: [{ story: "c1", articles: ["A1", "A2"] }] }));
+  const html = await store.put(300, "digest.html", PAGE);
+  return { url, store, sel, clusters, html, db: openDb(url), acts: recordActivities({ store, dbUrl: url }) };
 }
 
 describe("shownHeadlines (render.extract_headlines)", () => {
@@ -40,75 +39,87 @@ describe("shownHeadlines (render.extract_headlines)", () => {
 });
 
 describe("record activities", () => {
-  it("archives the run's selections and clusters verbatim, once", async () => {
-    const { acts, sel, clusters, db, store } = setup();
+  it("archiveRun writes nothing: the selections and clusters are already the run's artifacts", async () => {
+    const { acts, sel, clusters, store } = await setup();
+    const before = await store.names(300);
     await acts.archiveRun(300, sel, clusters);
-    await acts.archiveRun(300, sel, clusters);
-    expect(db.prepare("SELECT run_id, selections_json AS j FROM selections").all()).toEqual([{ run_id: 300, j: store.get(sel) }]);
-    expect(db.prepare("SELECT run_id, clusters_json AS j FROM cluster_runs").all()).toEqual([{ run_id: 300, j: store.get(clusters) }]);
+    expect(await store.names(300)).toEqual(before);
   });
-  it("a re-assembled run replaces its archived selections rather than adding a second row", async () => {
-    const { acts, sel, clusters, db, store } = setup();
-    await acts.archiveRun(300, sel, clusters);
-    const again = store.replace(300, "selections.json", JSON.stringify({ ...SELECTIONS, should_know: [] }));
-    await acts.archiveRun(300, again, clusters);
-    expect(db.prepare("SELECT selections_json AS j FROM selections WHERE run_id=300").all()).toEqual([{ j: store.get(again) }]);
-  });
-  it("saves the web copy of the issue under the run date, with its preheader, stripped of the inbox-only parts", async () => {
-    const { acts, sel, html, db } = setup();
+  it("publishes the web copy of the issue as the day's first revision, with its preheader, stripped of the inbox-only parts", async () => {
+    const { acts, sel, html, db } = await setup();
     expect(await acts.saveDigest(300, html, sel)).toEqual({ date: "2026-09-18" });
-    const row = db.prepare("SELECT date, run_id, preheader, html, broadcast_id FROM digests").get() as Record<string, unknown>;
-    expect(row).toMatchObject({ date: "2026-09-18", run_id: 300, preheader: "Deal signed; yen falls.", broadcast_id: null });
-    expect(row["html"]).not.toContain("preheader");
-    expect(row["html"]).toContain('<div class="paper">');
+    const row = await db.one<Record<string, unknown>>("SELECT date, revision, run_id, preheader, html FROM issues");
+    expect(row).toMatchObject({ date: "2026-09-18", revision: 1, run_id: 300, preheader: "Deal signed; yen falls." });
+    expect(row!["html"]).not.toContain("preheader");
+    expect(row!["html"]).toContain('<div class="paper">');
+    expect(await db.all("SELECT run_id FROM published_runs")).toEqual([{ run_id: 300 }]);
   });
-  it("a second save keeps the broadcast state, and an empty preheader keeps the first one", async () => {
-    const { acts, sel, html, db, store } = setup();
+  it("a retried save of the same page adds nothing, and an empty preheader keeps the previous one", async () => {
+    const { acts, sel, html, db, store } = await setup();
     await acts.saveDigest(300, html, sel);
-    db.exec("UPDATE digests SET broadcast_id='b1', broadcast_status='sent', broadcast_recipients=12");
-    const bare = store.put(300, "selections.bare.json", JSON.stringify({ ...SELECTIONS, preheader: "" }));
+    await acts.saveDigest(300, html, sel);
+    const bare = await store.put(300, "selections.bare.json", JSON.stringify({ ...SELECTIONS, preheader: "" }));
     await acts.saveDigest(300, html, bare);
-    expect(db.prepare("SELECT COUNT(*) AS n, preheader, broadcast_id, broadcast_status, broadcast_recipients FROM digests").get()).toEqual({ n: 1, preheader: "Deal signed; yen falls.", broadcast_id: "b1", broadcast_status: "sent", broadcast_recipients: 12 });
+    expect(await db.all("SELECT revision, preheader FROM issues")).toEqual([{ revision: 1, preheader: "Deal signed; yen falls." }]);
+  });
+  it("a forced re-run of a published day adds a revision and leaves the day's send as it was", async () => {
+    const { acts, sel, html, db, store } = await setup();
+    await acts.saveDigest(300, html, sel);
+    await db.exec("INSERT INTO broadcasts (date, run_id, revision, status, resend_id, recipients) VALUES ('2026-09-18', 300, 1, 'sent', 'b1', 12)");
+    await db.exec("INSERT INTO digest_runs (id, run_at) VALUES (301, '2026-09-18 14:00:00')");
+    const page = await store.put(301, "digest.html", PAGE.replace("m</p>", "m2</p>"));
+    const sel2 = await store.put(301, "selections.json", JSON.stringify(SELECTIONS));
+    await acts.saveDigest(301, page, sel2);
+    expect(await db.all("SELECT revision, run_id FROM issues ORDER BY revision")).toEqual([{ revision: 1, run_id: 300 }, { revision: 2, run_id: 301 }]);
+    expect(await db.one("SELECT revision, status, recipients FROM broadcasts")).toEqual({ revision: 1, status: "sent", recipients: 12 });
   });
   it("records the shown headlines once per run, for the next day's dedup", async () => {
-    const { acts, sel, db } = setup();
+    const { acts, sel, db } = await setup();
     expect(await acts.recordShownHeadlines(300, sel)).toEqual({ rows: 3 });
     expect(await acts.recordShownHeadlines(300, sel)).toEqual({ rows: 3 });
-    expect(db.prepare("SELECT headline, tier, source_id, original_title, cluster_id, run_id FROM shown_narratives ORDER BY id").all()).toEqual([
+    expect(await db.all("SELECT headline, tier, source_id, original_title, cluster_id, run_id FROM shown_narratives ORDER BY id")).toEqual([
       { headline: "Deal signed", tier: "must_know", source_id: "reuters", original_title: "Deal signed - Reuters", cluster_id: "c1", run_id: 300 },
       { headline: "Deal signed", tier: "must_know", source_id: "bbc", original_title: "Deal is signed", cluster_id: "c1", run_id: 300 },
       { headline: "Yen falls", tier: "should_know", source_id: "nhk", original_title: "Yen slides", cluster_id: "c2", run_id: 300 },
     ]);
   });
   it("refuses to record shown headlines it cannot resolve to sources, rather than writing rows with no source", async () => {
-    const path = migratedDb([{ id: 301, runAt: "2026-09-19 10:25:40" }]);
-    const store = new ArtifactStore(path);
-    const sel = store.put(301, "selections.json", JSON.stringify(SELECTIONS));
-    await expect(recordActivities({ store, dbPath: path }).recordShownHeadlines(301, sel)).rejects.toThrow(/article_index.json/);
-    expect(new DatabaseSync(path).prepare("SELECT COUNT(*) AS n FROM shown_narratives").get()).toEqual({ n: 0 });
+    const url = await migratedDb([{ id: 301, runAt: "2026-09-19 10:25:40" }]);
+    const store = new ArtifactStore(url);
+    const sel = await store.put(301, "selections.json", JSON.stringify(SELECTIONS));
+    await expect(recordActivities({ store, dbUrl: url }).recordShownHeadlines(301, sel)).rejects.toThrow(/article_index.json/);
+    expect(await openDb(url).one("SELECT COUNT(*) AS n FROM shown_narratives")).toEqual({ n: 0 });
   });
-  it("marks a failed run failed with its error, keeping its rows", async () => {
-    const { acts, db, sel, html } = setup();
+  it("marks a running run failed with its error, keeping its rows, and its attempt failed", async () => {
+    const { acts, db, sel, html } = await setup();
+    await db.exec("INSERT INTO run_attempts (run_id, pipeline) VALUES (300, 'temporal')");
     await acts.saveDigest(300, html, sel);
     await acts.abortRun(300, "ActivityFailure: boom");
-    expect(db.prepare("SELECT status, error, completed_at FROM digest_runs WHERE id=300").get()).toEqual({ status: "failed", error: "ActivityFailure: boom", completed_at: null });
-    expect(db.prepare("SELECT COUNT(*) AS n FROM digests").get()).toEqual({ n: 1 });
+    expect(await db.one("SELECT status, error, completed_at FROM digest_runs WHERE id=300")).toEqual({ status: "failed", error: "ActivityFailure: boom", completed_at: null });
+    expect(await db.one("SELECT state, error FROM run_attempts WHERE run_id=300")).toEqual({ state: "failed", error: "ActivityFailure: boom" });
+    expect(await db.one("SELECT COUNT(*) AS n FROM issues")).toEqual({ n: 1 });
+  });
+  it("never fails a completed run: a sent run stays sent, and the attempt carries the error", async () => {
+    const { acts, db } = await setup();
+    await db.exec("UPDATE digest_runs SET status='completed', outcome='sent', completed_at=now() WHERE id=300");
+    await acts.abortRun(300, "late failure");
+    expect(await db.one("SELECT status, outcome, error FROM digest_runs WHERE id=300")).toEqual({ status: "completed", outcome: "sent", error: null });
   });
 });
 
 describe("finishRun", () => {
-  it("a run with the send disabled was not delivered: no completed_at, and its status says why", async () => {
-    const { path, store, db } = setup();
-    const run = runActivities({ store, dbPath: path, sourcesFile: "/dev/null" });
+  it("a run with the send disabled completed without delivery: no completed_at, and its outcome says why", async () => {
+    const { url, store, db } = await setup();
+    const run = runActivities({ store, dbUrl: url, sourcesFile: "/dev/null" });
     await run.finishRun(300, { stories: 17, broadcast: "disabled", recipients: 0 });
-    expect(db.prepare("SELECT status, completed_at, articles_emailed FROM digest_runs WHERE id=300").get()).toEqual({ status: "disabled", completed_at: null, articles_emailed: null });
+    expect(await db.one("SELECT status, outcome, completed_at, articles_emailed FROM digest_runs WHERE id=300")).toEqual({ status: "completed", outcome: "disabled", completed_at: null, articles_emailed: 0 });
   });
   it("a sent run completes with its recipients emailed and its fetch-time kept count", async () => {
-    const { path, store, db } = setup();
-    db.exec("INSERT INTO digest_runs (id, run_at) VALUES (299, '2026-09-17 10:25:40')");
-    db.exec("INSERT INTO source_health (source_id, success, articles_fetched, articles_kept, run_id) VALUES ('a', 1, 40, 30, 300), ('b', 1, 20, 12, 300), ('c', 0, 0, 0, 300), ('a', 1, 9, 9, 299)");
-    const run = runActivities({ store, dbPath: path, sourcesFile: "/dev/null" });
+    const { url, store, db } = await setup();
+    await db.exec("INSERT INTO digest_runs (id, run_at) VALUES (299, '2026-09-17 10:25:40')");
+    await db.exec("INSERT INTO source_health (source_id, success, articles_fetched, articles_kept, run_id) VALUES ('a', true, 40, 30, 300), ('b', true, 20, 12, 300), ('c', false, 0, 0, 300), ('a', true, 9, 9, 299)");
+    const run = runActivities({ store, dbUrl: url, sourcesFile: "/dev/null" });
     await run.finishRun(300, { stories: 17, broadcast: "sent", recipients: 12 });
-    expect(db.prepare("SELECT status, articles_kept, articles_emailed, completed_at IS NOT NULL AS done FROM digest_runs WHERE id=300").get()).toEqual({ status: "completed", articles_kept: 42, articles_emailed: 12, done: 1 });
+    expect(await db.one("SELECT status, outcome, articles_kept, articles_emailed, completed_at IS NOT NULL AS done FROM digest_runs WHERE id=300")).toEqual({ status: "completed", outcome: "sent", articles_kept: 42, articles_emailed: 12, done: true });
   });
 });

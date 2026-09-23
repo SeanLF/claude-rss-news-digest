@@ -61,8 +61,3 @@ export function whatsNew(content: string | null | undefined): unknown[] {
     return [];
   }
 }
-
-export function slugify(label: string, maxLen = 60): string {
-  const slug = (label || "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
-  return Array.from(slug).slice(0, maxLen).join("") || "thread";
-}

@@ -27,18 +27,18 @@ export function gnewsActivities(deps: { store: ArtifactStore; enabled: boolean }
   const { store } = deps;
   return {
     async planGnews(runId: number, selections: Pointer, force = false): Promise<GnewsPlan> {
-      const existing = store.find(runId, DECODED_LINKS);
+      const existing = await store.find(runId, DECODED_LINKS);
       if (existing && !force) {
-        const health = store.find(runId, GNEWS_HEALTH);
-        const outcome = health ? (JSON.parse(store.get(health)) as { outcome?: unknown }).outcome : undefined;
+        const health = await store.find(runId, GNEWS_HEALTH);
+        const outcome = health ? (JSON.parse(await store.get(health)) as { outcome?: unknown }).outcome : undefined;
         if (!health || SETTLED.has(String(outcome))) return { urls: [], existing };
-        store.quarantine(runId, DECODED_LINKS);
-        store.quarantine(runId, GNEWS_HEALTH);
+        await store.quarantine(runId, DECODED_LINKS);
+        await store.quarantine(runId, GNEWS_HEALTH);
       }
       if (!deps.enabled) return { urls: [], skip: "disabled" };
-      const indexPtr = store.find(runId, "article_index.json");
-      const index = indexPtr ? (JSON.parse(store.get(indexPtr)) as Record<string, unknown>) : {};
-      const urls = survivingLinks(JSON.parse(store.get(selections)) as Selections, index);
+      const indexPtr = await store.find(runId, "article_index.json");
+      const index = indexPtr ? (JSON.parse(await store.get(indexPtr)) as Record<string, unknown>) : {};
+      const urls = survivingLinks(JSON.parse(await store.get(selections)) as Selections, index);
       return urls.length ? { urls } : { urls, skip: "no_candidates" };
     },
     async storeGnews(runId: number, result: GnewsDecode, force = false): Promise<Pointer> {
@@ -49,7 +49,7 @@ export function gnewsActivities(deps: { store: ArtifactStore; enabled: boolean }
         console.warn(JSON.stringify({ stage: "gnews", warning: "upgraded 0 shown links; the decoder contract has probably moved again, check gnews-decoder for an update (npm run test:live there)", links: result.links, attempted: result.attempted }));
       }
       const write = (name: string, text: string) => (force ? store.replace(runId, name, text) : store.put(runId, name, text));
-      write(GNEWS_HEALTH, JSON.stringify({ links: result.links, decoded: upgraded, attempted: result.attempted, outcome: result.outcome }));
+      await write(GNEWS_HEALTH, JSON.stringify({ links: result.links, decoded: upgraded, attempted: result.attempted, outcome: result.outcome }));
       return write(DECODED_LINKS, JSON.stringify(decoded, null, 2));
     },
   };

@@ -1,17 +1,37 @@
 # Data model: design before more of the rewrite lands (2026-09-23)
 
-**Status:** proposal, no code changed. Sean answered section 6 the same day; sections 0, 3, 4.4, 5 and 6
-are revised to match.
+**Status:** decided. Sean answered section 6 the same day; sections 0, 3, 4.4, 5 and 6 are revised to
+match, and he then chose Postgres (next section), which supersedes the SQLite parts.
 **Evidence base:** prod clone `data/prod-20260923b.db` (the brief named `prod-20260923.db`; only the `b` copy
 exists, runs 1-305, opened read-only), the TypeScript A/B copy `data/ab305-20260923.db`, the box itself
 (read-only `df`/`ls`), and a local Postgres harness (Appendix D). `$P` below is
 `sqlite3 -readonly data/prod-20260923b.db`.
 
+## Decided later the same day: Postgres
+
+Sean chose **Postgres** for the product database (2026-09-23), overriding item 1 below. Section 3 had
+already called it close: once Python retires and circulation is rewritten anyway, the import costs the
+same into either engine, and Postgres can share Temporal's backup and restore path (once `digest` is
+added to its nightly `pg_dump`), and brings `jsonb` and readers that need no shared volume mount. What follows from it:
+- **Same server, same major.** A `digest` database with its own role in the Postgres that Temporal already
+  runs (`postgres:18.6-alpine3.24`, 384 MiB cap). Appendix D measured the resident cost at ~10 MiB for 4
+  connections.
+- **Circulation is ported to TypeScript before the cut-over**, as a separate unit after the schema. The
+  new schema therefore has no compatibility views (`digests`, `threads`, ...) and does not keep old
+  names for circulation's sake: the TypeScript web tier reads it directly. The Rust circulation keeps
+  reading the legacy SQLite file until the cut-over retires it.
+- **Search** is a weighted `tsvector` column with a GIN index instead of FTS5. Ranking changes:
+  `ts_rank` weighs term frequency and the A/B weights, not BM25, so result order will differ from today.
+- **Tests** run in-process on PGlite (Postgres 18.3 in WebAssembly), which runs everything the schema
+  uses: plpgsql triggers, generated `tsvector` columns, GIN, and partial unique indexes. The import runs
+  against a real `postgres:18.6` container.
+- **Import**: SQLite → Postgres (§5.1 still holds, except the circulation notes).
+
 ## 0. The answer in six lines
 
-1. **Keep the product database in SQLite.** Neither RAM (measured: ~10 MiB per 4 connections, the rest
-   reclaimable cache) nor downtime (the site is not HA, Sean 2026-09-23) decides it. What decides it is that
-   Postgres buys nothing this pipeline measures and costs a circulation port (section 3).
+1. ~~**Keep the product database in SQLite.**~~ Superseded: Postgres, above. (Was: neither RAM (measured:
+   ~10 MiB per 4 connections, the rest reclaimable cache) nor downtime (the site is not HA, Sean
+   2026-09-23) decides it; Postgres buys nothing this pipeline measures and costs a circulation port.)
 2. **Make runs, attempts and model calls first-class**, so a forced or resumed run stops overwriting its own
    record, and the self-improvement loop can ask "every WRITE call under prompt X, with its inputs, output
    and verdict" without parsing artifact names.
@@ -77,7 +97,8 @@ file is 211,456,000 bytes on the box and in the clone (51,625 pages of 4 KiB).
 
 ### 2.2 Non-functional
 
-- **Durability and restore.** `digest.db` is snapshotted to the Mac on every deploy and daily by
+- **Durability and restore.** (For Postgres: the nightly `pg_dump` covers Temporal's two databases only;
+  `digest` must be added to it and to the deploy snapshot.) `digest.db` is snapshotted to the Mac on every deploy and daily by
   `$INFRA_DIR/bin/backup-volumes` through the SQLite online-backup API, gunzipped and `integrity_check`ed
   (`rg -n "online-backup|integrity_check" ../seanfloyd.dev/bin/backup-volumes`), 14 kept, 63.9 MB each
   gzipped. RPO one day. Temporal's two databases get a nightly `pg_dump`, 14 kept, on the box.
@@ -351,12 +372,12 @@ CREATE VIEW thread_state AS ...  -- label, first/last run, active|dormant|merged
 
 ### 4.6 Everything else
 
-- `shown_narratives` stays, including FTS5. It is one row per (story, source): 30,063 rows for 12,013
+- `shown_narratives` stays (search moves from FTS5 to a `tsvector` column: top of this doc). It is one row per (story, source): 30,063 rows for 12,013
   stories, 2.5×. Normalising it saves 6.5 MiB and some `COUNT(DISTINCT headline)`; not worth doing before
   the web rewrite.
 - `fetched_articles`, `source_health`, `dedup_log` stay. Drop `dedup_log.action` (24,856 of 24,856 are
   `filtered`). Keep `threshold`: it records a parameter that will change.
-- PRAGMAs: WAL on (after the two fixes in 2.3 item 6); `foreign_keys=ON` in the TS `openDb`, which Python
+- (SQLite only, superseded by Postgres.) PRAGMAs: WAL on (after the two fixes in 2.3 item 6); `foreign_keys=ON` in the TS `openDb`, which Python
   sets and TS does not (`rg -n foreign_keys digest/src` → no match; the clone has 0 violations,
   `$P "PRAGMA foreign_key_check"` returns nothing).
 - Seven redundant indexes, ~4 MiB: three on `shown_narratives(shown_at)`, pairs on `run_id` for
@@ -373,10 +394,10 @@ of migrations over today's tables. Instead:
 |---|---|---|---|
 | 0 | now | drop the two unshipped 2026-09-23 migrations (`workflow_run_id`, `broadcast_run_id`); both are unapplied on prod (`$P "SELECT migration_id FROM _yoyo_migration ORDER BY 1 DESC LIMIT 1"` → `20260916190000`) and their jobs move into `run_attempts` and `broadcasts` | revert the commit |
 | 1 | with plan A | write the new schema as dbmate migration 1 (`digest/db/migrations/`); point the TS store and its tests at it; staged mode runs on a scratch DB built from it | revert |
-| 2 | with plan A | `bin/import-legacy`: `ATTACH` today's `digest.db` read-only and `INSERT ... SELECT` into the new schema. Carries runs, usage, artifacts, issues (as revision 1), broadcasts, threads, installments, questions, source health, shown narratives, `fetched_articles` and `dedup_log` (next-day dedup reads both). Leaves behind `selections` (backfilled into artifacts first for the 128 runs that exist only there), `cluster_runs`, `thread_runs`, `story_feedback` (exported to a CSV under `docs/`), `threads.slug`, `dedup_log.action` | delete the new file |
+| 2 | with plan A | `bin/import-legacy`: load today's `digest.db` into a `legacy` schema of the new Postgres database and `INSERT ... SELECT` into the new schema (was `ATTACH`, on SQLite). Carries runs, usage, artifacts, issues (as revision 1), broadcasts, threads, installments, questions, source health, shown narratives, `fetched_articles` and `dedup_log` (next-day dedup reads both). Leaves behind `selections` (backfilled into artifacts first for the 128 runs that exist only there), `cluster_runs`, `thread_runs`, `story_feedback` (exported to a CSV under `docs/`), `threads.slug`, `dedup_log.action` | delete the new file |
 | 3 | gate days | staged mode refreshes its scratch DB by running the import against the latest prod backup, so all three gate days exercise the import as well as the schema | |
-| 4 | cut-over deploy | stop the timer, take the verified snapshot, run the import, swap the file, deploy circulation reading the new schema (through the `digests` compatibility view if its port is not ready), start the timer | put the old file back and redeploy the Python tag. Valid until the first TypeScript run writes; after that, restore the snapshot and lose that day |
-| 5 | after cut-over | delete `newsroom/`, yoyo, the retract and sweep code, and the compatibility views as circulation is ported | |
+| 4 | cut-over deploy | stop the timer, take the verified snapshot, run the import into the `digest` Postgres database, deploy the TypeScript circulation (ported before this step; there are no compatibility views), start the timer | redeploy the Python tag and the Rust circulation, both still reading the untouched SQLite file. Valid until the first TypeScript run writes; after that, that day exists only in Postgres |
+| 5 | after cut-over | delete `newsroom/`, yoyo, the Rust circulation, the retract and sweep code, and the SQLite file | |
 
 **Tests the path needs:** the import on the prod clone with row-count and content checks per table (every
 issue's html byte-equal, every thread's derived label equal to today's `threads.label`); the transition
@@ -416,12 +437,10 @@ Things the clone showed that §4 did not say:
 - `threads.updated_at` is not derivable (the decay wrote it): the latest installment's `created_at`
   equals it on 52 of 951 threads, the active ones. The "older threads" page orders by it, so the dormant
   threads' order on that page changes.
-- Circulation refuses to start unless `digests` is a *table* (`main.rs` `REQUIRED_TABLES` checks
-  `sqlite_master.type='table'`). On SQLite a `digests` view needs that check widened to views, one line;
-  on Postgres circulation is rusqlite throughout, so there is no one-line version.
-- Circulation reads `threads` (`label`, `status`, `updated_at`, `merged_into`), `thread_installments`
-  and `thread_questions.status` by those names (`thread.rs:100-449`), so all three names must be views
-  (derived, published-only), and the tables the pipeline writes need other names.
+- (Moot with Postgres: circulation is ported first and reads the new schema directly.) Circulation
+  refuses to start unless `digests` is a *table*, and reads `threads`, `thread_installments` and
+  `thread_questions.status` by name (`main.rs` `REQUIRED_TABLES`, `thread.rs:100-449`), which on SQLite
+  would have forced compatibility views under those names.
 - Outcome spellings: the constraint takes the TypeScript's, `sent`, `disabled`, `rejected`, `held-out`,
   `skipped`, plus `unrecorded` for imported runs; §4.1's `held_out`/`no_stories` are superseded (no
   `no_stories` outcome exists). The TS send writes `created` for a draft; `broadcasts.status` calls it
@@ -431,14 +450,39 @@ Things the clone showed that §4 did not say:
   `run_attempts` and `broadcasts`, not before it.
 - `archiveRun` stays as an activity that does nothing: the recorded workflow histories schedule it.
 
+**How the import runs (built 2026-09-23, Postgres).** `bin/import-legacy SRC DST_URL`: pgloader loads
+the SQLite file, mounted read-only, table for table into a fresh database
+(`digest/db/import/legacy.load`); the digest image then moves that aside as `legacy`, builds the schema
+with dbmate, copies across in one transaction (`digest/db/import/transform.sql`), checks every row
+against the legacy tables (16 checks in `digest/src/store/import.ts`, each negative-controlled in
+`import.test.ts`), and drops them. pgloader is maintained (pushed 2026-09-14; ghcr image of the same
+day, pinned by digest) though its last release is 3.6.9 of 2022, and it needed two workarounds: its
+default cast writes reals as Lisp floats (`1.0d0`), which Postgres refuses, so reals go through
+`float-to-string` (float fidelity checked: `0.35547812653826977` in both), and it exits 0 when a table
+fails, so the script fails on any ERROR line in its log. Worse, it drops text after a NUL byte with no
+error at all (reviewer-reproduced), and the 16 checks compare against pgloader's own copy; so before
+anything is copied, the load is held to a fingerprint of the SQLite file itself, read with
+`node:sqlite` (per table its rows, per column its non-null count and byte or numeric sum), and a
+WAL-mode file is refused. The image is amd64 only (emulated on the Mac). `issues.published_at` is the
+run's `completed_at` (`digests.created_at` is a backfill stamp on 31 rows); a resolution is dated by its
+resolving run. **Measured on a `cp -c` copy of the prod clone** (`make import-check`): 9-10 s end to
+end (pgloader 4-5 s, fingerprint 0.2 s, schema 0.1-0.2 s, copy 3.1-3.4 s, checks and VACUUM ANALYZE the
+rest), the load matches the file on all 15 tables, all 16 checks and all §5.1 numbers hold
+(`import.clone.test.ts`), the source file's sha256 unchanged, and the database is 169 MB against the
+SQLite file's 202 MB. Run 300's prepare replayed against the imported database reproduces its
+archived article CSVs and context files byte for byte, which found one ordering difference: SQLite left
+same-run ties in descending byte order of the headline, now explicit.
+
 **Lifecycle edges, as test cases** (§4.1). States: `running`, `failed`, and `completed` with each of the
 five pipeline outcomes. Legal: any state to itself (a write that leaves status and outcome alone, which
 §4.1 did not say); `running` → `failed` or any `completed`; `failed` → `running`; `completed(o)` →
 `running` for `o` ≠ `sent`. Everything else is refused, including `failed` → `completed`, `completed` →
 `failed`, `completed(sent)` → `running`, and `completed(a)` → `completed(b)` for a ≠ b: 7 × 7 = 49
-edges, 7 + 6 + 1 + 4 = 18 legal. `completed(unrecorded)` exists only by import and is treated as unsent
-(it may resume). Two row checks besides: `completed` needs an outcome, and an outcome needs
-`completed`.
+edges, 7 + 6 + 1 + 4 = 18 legal (8 states and 21 with `unrecorded`, which exists only by import). A
+`completed` → `running` edge also needs the run to be absent from `published_runs`: 12 imported
+`unrecorded` runs have an issue on the web, so "not sent" alone would let them resume (reviewer
+finding). Row checks besides: `completed` needs an outcome and an outcome needs `completed`; a sent
+run has `completed_at`, and only a completed run may.
 
 **The migration tool.** Plain SQL on SQLite with triggers, partial indexes, views and FTS5 rules out an ORM
 as schema owner: Drizzle Kit or Kysely would make TypeScript the source of truth for a schema the Rust tier
@@ -451,7 +495,8 @@ yoyo history to carry over.
 
 **Decided by Sean, 2026-09-23:**
 1. The site is not HA; short downtime is acceptable.
-2. Postgres for the product only if the trade-offs justify it. They don't yet (section 3).
+2. ~~Postgres for the product only if the trade-offs justify it. They don't yet (section 3).~~ Postgres
+   (top of this doc).
 3. A forced re-run may replace the public issue, and never re-sends (section 4.4).
 4. An unsent run's thread installments stay private until the run is published by email or on the web.
 5. Python retires at the deploy that switches to TypeScript.

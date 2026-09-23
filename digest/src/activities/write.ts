@@ -91,7 +91,7 @@ export interface WriteDeps {
   agentsDir: string;
   query?: SdkQuery;
   heartbeat?: () => void;
-  onUsage?: (row: UsageRow) => void;
+  onUsage?: (row: UsageRow) => void | Promise<void>;
   // A progress line for the off-box monitor (healthchecks.io /log).
   log?: (message: string) => void;
 }
@@ -99,11 +99,11 @@ export interface WriteDeps {
 // The stories SELECT chose that WRITE never ran: run_health's STORIES_DROPPED_AT_WRITE reads `dropped`.
 export const WRITE_BRANCHES = "write_branches.json";
 
-function runArticles(store: ArtifactStore, runId: number): { ids: Set<string>; header: string[]; rows: Record<string, string>[] } {
+async function runArticles(store: ArtifactStore, runId: number): Promise<{ ids: Set<string>; header: string[]; rows: Record<string, string>[] }> {
   const rows: Record<string, string>[] = [];
   let header: string[] = [];
-  for (const name of store.names(runId).filter((n) => /^articles_\d+\.csv$/.test(n))) {
-    const text = store.get(store.find(runId, name)!);
+  for (const name of (await store.names(runId)).filter((n) => /^articles_\d+\.csv$/.test(n))) {
+    const text = await store.content(runId, name);
     const recs = parse<Record<string, string>>(text, { columns: true, skip_empty_lines: true, relax_column_count: true });
     if (recs[0] && header.length === 0) header = Object.keys(recs[0]);
     rows.push(...recs);
@@ -115,9 +115,9 @@ export function writeActivities(deps: WriteDeps) {
   const { store } = deps;
   return {
     planStories: async (runId: number, selected: Pointer, clusters: Pointer): Promise<{ plans: StoryPlan[] }> => {
-      const { ids } = runArticles(store, runId);
-      const { plans, dropped } = planStories(store.get(selected), store.get(clusters), ids);
-      store.replace(runId, WRITE_BRANCHES, JSON.stringify({ dropped }));
+      const { ids } = await runArticles(store, runId);
+      const { plans, dropped } = planStories(await store.get(selected), await store.get(clusters), ids);
+      await store.replace(runId, WRITE_BRANCHES, JSON.stringify({ dropped }));
       if (dropped.length) console.error(JSON.stringify({ stage: "write-plan", runId, dropped }));
       for (const d of dropped) deps.log?.(`write s${String(d.index).padStart(2, "0")} DROPPED (${d.tier}): ${d.reason}`);
       if (plans.length === 0) throw ApplicationFailure.nonRetryable(`run ${runId}: no selected story has evidence to write from`, "NothingToWrite");
@@ -126,16 +126,16 @@ export function writeActivities(deps: WriteDeps) {
 
     writeStory: async (runId: number, plan: StoryPlan, selected: Pointer, note?: string, force = false): Promise<Pointer> => {
       const name = draftName(plan.index);
-      const existing = store.find(runId, name);
+      const existing = await store.find(runId, name);
       if (existing && !force) {
-        const prior = JSON.parse(store.get(existing)) as { plan?: StoryPlan };
+        const prior = JSON.parse(await store.get(existing)) as { plan?: StoryPlan };
         if (JSON.stringify(prior.plan) === JSON.stringify(plan)) return existing;
-        store.quarantine(runId, name); // written for a different story or evidence
+        await store.quarantine(runId, name); // written for a different story or evidence
       }
-      const sel = SelectedSchema.parse(JSON.parse(store.get(selected)));
+      const sel = SelectedSchema.parse(JSON.parse(await store.get(selected)));
       const pick = { article_ids: plan.storyIds, ...(plan.clusterIndex !== undefined ? { cluster_index: plan.clusterIndex } : {}) };
       const one = { must_know: plan.tier === "must_know" ? [pick] : [], should_know: plan.tier === "should_know" ? [pick] : [], ...(sel.not_covered_blurb ? { not_covered_blurb: sel.not_covered_blurb } : {}) };
-      const { header, rows } = runArticles(store, runId);
+      const { header, rows } = await runArticles(store, runId);
       const keep = new Set(plan.contextIds);
       const dir = mkdtempSync(join(tmpdir(), `write-${runId}-s${plan.index}-`));
       try {
@@ -146,33 +146,33 @@ export function writeActivities(deps: WriteDeps) {
         };
         put("selected.json", JSON.stringify(one, null, 2));
         put("articles_1.csv", stringify(rows.filter((r) => keep.has(r["article_id"] ?? "")), { header: true, columns: header }));
-        const ft = store.find(runId, "article_fulltext.json");
+        const ft = await store.find(runId, "article_fulltext.json");
         if (ft) {
-          const all = JSON.parse(store.get(ft)) as Record<string, unknown>;
+          const all = JSON.parse(await store.get(ft)) as Record<string, unknown>;
           put("article_fulltext.json", JSON.stringify(Object.fromEntries(Object.entries(all).filter(([k]) => keep.has(k))), null, 2));
         }
         for (const f of SHARED) {
-          const p = store.find(runId, f);
-          if (p) put(f, store.get(p));
+          const p = await store.find(runId, f);
+          if (p) put(f, await store.get(p));
         }
         const spec = parseAgentSpec(readFileSync(join(deps.agentsDir, "write.md"), "utf8"));
-        recordOperatorNote(store, runId, "write", note);
+        await recordOperatorNote(store, runId, "write", note);
         const message = `The input directory is ${dir}. Begin.${note ? `\n\nOperator note for this attempt: ${note}` : ""}`;
         deps.heartbeat?.();
         const r = await runStage(spec, { userMessage: message, inputDir: dir }, {
-          today: store.runDate(runId),
+          today: await store.runDate(runId),
           outputSchema: z.toJSONSchema(BranchDraftSchema, { target: "draft-07" }),
           maxBudgetUsd: WRITE_BRANCH_BUDGET_USD,
           ...(deps.query ? { query: deps.query } : {}), ...(deps.heartbeat ? { heartbeat: deps.heartbeat } : {}), ...(deps.signal?.() ? { signal: deps.signal()! } : {}),
         });
         deps.heartbeat?.();
-        deps.onUsage?.({ model: spec.model, thinking: spec.thinking, effort: r.effort, tokens: r.usage, stage: "write", runId, story: plan.index, costUsd: r.costUsd, durationMs: r.durationMs, numTurns: r.numTurns, toolCalls: r.toolCalls.length });
+        await deps.onUsage?.({ model: spec.model, thinking: spec.thinking, prompt: spec, effort: r.effort, tokens: r.usage, stage: "write", runId, story: plan.index, costUsd: r.costUsd, durationMs: r.durationMs, numTurns: r.numTurns, toolCalls: r.toolCalls.length });
         const parsed = BranchDraftSchema.safeParse(r.structured);
         if (!parsed.success) throw new Error(`write s${plan.index}: output does not match the schema`);
         const { story, problems } = checkBranch(parsed.data, plan);
         if (problems.length || !story) throw new Error(`write s${plan.index}: ${problems.join("; ")}`);
         const text = JSON.stringify({ plan, story }, null, 2);
-        return force ? store.replace(runId, name, text) : store.put(runId, name, text);
+        return force ? await store.replace(runId, name, text) : await store.put(runId, name, text);
       } finally {
         rmSync(dir, { recursive: true, force: true }); // the mkdtemp directory this call created
       }

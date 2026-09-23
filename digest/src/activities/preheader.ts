@@ -52,7 +52,7 @@ export interface PreheaderDeps {
   agentsDir: string;
   query?: SdkQuery;
   heartbeat?: () => void;
-  onUsage?: (row: UsageRow) => void;
+  onUsage?: (row: UsageRow) => void | Promise<void>;
 }
 
 // Best-effort by design: a failed call or an unusable reply stores "" and assemble substitutes the
@@ -61,24 +61,26 @@ export function preheaderActivity(deps: PreheaderDeps) {
   return async (runId: number, drafts: Pointer[], force = false): Promise<Pointer> => {
     const { store } = deps;
     const heads: Record<"must_know" | "should_know", { headline: string }[]> = { must_know: [], should_know: [] };
-    const items = drafts.map((d) => JSON.parse(store.get(d)) as { plan: StoryPlan; story: DraftStory }).toSorted((a, b) => a.plan.index - b.plan.index);
+    const items: { plan: StoryPlan; story: DraftStory }[] = [];
+    for (const d of drafts) items.push(JSON.parse(await store.get(d)) as { plan: StoryPlan; story: DraftStory });
+    items.sort((a, b) => a.plan.index - b.plan.index);
     for (const { plan, story } of items) heads[plan.tier].push({ headline: story.headline });
     const input = JSON.stringify(heads);
-    const existing = store.find(runId, PREHEADER_OUTPUT);
+    const existing = await store.find(runId, PREHEADER_OUTPUT);
     if (existing && !force) {
-      const prior = JSON.parse(store.get(existing)) as { input?: string; line?: string };
+      const prior = JSON.parse(await store.get(existing)) as { input?: string; line?: string };
       if (prior.input === input && prior.line?.trim()) return existing;
-      store.quarantine(runId, PREHEADER_OUTPUT);
+      await store.quarantine(runId, PREHEADER_OUTPUT);
     }
     const message = JSON.stringify(heads, null, 2);
     assertNoUrls(message);
     const spec = parseAgentSpec(readFileSync(join(deps.agentsDir, "preheader.md"), "utf8"));
     deps.heartbeat?.();
-    const r = await runStage(spec, { userMessage: message, inputDir: tmpdir() }, { today: store.runDate(runId), ...(deps.query ? { query: deps.query } : {}), ...(deps.heartbeat ? { heartbeat: deps.heartbeat } : {}), ...(deps.signal?.() ? { signal: deps.signal()! } : {}) });
-    deps.onUsage?.({ model: spec.model, thinking: spec.thinking, effort: r.effort, tokens: r.usage, stage: "preheader", runId, costUsd: r.costUsd, durationMs: r.durationMs, numTurns: r.numTurns });
+    const r = await runStage(spec, { userMessage: message, inputDir: tmpdir() }, { today: await store.runDate(runId), ...(deps.query ? { query: deps.query } : {}), ...(deps.heartbeat ? { heartbeat: deps.heartbeat } : {}), ...(deps.signal?.() ? { signal: deps.signal()! } : {}) });
+    await deps.onUsage?.({ model: spec.model, thinking: spec.thinking, prompt: spec, effort: r.effort, tokens: r.usage, stage: "preheader", runId, costUsd: r.costUsd, durationMs: r.durationMs, numTurns: r.numTurns });
     const line = cleanPreheader(r.text);
     if (!line) throw new Error(`preheader for run ${runId}: nothing usable in the reply`);
     const doc = JSON.stringify({ input, line });
-    return force ? store.replace(runId, PREHEADER_OUTPUT, doc) : store.put(runId, PREHEADER_OUTPUT, doc);
+    return force ? await store.replace(runId, PREHEADER_OUTPUT, doc) : await store.put(runId, PREHEADER_OUTPUT, doc);
   };
 }

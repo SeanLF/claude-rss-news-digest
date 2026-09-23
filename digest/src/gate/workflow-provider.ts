@@ -11,11 +11,11 @@ import { runCost } from "../store/usage.js";
 interface Vars { run: number | string; date: string }
 
 export default class DigestWorkflowProvider {
-  private readonly dbPath: string;
-  constructor(options: { config?: { dbPath?: string } } = {}) {
-    const p = options.config?.dbPath ?? process.env["BAND_DB"];
-    if (!p) throw new Error("digest-workflow provider needs config.dbPath or BAND_DB: the scratch DB the worker also uses");
-    this.dbPath = p;
+  private readonly dbUrl: string;
+  constructor(options: { config?: { dbUrl?: string } } = {}) {
+    const p = options.config?.dbUrl ?? process.env["BAND_DB"];
+    if (!p) throw new Error("digest-workflow provider needs config.dbUrl or BAND_DB: the scratch DB the worker also uses");
+    this.dbUrl = p;
   }
   id(): string {
     return "digest-workflow";
@@ -28,13 +28,10 @@ export default class DigestWorkflowProvider {
     await handle.signal(approveSignal, { decision: "approve" }); // the hold is not part of the band
     const result = await handle.result();
     const latencyMs = Date.now() - t0;
-    const db = openDb(this.dbPath);
-    const { costUsd, calls } = runCost(db, run, since);
-    db.close();
-    const store = new ArtifactStore(this.dbPath);
-    const selections = store.find(run, "selections.json");
-    const output = selections ? store.get(selections) : "";
-    store.close();
+    const { costUsd, calls } = await runCost(openDb(this.dbUrl), run, since);
+    const store = new ArtifactStore(this.dbUrl);
+    const selections = await store.find(run, "selections.json");
+    const output = selections ? await store.get(selections) : "";
     return { output, cost: costUsd, latencyMs, metadata: { ...result, calls } };
   }
 }

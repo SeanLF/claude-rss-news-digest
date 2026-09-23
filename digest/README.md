@@ -1,8 +1,8 @@
 # digest
 
 The TypeScript-on-Temporal rewrite of the pipeline (spec: `docs/superpowers/specs/2026-09-21-four-systems-rewrite-design.md`).
-Node 24, `node:sqlite` over the production `run_artifacts` table, the Agent SDK for model stages, Temporal for
-sequencing, signals and the run budget.
+Node 26, Postgres through node-postgres (schema: `db/migrations`, applied by dbmate; tests on in-process PGlite),
+the Agent SDK for model stages, Temporal for sequencing, signals and the run budget.
 
 ## Layout
 

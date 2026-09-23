@@ -45,7 +45,7 @@ export interface SelectDeps {
   agentsDir: string;
   query?: SdkQuery;
   heartbeat?: () => void;
-  onUsage?: (row: UsageRow) => void;
+  onUsage?: (row: UsageRow) => void | Promise<void>;
 }
 
 // SELECT keeps its read loop: ~250 KB of inputs, read selectively. The inputs are materialised
@@ -54,39 +54,39 @@ export function selectActivity(deps: SelectDeps) {
   return async (runId: number, _clusters: Pointer, _recap: Pointer, note?: string, input?: { force?: boolean }): Promise<Pointer> => {
     const { store } = deps;
     const force = input?.force ?? false;
-    const existing = store.find(runId, SELECT_OUTPUT);
+    const existing = await store.find(runId, SELECT_OUTPUT);
     if (existing && !force) {
-      const parsed = SelectedSchema.safeParse(JSON.parse(store.get(existing)));
+      const parsed = SelectedSchema.safeParse(JSON.parse(await store.get(existing)));
       if (parsed.success) return existing;
-      store.quarantine(runId, SELECT_OUTPUT);
+      await store.quarantine(runId, SELECT_OUTPUT);
     }
-    const names = store.names(runId);
+    const names = await store.names(runId);
     const csvs = names.filter((n) => /^articles_\d+\.csv$/.test(n));
     for (const r of REQUIRED) if (!names.includes(r)) throw ApplicationFailure.nonRetryable(`run ${runId} has no ${r}`, "MissingInput");
     const dir = mkdtempSync(join(tmpdir(), `select-${runId}-`));
     const known = new Set<string>();
     try {
       for (const name of [...REQUIRED, ...OPTIONAL, ...csvs]) {
-        const p = store.find(runId, name);
+        const p = await store.find(runId, name);
         if (!p) continue;
-        const text = scrubUrls(store.get(p));
+        const text = scrubUrls(await store.get(p));
         assertNoUrls(text);
         writeFileSync(join(dir, name), text);
         if (csvs.includes(name)) for (const id of articleIds(text)) known.add(id);
       }
       const spec = parseAgentSpec(readFileSync(join(deps.agentsDir, "select.md"), "utf8"));
-      recordOperatorNote(store, runId, "select", note);
+      await recordOperatorNote(store, runId, "select", note);
       const message = `The input directory is ${dir}. Begin.${note ? `\n\nOperator note for this attempt: ${note}` : ""}`;
       deps.heartbeat?.();
-      const r = await runStage(spec, { userMessage: message, inputDir: dir }, { today: store.runDate(runId), outputSchema: selectedJsonSchema(), ...(deps.query ? { query: deps.query } : {}), ...(deps.heartbeat ? { heartbeat: deps.heartbeat } : {}), ...(deps.signal?.() ? { signal: deps.signal()! } : {}) });
+      const r = await runStage(spec, { userMessage: message, inputDir: dir }, { today: await store.runDate(runId), outputSchema: selectedJsonSchema(), ...(deps.query ? { query: deps.query } : {}), ...(deps.heartbeat ? { heartbeat: deps.heartbeat } : {}), ...(deps.signal?.() ? { signal: deps.signal()! } : {}) });
       deps.heartbeat?.();
-      deps.onUsage?.({ model: spec.model, thinking: spec.thinking, effort: r.effort, tokens: r.usage, stage: "select", runId, costUsd: r.costUsd, durationMs: r.durationMs, numTurns: r.numTurns, toolCalls: r.toolCalls.length });
+      await deps.onUsage?.({ model: spec.model, thinking: spec.thinking, prompt: spec, effort: r.effort, tokens: r.usage, stage: "select", runId, costUsd: r.costUsd, durationMs: r.durationMs, numTurns: r.numTurns, toolCalls: r.toolCalls.length });
       const parsed = SelectedSchema.safeParse(r.structured);
       if (!parsed.success) throw new Error(`select for run ${runId}: output does not match the schema`);
       const problems = checkSelected(parsed.data, known);
       if (problems.length) throw new Error(`select for run ${runId}: ${problems.join("; ")}`);
       const text = JSON.stringify(parsed.data, null, 2);
-      return force ? store.replace(runId, SELECT_OUTPUT, text) : store.put(runId, SELECT_OUTPUT, text);
+      return force ? await store.replace(runId, SELECT_OUTPUT, text) : await store.put(runId, SELECT_OUTPUT, text);
     } finally {
       rmSync(dir, { recursive: true, force: true }); // a mkdtemp directory this call created
     }

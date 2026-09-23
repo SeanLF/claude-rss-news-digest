@@ -6,19 +6,19 @@ import { parse } from "csv-parse/sync";
 import { activeSources, newerThan, parseArticles, type CatalogueSource } from "../fetch/feeds.js";
 import { toCsv, type Fetched } from "../prepare/prepare.js";
 import type { ArtifactStore } from "../store/artifacts.js";
-import { openDb } from "../store/db.js";
+import { openDb, type Sql } from "../store/db.js";
 import type { DigestInput, DigestOutput } from "./index.js";
 
 export const SOURCES_HEADER = ["id", "name", "bias", "factuality", "perspective"] as const;
 export const FETCH_TIMEOUT_MS = 15_000;
-const lastCompleted = (db: ReturnType<typeof openDb>, before?: string): string | null =>
-  ((before
-    ? db.prepare("SELECT MAX(run_at) AS t FROM digest_runs WHERE completed_at IS NOT NULL AND run_at < ?").get(before)
-    : db.prepare("SELECT MAX(run_at) AS t FROM digest_runs WHERE completed_at IS NOT NULL").get()) as { t: string | null }).t;
+const lastCompleted = async (db: Sql, before?: string): Promise<string | null> =>
+  (before
+    ? await db.one<{ t: string | null }>("SELECT MAX(run_at) AS t FROM digest_runs WHERE completed_at IS NOT NULL AND run_at < $1", [before])
+    : await db.one<{ t: string | null }>("SELECT MAX(run_at) AS t FROM digest_runs WHERE completed_at IS NOT NULL"))!.t;
 
 export interface RunDeps {
   store: ArtifactStore;
-  dbPath: string;
+  dbUrl: string;
   sourcesFile: string;
   fetch?: typeof fetch;
   maxAttempts?: number;
@@ -33,125 +33,143 @@ const currentAttempt = (): number => {
 };
 
 // The workflow execution calling this activity; undefined outside one (a CLI or a plain test call).
-const currentExecution = (): string | undefined => {
+const currentExecution = (): { workflowId: string; runId: string } | undefined => {
   try {
-    return Context.current().info.workflowExecution?.runId;
+    return Context.current().info.workflowExecution;
   } catch {
     return undefined;
   }
 };
 
+// This execution's attempt at the run: one row per workflow execution, so a retried activity finds
+// its own row rather than adding one.
+const recordAttempt = (db: Sql, runId: number, execution: { workflowId: string; runId: string }, forced: boolean) =>
+  db.run(
+    "INSERT INTO run_attempts (run_id, pipeline, workflow_id, workflow_run_id, git_sha, forced) VALUES ($1, 'temporal', $2, $3, $4, $5) ON CONFLICT (workflow_run_id) DO NOTHING",
+    [runId, execution.workflowId, execution.runId, process.env["GIT_SHA"] ?? null, forced],
+  );
+
+// The attempt a run's ending closes: this execution's, else the run's latest.
+export async function endAttempt(db: Sql, runId: number, state: "finished" | "failed", error: string | null = null): Promise<void> {
+  const execution = currentExecution();
+  const where = execution ? "workflow_run_id = $3" : "id = (SELECT max(id) FROM run_attempts WHERE run_id = $3::bigint)";
+  await db.run(`UPDATE run_attempts SET state = $1, error = COALESCE($2, error), ended_at = now() WHERE ${where} AND state = 'running'`, [state, error, execution ? execution.runId : runId]);
+}
+
 export function runActivities(deps: RunDeps) {
   const catalogue = (): CatalogueSource[] => activeSources(JSON.parse(readFileSync(deps.sourcesFile, "utf8")));
+  const db = () => openDb(deps.dbUrl);
+  // The run's source list: its archived sources.csv, else today's catalogue, archived for the resume.
+  const sourceIds = async (runId: number): Promise<string[]> => {
+    const csv = await deps.store.find(runId, "sources.csv");
+    if (csv) return parse<{ id: string }>(await deps.store.get(csv), { columns: true }).map((s) => s.id);
+    const sources = catalogue();
+    await deps.store.put(runId, "sources.csv", toCsv(SOURCES_HEADER, sources.map((s) => [s.id, s.name, s.bias, s.factuality, s.perspective])));
+    return sources.map((s) => s.id);
+  };
   return {
     // A new run: its row, its source list as an artifact (what prepare replays from), and the last
     // completed run's time for the age filter. A resume: the named run as it was.
     startRun: async (input: DigestInput): Promise<{ runId: number; sourceIds: string[]; lastRun: string | null }> => {
-      const db = openDb(deps.dbPath);
-      try {
-        if (input.resumeRun !== undefined) {
-          const row = db.prepare("SELECT run_at FROM digest_runs WHERE id=?").get(input.resumeRun) as { run_at: string } | undefined;
-          if (!row) throw ApplicationFailure.nonRetryable(`no run ${input.resumeRun} to resume`, "BadInput");
-          const csv = deps.store.find(input.resumeRun, "sources.csv");
-          // Never today's catalogue: a resume refetches what the run was meant to fetch, or nothing.
-          if (!csv) throw ApplicationFailure.nonRetryable(`run ${input.resumeRun} has no sources.csv to resume from`, "MissingInput");
-          const ids = parse<{ id: string }>(deps.store.get(csv), { columns: true }).map((s) => s.id);
-          // A resumed run is running again, owned by this execution: the next run's cleanup of
-          // abandoned runs never takes back a 'running' run's thread writes. A delivered run stays completed.
-          const execution = currentExecution();
-          if (execution !== undefined) db.prepare("UPDATE digest_runs SET status = 'running', workflow_run_id = ? WHERE id = ? AND completed_at IS NULL").run(execution, input.resumeRun);
-          return { runId: input.resumeRun, sourceIds: ids, lastRun: lastCompleted(db, row.run_at) };
-        }
-        // Idempotent per workflow execution: a retry after this execution's INSERT committed gets
-        // that row back rather than a second one, and the guard below never counts it.
-        const execution = currentExecution();
-        const own = execution === undefined ? undefined : db.prepare("SELECT id FROM digest_runs WHERE workflow_run_id = ?").get(execution);
-        const lastRun = lastCompleted(db);
-        const sourceIds = (runId: number): string[] => {
-          const csv = deps.store.find(runId, "sources.csv");
-          if (csv) return parse<{ id: string }>(deps.store.get(csv), { columns: true }).map((s) => s.id);
-          const sources = catalogue();
-          deps.store.put(runId, "sources.csv", toCsv(SOURCES_HEADER, sources.map((s) => [s.id, s.name, s.bias, s.factuality, s.perspective])));
-          return sources.map((s) => s.id);
-        };
-        if (own) {
-          const runId = Number(own["id"]);
-          return { runId, sourceIds: sourceIds(runId), lastRun };
-        }
-        // Both pipelines write digest_runs, so this is the one place a half-applied switch that
-        // armed both is caught: a day already sent, or one still running (under the 4 h run
-        // budget, so a crashed run's stale "running" row does not block the day), is refused.
-        const day = input.runDate || new Date().toISOString().slice(0, 10);
-        if (!input.force) {
-          const clash = db
-            .prepare("SELECT id, status FROM digest_runs WHERE date(run_at) = ? AND (completed_at IS NOT NULL OR (status = 'running' AND run_at >= datetime('now', '-4 hours'))) ORDER BY id DESC LIMIT 1")
-            .get(day);
-          if (clash) throw ApplicationFailure.nonRetryable(`${day} already has run ${String(clash["id"])} (${String(clash["status"])}); start with force to run it again`, "AlreadyRan");
-        }
-        const { lastInsertRowid } = db.prepare("INSERT INTO digest_runs (articles_kept, articles_emailed, git_sha, workflow_run_id) VALUES (NULL, NULL, ?, ?)").run(process.env["GIT_SHA"] ?? null, execution ?? null);
-        const runId = Number(lastInsertRowid);
-        return { runId, sourceIds: sourceIds(runId), lastRun };
-      } finally {
-        db.close();
+      const execution = currentExecution();
+      if (input.resumeRun !== undefined) {
+        const resumed = input.resumeRun;
+        const row = await db().one<{ run_at: string }>("SELECT run_at FROM digest_runs WHERE id=$1", [resumed]);
+        if (!row) throw ApplicationFailure.nonRetryable(`no run ${resumed} to resume`, "BadInput");
+        const csv = await deps.store.find(resumed, "sources.csv");
+        // Never today's catalogue: a resume refetches what the run was meant to fetch, or nothing.
+        if (!csv) throw ApplicationFailure.nonRetryable(`run ${resumed} has no sources.csv to resume from`, "MissingInput");
+        const ids = parse<{ id: string }>(await deps.store.get(csv), { columns: true }).map((s) => s.id);
+        // A resumed run is running again, under a new attempt: the next run's cleanup of abandoned
+        // runs never takes back a 'running' run's thread writes. A delivered run stays completed.
+        if (execution !== undefined)
+          await db().tx(async (t) => {
+            await t.run("UPDATE digest_runs SET status = 'running', outcome = NULL WHERE id = $1 AND completed_at IS NULL", [resumed]);
+            await recordAttempt(t, resumed, execution, input.force ?? false);
+          });
+        return { runId: resumed, sourceIds: ids, lastRun: await lastCompleted(db(), row.run_at) };
       }
+      // Idempotent per workflow execution: a retry after this execution's INSERT committed gets
+      // that row back rather than a second one, and the guard below never counts it.
+      const own = execution === undefined ? undefined : await db().one<{ id: number }>("SELECT run_id AS id FROM run_attempts WHERE workflow_run_id = $1", [execution.runId]);
+      const lastRun = await lastCompleted(db());
+      if (own) return { runId: own.id, sourceIds: await sourceIds(own.id), lastRun };
+      // A day already sent, or one still running (under the 4 h run budget, so a crashed run's stale
+      // "running" row does not block the day), is refused. The check and the insert hold one lock,
+      // so two starts of the same day cannot both pass it.
+      const day = input.runDate || new Date().toISOString().slice(0, 10);
+      const runId = await db().tx(async (t) => {
+        // Again under the lock: an earlier attempt of this execution may have committed while this one waited.
+        const mine = execution === undefined ? undefined : await t.one<{ id: number }>("SELECT run_id AS id FROM run_attempts WHERE workflow_run_id = $1", [execution.runId]);
+        if (mine) return mine.id;
+        if (!input.force) {
+          const clash = await t.one<{ id: number; status: string }>(
+            "SELECT id, status FROM digest_runs WHERE (run_at AT TIME ZONE 'UTC')::date = $1::date AND (completed_at IS NOT NULL OR (status = 'running' AND run_at >= now() - interval '4 hours')) ORDER BY id DESC LIMIT 1",
+            [day],
+          );
+          if (clash) throw ApplicationFailure.nonRetryable(`${day} already has run ${clash.id} (${clash.status}); start with force to run it again`, "AlreadyRan");
+        }
+        const inserted = await t.one<{ id: number }>("INSERT INTO digest_runs (articles_kept, articles_emailed, git_sha) VALUES (NULL, NULL, $1) RETURNING id", [process.env["GIT_SHA"] ?? null]);
+        if (execution !== undefined) await recordAttempt(t, inserted!.id, execution, input.force ?? false);
+        return inserted!.id;
+      }, "startRun");
+      return { runId, sourceIds: await sourceIds(runId), lastRun };
     },
 
     // One source: GET, parse, keep what is newer than the last run, archive the raw rows and a health
     // row. Idempotent per run and source, so a resume never refetches. A parse failure is a result
     // (recorded, not retried); a network failure throws for the network retry policy.
     fetchFeed: async (runId: number, sourceId: string, lastRun: string | null): Promise<{ sourceId: string; ok: boolean; fetched: number; kept: number; error?: string }> => {
-      const db = openDb(deps.dbPath);
+      const health = await db().one<{ success: boolean; error: string | null; fetched: number; kept: number }>(
+        "SELECT success, error_message AS error, articles_fetched AS fetched, articles_kept AS kept FROM source_health WHERE run_id=$1 AND source_id=$2",
+        [runId, sourceId],
+      );
+      if (health) return { sourceId, ok: health.success, fetched: health.fetched, kept: health.kept, ...(health.error ? { error: health.error } : {}) };
+      const source = catalogue().find((s) => s.id === sourceId);
+      if (!source) throw ApplicationFailure.nonRetryable(`${sourceId} is not an active source`, "BadInput");
+      let body: string;
       try {
-        const health = db.prepare("SELECT success, error_message AS error, articles_fetched AS fetched, articles_kept AS kept FROM source_health WHERE run_id=? AND source_id=?").get(runId, sourceId) as { success: number; error: string | null; fetched: number; kept: number } | undefined;
-        if (health) return { sourceId, ok: health.success === 1, fetched: health.fetched, kept: health.kept, ...(health.error ? { error: health.error } : {}) };
-        const source = catalogue().find((s) => s.id === sourceId);
-        if (!source) throw ApplicationFailure.nonRetryable(`${sourceId} is not an active source`, "BadInput");
-        let body: string;
-        try {
-          const res = await (deps.fetch ?? fetch)(source.url, { headers: { "User-Agent": "Mozilla/5.0" }, signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
-          if (!res.ok) throw new Error(`HTTP ${res.status}`);
-          body = await res.text();
-        } catch (e) {
-          // Every source's outcome is recorded, as the Python records it: retry while attempts remain,
-          // and on the last one write the failure so health and alerting see it.
-          if (currentAttempt() < (deps.maxAttempts ?? NETWORK_MAX_ATTEMPTS)) throw e;
-          const error = `Failed after ${deps.maxAttempts ?? NETWORK_MAX_ATTEMPTS} attempts: ${String(e).slice(0, 200)}`;
-          db.prepare("INSERT INTO source_health (source_id, success, error_message, articles_fetched, articles_kept, run_id) VALUES (?, 0, ?, 0, 0, ?)").run(sourceId, error, runId);
-          return { sourceId, ok: false, fetched: 0, kept: 0, error };
-        }
-        let articles: Fetched[];
-        let error: string | undefined;
-        try {
-          articles = parseArticles(body);
-        } catch (e) {
-          articles = [];
-          error = `Feed parse error: ${String(e).slice(0, 200)}`;
-        }
-        const kept = newerThan(articles, lastRun);
-        const ins = db.prepare("INSERT INTO fetched_articles (run_id, source_id, title, url, published, summary) VALUES (?, ?, ?, ?, ?, ?)");
-        db.exec("BEGIN");
-        for (const a of kept) ins.run(runId, sourceId, a.title, a.url, a.published, a.summary);
-        db.prepare("INSERT INTO source_health (source_id, success, error_message, articles_fetched, articles_kept, run_id) VALUES (?, ?, ?, ?, ?, ?)").run(sourceId, error ? 0 : 1, error ?? null, articles.length, kept.length, runId);
-        db.exec("COMMIT");
-        return { sourceId, ok: !error, fetched: articles.length, kept: kept.length, ...(error ? { error } : {}) };
-      } finally {
-        db.close();
+        const res = await (deps.fetch ?? fetch)(source.url, { headers: { "User-Agent": "Mozilla/5.0" }, signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        body = await res.text();
+      } catch (e) {
+        // Every source's outcome is recorded, as the Python records it: retry while attempts remain,
+        // and on the last one write the failure so health and alerting see it.
+        if (currentAttempt() < (deps.maxAttempts ?? NETWORK_MAX_ATTEMPTS)) throw e;
+        const error = `Failed after ${deps.maxAttempts ?? NETWORK_MAX_ATTEMPTS} attempts: ${String(e).slice(0, 200)}`;
+        await db().run("INSERT INTO source_health (source_id, success, error_message, articles_fetched, articles_kept, run_id) VALUES ($1, false, $2, 0, 0, $3)", [sourceId, error, runId]);
+        return { sourceId, ok: false, fetched: 0, kept: 0, error };
       }
+      let articles: Fetched[];
+      let error: string | undefined;
+      try {
+        articles = parseArticles(body);
+      } catch (e) {
+        articles = [];
+        error = `Feed parse error: ${String(e).slice(0, 200)}`;
+      }
+      const kept = newerThan(articles, lastRun);
+      await db().tx(async (t) => {
+        for (const a of kept) await t.run("INSERT INTO fetched_articles (run_id, source_id, title, url, published, summary) VALUES ($1, $2, $3, $4, $5, $6)", [runId, sourceId, a.title, a.url, a.published, a.summary]);
+        await t.run("INSERT INTO source_health (source_id, success, error_message, articles_fetched, articles_kept, run_id) VALUES ($1, $2, $3, $4, $5, $6)", [sourceId, !error, error ?? null, articles.length, kept.length, runId]);
+      });
+      return { sourceId, ok: !error, fetched: articles.length, kept: kept.length, ...(error ? { error } : {}) };
     },
 
     // completed_at is what "readers saw this run" means to every context query, so only a sent digest
-    // sets it; any other ending leaves it NULL and its status says why (rejected, disabled, skipped).
+    // sets it; any other ending leaves it NULL and its outcome says why (rejected, disabled, skipped).
     // db.complete_run: articles_emailed is the send's recipient count (the column is misnamed), and
     // articles_kept the fetch-time count, SUM(source_health.articles_kept), as the Python snapshots it.
     finishRun: async (runId: number, out: Omit<DigestOutput, "runId">): Promise<void> => {
-      const db = openDb(deps.dbPath);
-      try {
+      await db().tx(async (t) => {
         if (out.broadcast === "sent")
-          db.prepare("UPDATE digest_runs SET completed_at = COALESCE(completed_at, datetime('now', 'utc')), status='completed', articles_emailed=?, articles_kept=(SELECT SUM(articles_kept) FROM source_health WHERE run_id=?) WHERE id=?").run(out.recipients ?? 0, runId, runId);
-        else db.prepare("UPDATE digest_runs SET status=? WHERE id=? AND completed_at IS NULL").run(out.broadcast, runId);
-      } finally {
-        db.close();
-      }
+          await t.run(
+            "UPDATE digest_runs SET completed_at = COALESCE(completed_at, now()), status='completed', outcome='sent', articles_emailed=$1, articles_kept=(SELECT SUM(articles_kept) FROM source_health WHERE run_id=$2) WHERE id=$2",
+            [out.recipients ?? 0, runId],
+          );
+        else await t.run("UPDATE digest_runs SET status='completed', outcome=$1 WHERE id=$2 AND completed_at IS NULL", [out.broadcast, runId]);
+        await endAttempt(t, runId, "finished");
+      });
     },
   };
 }

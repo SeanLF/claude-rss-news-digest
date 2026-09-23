@@ -6,9 +6,10 @@ import { feedHealthAlert } from "../ops/feed-health.js";
 import { healthcheck } from "../ops/healthcheck.js";
 import { coherenceKindCounts, getRunHealth, threadsEnabled, violations } from "../ops/run-health.js";
 import { openDb } from "../store/db.js";
+import { threadsConfigFrom } from "./threads.js";
 
 export interface OpsDeps {
-  dbPath: string;
+  dbUrl: string;
   env: Record<string, string | undefined>;
   // The attempts the workflow's alert policy allows; only the last one gives up on a send.
   maxAttempts: number;
@@ -35,39 +36,33 @@ export function opsActivities(deps: OpsDeps) {
     healthcheckLog: (message: string): Promise<void> => hc.log(message),
 
     // Feeds that keep failing, as run.py alerts on source_health after the fetch.
-    checkFeeds: (runId: number, sourceIds: string[]): Promise<AlertRequest | null> => {
-      const db = openDb(deps.dbPath);
+    checkFeeds: async (runId: number, sourceIds: string[]): Promise<AlertRequest | null> => {
       try {
-        return Promise.resolve(feedHealthAlert(db, runId, sourceIds, Number(deps.env["HEALTH_ALERT_THRESHOLD"] ?? 3)));
+        return await feedHealthAlert(openDb(deps.dbUrl), runId, sourceIds, Number(deps.env["HEALTH_ALERT_THRESHOLD"] ?? 3));
       } catch (e) {
         console.error(`feed-health check FAILED to run for run ${runId} (non-fatal): ${String(e)}`);
-        return Promise.resolve(null);
-      } finally {
-        db.close();
+        return null;
       }
     },
 
     // run.py's _alert_on_run_health and _log_coherence_kinds on a finished run. Not knowing whether an
     // invariant held is strictly better than turning a delivered digest into a failed run.
-    checkRunHealth: (runId: number, broadcasting: boolean): Promise<AlertRequest | null> => {
-      let db: ReturnType<typeof openDb> | undefined;
+    checkRunHealth: async (runId: number, broadcasting: boolean): Promise<AlertRequest | null> => {
       try {
-        db = openDb(deps.dbPath);
-        const report = db.prepare("SELECT content FROM run_artifacts WHERE run_id=? AND artifact_name='coherence_report.json'").get(runId) as { content: string } | undefined;
+        const db = openDb(deps.dbUrl);
+        const report = await db.one<{ content: string }>("SELECT content FROM run_artifacts WHERE run_id=$1 AND artifact_name='coherence_report.json' AND state='current'", [runId]);
         const kinds = coherenceKindCounts(report?.content);
         if (kinds) console.log(JSON.stringify({ stage: "coherence", runId, failureKinds: kinds }));
-        const health = getRunHealth(db, runId, { broadcasting, threadsEnabled: threadsEnabled(deps.env), usageRowsDropped: 0 });
+        const health = await getRunHealth(db, runId, { broadcasting, threadsEnabled: threadsEnabled(deps.env), usageRowsDropped: 0, dormantAfter: threadsConfigFrom(deps.env).dormantAfter });
         if (health.dropped_continuations) console.warn(`Run ${runId}: ${health.dropped_continuations} story/stories lost a proposed thread continuation to one already claimed this run, and shipped as new threads`);
         const found = violations(health);
-        if (!found.length) return Promise.resolve(null);
+        if (!found.length) return null;
         // Logged before any send: if the send fails or alerting is off, this line is the only copy.
         console.error(`Run ${runId} violated post-run invariants: ${found.join("; ")}`);
-        return Promise.resolve({ kind: "run-health", runId, violations: found });
+        return { kind: "run-health", runId, violations: found };
       } catch (e) {
         console.error(`run-health check FAILED to run for run ${runId} (non-fatal): ${String(e)}`);
-        return Promise.resolve(null);
-      } finally {
-        db?.close();
+        return null;
       }
     },
 
@@ -76,15 +71,11 @@ export function opsActivities(deps: OpsDeps) {
       let req = request;
       if (req.kind === "run-failed" && req.runId !== null) {
         const runId = req.runId;
-        let db: ReturnType<typeof openDb> | undefined;
         try {
-          db = openDb(deps.dbPath);
-          const day = broadcastState(db, runId);
+          const day = await broadcastState(openDb(deps.dbUrl), runId);
           if (day) req = { ...req, broadcastStatus: day.status, date: day.date };
         } catch (e) {
           console.error(`could not read the day's broadcast state for run ${runId}: ${String(e)}`); // the alert goes anyway
-        } finally {
-          db?.close();
         }
       }
       await sendAlert(req, { env: deps.env, send, attempt, maxAttempts: deps.maxAttempts, ...(key ? { idempotencyKey: key } : {}) });

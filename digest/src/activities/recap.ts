@@ -22,7 +22,7 @@ export interface RecapDeps {
   agentsDir: string;
   query?: SdkQuery;
   heartbeat?: () => void;
-  onUsage?: (row: UsageRow) => void;
+  onUsage?: (row: UsageRow) => void | Promise<void>;
 }
 
 // The first real activity. Idempotent on output (spec §2.1): a valid archived recap is returned
@@ -31,26 +31,26 @@ export interface RecapDeps {
 export function recapActivity(deps: RecapDeps): (runId: number, force?: boolean) => Promise<Pointer> {
   return async (runId, force = false) => {
     const { store } = deps;
-    const existing = store.find(runId, RECAP_OUTPUT);
+    const existing = await store.find(runId, RECAP_OUTPUT);
     if (existing && !force) {
-      if (validRecap(store.get(existing))) return existing;
-      store.quarantine(runId, RECAP_OUTPUT);
+      if (validRecap(await store.get(existing))) return existing;
+      await store.quarantine(runId, RECAP_OUTPUT);
     }
-    const input = store.find(runId, RECAP_INPUT);
+    const input = await store.find(runId, RECAP_INPUT);
     if (!input) throw ApplicationFailure.nonRetryable(`run ${runId} has no ${RECAP_INPUT}; prepare has not run`, "MissingInput");
-    const titles = store.get(input);
+    const titles = await store.get(input);
     assertNoUrls(titles); // the invariant, checked where text leaves code (spec §1)
     const spec = parseAgentSpec(readFileSync(join(deps.agentsDir, "recap.md"), "utf8"));
     deps.heartbeat?.();
     const r = await runStage(
       spec,
       { userMessage: `Recent RSS titles (title,date):\n\n${titles}`, inputDir: tmpdir() },
-      { today: store.runDate(runId), ...(deps.query ? { query: deps.query } : {}), ...(deps.heartbeat ? { heartbeat: deps.heartbeat } : {}), ...(deps.signal?.() ? { signal: deps.signal()! } : {}) },
+      { today: await store.runDate(runId), ...(deps.query ? { query: deps.query } : {}), ...(deps.heartbeat ? { heartbeat: deps.heartbeat } : {}), ...(deps.signal?.() ? { signal: deps.signal()! } : {}) },
     );
     deps.heartbeat?.();
-    deps.onUsage?.({ model: spec.model, thinking: spec.thinking, effort: r.effort, tokens: r.usage, stage: "recap", runId, costUsd: r.costUsd, durationMs: r.durationMs, numTurns: r.numTurns });
+    await deps.onUsage?.({ model: spec.model, thinking: spec.thinking, prompt: spec, effort: r.effort, tokens: r.usage, stage: "recap", runId, costUsd: r.costUsd, durationMs: r.durationMs, numTurns: r.numTurns });
     const text = r.text.trim();
     if (!validRecap(text)) throw new Error(`recap for run ${runId}: model returned an empty recap`);
-    return force ? store.replace(runId, RECAP_OUTPUT, text) : store.put(runId, RECAP_OUTPUT, text);
+    return force ? await store.replace(runId, RECAP_OUTPUT, text) : await store.put(runId, RECAP_OUTPUT, text);
   };
 }

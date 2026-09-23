@@ -123,12 +123,26 @@ digest-start: ## Start one DigestWorkflow on local Temporal and wait for it (usa
 digest-schedule: ## Create or update the daily 10:25Z schedule on local Temporal
 	docker compose --env-file .env -f digest/compose.temporal.yml run --rm digest-worker node dist/cli/schedule.js
 
+import-check: ## Import a copy of the prod clone into a fresh Postgres and hold it to the design's §5.1 and prepare's parity (SRC=data/prod-20260923b.db; host-only, ~1 min)
+	@src=$${SRC:-data/prod-20260923b.db}; copy=data/import-check.db; db=import_check; \
+	test -r "$$src" || { echo "no $$src (make db-clone)"; exit 2; }; \
+	rm -f "$$copy" && cp -c "$$src" "$$copy" && \
+	docker compose up -d --wait digest-pg && \
+	docker compose exec -T digest-pg psql -q -U postgres -c "DROP DATABASE IF EXISTS $$db" -c "CREATE DATABASE $$db" && \
+	IMPORT_NETWORK=$$(docker inspect -f '{{range $$k, $$v := .NetworkSettings.Networks}}{{$$k}}{{end}}' $$(docker compose ps -q digest-pg)) \
+	  bin/import-legacy "$$copy" "postgres://postgres:digest@digest-pg:5432/$$db?sslmode=disable" && \
+	docker compose run --rm --build -e IMPORTED_CLONE_URL="postgres://postgres:digest@digest-pg:5432/$$db?sslmode=disable" \
+	  -e PARITY_DATABASE_URL="postgres://postgres:digest@digest-pg:5432/$$db?sslmode=disable" \
+	  ci-ts npx vitest run src/store/import.clone.test.ts src/prepare/prepare.parity.test.ts; status=$$?; rm -f "$$copy"; exit $$status
+
 band: ## Same-day curation band of the TypeScript workflow via promptfoo (RUN=300 DATE=2026-09-18 REPS=3; model calls, ~$4/rep)
-	@stamp=$$(date -u +%Y%m%dT%H%M%SZ); cp data/digest.db data/band-$$stamp.db; \
-	DIGEST_DB_PATH=/app/data/band-$$stamp.db docker compose --env-file .env -f digest/compose.temporal.yml up -d --build && \
+	@stamp=band_$$(date -u +%Y%m%dT%H%M%SZ | tr 'A-Z' 'a-z'); \
+	docker compose --env-file .env -f digest/compose.temporal.yml up -d --wait digest-db && \
+	docker compose --env-file .env -f digest/compose.temporal.yml exec -T digest-db psql -q -U postgres -c "CREATE DATABASE $$stamp TEMPLATE digest" && \
+	DIGEST_DB_NAME=$$stamp docker compose --env-file .env -f digest/compose.temporal.yml up -d --build && \
 	docker compose --env-file .env -f digest/compose.temporal.yml exec -T digest-worker node dist/cli/set-current.js && \
-	(cd digest && npm run build && BAND_DB=../data/band-$$stamp.db npx --yes promptfoo@0.123.1 eval -c gate/band.yaml --repeat $${REPS:-3} -j 1 --no-cache -o ../data/band-$$stamp.json); status=$$?; \
-	env -u DIGEST_DB_PATH docker compose --env-file .env -f digest/compose.temporal.yml up -d --force-recreate digest-worker >/dev/null; exit $$status  # the worker goes back to data/digest.db
+	(cd digest && npm run build && BAND_DB=postgres://postgres:digest@127.0.0.1:5433/$$stamp npx --yes promptfoo@0.123.1 eval -c gate/band.yaml --repeat $${REPS:-3} -j 1 --no-cache -o ../data/$$stamp.json); status=$$?; \
+	docker compose --env-file .env -f digest/compose.temporal.yml up -d --force-recreate digest-worker >/dev/null; exit $$status  # the worker goes back to the digest database
 
 judges: ## Two judge families x5 (REPS=5) on a gate fixture (FIXTURE=day-300, or e.g. day-305/python) via promptfoo, in the worker container (model calls, ~$5)
 	@stamp=$$(date -u +%Y%m%dT%H%M%SZ); fx=$${FIXTURE:-day-300}; test -f docs/proposed/gate-fixtures/$$fx/digest.html || { echo "no fixture docs/proposed/gate-fixtures/$$fx/{digest.html,inputs/}"; exit 2; }; \

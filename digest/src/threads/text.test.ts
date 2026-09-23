@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { cleanQuestions, deltaFromFacts, slugify, whatsNew } from "./text.js";
+import { cleanQuestions, deltaFromFacts, whatsNew } from "./text.js";
 
 // Cases carried from newsroom/tests/test_threads.py.
 describe("deltaFromFacts", () => {
@@ -43,16 +43,11 @@ describe("cleanQuestions", () => {
   });
 });
 
-describe("whatsNew and slugify", () => {
+describe("whatsNew", () => {
   it("reads whats_new, and nothing from missing or corrupt content", () => {
     expect(whatsNew(JSON.stringify({ whats_new: [{ fact: "x" }] }))).toEqual([{ fact: "x" }]);
     expect(whatsNew(null)).toEqual([]);
     expect(whatsNew("{not json")).toEqual([]);
     expect(whatsNew("[1]")).toEqual([]);
-  });
-  it("slugifies as threads._slugify does", () => {
-    expect(slugify("US-Iran talks: round 2!")).toBe("us-iran-talks-round-2");
-    expect(slugify("¡¡¡")).toBe("thread");
-    expect(slugify("a".repeat(70))).toHaveLength(60);
   });
 });

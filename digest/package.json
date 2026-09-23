@@ -22,6 +22,7 @@
     "@temporalio/workflow": "1.24.0",
     "csv-parse": "7.0.2",
     "csv-stringify": "6.8.3",
+    "dbmate": "2.36.0",
     "entities": "8.1.0",
     "escape-goat": "4.0.0",
     "feedsmith": "3.0.0",
@@ -31,14 +32,17 @@
     "mrml": "1.6.1",
     "p-retry": "8.0.1",
     "parse5": "8.0.1",
+    "pg": "8.23.0",
     "resend": "6.28.1",
     "zod": "4.6.5"
   },
   "devDependencies": {
+    "@electric-sql/pglite": "0.5.8",
     "@mozilla/readability": "0.6.0",
     "@temporalio/proto": "1.24.0",
     "@temporalio/testing": "1.24.0",
     "@types/node": "26.6.2",
+    "@types/pg": "8.23.1",
     "defuddle": "0.19.4",
     "dom-smoothie-js": "0.16.0",
     "linkedom": "0.18.13",
@@ -56,6 +60,9 @@
     "@temporalio/core-bridge@1.24.0": true
   },
   "optionalDependencies": {
+    "@dbmate/darwin-arm64": "2.36.0",
+    "@dbmate/linux-arm64": "2.36.0",
+    "@dbmate/linux-x64": "2.36.0",
     "@oxlint-tsgolint/darwin-arm64": "7.0.2002",
     "@oxlint-tsgolint/linux-arm64": "7.0.2002",
     "@oxlint-tsgolint/linux-x64": "7.0.2002",

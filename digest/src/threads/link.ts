@@ -117,12 +117,12 @@ export function validateLinks(links: Links, active: ActiveThread[], n: number): 
 // resolve_threads after the linker has answered: continue each validly-linked thread at most once
 // per run, start a new thread for everything else, and record why a proposal was refused. Writes
 // through `store`; the caller owns the transaction.
-export function assignThreads(store: ThreadStore, stories: StoryLabel[], runId: number, active: ActiveThread[], mapping: (number | null)[], health: LinkHealth): { assignments: Assignment[]; trace: LinkTrace } {
+export async function assignThreads(store: ThreadStore, stories: StoryLabel[], runId: number, active: ActiveThread[], mapping: (number | null)[], health: LinkHealth): Promise<{ assignments: Assignment[]; trace: LinkTrace }> {
   const offered = new Set(active.map((t) => t.thread_id));
   const claimed = new Set<number>();
   const assignments: Assignment[] = [];
   const trace: LinkTrace = { linker_ok: health.ok, proposed: health.proposed, validated: health.validated, candidates: active, stories: [] };
-  stories.forEach((st, i) => {
+  for (const [i, st] of stories.entries()) {
     const tid = i < mapping.length ? (mapping[i] ?? null) : null;
     let refused: StoryTrace["refused"] = null;
     if (tid !== null) {
@@ -136,14 +136,13 @@ export function assignThreads(store: ThreadStore, stories: StoryLabel[], runId: 
     trace.stories.push({ story_index: i, label: st.story, article_ids: [...st.article_ids], proposed_thread: tid, refused, outcome: continued ? "continued" : "new" });
     if (continued) {
       claimed.add(tid);
-      store.touchThread(tid, st.story, runId);
-      store.recordInstallment(tid, runId, st.story, false);
+      await store.recordInstallment(tid, runId, st.story, false);
       assignments.push({ thread_id: tid, is_new: false, story: st.story, article_ids: [...st.article_ids] });
     } else {
-      const id = store.createThread(st.story, runId);
-      store.recordInstallment(id, runId, st.story, true);
+      const id = await store.createThread(runId);
+      await store.recordInstallment(id, runId, st.story, true);
       assignments.push({ thread_id: id, is_new: true, story: st.story, article_ids: [...st.article_ids] });
     }
-  });
+  }
   return { assignments, trace };
 }

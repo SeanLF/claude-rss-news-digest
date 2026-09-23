@@ -3,7 +3,7 @@ import { DatabaseSync } from "node:sqlite";
 import { transform } from "lightningcss";
 import { describe, expect, it } from "vitest";
 import { CSS_TARGETS } from "./web.js";
-import { attachThreads, issueNumber, loadAssets, renderEmail, renderWeb, resolveArticleIds, type RenderEnv, type RenderInput, type Selections, type Story, type ThreadContext } from "./render.js";
+import { attachThreads, loadAssets, renderEmail, renderWeb, resolveArticleIds, type RenderEnv, type RenderInput, type Selections, type Story, type ThreadContext } from "./render.js";
 
 // Host-only: the production DB clone and the Python oracle's renders are not in the CI image.
 // bin/render-oracle RUN... writes the oracle: the Python render of each archived run (at its
@@ -49,6 +49,11 @@ function withFirstSources(input: RenderInput, pick: (s: Story["sources"]) => Sto
   return { ...input, selections: { ...input.selections, must_know: [{ ...first!, sources: pick(first!.sources) }, ...rest] } };
 }
 
+// db.get_issue_number over the legacy file the oracle rendered from (the product schema's is issueNumber).
+function legacyIssueNumber(db: DatabaseSync, date: string): number {
+  const { n } = db.prepare("SELECT COUNT(*) AS n FROM digests WHERE date <= ?").get(date) as { n: number };
+  return db.prepare("SELECT 1 FROM digests WHERE date = ?").get(date) ? n : n + 1;
+}
 interface Case { name: string; env: RenderEnv; input: () => RenderInput; oracle: string }
 function cases(db: DatabaseSync): Case[] {
   const out: Case[] = [];
@@ -65,7 +70,7 @@ function cases(db: DatabaseSync): Case[] {
       const threads = JSON.parse(readFileSync(`${oracle}/thread_context.json`, "utf8")) as Record<string, ThreadContext>;
       out.push({ name: dir, env, oracle, input: () => {
         const resolved = resolveArticleIds(JSON.parse(art("selections.json")) as Selections, JSON.parse(art("article_index.json")) as Record<string, Record<string, unknown>>);
-        return { selections: attachThreads(resolved, threads), now, issueNo: issueNumber(db, at.slice(0, 10)), env, assets };
+        return { selections: attachThreads(resolved, threads), now, issueNo: legacyIssueNumber(db, at.slice(0, 10)), env, assets };
       } });
     } else {
       out.push({ name: dir, env, oracle, input: () => ({ selections: JSON.parse(readFileSync(FIXTURES[m[1]!]!, "utf8")) as Selections, now: FIXTURE_AT, issueNo: null, env, assets }) });

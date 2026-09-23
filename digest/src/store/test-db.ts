@@ -1,19 +1,23 @@
-import { mkdtempSync, readFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { DatabaseSync } from "node:sqlite";
+import { openDb, registerDb } from "./db.js";
+import { emptyPglite, pgliteDb } from "./pglite.js";
+import { RESET_IDENTITIES } from "./schema.js";
 
-// A fresh database on the repo's own migrations, so the schema under test is production's.
-const MIGRATIONS = new URL("../../../migrations/", import.meta.url).pathname;
-
-export function freshDb(runIds: number[] = [300]): string {
-  const path = join(mkdtempSync(join(tmpdir(), "digest-")), "digest.db");
-  const db = new DatabaseSync(path);
-  db.exec("CREATE TABLE digest_runs (id INTEGER PRIMARY KEY AUTOINCREMENT, run_at DATETIME DEFAULT CURRENT_TIMESTAMP, articles_kept INTEGER, articles_emailed INTEGER DEFAULT 0, completed_at DATETIME, git_sha TEXT, status TEXT NOT NULL DEFAULT 'running', error TEXT)");
-  db.exec("CREATE TABLE fetched_articles (id INTEGER PRIMARY KEY AUTOINCREMENT, run_id INTEGER, source_id TEXT NOT NULL, title TEXT NOT NULL, url TEXT NOT NULL, published TEXT, summary TEXT, fetched_at DATETIME DEFAULT (datetime('now', 'utc')))");
-  db.exec("CREATE TABLE source_health (id INTEGER PRIMARY KEY AUTOINCREMENT, source_id TEXT NOT NULL, success INTEGER NOT NULL, error_message TEXT, recorded_at DATETIME DEFAULT (datetime('now', 'utc')), articles_fetched INTEGER, articles_kept INTEGER, run_id INTEGER)");
-  for (const id of runIds) db.prepare("INSERT INTO digest_runs (id, run_at) VALUES (?, ?)").run(id, "2026-09-18 10:25:40"); // node:sqlite enforces the FK the Python side leaves off
-  for (const f of ["20260615100000_add_run_artifacts.sql", "20260729120000_unique_run_artifact_per_run.sql", "20260923120000_add_digest_runs_workflow_run_id.sql"]) db.exec(readFileSync(join(MIGRATIONS, f), "utf8"));
-  db.close();
-  return path;
+// A database key for tests: the process's PGlite, emptied, holding the given runs. The previous key
+// stops working, so a test that kept an older database fails loudly instead of reading this one.
+let generation = 0;
+export async function migratedDb(runs: { id: number; runAt: string }[] = []): Promise<string> {
+  const pg = await emptyPglite();
+  const key = `pglite:${++generation}`;
+  const mine = generation;
+  registerDb(key, () => {
+    if (mine !== generation) throw new Error(`${key} was emptied for a newer test database`);
+    return pgliteDb(pg);
+  });
+  const db = openDb(key);
+  for (const r of runs) await db.run("INSERT INTO digest_runs (id, run_at) VALUES ($1, $2)", [r.id, r.runAt]);
+  await db.exec(RESET_IDENTITIES);
+  return key;
 }
+
+// The given runs, all on 2026-09-18.
+export const freshDb = (runIds: number[] = [300]): Promise<string> => migratedDb(runIds.map((id) => ({ id, runAt: "2026-09-18 10:25:40" })));
