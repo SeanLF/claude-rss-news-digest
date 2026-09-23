@@ -7,5 +7,7 @@ export const NETWORK_MAX_ATTEMPTS = 3;
 export const OPS_MAX_ATTEMPTS = 3;
 // The weekly recap fails fast, as the Python's does: riding out an outage is SELECT's job, not its.
 export const WEEKLY_RECAP_MAX_ATTEMPTS = 3;
+// The workflow's run timeout, in hours; also how long a failed run can still be resumed.
+export const RUN_TIMEOUT_HOURS = 4;
 // The Python worker's queue (digest/python/worker.py): the activities that stay in Python.
 export const PYTHON_TASK_QUEUE = "python";

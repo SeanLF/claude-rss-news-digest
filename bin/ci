@@ -4,6 +4,7 @@ Local CI - run all checks in Docker for reproducibility.
 
 Usage:
     bin/ci           Run all checks (in Docker)
+    bin/ci --staged  Run only the suites the staged paths reach (the pre-commit hook)
     bin/ci --fix     Auto-fix style issues
     bin/ci --full    Include cargo audit (slow, runs by default in deploy)
     bin/ci --local   Run locally (skip Docker)
@@ -12,7 +13,70 @@ Usage:
 import os
 import subprocess
 import sys
+import time
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+
+PYTHON, RUST, TS, WORKER = "python", "rust", "ts", "worker"
+ALL_SUITES = frozenset({PYTHON, RUST, TS, WORKER})
+
+# A path narrows the run only when it clearly belongs to one suite's inputs; every other path runs
+# everything. First match wins, so the shared paths sit above the prefixes that would claim them.
+# test_ci_scope.py holds this table to the COPY and bind-mount lists that define each container.
+_SCOPE: tuple[tuple[str, frozenset[str]], ...] = (
+    # Read by more than one container (ci-ts COPY, ci-rust bind mounts, the newsroom tests).
+    ("newsroom/templates/", ALL_SUITES),
+    ("newsroom/tests/fixtures/", ALL_SUITES),
+    ("newsroom/sources.json", ALL_SUITES),
+    # Baked into the Python worker's image (digest/python/Dockerfile) and tested in newsroom.
+    ("newsroom/src/fulltext.py", frozenset({PYTHON, WORKER})),
+    ("newsroom/src/gnews.py", frozenset({PYTHON, WORKER})),
+    ("newsroom/src/config.py", frozenset({PYTHON, WORKER})),
+    ("newsroom/Dockerfile.ci", ALL_SUITES),  # the ci image runs bin/ci itself
+    ("newsroom/", frozenset({PYTHON})),
+    # Read by newsroom tests: test_markdown_chrome_contract.py, and test_sbom_exceptions.py, which
+    # holds the SBOM gate's pins and exceptions to these lockfiles.
+    ("circulation/src/markdown.rs", frozenset({RUST, PYTHON})),
+    ("circulation/Cargo.lock", frozenset({RUST, PYTHON})),
+    ("digest/package-lock.json", frozenset({TS, PYTHON})),
+    ("digest/python/pyproject.toml", frozenset({WORKER, TS, PYTHON})),
+    ("circulation/", frozenset({RUST})),
+    # The ci-ts image COPYs all of digest/, python/ included.
+    ("digest/python/", frozenset({WORKER, TS})),
+    ("digest/", frozenset({TS})),
+)
+
+
+def suites_for(paths: list[str]) -> frozenset[str]:
+    """The suites a set of changed paths reaches. A path no rule claims reaches every suite."""
+    suites: set[str] = set()
+    for path in paths:
+        # Container definitions are what test_ci_scope.py reads to check this table, so a change
+        # to any of them must run that test (Python) as well as the suite it builds.
+        name = path.rsplit("/", 1)[-1]
+        if name.startswith("Dockerfile") or name == ".dockerignore" or (
+            name.startswith("docker-compose") and name.endswith((".yml", ".yaml"))
+        ):
+            return ALL_SUITES
+        for prefix, owners in _SCOPE:
+            if path == prefix or (prefix.endswith("/") and path.startswith(prefix)):
+                suites |= owners
+                break
+        else:
+            return ALL_SUITES
+    return frozenset(suites)
+
+
+def staged_paths() -> list[str] | None:
+    """Both sides of every staged change (renames split), or None when git cannot say."""
+    result = subprocess.run(
+        ["git", "diff", "--cached", "--name-only", "--no-renames", "-z"],
+        cwd=ROOT,
+        capture_output=True,
+    )
+    if result.returncode != 0:
+        return None
+    return [p for p in result.stdout.decode().split("\0") if p]
 
 # ANSI color codes
 PURPLE = "\033[35m"
@@ -27,99 +91,76 @@ IN_DOCKER = os.environ.get("IN_DOCKER") == "1"
 QUIET = os.environ.get("CLAUDECODE") == "1"
 
 
-def run_in_docker() -> int:
-    """Run CI via docker compose (Python + Rust in parallel)."""
-    print(f"{BOLD}{PURPLE}Running CI in Docker...{RESET}\n")
+def suite_commands(fix_mode: bool, full_mode: bool, ci_args: list[str]) -> dict[str, list[str]]:
+    """The docker compose command each suite runs as, keyed by suite."""
+    fmt_cmd = "cargo fmt" if fix_mode else "cargo fmt --check"
+    rust_parts = [fmt_cmd, "cargo clippy -- -D warnings", "cargo test"]
+    if full_mode:
+        rust_parts.insert(2, "cargo audit")
+    return {
+        PYTHON: ["docker", "compose", "run", "--rm", "--build", "ci", *ci_args],
+        RUST: ["docker", "compose", "run", "--rm", "ci-rust", " && ".join(rust_parts)],
+        TS: ["docker", "compose", "run", "--rm", "--build", "ci-ts", "sh", "-c", TS_CMD],
+        WORKER: [
+            "docker", "compose", "run", "--rm", "--build", "ci-python",
+            "python", "-m", "pytest", "-q", "-p", "no:cacheprovider", "test_worker.py",
+        ],
+    }
 
+
+# Typecheck and lint (about 1 s together) run before vitest, not in its wake; every step runs, so
+# one failure hides no other. A tsgolint killed for memory shows only "Error running tsgolint".
+TS_CMD = "npm run typecheck; t=$?; npm run lint; l=$?; npm test; v=$?; [ $t -eq 0 ] && [ $l -eq 0 ] && [ $v -eq 0 ]"
+
+SUITE_NAMES = {PYTHON: "Python CI", RUST: "Rust CI", TS: "TypeScript CI", WORKER: "Python worker CI"}
+
+
+def run_in_docker() -> int:
+    """Run CI via docker compose, one container per suite, all in parallel."""
     args = sys.argv[1:]
     fix_mode = "--fix" in args
     full_mode = "--full" in args
-    # Pass --full through so the Python CI container runs the dependency audit (pip-audit).
-    ci_args = list(args)
+    # Pass --fix/--full through so the Python CI container fixes or runs the dependency audit.
+    ci_args = [a for a in args if a != "--staged"]
+
+    suites = ALL_SUITES
+    if "--staged" in args:
+        paths = staged_paths()
+        suites = ALL_SUITES if paths is None else suites_for(paths)
+    if not suites:
+        print(f"{GREEN}No staged paths reach a suite; nothing to check{RESET}")
+        return 0
+    skipped = sorted(ALL_SUITES - suites)
+    print(f"{BOLD}{PURPLE}Running CI in Docker: {', '.join(sorted(suites))}{RESET}")
+    if skipped:
+        print(f"{YELLOW}Not reached by the staged paths: {', '.join(skipped)}{RESET}")
+    print()
 
     # In quiet mode, capture output and only show on failure
     capture = {"stdout": subprocess.PIPE, "stderr": subprocess.STDOUT} if QUIET else {}
+    commands = suite_commands(fix_mode, full_mode, ci_args)
+    start = time.monotonic()
+    procs = {s: subprocess.Popen(commands[s], cwd=ROOT, **capture) for s in sorted(suites)}
 
-    # Start Python CI
-    py_proc = subprocess.Popen(
-        ["docker", "compose", "run", "--rm", "--build", "ci", *ci_args],
-        cwd=ROOT,
-        **capture,
-    )
+    def wait(suite: str) -> tuple[bytes | None, float]:
+        out = procs[suite].communicate()[0]
+        return out, time.monotonic() - start
 
-    # Start Rust CI (if circulation exists)
-    rust_proc = None
-    circulation = ROOT / "circulation"
-    if circulation.exists():
-        fmt_cmd = "cargo fmt" if fix_mode else "cargo fmt --check"
-        rust_parts = [fmt_cmd, "cargo clippy -- -D warnings", "cargo test"]
-        if full_mode:
-            rust_parts.insert(2, "cargo audit")
-        cmd = " && ".join(rust_parts)
-        rust_proc = subprocess.Popen(
-            ["docker", "compose", "run", "--rm", "ci-rust", cmd],
-            cwd=ROOT,
-            **capture,
-        )
+    with ThreadPoolExecutor(len(procs)) as pool:
+        results = dict(zip(procs, pool.map(wait, procs)))
 
-    # Start TypeScript CI (if digest exists): tests, types, lint in the ci-ts container.
-    ts_proc = None
-    if (ROOT / "digest" / "package.json").exists():
-        ts_cmd = "npm test && npm run typecheck && npm run lint"
-        ts_proc = subprocess.Popen(
-            ["docker", "compose", "run", "--rm", "--build", "ci-ts", "sh", "-c", ts_cmd],
-            cwd=ROOT,
-            **capture,
-        )
+    for suite, (out, secs) in results.items():
+        code = procs[suite].returncode
+        print(f"  {SUITE_NAMES[suite]}: exit {code} in {secs:.0f}s")
+        if code != 0:
+            print(f"\n{RED}{SUITE_NAMES[suite]} failed (exit {code}){RESET}")
+            if out:
+                print(out.decode(errors="replace"))
 
-    # Start the Python worker's tests (if it exists), inside the image it ships as.
-    pw_proc = None
-    if (ROOT / "digest" / "python" / "Dockerfile").exists():
-        pw_cmd = ["python", "-m", "pytest", "-q", "-p", "no:cacheprovider", "test_worker.py"]
-        pw_proc = subprocess.Popen(
-            ["docker", "compose", "run", "--rm", "--build", "ci-python", *pw_cmd],
-            cwd=ROOT,
-            **capture,
-        )
-
-    # Wait for all
-    py_out = py_proc.communicate()[0]
-    py_rc = py_proc.returncode
-    rust_out = rust_proc.communicate()[0] if rust_proc else None
-    rust_rc = rust_proc.returncode if rust_proc else 0
-    ts_out = ts_proc.communicate()[0] if ts_proc else None
-    ts_rc = ts_proc.returncode if ts_proc else 0
-    pw_out = pw_proc.communicate()[0] if pw_proc else None
-    pw_rc = pw_proc.returncode if pw_proc else 0
-
-    if py_rc != 0:
-        print(f"\n{RED}Python CI failed (exit {py_rc}){RESET}")
-        if py_out:
-            print(py_out.decode(errors="replace"))
-    if rust_rc != 0:
-        print(f"\n{RED}Rust CI failed (exit {rust_rc}){RESET}")
-        if rust_out:
-            print(rust_out.decode(errors="replace"))
-    if ts_rc != 0:
-        print(f"\n{RED}TypeScript CI failed (exit {ts_rc}){RESET}")
-        if ts_out:
-            print(ts_out.decode(errors="replace"))
-
-    if pw_rc != 0:
-        print(f"\n{RED}Python worker CI failed (exit {pw_rc}){RESET}")
-        if pw_out:
-            print(pw_out.decode(errors="replace"))
-
-    if py_rc == 0 and rust_rc == 0 and ts_rc == 0 and pw_rc == 0 and QUIET:
+    failed = [p.returncode for p in procs.values() if p.returncode != 0]
+    if not failed and QUIET:
         print(f"{GREEN}CI passed{RESET}")
-
-    if py_rc != 0:
-        return py_rc
-    if rust_rc != 0:
-        return rust_rc
-    if ts_rc != 0:
-        return ts_rc
-    return pw_rc
+    return failed[0] if failed else 0
 
 
 def run_step(name: str, cmd: list[str], cwd: Path | None = None) -> bool:
@@ -205,7 +246,9 @@ def run_checks(fix_mode: bool, full_mode: bool) -> int:
 
     # Tests (if newsroom/tests/ exists)
     if (ROOT / "newsroom" / "tests").exists():
-        steps.append(("Tests: Python", py_cmd("pytest", "-v", "newsroom/tests/"), None))
+        # pytest-xdist is baked into the CI image (newsroom/Dockerfile.ci), not a local install.
+        shard = ["-n", "auto"] if IN_DOCKER else []
+        steps.append(("Tests: Python", py_cmd("pytest", "-v", *shard, "newsroom/tests/"), None))
 
     # Rust checks (local only - no cargo in Docker image)
     circulation = ROOT / "circulation"

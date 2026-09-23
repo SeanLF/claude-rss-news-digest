@@ -1,5 +1,9 @@
-import { readdirSync, readFileSync } from "node:fs";
+import { mkdtempSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
+import { MockActivityEnvironment } from "@temporalio/testing";
+import { runActivities } from "./run.js";
 import type { Options, SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 import { describe, expect, it } from "vitest";
 import type { SdkQuery } from "../runner/run-stage.js";
@@ -7,7 +11,8 @@ import { ArtifactStore } from "../store/artifacts.js";
 import { freshDb } from "../store/test-db.js";
 import type { UsageRow } from "../store/usage.js";
 import { THREAD_CONTEXT } from "./index.js";
-import { plansFrom, THREAD_ASSIGNMENTS, THREAD_HEALTH, THREAD_INSTALLMENTS, THREAD_LINKS, threadsActivities, threadsConfigFrom, type ThreadsConfig } from "./threads.js";
+import { WORKFLOW_RUN_TIMEOUT } from "../workflow/digest.workflow.js";
+import { plansFrom, RESUME_HORIZON_HOURS, retractAbandoned, THREAD_ASSIGNMENTS, THREAD_HEALTH, THREAD_INSTALLMENTS, THREAD_LINKS, threadsActivities, threadsConfigFrom, type ThreadsConfig } from "./threads.js";
 
 const AGENTS = new URL("../../agents/", import.meta.url).pathname;
 const MIGRATIONS = new URL("../../../migrations/", import.meta.url).pathname;
@@ -422,7 +427,7 @@ describe("an issue that is not sent", () => {
     const s = setup({ answers: { link: [link2] } });
     seedThread(s.db);
     await s.acts.threadsLink(RUN);
-    s.db.exec("CREATE TABLE IF NOT EXISTS digests (date TEXT PRIMARY KEY, run_id INTEGER, html TEXT, broadcast_id TEXT, broadcast_status TEXT)");
+    s.db.exec("CREATE TABLE IF NOT EXISTS digests (date TEXT PRIMARY KEY, run_id INTEGER, html TEXT, broadcast_id TEXT, broadcast_status TEXT, broadcast_run_id INTEGER)");
     s.db.prepare("INSERT INTO digests (date, run_id, broadcast_id, broadcast_status) SELECT date(run_at), id, 'b1', ? FROM digest_runs WHERE id = ?").run(status, RUN);
     const before = s.rows("SELECT * FROM thread_installments ORDER BY id");
     expect(await s.acts.threadsRetract(RUN)).toMatchObject({ retracted: false });
@@ -436,5 +441,195 @@ describe("an issue that is not sent", () => {
     const before = s.rows("SELECT * FROM thread_installments ORDER BY id");
     expect(await s.acts.threadsRetract(RUN)).toEqual({ retracted: false, reason: "later run(s) 301 build on it" });
     expect(s.rows("SELECT * FROM thread_installments ORDER BY id")).toEqual(before);
+  });
+});
+
+function fail(db: DatabaseSync, id: number, status = "failed", runAt?: string): void {
+  db.prepare("UPDATE digest_runs SET status = ?, completed_at = NULL WHERE id = ?").run(status, id);
+  if (runAt) db.prepare("UPDATE digest_runs SET run_at = ? WHERE id = ?").run(runAt, id);
+}
+function withDigests(db: DatabaseSync): void {
+  db.exec("CREATE TABLE IF NOT EXISTS digests (date TEXT PRIMARY KEY, run_id INTEGER, html TEXT, broadcast_id TEXT, broadcast_status TEXT, broadcast_run_id INTEGER)");
+}
+// Runs fn with the JSON log lines on stderr captured and stdout silenced.
+async function quietly<T>(fn: () => Promise<T>): Promise<{ result: T; logged: Record<string, unknown>[] }> {
+  const logged: Record<string, unknown>[] = [];
+  const [err, log] = [console.error, console.log];
+  console.error = (m: string) => logged.push(JSON.parse(m) as Record<string, unknown>);
+  console.log = () => undefined;
+  try {
+    return { result: await fn(), logged };
+  } finally {
+    [console.error, console.log] = [err, log];
+  }
+}
+
+// abortRun keeps a failed run's thread writes, because a resume needs them. The next run's threads
+// phase takes them back once no resume can come, before its linker reads the threads.
+describe("a failed run nobody resumed", () => {
+  const link2 = { links: [{ story: 0, thread: 1 }, { story: 1, thread: null }] };
+  const EARLIER = 299;
+  const earlierRows = (s: ReturnType<typeof setup>) => s.rows(`SELECT thread_id, cluster_story FROM thread_installments WHERE run_id = ${EARLIER}`);
+
+  it("the resume horizon is the workflow's run timeout", () => {
+    expect(`${RESUME_HORIZON_HOURS} hours`).toBe(WORKFLOW_RUN_TIMEOUT);
+  });
+
+  it("takes back a failed run's installments before linking, so neither the web tier nor the linker sees them", async () => {
+    const s = setup({ answers: { link: [link2] } });
+    seedThread(s.db);
+    fail(s.db, EARLIER);
+    await quietly(() => s.acts.threadsLink(RUN));
+    expect(earlierRows(s)).toEqual([]);
+    expect(s.rows(`SELECT COUNT(*) AS n FROM thread_questions WHERE raised_run_id = ${EARLIER}`)).toEqual([{ n: 0 }]);
+    // The linker was shown the thread as run 298 left it, not as the failed run relabelled it.
+    expect(s.calls[0]!.prompt).toContain("ACTIVE THREADS:\n  [1] Iran nuclear talks open\n\n");
+  });
+
+  it("takes back a chain of failed runs, the later first, so the earlier has no dependent left", async () => {
+    const s = setup({ answers: { link: [link2] } });
+    seedThread(s.db);
+    fail(s.db, 298);
+    fail(s.db, EARLIER);
+    await quietly(() => s.acts.threadsLink(RUN));
+    expect(s.rows("SELECT COUNT(*) AS n FROM thread_installments WHERE run_id IN (298, 299)")).toEqual([{ n: 0 }]);
+  });
+
+  it("takes back a failed run whose digest was saved but never sent", async () => {
+    const s = setup({ answers: { link: [link2] } });
+    seedThread(s.db);
+    fail(s.db, EARLIER, "failed", "2026-09-17 10:25:40");
+    withDigests(s.db);
+    s.db.prepare("INSERT INTO digests (date, run_id, html) VALUES ('2026-09-17', ?, '')").run(EARLIER);
+    await quietly(() => s.acts.threadsLink(RUN));
+    expect(earlierRows(s)).toEqual([]);
+  });
+
+  // The reviewer's case: 299 fails, a forced 300 runs the same day, inside the horizon, and sends.
+  // 300 supersedes 299, so 300 takes 299's writes back before it links and links on the state 299 began in.
+  it("a later run of the same day takes the failed run's writes back before it links, inside the horizon", async () => {
+    const s = setup({ answers: { link: [link2] } });
+    seedThread(s.db);
+    const recent = new Date(Date.now() - 60 * 60 * 1000).toISOString().replace("T", " ").slice(0, 19);
+    fail(s.db, EARLIER, "failed", recent);
+    s.db.prepare("UPDATE digest_runs SET run_at = ? WHERE id = ?").run(recent, RUN);
+    await quietly(() => s.acts.threadsLink(RUN));
+    expect(earlierRows(s)).toEqual([]);
+    expect(s.calls[0]!.prompt).toContain("ACTIVE THREADS:\n  [1] Iran nuclear talks open\n\n");
+    withDigests(s.db);
+    s.db.prepare("INSERT INTO digests (date, run_id, html, broadcast_id, broadcast_status) VALUES (date(?), ?, '', 'b1', 'sent')").run(recent, RUN);
+    s.db.prepare("UPDATE digest_runs SET status = 'completed', completed_at = run_at WHERE id = ?").run(RUN);
+    expect(s.rows(`SELECT COUNT(*) AS n FROM thread_installments WHERE run_id = ${RUN}`)).toEqual([{ n: 2 }]);
+  });
+
+  it("judges delivery by sender: a broadcast a later, completed run sent does not keep the failed run's writes", async () => {
+    const s = setup();
+    seedThread(s.db);
+    fail(s.db, EARLIER);
+    s.db.prepare("UPDATE digest_runs SET status = 'completed', completed_at = run_at WHERE id = ?").run(RUN);
+    withDigests(s.db);
+    s.db.prepare("INSERT INTO digests (date, run_id, html, broadcast_id, broadcast_status, broadcast_run_id) VALUES ('2026-09-18', ?, '', 'b1', 'sent', ?)").run(RUN, RUN);
+    await quietly(() => Promise.resolve(retractAbandoned(s.db, 301)));
+    expect(earlierRows(s)).toEqual([]);
+  });
+
+  it("keeps a failed run a resume has taken up again, however old", async () => {
+    const s = setup({ answers: { link: [link2] } });
+    seedThread(s.db);
+    fail(s.db, EARLIER, "failed", "2026-09-17 10:25:40");
+    const before = earlierRows(s);
+    s.store.put(EARLIER, "sources.csv", "id,name,bias,factuality,perspective\nf,F,center,high,global\n");
+    const sourcesFile = join(mkdtempSync(join(tmpdir(), "src-")), "sources.json");
+    writeFileSync(sourcesFile, "[]");
+    const runs = runActivities({ store: s.store, dbPath: s.db.location()!, sourcesFile });
+    const env = new MockActivityEnvironment({ workflowExecution: { workflowId: "digest-2026-09-17", runId: "exec-resume" } });
+    await env.run(() => runs.startRun({ runDate: "2026-09-17", resumeRun: EARLIER }));
+    await quietly(() => s.acts.threadsLink(RUN));
+    expect(earlierRows(s)).toEqual(before);
+    expect(before).toHaveLength(1);
+  });
+
+  // Negative controls: each is a retracting case above with one condition flipped.
+  // The reviewer's case: 299 sends, then fails after the send; a forced 300 the same day saves over
+  // the row (run_id 300), skips the send as already accepted, and completes. Readers got 299's issue.
+  it("keeps a failed run that sent its issue, though a later completed run saved over the day's row", async () => {
+    const s = setup();
+    seedThread(s.db);
+    const before = earlierRows(s);
+    fail(s.db, EARLIER);
+    s.db.prepare("UPDATE digest_runs SET status = 'completed', completed_at = run_at WHERE id = ?").run(RUN);
+    withDigests(s.db);
+    s.db.prepare("INSERT INTO digests (date, run_id, html, broadcast_id, broadcast_status, broadcast_run_id) VALUES ('2026-09-18', ?, '', 'b1', 'sent', ?)").run(RUN, EARLIER);
+    const { logged } = await quietly(() => Promise.resolve(retractAbandoned(s.db, 301)));
+    expect(earlierRows(s)).toEqual(before);
+    expect(logged).toContainEqual(expect.objectContaining({ runId: EARLIER, error: "unsent issue's thread writes kept" }));
+  });
+
+  it("keeps a failed run whose day's broadcast names no sender (claimed before the sender was recorded, or Python's)", async () => {
+    const s = setup();
+    seedThread(s.db);
+    const before = earlierRows(s);
+    fail(s.db, EARLIER);
+    s.db.prepare("UPDATE digest_runs SET status = 'completed', completed_at = run_at WHERE id = ?").run(RUN);
+    withDigests(s.db);
+    s.db.prepare("INSERT INTO digests (date, run_id, html, broadcast_id, broadcast_status) VALUES ('2026-09-18', ?, '', 'b1', 'sent')").run(RUN);
+    await quietly(() => Promise.resolve(retractAbandoned(s.db, 301)));
+    expect(earlierRows(s)).toEqual(before);
+  });
+
+  it("keeps a failed run whose day's broadcast a run that did not complete sent", async () => {
+    const s = setup();
+    seedThread(s.db);
+    const before = earlierRows(s);
+    fail(s.db, EARLIER);
+    fail(s.db, RUN);
+    withDigests(s.db);
+    s.db.prepare("INSERT INTO digests (date, run_id, html, broadcast_id, broadcast_status, broadcast_run_id) VALUES ('2026-09-18', ?, '', 'b1', 'sent', ?)").run(RUN, RUN);
+    await quietly(() => Promise.resolve(retractAbandoned(s.db, 301)));
+    expect(earlierRows(s)).toEqual(before);
+  });
+
+  it("keeps a completed run's installments", async () => {
+    const s = setup({ answers: { link: [link2] } });
+    seedThread(s.db);
+    const before = earlierRows(s);
+    await quietly(() => s.acts.threadsLink(RUN));
+    expect(before).toHaveLength(1);
+    expect(earlierRows(s)).toEqual(before);
+  });
+
+  it("keeps a failed run still inside the resume horizon: a resume needs them", async () => {
+    const s = setup({ answers: { link: [link2] } });
+    seedThread(s.db);
+    const before = earlierRows(s);
+    fail(s.db, EARLIER, "failed", new Date(Date.now() - 60 * 60 * 1000).toISOString().replace("T", " ").slice(0, 19));
+    await quietly(() => s.acts.threadsLink(RUN));
+    expect(earlierRows(s)).toEqual(before);
+  });
+
+  it.each([
+    ["sent", "b1"],
+    ["claimed 2026-09-17T10:00:00Z x", null],
+    ["created", "b1"], // a draft: its send may have been accepted
+  ])("keeps a failed run whose day's broadcast is %s", async (status, id) => {
+    const s = setup({ answers: { link: [link2] } });
+    seedThread(s.db);
+    const before = earlierRows(s);
+    fail(s.db, EARLIER, "failed", "2026-09-17 10:25:40");
+    withDigests(s.db);
+    s.db.prepare("INSERT INTO digests (date, run_id, html, broadcast_id, broadcast_status) VALUES ('2026-09-17', ?, '', ?, ?)").run(EARLIER, id, status);
+    const { logged } = await quietly(() => s.acts.threadsLink(RUN));
+    expect(earlierRows(s)).toEqual(before);
+    expect(logged).toContainEqual(expect.objectContaining({ runId: EARLIER, error: "unsent issue's thread writes kept" }));
+  });
+
+  it("declines, and says so, when a later delivered run builds on the failed one", async () => {
+    const s = setup({ answers: { link: [link2] } });
+    seedThread(s.db);
+    fail(s.db, 298);
+    const before = s.rows("SELECT * FROM thread_installments WHERE run_id = 298");
+    const { logged } = await quietly(() => s.acts.threadsLink(RUN));
+    expect(s.rows("SELECT * FROM thread_installments WHERE run_id = 298")).toEqual(before);
+    expect(logged).toContainEqual(expect.objectContaining({ runId: 298, reason: "later run(s) 299 build on it" }));
   });
 });

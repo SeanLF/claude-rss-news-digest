@@ -1,0 +1,411 @@
+{
+  "must_know": [
+    {
+      "headline": "Xi arrives in Washington for Trump summit as Chinese business leaders stay away",
+      "summary": "Chinese President Xi Jinping left China on Wednesday for a state visit to Washington, his first in a decade, with Trump welcoming him the same day and their formal summit set for Thursday. China is expected to skip sending a corporate delegation after Washington and Beijing failed to agree on investment terms, an absence that highlights how little business progress the two sides expect from the meeting.",
+      "why_it_matters": "A Chinese state visit without a business delegation is unusual and suggests that behind the choreography of a red-carpet welcome, the underlying disputes over investment and technology remain unresolved going into the leaders' talks.",
+      "sources": [
+        {
+          "article_id": "A231"
+        },
+        {
+          "article_id": "A297"
+        },
+        {
+          "article_id": "A494"
+        },
+        {
+          "article_id": "A566"
+        },
+        {
+          "article_id": "A515"
+        },
+        {
+          "article_id": "A495"
+        },
+        {
+          "article_id": "A502"
+        },
+        {
+          "article_id": "A701"
+        },
+        {
+          "article_id": "A684"
+        }
+      ],
+      "reporting_varies": [
+        {
+          "source": "SCMP",
+          "angle": "Focuses on the stalled investment talks and the absence of Chinese CEOs as evidence of thin expectations for the summit",
+          "bias": "regional/business-focused framing"
+        },
+        {
+          "source": "The Guardian",
+          "angle": "Emphasizes AI competition and deep mutual distrust between Washington and Beijing as the summit's real subtext",
+          "bias": "skeptical of concrete diplomatic outcomes"
+        },
+        {
+          "source": "WSJ",
+          "angle": "Details the behind-the-scenes effort to stage a red-carpet welcome even as the biggest sources of tension go untouched",
+          "bias": "process-and-optics framing"
+        }
+      ],
+      "cluster_id": "Trump-Xi summit US-China diplomatic truce negotiations"
+    },
+    {
+      "headline": "Trump threatens to 'annihilate' Iran, reveals first direct US-Iran talks since June",
+      "summary": "Trump told the UN General Assembly Tuesday he could \"annihilate\" the Islamic Republic and \"drive them into hell with no chance of survival\" if no deal is reached, then revealed that US envoys Steve Witkoff and Jared Kushner had held a three-hour \"very good\" meeting with Iranian Foreign Minister Abbas Araghchi — the first in-person US-Iran talks since a June ceasefire collapsed. Iran's military General Staff dismissed the threat, warning of a \"crushing\" response and calling Trump's remarks a sign of \"strategic desperation.\" Iranian President Masoud Pezeshkian was set to address the General Assembly Wednesday for the first time since the war began.",
+      "why_it_matters": "Trump said he expects Iran to make a deal only after November's midterm elections, in which Republicans risk losing Congress partly because of fuel prices driven up by the war — suggesting the endgame is being timed to US electoral politics rather than to any diplomatic breakthrough in New York.",
+      "sources": [
+        {
+          "article_id": "A5"
+        },
+        {
+          "article_id": "A36"
+        },
+        {
+          "article_id": "A38"
+        },
+        {
+          "article_id": "A55"
+        },
+        {
+          "article_id": "A130"
+        },
+        {
+          "article_id": "A196"
+        },
+        {
+          "article_id": "A245"
+        },
+        {
+          "article_id": "A348"
+        },
+        {
+          "article_id": "A356"
+        },
+        {
+          "article_id": "A677"
+        }
+      ],
+      "reporting_varies": [
+        {
+          "source": "Al Jazeera",
+          "angle": "Frames the day as parallel-track escalation: Trump's threats and Iran's military vowing 'crushing' retaliation even as backchannel diplomacy continued",
+          "bias": "Middle East-focused outlet, coverage sympathetic to regional/Iranian perspective"
+        },
+        {
+          "source": "The Guardian (opinion)",
+          "angle": "Describes the speech as a 'brutish' display of raw power stripped of US idealism",
+          "bias": "left-leaning opinion commentary"
+        },
+        {
+          "source": "WSJ",
+          "angle": "Casts the address as a campaign-style declaration of a 'Golden Age of America'",
+          "bias": "business-oriented outlet, right-of-center editorial page"
+        }
+      ],
+      "cluster_id": "US-Iran nuclear diplomacy and military rhetoric escalation at UNGA 2026"
+    },
+    {
+      "headline": "US, Denmark and Greenland sign security deal, but ratification and local trust still pending",
+      "summary": "The US, Denmark and Greenland signed a security agreement Tuesday at the UN General Assembly, letting Washington build two new bases — at Narsarsuaq and Mestersvig — and expand its Pituffik Space Base, while reaffirming Danish sovereignty over the island. The pact, which updates a 1951 defence agreement and would survive even if Greenland later seeks independence, still needs approval from the Danish and Greenlandic parliaments; some Greenlanders worry expanded military activity could disrupt local hunting and fishing grounds.",
+      "why_it_matters": "The deal is a retreat from Trump's earlier threats to 'take' Greenland outright, but it hands the White House a foreign-policy win heading into the midterm elections without yet securing parliamentary ratification or resolving Greenlanders' wariness about expanded military activity on their land.",
+      "sources": [
+        {
+          "article_id": "A59"
+        },
+        {
+          "article_id": "A107"
+        },
+        {
+          "article_id": "A235"
+        },
+        {
+          "article_id": "A539"
+        },
+        {
+          "article_id": "A681"
+        },
+        {
+          "article_id": "A83"
+        }
+      ],
+      "reporting_varies": [
+        {
+          "source": "CBC News",
+          "angle": "Questions how much the new deal actually changes given a defence arrangement already existed",
+          "bias": "skeptical of the deal's novelty"
+        },
+        {
+          "source": "Washington Post",
+          "angle": "Frames the signing as a foreign-policy win for Trump and Republicans ahead of the midterms",
+          "bias": "domestic political framing"
+        },
+        {
+          "source": "Straits Times",
+          "angle": "Focuses on Greenlanders' continued distrust and concerns over hunting and fishing grounds",
+          "bias": "local-impact framing"
+        }
+      ],
+      "cluster_id": "US-Denmark-Greenland security deal signing"
+    },
+    {
+      "headline": "EU lifts sanctions on Russian oligarchs Usmanov and Fridman, tied to secret Azerbaijan prisoner deal",
+      "summary": "The EU has removed Russian billionaires Alisher Usmanov and Mikhail Fridman from its sanctions list, while extending sanctions on nearly 3,000 other individuals and entities linked to Russia for three years as part of the compromise. A day later, Azerbaijan pardoned French national Martin Ryan, who had been imprisoned for espionage — a pardon the Financial Times reports was part of a secret prisoner-release deal Paris struck with Baku, after France pushed to exempt Usmanov citing \"national security concerns.\" Ukraine's foreign minister called the sanctions removal \"unacceptable,\" and Estonia said France must explain its push.",
+      "why_it_matters": "France's push to exempt a Kremlin-linked oligarch from EU sanctions in exchange for a citizen's freedom shows national interest overriding collective sanctions policy, handing Moscow a propaganda opening: Kremlin spokesman Dmitry Peskov welcomed the move and said all Russians should be delisted.",
+      "sources": [
+        {
+          "article_id": "A64"
+        },
+        {
+          "article_id": "A146"
+        },
+        {
+          "article_id": "A152"
+        },
+        {
+          "article_id": "A178"
+        },
+        {
+          "article_id": "A206"
+        },
+        {
+          "article_id": "A209"
+        },
+        {
+          "article_id": "A275"
+        },
+        {
+          "article_id": "A435"
+        },
+        {
+          "article_id": "A573"
+        },
+        {
+          "article_id": "A633"
+        },
+        {
+          "article_id": "A680"
+        }
+      ],
+      "reporting_varies": [
+        {
+          "source": "Financial Times",
+          "angle": "Frames France as having blindsided EU allies with a secret deal to trade sanctions relief for a prisoner's release",
+          "bias": "investigative/critical of France"
+        },
+        {
+          "source": "Ukraine (via BBC)",
+          "angle": "Foreign Minister Sybiha calls the delisting a gift to Moscow that signals impunity and division among Europeans",
+          "bias": "aggrieved party"
+        },
+        {
+          "source": "The Guardian",
+          "angle": "Reports Ireland's EU presidency defending the outcome as 'a difficult compromise' reached after Latvia's initial veto",
+          "bias": "institutional/neutral framing"
+        }
+      ],
+      "cluster_id": "EU removal of Russian oligarchs Usmanov and Fridman from sanctions list"
+    },
+    {
+      "headline": "Zelensky offers energy ceasefire, warns of new Russian mass attack as Kyiv strike kills one",
+      "summary": "Ukrainian President Volodymyr Zelensky met President Trump in New York and proposed a bilateral halt to strikes on energy infrastructure, part of efforts to end the four-year-old war, while warning that Russia is preparing a new mass attack on Ukraine. Hours after the meeting, Russian jet-powered drones hit two petrol stations in Kyiv, killing one; Zelensky told the Wall Street Journal he doubts Vladimir Putin will curb attacks without more pressure from Washington.",
+      "why_it_matters": "A ceasefire proposal limited to energy targets would leave the ground war and Russia's mass-attack threat untouched, and the Kyiv strike hours after the Trump meeting shows Moscow has yet to translate diplomatic talk into any letup on the battlefield.",
+      "sources": [
+        {
+          "article_id": "A92"
+        },
+        {
+          "article_id": "A129"
+        },
+        {
+          "article_id": "A213"
+        },
+        {
+          "article_id": "A346"
+        },
+        {
+          "article_id": "A522"
+        },
+        {
+          "article_id": "A544"
+        },
+        {
+          "article_id": "A687"
+        },
+        {
+          "article_id": "A394"
+        }
+      ],
+      "cluster_id": "Trump-Zelensky meeting at UN General Assembly on Ukraine war"
+    }
+  ],
+  "should_know": [
+    {
+      "headline": "Yemen forces claim Taiz mountain recapture as up to 169 reported killed in Houthi fighting",
+      "summary": "Yemen's Saudi-backed government forces said Tuesday they retook Mount Qarfan in Taiz province from Houthi fighters, killing five and wounding 20 in a battle for highlands overlooking the Red Sea coast. Up to 169 people have reportedly been killed as the Iran-aligned Houthis push to consolidate territorial gains along the coast. Attacks have also knocked out Saudi Arabia's East-West pipeline, forcing oil exports back through the Strait of Hormuz while Riyadh tests repairs that could restore flows within days, and Turkey, Saudi Arabia, Pakistan and Egypt have affirmed Riyadh's right to defend itself.",
+      "sources": [
+        {
+          "article_id": "A1"
+        },
+        {
+          "article_id": "A632"
+        },
+        {
+          "article_id": "A704"
+        },
+        {
+          "article_id": "A705"
+        },
+        {
+          "article_id": "A440"
+        }
+      ],
+      "cluster_id": "Saudi Arabia East-West pipeline testing and oil market impact"
+    },
+    {
+      "headline": "Sri Lanka convicts 15 men, hands down 200-year-plus sentences over 2019 Easter bombings",
+      "summary": "A Colombo court convicted 15 men on terrorism charges over the 2019 Easter Sunday bombings of three churches and three luxury hotels, sentencing each to between 200 and 260 years in prison and ordering their assets confiscated. The Islamic State-inspired attacks killed more than 260 people, including dozens of foreigners; the trial lasted nearly five years, and nine other defendants were acquitted.",
+      "sources": [
+        {
+          "article_id": "A68"
+        },
+        {
+          "article_id": "A198"
+        },
+        {
+          "article_id": "A312"
+        },
+        {
+          "article_id": "A602"
+        }
+      ],
+      "cluster_id": "Sri Lanka court convictions in 2019 Easter Sunday bombings"
+    },
+    {
+      "headline": "Trump's peace board to unveil Gaza recovery plan",
+      "summary": "US President Trump's Board of Peace is set to unveil a six-month recovery plan for Gaza, Axios reported. The 66-project plan covers temporary housing, rubble removal, hospital repairs and deployment of a multinational security force, and estimates full reconstruction will cost about $71.4 billion over the next decade. Reconstruction has stalled since a ceasefire deal was announced in July: UN data show 84% of Gaza's structures were damaged or destroyed by October 2025, and civil defense officials say 2,000 buildings are now at risk of collapse.",
+      "sources": [
+        {
+          "article_id": "A27"
+        },
+        {
+          "article_id": "A530"
+        },
+        {
+          "article_id": "A31"
+        }
+      ],
+      "cluster_id": "Trump Board of Peace $2.45 billion Gaza recovery plan announcement"
+    },
+    {
+      "headline": "South Korea's Lee seeks new approach to North Korea, eyes looser sanctions",
+      "summary": "South Korean President Lee is pushing for a shift in policy toward North Korea, including loosening sanctions, even as Pyongyang's nuclear arsenal and missile threat grow, according to Der Spiegel and the New York Times. The push comes as North Korea's recent missile launches may be intended to keep denuclearization off the agenda at the Trump-Xi summit and to press Pyongyang's demand for recognition as a nuclear power as a condition for any talks with Washington, according to the South China Morning Post.",
+      "sources": [
+        {
+          "article_id": "A154"
+        },
+        {
+          "article_id": "A347"
+        },
+        {
+          "article_id": "A500"
+        }
+      ],
+      "cluster_id": "South Korean president advocates loosening sanctions on North Korea"
+    },
+    {
+      "headline": "Philippine Senate lowers conviction threshold in Sara Duterte impeachment trial",
+      "summary": "The Senate impeachment court overturned a July ruling that had fixed the conviction threshold for Vice President Sara Duterte at 16 votes, barring absentee senators from being counted. The new rule excludes senators who are detained, suspended, fugitive, or medically incapacitated, potentially cutting the voting pool from 24 to 20 and the two-thirds conviction threshold to 14 votes. Prosecutors said the ruling, issued on the trial's 29th day, gives them a more viable path to conviction but does not make their case easier.",
+      "sources": [
+        {
+          "article_id": "A292"
+        },
+        {
+          "article_id": "A364"
+        },
+        {
+          "article_id": "A368"
+        },
+        {
+          "article_id": "A373"
+        },
+        {
+          "article_id": "A380"
+        }
+      ],
+      "cluster_id": "Sara Duterte impeachment trial Philippine Senate"
+    },
+    {
+      "headline": "Moroccans vote for parliament after summer's deadly Ceuta migrant rush",
+      "summary": "Moroccans went to the polls Wednesday to elect a new 395-seat House of Representatives, in a vote shaped by youth unemployment, the cost of living, and this summer's mass migrant crossing into Spain's Ceuta enclave. Nearly 16 million people registered to vote, though only about 4% of them are aged 18 to 24, and King Mohammed VI will appoint the prime minister from whichever party wins the most seats. The result will also determine who oversees the final stages of a roughly $20 billion push to prepare for the 2030 World Cup, which Morocco co-hosts with Spain and Portugal.",
+      "sources": [
+        {
+          "article_id": "A32"
+        },
+        {
+          "article_id": "A63"
+        },
+        {
+          "article_id": "A210"
+        },
+        {
+          "article_id": "A335"
+        },
+        {
+          "article_id": "A563"
+        }
+      ],
+      "cluster_id": "Morocco 2026 parliamentary election ahead of 2030 World Cup preparations"
+    },
+    {
+      "headline": "China tightens exit rules for tech talent amid capital flight",
+      "summary": "New Chinese entry-exit rules, which took effect last week, let authorities stop engineers, founders and specialists in batteries, rare earths or AI from leaving the country if their expertise is deemed a threat to \"industrial and technological security.\" Beijing has also tightened outbound-investment rules and cracked down on Chinese nationals holding wealth offshore, moves a law professor at Singapore Management University told Deutsche Welle reflect concern over economic weakness and capital outflows.",
+      "sources": [
+        {
+          "article_id": "A160"
+        },
+        {
+          "article_id": "A305"
+        }
+      ],
+      "cluster_id": "China new travel restrictions to prevent tech talent and capital flight"
+    },
+    {
+      "headline": "UK to launch new RAF squadron to defend satellites in space",
+      "summary": "Britain announced on September 23 it will form No III Space Effects Squadron, a Royal Air Force unit tasked with defending the country's satellites used for communications and missile-attack warnings. Defence Secretary Wes Streeting said Britain must \"keep pace in the new space race,\" as the new unit will use electronic warfare to disrupt, degrade and deny hostile activity, unlike two existing squadrons that only watch and warn of threats.",
+      "sources": [
+        {
+          "article_id": "A542"
+        },
+        {
+          "article_id": "A639"
+        }
+      ],
+      "cluster_id": "China launches commercial radio-tracking satellites for electronic warfare capability"
+    },
+    {
+      "headline": "Kiir dissolves South Sudan's government ahead of December elections",
+      "summary": "President Salva Kiir dissolved South Sudan's transitional unity government and named a caretaker administration, ending the power-sharing arrangement set up under a 2018 peace deal. Parliament had approved changes allowing Kiir to stay in power through the election period, scheduled for December 22, while removing all vice presidents; the opposition alliance rejected the changes, and analysts warned they give Kiir unchecked control.",
+      "sources": [
+        {
+          "article_id": "A25"
+        }
+      ],
+      "cluster_id": "South Sudan President Kiir dissolves government ahead of first national elections"
+    },
+    {
+      "headline": "France to open talks on Latvia joining nuclear deterrence initiative",
+      "summary": "France agreed to open talks on Latvia joining its nuclear deterrence initiative, according to Latvia's leader.",
+      "sources": [
+        {
+          "article_id": "A460"
+        }
+      ],
+      "cluster_id": "France agrees to open talks on Latvia joining French nuclear deterrence initiative"
+    }
+  ],
+  "preheader": "Xi arrives in Washington for Trump summit as Chinese business leaders stay away; Trump threatens to annihilate Iran and reveals first direct US-Iran talks…",
+  "not_covered_blurb": "We skipped Macron's farewell UN address, the Ethiopian rebel coalition forming against Abiy Ahmed, Iraq's PM pledge to disarm Iran-backed militias, Venezuela's political standoff, and Lithuania's defence posture — all notable but crowded out by the summit-heavy day."
+}
