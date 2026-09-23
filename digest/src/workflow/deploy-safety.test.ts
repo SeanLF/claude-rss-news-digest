@@ -10,9 +10,11 @@ import { DigestWorkflow, WORKFLOW_RUN_TIMEOUT, workflowIdFor } from "./digest.wo
 import { PYTHON_TASK_QUEUE } from "./policy.js";
 import { approveSignal, retrySignal } from "./signals.js";
 
-// What a deploy does to a run in flight: the old worker stops mid-run (SIGTERM is Worker.shutdown:
-// polling stops, running activities are cancelled) and a new one, built from the new code, picks the
-// run up. On the time-skipping server by default. That server does not skip an activity's retry
+// What a worker restart does to a run in flight: the old worker stops mid-run (SIGTERM is
+// Worker.shutdown: polling stops, running activities are cancelled) and a new one picks the run up.
+// Unversioned workers: in production a new build's worker never picks up a run pinned to the old
+// build (deployment.test.ts), so this is a restart within one build, or a run moved onto a new build
+// by hand. On the time-skipping server by default. That server does not skip an activity's retry
 // backoff, so there a retried model call is checked as far as its next attempt being scheduled. With
 // DEPLOY_SAFETY_ADDRESS naming a dev server (`temporal server start-dev`), the activity tests wait out
 // the real 2 min heartbeat timeout and 5 min backoff and see the run send (about 15 minutes).
@@ -141,7 +143,7 @@ async function restartInHold(q: string, runDate: string, newCode: string, runTim
   return { h, calls, next: await worker(q, acts, newCode) };
 }
 
-describe("a deploy that changes only activity code, restarting the worker mid-activity", () => {
+describe("a worker restart mid-activity, the workflow code unchanged", () => {
   it("a model call the shutdown cancels fails retryably and is retried by its policy on the new worker", async () => {
     const w = writes("cancellable");
     const h = await start("graceful", "2026-12-01");
@@ -231,7 +233,7 @@ describe("a deploy that changes only activity code, restarting the worker mid-ac
   }, LONG);
 });
 
-describe("a deploy that changes workflow code while a run waits in the hold", () => {
+describe("changed workflow code under a run waiting in the hold", () => {
   it.skipIf(devServer)("control: a restart onto the SAME workflow code resumes the hold and sends on approval", async () => {
     const { h, next } = await restartInHold("same", "2026-12-05", currentCode);
     const out = await next.runUntil(async () => {

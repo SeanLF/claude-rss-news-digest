@@ -35,6 +35,7 @@
   },
   "devDependencies": {
     "@mozilla/readability": "0.6.0",
+    "@temporalio/proto": "1.24.0",
     "@temporalio/testing": "1.24.0",
     "@types/node": "26.6.2",
     "defuddle": "0.19.4",

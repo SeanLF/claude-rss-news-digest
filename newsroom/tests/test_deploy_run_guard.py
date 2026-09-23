@@ -1,7 +1,7 @@
 """bin/deploy refuses while a DigestWorkflow is running, and when it cannot tell.
 
-A restart under a live run can fail it, park it, or (a workflow-code change it cannot replay)
-leave it stuck with no alert: digest/src/workflow/deploy-safety.test.ts. The guard asks the box's
+A run is pinned to the worker build that started it, and a deploy stops the box's only worker of that
+build, so the run sits with no alert (digest/src/deployment.test.ts). The guard asks the box's
 Temporal, through a stub of bin/ssh here, so each answer the box can give is played.
 
 Only "temporal" refuses. In "staged" the TypeScript runs are rehearsals on a scratch database and
@@ -191,3 +191,119 @@ def test_the_pause_is_followed_by_the_guard(tmp_path):
     assert rc == 1
     assert "digest-schedule pause" in calls[0]
     assert "workflow list" in calls[1]
+
+
+# set_current_version runs digest/src/cli/set-current.ts inside the new worker container after the
+# apply; its exit code and lines are played here.
+CURRENT = "current version: digest:abc1234\n"
+STRANDED = CURRENT + "stranded: digest-2026-09-23 pinned to 0ld0000\n"
+
+
+def test_set_current_runs_in_the_worker_container(tmp_path):
+    rc, out, calls = run_guard(tmp_path, fn="set_current_version", ssh_out=CURRENT)
+    assert rc == 0, out
+    assert len(calls) == 1
+    assert "docker exec news-digest-worker node dist/cli/set-current.js" in calls[0]
+    assert "digest:abc1234" in out
+
+
+@pytest.mark.parametrize("force", [False, True])
+def test_a_build_that_cannot_be_made_current_fails_the_deploy(tmp_path, force):
+    rc, out, _ = run_guard(tmp_path, fn="set_current_version", ssh_out="no pollers", ssh_rc=1, force=force)
+    assert rc == 1
+    assert "NOT the current version" in out
+
+
+def test_a_stranded_run_fails_a_temporal_deploy_and_says_how_to_move_it(tmp_path):
+    rc, out, _ = run_guard(tmp_path, fn="set_current_version", ssh_out=STRANDED, ssh_rc=2)
+    assert rc == 1
+    assert "digest-2026-09-23 pinned to 0ld0000" in out
+    assert "update-options -w <id> --versioning-override-behavior pinned" in out
+    assert "--versioning-override-build-id abc1234" in out
+
+
+def test_a_stranded_rehearsal_warns_in_staged(tmp_path):
+    rc, out, _ = run_guard(tmp_path, mode="staged", fn="set_current_version", ssh_out=STRANDED, ssh_rc=2)
+    assert rc == 0
+    assert "digest-2026-09-23" in out
+
+
+@pytest.mark.parametrize(("mode", "dry_run"), [("python", False), ("temporal", True)])
+def test_set_current_never_asks_in_python_or_a_dry_run(tmp_path, mode, dry_run):
+    rc, _, calls = run_guard(tmp_path, mode=mode, dry_run=dry_run, fn="set_current_version", ssh_out=CURRENT)
+    assert rc == 0
+    assert calls == []
+
+
+def test_a_listing_failure_after_set_current_says_current_but_unchecked(tmp_path):
+    rc, out, _ = run_guard(
+        tmp_path, fn="set_current_version", ssh_out=CURRENT + "could not list the running digests: boom\n", ssh_rc=3
+    )
+    assert rc == 0
+    assert "NOT the current version" not in out
+    assert "could not be checked" in out
+
+
+# Before the apply, current is pointed at the build being shipped, so a run the apply's bootstrap
+# starts waits for the new worker instead of pinning to the old one.
+def test_current_is_pointed_at_the_shipped_build_before_its_worker_exists(tmp_path):
+    rc, out, calls = run_guard(tmp_path, fn="point_current_at_new_build; echo MOVED=$CURRENT_MOVED")
+    assert rc == 0, out
+    assert (
+        "set-current-version --deployment-name digest --build-id 0123456 --allow-no-pollers --ignore-missing-task-queues --yes"
+        in calls[0]
+    )
+    assert "MOVED=true" in out
+
+
+def test_pointing_current_is_skipped_under_skip_build(tmp_path):
+    rc, out, calls = run_guard(tmp_path, fn="SKIP_BUILD=true; point_current_at_new_build; echo MOVED=$CURRENT_MOVED")
+    assert rc == 0
+    assert calls == []
+    assert "MOVED=false" in out
+
+
+@pytest.mark.parametrize(("ssh_rc", "moved"), [(3, "false"), (1, "false")])
+def test_pointing_current_never_fails_the_deploy(tmp_path, ssh_rc, moved):
+    rc, out, _ = run_guard(
+        tmp_path, fn="point_current_at_new_build; echo MOVED=$CURRENT_MOVED", ssh_out="nope", ssh_rc=ssh_rc
+    )
+    assert rc == 0
+    assert f"MOVED={moved}" in out
+
+
+def _cleanup(tmp_path, ssh_rc):
+    return run_guard(
+        tmp_path,
+        fn="update_deployment_status() { :; }; DEPLOYMENT_SUCCEEDED=true; CURRENT_MOVED=true; SCHEDULE_PAUSED=true; true; cleanup",
+        ssh_out=CURRENT,
+        ssh_rc=ssh_rc,
+    )
+
+
+def test_the_exit_trap_points_current_at_the_running_worker_then_resumes(tmp_path):
+    _, out, calls = _cleanup(tmp_path, 0)
+    assert "set-current.js" in calls[0]
+    assert any("systemctl restart news-digest-temporal-bootstrap.service" in c for c in calls), out
+
+
+def test_the_exit_trap_leaves_the_schedule_paused_when_no_build_can_be_made_current(tmp_path):
+    _, out, calls = _cleanup(tmp_path, 1)
+    assert "set-current.js" in calls[0]
+    assert not any("systemctl restart" in c for c in calls)
+    assert "stays PAUSED" in out
+
+
+def test_main_makes_the_build_current_before_it_restores_the_schedule():
+    main = DEPLOY.read_text().split("\nmain() {", 1)[1]
+    order = [
+        main.index(step)
+        for step in (
+            "pause_schedule ||",
+            "point_current_at_new_build",
+            "apply_terraform",
+            "set_current_version ||",
+            "resume_schedule ||",
+        )
+    ]
+    assert order == sorted(order)

@@ -319,6 +319,7 @@ class TestResolveGnewsLinksWiring:
 
     def test_noop_when_disabled(self, monkeypatch):
         import config
+
         import digest
 
         monkeypatch.setattr(config, "GNEWS_RESOLVE_ENABLED", False)

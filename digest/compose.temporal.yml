@@ -9,7 +9,9 @@ services:
     user: "0:0" # the image's own user cannot write a fresh root-owned volume; local dev only
     ports: ["127.0.0.1:7233:7233", "127.0.0.1:8233:8233"]
   digest-worker:
-    build: { context: .., dockerfile: digest/Dockerfile }
+    # GIT_SHA is the worker's build id (Worker Versioning). Every local build is "dev" unless set, so a
+    # rebuilt local worker takes over the previous one's runs, as an unversioned worker would.
+    build: { context: .., dockerfile: digest/Dockerfile, args: { GIT_SHA: "${GIT_SHA:-dev}" } }
     depends_on: [temporal]
     # Each model call is its own Claude Code CLI process and four run at once in a fan-out; 512 MiB
     # was OOM-killed on the first band. A worker that dies comes back and Temporal resumes the run.

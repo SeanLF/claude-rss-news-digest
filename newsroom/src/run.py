@@ -48,14 +48,6 @@ from config import (
     THREAD_LATEBIND_THRESHOLD,
     THREADS_ENABLED,
 )
-from digest import (
-    cleanup_shown_headlines,
-    find_latest_digest,
-    load_selections,
-    read_shown_headlines,
-    resolve_article_ids,
-    write_digest,
-)
 from feeds import collect_fetched_articles, fetch_feeds, load_catalogue, load_sources
 from feeds_cli import validate_feeds_cli
 from healthcheck import ping as healthcheck_ping
@@ -64,6 +56,15 @@ from prepare import prepare_claude_input
 from render import extract_preheader, replace_placeholders
 from render_email import render_email
 from utils import check_internet, setup_logging, validate_env
+
+from digest import (
+    cleanup_shown_headlines,
+    find_latest_digest,
+    load_selections,
+    read_shown_headlines,
+    resolve_article_ids,
+    write_digest,
+)
 
 logger = logging.getLogger(__name__)
 

@@ -1,5 +1,6 @@
 import { NativeConnection, Worker } from "@temporalio/worker";
 import { workerActivities } from "./activities/real.js";
+import { deploymentOptions } from "./deployment.js";
 import { operationsEnvWarning } from "./ops/env.js";
 export const TASK_QUEUE = "digest";
 // Production sets the repo's own namespace (spec §5); the local dev server only has "default".
@@ -14,6 +15,8 @@ export async function runWorker(address = process.env["TEMPORAL_ADDRESS"] ?? "lo
     taskQueue: TASK_QUEUE,
     workflowsPath: new URL("./workflow/digest.workflow.js", import.meta.url).pathname,
     activities: workerActivities(),
+    // A run stays on the build that started it; bin/deploy makes a new build current (cli/set-current.ts).
+    workerDeploymentOptions: deploymentOptions(),
   });
   await worker.run();
 }
