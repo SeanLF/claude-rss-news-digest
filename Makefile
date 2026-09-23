@@ -123,6 +123,18 @@ digest-start: ## Start one DigestWorkflow on local Temporal and wait for it (usa
 digest-schedule: ## Create or update the daily 10:25Z schedule on local Temporal
 	docker compose --env-file .env -f digest/compose.temporal.yml run --rm digest-worker node dist/cli/schedule.js
 
+import-check: ## Import a copy of the prod clone into a fresh Postgres and hold it to the design's §5.1 and prepare's parity (SRC=data/prod-20260923b.db; host-only, ~1 min)
+	@src=$${SRC:-data/prod-20260923b.db}; copy=data/import-check.db; db=import_check; \
+	test -r "$$src" || { echo "no $$src (make db-clone)"; exit 2; }; \
+	rm -f "$$copy" && cp -c "$$src" "$$copy" && \
+	docker compose up -d --wait digest-pg && \
+	docker compose exec -T digest-pg psql -q -U postgres -c "DROP DATABASE IF EXISTS $$db" -c "CREATE DATABASE $$db" && \
+	IMPORT_NETWORK=$$(docker inspect -f '{{range $$k, $$v := .NetworkSettings.Networks}}{{$$k}}{{end}}' $$(docker compose ps -q digest-pg)) \
+	  bin/import-legacy "$$copy" "postgres://postgres:digest@digest-pg:5432/$$db?sslmode=disable" && \
+	docker compose run --rm --build -e IMPORTED_CLONE_URL="postgres://postgres:digest@digest-pg:5432/$$db?sslmode=disable" \
+	  -e PARITY_DATABASE_URL="postgres://postgres:digest@digest-pg:5432/$$db?sslmode=disable" \
+	  ci-ts npx vitest run src/store/import.clone.test.ts src/prepare/prepare.parity.test.ts; status=$$?; rm -f "$$copy"; exit $$status
+
 band: ## Same-day curation band of the TypeScript workflow via promptfoo (RUN=300 DATE=2026-09-18 REPS=3; model calls, ~$4/rep)
 	@stamp=band_$$(date -u +%Y%m%dT%H%M%SZ | tr 'A-Z' 'a-z'); \
 	docker compose --env-file .env -f digest/compose.temporal.yml up -d --wait digest-db && \

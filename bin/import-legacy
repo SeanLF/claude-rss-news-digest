@@ -1,0 +1,51 @@
+#!/usr/bin/env bash
+# usage: bin/import-legacy SRC DST_URL
+#
+# Imports a legacy SQLite digest.db into a FRESH Postgres database on the product schema
+# (docs/2026-09-23-data-model-design.md §5.1), and verifies the copy before it keeps it:
+#   1. refuse a DST_URL that already holds tables,
+#   2. pgloader loads SRC, mounted read-only, table for table into DST (digest/db/import/legacy.load),
+#   3. the digest image moves that aside, builds the schema with dbmate, copies across in one
+#      transaction, checks every row against the legacy tables, and drops them.
+# SRC must not change while this runs: pass a snapshot (the online-backup copy the deploy takes),
+# never the live file.
+#
+# Environment:
+#   IMPORT_NETWORK  docker network from which DST_URL's host resolves (default: host)
+#   DIGEST_IMAGE    an image built from digest/Dockerfile (default: built here, tagged digest-import:local)
+set -euo pipefail
+cd "$(dirname "$0")/.."
+src=${1:?usage: bin/import-legacy SRC DST_URL}
+dst=${2:?usage: bin/import-legacy SRC DST_URL}
+net=${IMPORT_NETWORK:-host}
+# pgloader 3.6.10~devel, ghcr's latest on 2026-09-14; amd64 only (it runs under emulation on arm64).
+pgloader=ghcr.io/dimitri/pgloader@sha256:a1d4a78e78a64e46cd3fc7dfc57d24eb91ffb1a5520f2b1f55631815e3658d6e
+[ -r "$src" ] || { echo "import-legacy: cannot read $src" >&2; exit 2; }
+src=$(cd "$(dirname "$src")" && pwd)/$(basename "$src")
+
+image=${DIGEST_IMAGE:-}
+if [ -z "$image" ]; then
+  docker build -q -f digest/Dockerfile --build-arg GIT_SHA=import -t digest-import:local . >/dev/null
+  image=digest-import:local
+fi
+node_step() { docker run --rm --network "$net" -e DIGEST_DATABASE_URL="$dst" -v "$src:/src/legacy.db:ro" "$image" node dist/cli/import-legacy.js "$1" /src/legacy.db; }
+
+start=$(date +%s)
+node_step check-empty
+log=$(mktemp)
+trap 'rm -f "$log"' EXIT
+# pgloader reports a table it could not load in its summary and still exits 0, so its log decides.
+set +e
+docker run --rm --platform linux/amd64 --network "$net" -e DST_URL="$dst" \
+  -v "$src:/src/legacy.db:ro" -v "$PWD/digest/db/import/legacy.load:/load/legacy.load:ro" \
+  "$pgloader" pgloader /load/legacy.load >"$log" 2>&1
+rc=$?
+set -e
+if [ $rc -ne 0 ] || grep -Eq '^[0-9TZ:.-]+ (ERROR|FATAL)' "$log"; then
+  cat "$log" >&2
+  echo "import-legacy: pgloader failed (exit $rc); the target database holds a partial load and must be dropped" >&2
+  exit 1
+fi
+echo "import-legacy: loaded $(basename "$src") ($(( $(date +%s) - start )) s)"
+node_step finish || { echo "import-legacy: failed after the load; $dst holds a partial import and must be dropped before a retry" >&2; exit 1; }
+echo "import-legacy: total $(( $(date +%s) - start )) s"

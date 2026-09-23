@@ -32,17 +32,19 @@ export function yesterdayHeadlines(db: Sql, when: string): Promise<{ headline: s
 }
 
 // db.get_recent_digest_headlines: headlines of completed runs in the last 7 days, one per headline,
-// tier and date from its newest showing.
+// tier and date from its newest showing, newest first; a tie in the same run in descending byte order
+// of the headline, as SQLite's sorter left it in the archived runs (run 300's file).
 export async function recentDigestHeadlines(db: Sql, when: string, days = 7): Promise<{ headline: string; tier: string; date: string }[]> {
   const rows = await db.all<{ headline: string; tier: string; last_shown: string }>(
-    `SELECT DISTINCT ON (sn.headline COLLATE "C") sn.headline AS headline, sn.tier AS tier, dr.run_at AS last_shown
+    `SELECT * FROM (SELECT DISTINCT ON (sn.headline COLLATE "C") sn.headline AS headline, sn.tier AS tier, dr.run_at AS last_shown
      FROM shown_narratives sn JOIN digest_runs dr ON dr.id = sn.run_id
      WHERE dr.completed_at IS NOT NULL AND (dr.run_at AT TIME ZONE 'UTC')::date >= (${at} AT TIME ZONE 'UTC')::date - $2::int AND dr.run_at < ${at}
        AND sn.tier IN ('must_know', 'should_know') AND sn.headline IS NOT NULL AND sn.headline != ''
-     ORDER BY sn.headline COLLATE "C", dr.run_at DESC, sn.id`,
+     ORDER BY sn.headline COLLATE "C", dr.run_at DESC, sn.id) x
+     ORDER BY last_shown DESC, headline COLLATE "C" DESC`,
     [when, days],
   );
-  return rows.toSorted((a, b) => (a.last_shown < b.last_shown ? 1 : a.last_shown > b.last_shown ? -1 : 0)).map((r) => ({ headline: r.headline, tier: r.tier, date: r.last_shown.slice(0, 10) }));
+  return rows.map((r) => ({ headline: r.headline, tier: r.tier, date: r.last_shown.slice(0, 10) }));
 }
 
 // The three context files, byte for byte as the archive holds them (the Python's CRLF CSV lines are
