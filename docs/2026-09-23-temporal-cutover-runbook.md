@@ -155,10 +155,15 @@ box (`digest-schedule` or the server unit present), it refuses and points here. 
 with `news_digest_pipeline = "python"` already set:
 ```
 cd "$INFRA_DIR" && bin/tf apply --fresh -target=null_resource.news_digest_temporal_teardown \
+  -replace='null_resource.news_digest_temporal_teardown[0]' \
   -target=null_resource.news_digest_workers -target=null_resource.news_digest_temporal_bootstrap \
   -target=null_resource.news_digest_temporal_backup -target=null_resource.news_digest_temporal_server \
   -target=null_resource.news_digest_temporal_db
 ```
+Keep the `-replace`. If an untargeted apply once created the teardown in python mode, it is still in state,
+because later targeted staged or temporal deploys never remove it. A plain `-target` then plans no
+change and nothing is torn down. With `-replace` it runs whether or not it is in state (checked with
+a scratch config).
 The five stack resources leave state with no provisioner run. Destroy provisioners would also run on
 every replacement: a pin bump would stop Postgres, and everything that `Requires=` it would stop with
 it. `news_digest_temporal_teardown`, which exists only in `python`, then does the work:

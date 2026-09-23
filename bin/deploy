@@ -744,15 +744,18 @@ temporal_on() { [[ $PIPELINE_MODE == staged || $PIPELINE_MODE == temporal ]]; }
 check_box_matches_mode() {
   [[ $PIPELINE_MODE == python ]] || return 0
   log_step "Checking the box has no Temporal stack (mode python)..."
-  dry_run_skip "bin/ssh test -e $SCHEDULE_CTL -o -e /etc/systemd/system/news-digest-temporal.service" && return 0
+  local probe="if test -e $SCHEDULE_CTL -o -e /etc/systemd/system/news-digest-temporal.service; then echo PRESENT; else echo ABSENT; fi"
+  dry_run_skip "bin/ssh '$probe'" && return 0
 
-  local rc=0
-  "$SCRIPT_DIR/ssh" "test -e $SCHEDULE_CTL -o -e /etc/systemd/system/news-digest-temporal.service" || rc=$?
-  case $rc in
-    0) log_error "mode is python but the box still runs the Temporal stack -- tear it down first (docs/2026-09-23-temporal-cutover-runbook.md, \"Teardown\"), or set the mode back"; return 1 ;;
-    1) log_success "no Temporal stack on the box" ;;
-    # 255 is ssh itself: unknown is not "absent".
-    *) log_error "could not check the box for a Temporal stack (exit $rc) -- refusing rather than guessing"; return 1 ;;
+  # The answer is a token the box prints, never an exit code: bin/ssh exits 1 on its own, before
+  # ssh runs, when it cannot resolve the host (INFRA_DIR unset, tf output failing), and an exit-code
+  # probe read that as "absent".
+  local out
+  out=$("$SCRIPT_DIR/ssh" "$probe") || true # stdout only; ssh's own stderr still reaches the terminal
+  case $out in
+    PRESENT) log_error "mode is python but the box still runs the Temporal stack -- tear it down first (docs/2026-09-23-temporal-cutover-runbook.md, \"Teardown\"), or set the mode back"; return 1 ;;
+    ABSENT) log_success "no Temporal stack on the box" ;;
+    *) log_error "could not check the box for a Temporal stack -- refusing rather than guessing: $(printf '%.200s' "${out:-<no output>}")"; return 1 ;;
   esac
 }
 
