@@ -105,7 +105,8 @@ export function broadcastActivities(deps: BroadcastDeps) {
   // The date's claim, taken under SQLite's write lock: the one attempt that holds it may create a
   // broadcast. A claim is never taken over, however old: an attempt that looks dead may still be in
   // Resend's create, and taking over sent twice. An operator clears it after checking Resend.
-  const claim = (date: string): string => {
+  // It also records the sending run: digests.run_id is whichever run saved the row last.
+  const claim = (date: string, runId: number): string => {
     const db = openDb(deps.dbPath);
     try {
       db.exec("BEGIN IMMEDIATE");
@@ -116,7 +117,7 @@ export function broadcastActivities(deps: BroadcastDeps) {
           throw ApplicationFailure.nonRetryable(`the send for ${date} is ${why}; not sending`, "SendClaimed");
         }
         const mine = `${CLAIMED}${new Date().toISOString()} ${randomUUID()}`;
-        db.prepare("UPDATE digests SET broadcast_status=? WHERE date=?").run(mine, date);
+        db.prepare("UPDATE digests SET broadcast_status=?, broadcast_run_id=? WHERE date=?").run(mine, runId, date);
         db.exec("COMMIT");
         return mine;
       } catch (e) {
@@ -130,7 +131,7 @@ export function broadcastActivities(deps: BroadcastDeps) {
   const release = (date: string, mine: string) => {
     const db = openDb(deps.dbPath);
     try {
-      db.prepare("UPDATE digests SET broadcast_status=NULL WHERE date=? AND broadcast_id IS NULL AND broadcast_status=?").run(date, mine);
+      db.prepare("UPDATE digests SET broadcast_status=NULL, broadcast_run_id=NULL WHERE date=? AND broadcast_id IS NULL AND broadcast_status=?").run(date, mine);
     } finally {
       db.close();
     }
@@ -228,7 +229,7 @@ export function broadcastActivities(deps: BroadcastDeps) {
       const recipients = await contactCount(segmentId);
       if (recipients >= CONTACT_THRESHOLD) console.warn(JSON.stringify({ stage: "broadcast", warning: `audience at ${recipients} contacts, near the free tier's 1,000`, recipients }));
       stopIfCancelled();
-      const mine = claim(date);
+      const mine = claim(date, runId);
       let id: string;
       try {
         const day = longDate(date);

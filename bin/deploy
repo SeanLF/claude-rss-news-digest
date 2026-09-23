@@ -480,6 +480,15 @@ audit_sbom() {
     return 1
   fi
 
+  # A URL install keeps a registry purl, so still_active audits a different package under its name
+  # (the googlenewsdecoder fork reads as PyPI's googlenewsdecoder). Unlisted ones block; listed
+  # exceptions are printed as unaudited. syft gives Cargo and npm git dependencies no vcs reference,
+  # so the lockfiles go in too.
+  if ! python3 "$SCRIPT_DIR/sbom-unregistered" "$out" "$SCRIPT_DIR/../circulation/Cargo.lock" "$SCRIPT_DIR/../digest/package-lock.json"; then
+    log_error "SBOM audit for $name: a dependency ships from a URL no audit covers (above)"
+    return 1
+  fi
+
   # One invocation: --json and --fail-if-vulnerable coexist, stdout carries the report and the
   # exit code is still the verdict. Two runs would double the load on free advisory APIs, which is
   # the very thing that pushes them into the degraded mode handled below. ~25s per SBOM.

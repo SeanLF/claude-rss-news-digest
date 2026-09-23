@@ -56,6 +56,10 @@ export function runActivities(deps: RunDeps) {
           // Never today's catalogue: a resume refetches what the run was meant to fetch, or nothing.
           if (!csv) throw ApplicationFailure.nonRetryable(`run ${input.resumeRun} has no sources.csv to resume from`, "MissingInput");
           const ids = parse<{ id: string }>(deps.store.get(csv), { columns: true }).map((s) => s.id);
+          // A resumed run is running again, owned by this execution: the next run's cleanup of
+          // abandoned runs never takes back a 'running' run's thread writes. A delivered run stays completed.
+          const execution = currentExecution();
+          if (execution !== undefined) db.prepare("UPDATE digest_runs SET status = 'running', workflow_run_id = ? WHERE id = ? AND completed_at IS NULL").run(execution, input.resumeRun);
           return { runId: input.resumeRun, sourceIds: ids, lastRun: lastCompleted(db, row.run_at) };
         }
         // Idempotent per workflow execution: a retry after this execution's INSERT committed gets

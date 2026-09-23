@@ -15,7 +15,7 @@ export function broadcastState(db: DatabaseSync, runId: number): { date: string;
 // A claim is never taken over automatically: an attempt that looks dead may still be in Resend's
 // create, and taking over sent twice. Only an operator, having checked Resend, clears it.
 export function clearClaim(db: DatabaseSync, date: string): boolean {
-  const { changes } = db.prepare("UPDATE digests SET broadcast_status=NULL WHERE date=? AND broadcast_id IS NULL AND broadcast_status LIKE ?").run(date, `${CLAIMED}%`);
+  const { changes } = db.prepare("UPDATE digests SET broadcast_status=NULL, broadcast_run_id=NULL WHERE date=? AND broadcast_id IS NULL AND broadcast_status LIKE ?").run(date, `${CLAIMED}%`);
   return Number(changes) === 1;
 }
 export const clearClaimCommand = (date: string): string => `node dist/cli/clear-claim.js ${date}`;

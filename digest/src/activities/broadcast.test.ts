@@ -100,11 +100,32 @@ describe("broadcast: at most once per digest date (the 2026-06-16 rule)", () => 
     expect(state()).toEqual({ id: "b-new", status: "queued", recipients: 2 });
   });
   it("a failed create sends nothing and records nothing", async () => {
-    const { email, state, make } = setup({});
+    const { email, state, make, path } = setup({});
     const fake = fakeMail({ create: [() => fail("validation_error", "bad from")] });
     await expect(make(fake.mail).broadcast(300, email)).rejects.toThrow(/bad from/);
     expect(fake.names()).toEqual(["contacts", "create"]);
     expect(state()).toEqual({ id: null, status: null, recipients: null });
+    expect(new DatabaseSync(path).prepare("SELECT broadcast_run_id AS r FROM digests").get()).toEqual({ r: null });
+  });
+  // digests.run_id is the last run to save the row; a forced re-run of a sent day takes it over. The
+  // sender is recorded with the claim, so the thread cleanup can tell which run's issue went out.
+  it("records the sending run with the claim, and keeps it when a later run saves over the row", async () => {
+    const { email, make, path } = setup({});
+    const db = new DatabaseSync(path);
+    let atCreate: unknown;
+    const fake = fakeMail({
+      create: [
+        () => {
+          atCreate = db.prepare("SELECT broadcast_run_id AS r FROM digests").get();
+          return ok({ id: "b-new" });
+        },
+      ],
+    });
+    await make(fake.mail).broadcast(300, email);
+    expect(atCreate).toEqual({ r: 300 });
+    db.prepare("INSERT INTO digest_runs (id, run_at) VALUES (301, '2026-09-08 14:00:00')").run();
+    db.prepare("UPDATE digests SET run_id = 301").run(); // a forced re-run's saveDigest
+    expect(db.prepare("SELECT broadcast_run_id AS r, broadcast_status AS s FROM digests").get()).toEqual({ r: 300, s: "sent" });
   });
   it("unless BROADCAST_ENABLED is true it says so and refuses to send, never calling Resend", async () => {
     for (const flag of [undefined, "", "false", "1", "yes"]) {
