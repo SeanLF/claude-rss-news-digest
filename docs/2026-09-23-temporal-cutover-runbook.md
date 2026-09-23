@@ -199,31 +199,70 @@ history. Rehearsed under systemd in a container: no unit files and no active uni
       it "stuck". It cannot take a signal, so approving or rejecting does nothing, and it blocks
       every deploy until its 4 h run timeout. Terminate it
       (`bin/ssh "$T workflow terminate -w <id> --reason <why>"`), or deploy with `--force`.
-  - What a restart does to a live run is measured in `digest/src/workflow/deploy-safety.test.ts`: a
-    model call, render and assemble are retried by their policies. A one-attempt step (COHERENCE,
-    the send, and the other `once` steps) fails the run or parks it for an operator. A workflow-code
-    change the run cannot replay leaves it stuck until its 4 h run timeout, with no alert.
-  - **Known gap: a run can still start under the restart.** The check after the pause stops the
-    schedule from starting one, but the apply restarts the bootstrap (`digest-schedule sync`) before
-    the workers. On a day with no run yet after 10:25Z, its missed-day trigger starts one on the old
-    worker, and the worker restart then lands under it. Terraform cannot order the bootstrap after
-    the workers, because the workers depend on it (it creates the namespace). Not closed. The
-    mitigation: such a run gets stuck only on a workflow change made without `patched()`, and
-    `replay.test.ts` fails that change in CI before it can be deployed. An interrupted one-attempt
-    step still fails the run (with an alert) or parks it.
-  - **Workflow-code changes are gated with `patched()`** (the convention is at the top of
-    `digest/src/workflow/digest.workflow.ts`). `replay.test.ts` replays recorded histories of every
-    path (`digest/src/workflow/histories/`) against the current code in CI, so an ungated change fails
-    before it ships. Re-record the fixtures only for a new path, never to make a replay pass:
+  - **Worker Versioning, pinned** (from 2026-09-23; replaced `patched()`). The worker registers as
+    version `digest:<GIT_SHA>` of the deployment `digest` (`digest/src/deployment.ts`), and every
+    run stays on the build that started it. A new build gets no run until it is made current.
+    `bin/deploy` does it in two steps:
+    - after the pause and before the apply, it points current at the build it ships, which has no
+      worker yet (`set-current-version --allow-no-pollers --ignore-missing-task-queues`). A run the
+      apply's bootstrap starts then waits for the new worker instead of pinning to the old build.
+      Skipped under `--skip-build`, where the shipped build is unknown before the apply.
+    - after the apply, before the schedule is restored, it runs `digest/src/cli/set-current.ts`
+      inside the running worker container. That waits until the worker polls, makes its build
+      current, and lists stranded runs. If it fails, the deploy fails and says so.
+
+    If the deploy dies after the first step, the exit trap points current at whichever worker is
+    running. If no worker's build can be made current, the trap leaves the schedule paused, because a
+    run would sit. By hand: `bin/ssh docker exec news-digest-worker node dist/cli/set-current.js`,
+    then `bin/ssh systemctl restart news-digest-temporal-bootstrap`. Check with
+    `bin/ssh "$T worker deployment describe --name digest"`.
+  - **The first versioned deploy** replaces an unversioned worker. A run still in flight from it
+    has no version; the new build picks it up and replays it on the new code, and nothing reports
+    it. The guard refuses such a run in temporal mode. In staged mode, let it finish first, or ship
+    no workflow-command change in that deploy.
+  - What versioning adds over the guard above is small on this box. With one worker, a deploy stops
+    the only worker of the old build, so a run it overlaps cannot finish on its own build either:
+    before, it went on under the new code (or failed replay); now it sits. The guard still has to
+    refuse live runs. What versioning removes is the `patched()` discipline: a workflow change no
+    longer has to replay old histories, because no run crosses builds unless moved by hand.
+  - What a worker restart within one build does to a live run is measured in
+    `digest/src/workflow/deploy-safety.test.ts`: a model call, render and assemble are retried by
+    their policies. A one-attempt step (COHERENCE, the send, and the other `once` steps) fails the run
+    or parks it for an operator.
+  - **Stranded runs.** A run pinned to a build with no worker. Nothing polls for it, so it
+    does nothing, takes signals without acting on them, and sends no alert until its 4 h run timeout.
+    Only the dead-man's switch notices. Two paths leave one:
+    - a deploy that goes ahead under a live run: staged mode (which only warns) or `--force`;
+    - the bootstrap gap, when `bin/deploy` could not point current at the new build before the
+      apply (`--skip-build`, or that step failed). The apply restarts the bootstrap
+      (`digest-schedule sync`) before the workers. On a day with no run yet after 10:25Z, its
+      missed-day trigger starts one on the old build, and the worker restart then strands it.
+      Terraform cannot order the bootstrap after the workers, because the workers depend on it (it
+      creates the namespace).
+
+    `set-current.ts` lists every running `DigestWorkflow` pinned to another build, and `bin/deploy`
+    prints them with the command to move each. In temporal mode that fails the deploy, after the
+    apply and the tag; in staged it warns. The way out is to move the run onto the new build:
+    ```
+    bin/ssh "$T workflow update-options -w <id> --versioning-override-behavior pinned \
+      --versioning-override-deployment-name digest --versioning-override-build-id <new build>"
+    ```
+    It then replays its history on the new code. If the workflow's commands changed between the two
+    builds on the path the run took, the replay fails with a nondeterminism error and the run shows as
+    stuck. Terminate it and start the day again, with `--force`: `startRun` refuses a day whose run
+    is still marked running from the last 4 h
+    (`bin/ssh docker exec -d news-digest-worker node dist/cli/start.js <YYYY-MM-DD> --force`).
+    `digest/src/deployment.test.ts` covers the move on a dev server.
+  - `replay.test.ts` replays recorded histories of every path (`digest/src/workflow/histories/`)
+    against the current code in CI: what a worker restart within one build does to a run. A change to
+    the workflow's commands fails it, so re-record the fixtures in the same commit:
     `temporal server start-dev` on a spare port, then
     `cd digest && npm run build && TEMPORAL_ADDRESS=localhost:<port> node dist/cli/record-histories.js`.
-  - Not worker versioning (Worker Deployments, pinned workflows), decided 2026-09-23. Pinning keeps
-    a run on the build that started it, so the old worker must keep running beside the new one until
-    its runs end, up to 4 h. This box has one worker, and it has no room for a second: the caps
-    already sum to 2752 of 2825 MiB free. Pinning also needs a set-current-version and drain step in
-    the deploy. With the guard above, a temporal deploy overlaps a run only when forced or through the
-    bootstrap gap, and `patched()` covers both. Revisit if the pipeline gets a second worker
-    host.
+  - Old versions pile up, one per deploy. At the server's per-deployment limit
+    (`matching.maxVersionsInDeployment`) the server deletes the oldest version that has drained and
+    has no pollers. A version that is still draining blocks the new build from registering, and then
+    `set-current` fails the deploy. Seen with the limit set to 2 on a dev server. The default limit
+    on 1.32.0 is unverified.
 
 ## What still needs the Python tree after the cut-over
 
@@ -295,3 +334,7 @@ Local connections inside the container are trusted, so this works without the ol
   read.
 - **The 1280 MiB worker cap** rests on the 245 MiB-per-process figure. A four-way fan-out under that
   cap has not been measured.
+- **Worker Versioning on the box.** Checked locally on 2026-09-23 against `temporalio/server:1.32.0` on
+  Postgres with the empty dynamic config the box uses: the worker image registered `digest:<GIT_SHA>`,
+  `set-current.js` made it current, and a run recorded `VERSIONING_BEHAVIOR_PINNED` on it. The
+  `docker exec` step in `bin/deploy` has not run on the box.

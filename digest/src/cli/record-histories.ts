@@ -1,8 +1,8 @@
 // usage: record-histories OUT_DIR
 // Runs each representative DigestWorkflow path over the stub activities on the Temporal at
 // TEMPORAL_ADDRESS (a dev server: `temporal server start-dev`) and writes each history as JSON, the
-// fixtures replay.test.ts replays against the current workflow code. Re-record after a deliberate,
-// patched() workflow change; never to make a failing replay pass.
+// fixtures replay.test.ts replays against the current workflow code. Re-record in the commit that
+// changes the workflow's commands, from that commit's code.
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { Client, Connection, type WorkflowHandle } from "@temporalio/client";

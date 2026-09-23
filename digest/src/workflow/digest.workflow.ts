@@ -1,10 +1,11 @@
-// A run in flight replays this code (and threads.ts, bounded.ts) after every worker restart. A change
-// to the commands it issues (an activity or timer added, removed or reordered) is gated:
-//   if (patched("short-change-id")) { new path } else { old path }
-// and the old path deleted (deprecatePatch, then nothing) only once no run started before the change
-// can still be open (4 h run timeout). replay.test.ts replays recorded histories against this file and
-// fails on an ungated change; never re-record the fixtures to make it pass. Activity bodies are free,
-// and so are an activity's options: replay matches an activity by type, not by timeout or retry policy.
+// A run is pinned to the worker build that started it (src/deployment.ts): a deploy never replays it on
+// changed code, so a change to the commands this issues (and threads.ts, bounded.ts) needs no
+// patched() gate. It must still replay on its own build after a worker restart: replay.test.ts replays
+// recorded histories against this file. A change to the commands (an activity or timer added, removed
+// or reordered) fails it: re-record the fixtures in the same commit. Such a change also means a run
+// moved onto this build by hand (runbook, "Stranded runs") fails with a nondeterminism error.
+// Activity bodies are free, and so are an activity's options: replay matches an activity by type,
+// not by timeout or retry policy.
 import { ActivityFailure, ApplicationFailure, CancellationScope, CancelledFailure, condition, isCancellation, log, proxyActivities, setHandler, TimeoutFailure, workflowInfo } from "@temporalio/workflow";
 import type { Activities, AlertRequest, DigestInput, DigestOutput, FulltextFetch, FulltextFetcher, GnewsDecode, LinkDecoder } from "../activities/index.js";
 import { mapBounded, MODEL_FANOUT_LIMIT } from "./bounded.js";

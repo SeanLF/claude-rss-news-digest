@@ -4,8 +4,8 @@ import { describe, expect, it } from "vitest";
 import { changedWorkflowPath } from "./deploy-variant.js";
 
 // Recorded histories of every representative path (src/cli/record-histories.ts), replayed against
-// the workflow code as it is now. A change that would break a run in flight across a deploy fails
-// here: gate it with patched() (see the top of digest.workflow.ts), never re-record to pass.
+// the workflow code as it is now: what a worker restart within one build does to a run in flight.
+// A change to the workflow's commands fails here; re-record in the same commit (top of digest.workflow.ts).
 const dir = new URL("./histories/", import.meta.url);
 const fixtures = readdirSync(dir)
   .filter((f) => f.endsWith(".json"))
@@ -44,8 +44,8 @@ describe("workflow replay", () => {
     expect(await replay(currentCode)).toEqual(Object.fromEntries(fixtures.map((f) => [f.workflowId, "ok"])));
   }, 120_000);
 
-  it("negative control: an activity added before the hold without patched() fails every history that got that far", async () => {
-    expect(await replay(changedWorkflowPath("bare"))).toEqual({
+  it("negative control: an activity added before the hold fails every history that got that far", async () => {
+    expect(await replay(changedWorkflowPath())).toEqual({
       "approved-in-hold": "DeterminismViolationError",
       disabled: "ok", // ends before the hold
       failed: "ok",
@@ -57,9 +57,5 @@ describe("workflow replay", () => {
       resume: "DeterminismViolationError",
       sent: "DeterminismViolationError",
     });
-  }, 120_000);
-
-  it("the same change behind patched() replays every history", async () => {
-    expect(await replay(changedWorkflowPath("patched"))).toEqual(Object.fromEntries(fixtures.map((f) => [f.workflowId, "ok"])));
   }, 120_000);
 });

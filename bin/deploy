@@ -791,18 +791,17 @@ check_run_window() {
 # In "python" there is no schedule and neither function runs.
 SCHEDULE_PAUSED=false
 
-# A deploy restarts the worker under any run in flight, and that is not always survivable
-# (digest/src/workflow/deploy-safety.test.ts): a one-attempt step it interrupts fails the run or parks
-# it for an operator, and a workflow-code change the run cannot replay leaves it stuck until its run
-# timeout with no alert. So in temporal a deploy refuses while a DigestWorkflow runs. In staged the
-# runs are rehearsals on a scratch database and Python is live, so it warns and deploys: a Temporal
-# problem must not block Python's deploy.
+# A run is pinned to the worker build that started it (digest/src/deployment.ts), and this box runs
+# one worker: a deploy stops the only worker of that build, and the run sits, with no alert, until
+# moved or its run timeout (set_current_version names it). So in temporal a deploy refuses while a
+# DigestWorkflow runs. In staged the runs are rehearsals on a scratch database and Python is live, so
+# it warns and deploys: a Temporal problem must not block Python's deploy.
 # It asks twice: before the builds, to fail fast, and after the pause, so the schedule cannot start a
 # run between the answer and the restart. One path still can: the apply restarts the bootstrap
 # (digest-schedule sync) before the workers, and on a day with no run yet after 10:25Z its missed-day
 # trigger starts one on the old worker. Terraform cannot order it after them (the workers depend on
-# it: it creates the namespace). Such a run gets stuck only on a workflow change made without
-# patched(), which replay.test.ts fails in CI before it can ship.
+# it: it creates the namespace). point_current_at_new_build makes such a run wait for the new build;
+# set_current_version names any run still stranded.
 # An answer that is not a complete JSON list (Temporal unreachable, ssh failing, output cut short)
 # counts as a problem too: the CLI can print "[]" and then fail, so the exit code is read as well.
 # --force deploys anyway, loudly. The names are terraform's (news-digest-temporal.tf), the runbook's $T.
@@ -881,6 +880,69 @@ pause_schedule() {
     # Unpaused, a run can start under the restart, and whatever failed the pause likely hides a
     # live run too. --force is for the deploy that repairs Temporal.
     *) temporal_problem "could not pause the Temporal schedule (exit $rc), so it stays armed: ${out:0:300}" "refusing" ;;
+  esac
+}
+
+# Runs are pinned to the build that started them, and start on the deployment's current version. The
+# apply restarts the bootstrap before the workers, and its missed-day trigger can start a run; with the
+# old build still current that run pins to the old build and is stranded by the worker restart. So
+# before the apply, current points at the build this deploy ships, which has no worker yet: a run
+# started in between waits for it (digest/src/deployment.test.ts). --allow-no-pollers because the
+# new worker does not exist yet, --ignore-missing-task-queues because it has never polled `digest`.
+# With --skip-build the build is whatever :latest carries, unknown here, so the gap stays open.
+CURRENT_MOVED=false
+point_current_at_new_build() {
+  temporal_on || return 0
+  if [[ $SKIP_BUILD == true ]]; then
+    log_info "--skip-build: the running build stays current until after the apply"
+    return 0
+  fi
+  log_step "Pointing the current worker version at ${SHA:0:7}, before its worker exists..."
+  local cmd="test -x $SCHEDULE_CTL || exit 3; $TEMPORAL_CLI worker deployment set-current-version --deployment-name digest --build-id ${SHA:0:7} --allow-no-pollers --ignore-missing-task-queues --yes"
+  dry_run_skip "bin/ssh \"$cmd\"" && { CURRENT_MOVED=true; return 0; }
+
+  local out rc=0
+  out=$("$SCRIPT_DIR/ssh" "$cmd" 2>&1) || rc=$?
+  case $rc in
+    0) CURRENT_MOVED=true; log_success "current version: digest:${SHA:0:7} (no worker until the apply)" ;;
+    3) log_info "Temporal not provisioned on the box yet -- no deployment to point" ;;
+    # Not fatal: the version is made current after the apply either way; only the gap stays open.
+    *) log_error "could not point the current version at ${SHA:0:7} (exit $rc): ${out:0:300} -- a run the apply's bootstrap starts would be stranded (runbook, \"Stranded runs\")" ;;
+  esac
+}
+
+# The new worker polls as its own build and gets no run until that build is the deployment's current
+# version, so this sits after the apply and before the schedule is restored. It runs inside the
+# running worker container (digest/src/cli/set-current.ts), so the build made current is the one
+# running, whatever --skip-build left there, and it waits until that worker polls. Exit 2: current,
+# but runs pinned to another build were found, whose worker this deploy stopped (runbook, "Stranded
+# runs"). The exit trap runs it too after a failure, to point current back at whichever worker runs.
+WORKER_CONTAINER="news-digest-worker" # terraform's news-digest-worker.service
+set_current_version() {
+  temporal_on || return 0
+  log_step "Making the running worker's build the current version..."
+  local cmd="for i in \$(seq 60); do docker exec $WORKER_CONTAINER true 2>/dev/null && break; sleep 2; done; docker exec $WORKER_CONTAINER node dist/cli/set-current.js"
+  dry_run_skip "bin/ssh \"$cmd\"" && { CURRENT_MOVED=false; return 0; }
+
+  local out rc=0 build
+  CURRENT_MOVED=true # until the running build is confirmed current
+  out=$("$SCRIPT_DIR/ssh" "$cmd" 2>&1) || rc=$?
+  # 0, 2 and 3 all mean the running build is current.
+  [[ $rc == 0 || $rc == 2 || $rc == 3 ]] && CURRENT_MOVED=false
+  case $rc in
+    0) log_success "${out%%$'\n'*}" ;;
+    3) log_error "${out%%$'\n'*}, but the running digests could not be checked for stranded runs: ${out#*$'\n'}" ;;
+    2)
+      build=$(sed -n 's/^current version: digest:\(.*\)$/\1/p' <<<"$out")
+      log_error "the new build ($build) is current, but these runs are pinned to a build with no worker and will sit: $(grep '^stranded:' <<<"$out" | tr '\n' ' ')"
+      log_error "move each onto the new build: bin/ssh \"$TEMPORAL_CLI workflow update-options -w <id> --versioning-override-behavior pinned --versioning-override-deployment-name digest --versioning-override-build-id $build\" -- it replays on the new code; a nondeterminism error there means terminate it and start the day again (runbook, \"Stranded runs\")"
+      # A stalled rehearsal must not fail Python's deploy; a stalled live run is today's digest.
+      [[ $PIPELINE_MODE == staged ]]
+      ;;
+    *)
+      log_error "the new worker's build is NOT the current version, so no run will start on it (exit $rc): ${out:0:300} -- once the worker polls: bin/ssh docker exec $WORKER_CONTAINER node dist/cli/set-current.js"
+      return 1
+      ;;
   esac
 }
 
@@ -1108,6 +1170,14 @@ cleanup() {
   [[ $DEPLOYMENT_SUCCEEDED == false ]] && \
     update_deployment_status "failure" "Deployment failed (exit $exit_code)"
 
+  # Current may name a build no worker runs (pointed at before the apply, or never confirmed after
+  # it): point it at whichever worker runs. If none can be, a run the schedule starts would sit with no
+  # alert, so the schedule stays paused, loudly.
+  if [[ $CURRENT_MOVED == true ]] && ! set_current_version && [[ $SCHEDULE_PAUSED == true ]]; then
+    log_error "the Temporal schedule stays PAUSED: no running worker's build could be made current. Once the worker polls: bin/ssh docker exec $WORKER_CONTAINER node dist/cli/set-current.js, then bin/ssh systemctl restart $SCHEDULE_BOOTSTRAP_UNIT"
+    SCHEDULE_PAUSED=false
+  fi
+
   # A deploy that died after pausing must not leave tomorrow's run silently disarmed. Resuming
   # re-arms whatever is on the box, which is what the Python timer (never paused) does too.
   if [[ $SCHEDULE_PAUSED == true ]]; then
@@ -1166,7 +1236,8 @@ main() {
     echo "  - Apply Terraform (news_digest_env, news_digest_service, news_digest_alert, news_digest_deadman, digest_server)"
     if temporal_on; then
       echo "  - Pipeline mode $PIPELINE_MODE: build the Temporal workers, pause the schedule for the deploy and restore it"
-      echo "    after, and apply the Temporal stack (news_digest_temporal_db/_server/_bootstrap/_backup, news_digest_workers)"
+      echo "    after, apply the Temporal stack (news_digest_temporal_db/_server/_bootstrap/_backup, news_digest_workers),"
+      echo "    and make the new worker's build the current version"
     fi
     echo "  - Run database migrations"
     echo ""
@@ -1187,6 +1258,7 @@ main() {
   # Ahead of the snapshot and the migrations: nothing may start a run against a database that is
   # about to be copied and then mutated.
   pause_schedule || exit 1
+  point_current_at_new_build
   backup_data
   # Migrations BEFORE terraform: circulation fail-closes at boot on missing
   # required tables (REQUIRED_TABLES), and terraform restarts it. Migrating
@@ -1199,8 +1271,9 @@ main() {
   run_migrations || exit 1
   apply_terraform
   tag_deployment
-  # After the tag, like the smoke: the deploy is live whether or not this succeeds, and a failure
-  # here must not orphan the tag that records its digests.
+  # After the tag, like the smoke: the deploy is live whether or not these succeed, and a failure
+  # here must not orphan the tag that records its digests. The trap still restores the schedule.
+  set_current_version || exit 1
   resume_schedule || exit 1
   # Deploy is LIVE and its image digests are tagged from here; the smoke verifies it rather
   # than gating it (see mcp_smoke), and must not sit ahead of the tag it would orphan.
