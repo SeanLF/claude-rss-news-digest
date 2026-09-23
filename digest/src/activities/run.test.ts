@@ -58,6 +58,20 @@ describe("run lifecycle", () => {
     new DatabaseSync(path).exec("INSERT INTO digest_runs (id, run_at) VALUES (7, '2026-09-18 10:25:40')");
     await expect(acts.startRun({ runDate: "2026-09-18", resumeRun: 7 })).rejects.toMatchObject({ type: "MissingInput" });
   });
+  it("a resume from a new execution sets a failed run running again under that execution; a completed run stays completed", async () => {
+    const { path, store, acts } = setup();
+    const db = new DatabaseSync(path);
+    db.exec("INSERT INTO digest_runs (id, run_at, status, workflow_run_id) VALUES (7, '2026-09-18 10:25:40', 'failed', 'exec-1')");
+    db.exec("INSERT INTO digest_runs (id, run_at, completed_at, status) VALUES (8, '2026-09-19 10:25:40', '2026-09-19 10:45:00', 'completed')");
+    for (const id of [7, 8]) store.put(id, "sources.csv", "id,name,bias,factuality,perspective\nf,F,center,high,global\n");
+    const env = new MockActivityEnvironment({ workflowExecution: { workflowId: "digest-2026-09-18", runId: "exec-2" } });
+    await env.run(() => acts.startRun({ runDate: "2026-09-18", resumeRun: 7 }));
+    await env.run(() => acts.startRun({ runDate: "2026-09-19", resumeRun: 8 }));
+    expect(db.prepare("SELECT id, status, workflow_run_id FROM digest_runs ORDER BY id").all()).toEqual([
+      { id: 7, status: "running", workflow_run_id: "exec-2" },
+      { id: 8, status: "completed", workflow_run_id: null },
+    ]);
+  });
   describe("the cross-pipeline guard: one digest per day, whichever pipeline started it", () => {
     const today = new Date().toISOString().slice(0, 10);
     it("refuses a day that already has a completed run", async () => {

@@ -179,8 +179,14 @@ function retract(db: DatabaseSync, runId: number): Retraction {
   };
   const hasDigests = db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'digests'").get() !== undefined;
   const day = hasDigests ? broadcastState(db, runId) : null;
-  if (day && (day.id !== null || (day.status !== null && (ACCEPTED_BROADCAST_STATES.has(day.status) || day.status.startsWith(CLAIMED)))))
-    return decline(`the day's broadcast is ${day.status ?? "unknown"}${day.id ? ` (${day.id})` : ""}`);
+  const mayHaveGone = day !== null && (day.id !== null || (day.status !== null && (ACCEPTED_BROADCAST_STATES.has(day.status) || day.status.startsWith(CLAIMED))));
+  // Delivery is judged per run: the day's broadcast is another run's when that run owns the row and
+  // completed. The row names its last saver, not its sender, so a broadcast whose owner did not
+  // complete may be this run's own send (it failed after sending, and a later run's save took the row).
+  if (day && mayHaveGone) {
+    const owner = db.prepare("SELECT r.id FROM digests d JOIN digest_runs r ON r.id = d.run_id WHERE d.date = ? AND r.id != ? AND r.status = 'completed'").get(day.date, runId);
+    if (owner === undefined) return decline(`the day's broadcast is ${day.status ?? "unknown"}${day.id ? ` (${day.id})` : ""}`);
+  }
   const later = dependentRuns(db, runId);
   if (later.length) return decline(`later run(s) ${later.join(", ")} build on it`);
   new ThreadStore(db).transaction(() => undoRun(db, runId));
@@ -191,15 +197,20 @@ function retract(db: DatabaseSync, runId: number): Retraction {
 // so a run older than this has no attempt left that could deliver its installments.
 export const RESUME_HORIZON_HOURS = RUN_TIMEOUT_HOURS;
 
-// abortRun keeps a failed run's thread writes for a resume. Once the horizon has passed and the run's
-// day has no broadcast that may have gone out, nobody was sent them: take them back before this run
-// links, newest first, so a chain of failed runs unwinds without the later one counting as a dependent.
+// abortRun keeps a failed run's thread writes for a resume. A failed run is abandoned once the
+// horizon has passed or a later run of its day supersedes it; a resume sets it back to 'running'
+// (startRun), which is never swept. Unless its own issue may have gone out, nobody was sent its writes:
+// take them back before this run links, so it links on the state the failed run began in, newest
+// first so a chain of failed runs unwinds without the later one counting as a dependent.
+// A 'running' leftover (a crash the workflow never marked) is left alone: nothing can tell it from a
+// run still in progress, and no crash has left one with thread writes (prod clone, 2026-09-23).
 export function retractAbandoned(db: DatabaseSync, runId: number): number[] {
   const abandoned = db
     .prepare(
       `SELECT id FROM digest_runs
-       WHERE id < ? AND completed_at IS NULL AND status IN ('failed', 'aborted')
-         AND run_at < datetime('now', ?)
+       WHERE id < ? AND completed_at IS NULL AND status = 'failed'
+         AND (run_at < datetime('now', ?)
+              OR EXISTS (SELECT 1 FROM digest_runs l WHERE l.id > digest_runs.id AND date(l.run_at) = date(digest_runs.run_at)))
          AND (EXISTS (SELECT 1 FROM thread_installments WHERE run_id = digest_runs.id)
               OR EXISTS (SELECT 1 FROM thread_questions WHERE raised_run_id = digest_runs.id OR resolved_run_id = digest_runs.id))
        ORDER BY id DESC`,
