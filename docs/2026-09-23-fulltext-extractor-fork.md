@@ -17,6 +17,9 @@ of extractors and not of pages that changed between fetches.
 - **trafilatura** (production): `extract(html, include_comments=False, include_tables=False)`, the reference.
 - **defuddle** 0.19.4 over linkedom, markdown output with link targets stripped.
 - **readability** (@mozilla/readability 0.6.0) over linkedom, `textContent`.
+- **dom-smoothie** (dom-smoothie-js, the Rust `dom_smoothie` crate as WebAssembly), text output. It was added
+  before the measurement ran, on Sean's question about Rust libraries. WebAssembly needs no per-platform
+  binary. rs-trafilatura was not added: it has no Node binding, and reaching it means maintaining napi glue.
 
 All three are truncated at 4000 characters, as production's `FULLTEXT_MAX_CHARS` does.
 
