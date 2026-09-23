@@ -76,6 +76,11 @@ ignore = [
     "RUF001", # ambiguous unicode (en dash in email subject is intentional)
 ]
 
+[tool.ruff.lint.isort]
+# bin/ci runs from the repo root, where the TypeScript package's digest/ directory would make
+# `import digest` first-party while every other newsroom module sorts as third-party.
+known-third-party = ["digest"]
+
 [tool.mypy]
 python_version = "3.14"
 warn_return_any = false
