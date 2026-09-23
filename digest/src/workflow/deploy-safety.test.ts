@@ -174,27 +174,30 @@ describe("a deploy that changes only activity code, restarting the worker mid-ac
     await drained;
   }, LONG);
 
-  it("a one-attempt step (the render) the shutdown interrupts is not retried: the run fails and alerts", async () => {
+  // Render and assemble rebuild the same output from the same inputs (render keeps its timestamp and
+  // issue number in render_context.json), so they are retried like a fetch rather than run once.
+  it.each(["render", "assemble"] as const)("a deterministic step (%s) the shutdown interrupts is retried on the new worker, and the run sends", async (step) => {
     const inFlight = deferred();
-    let renders = 0;
-    const oldRender: Activities["render"] = async () => {
-      renders++;
+    const attempts: string[] = [];
+    const interrupted = async () => {
+      attempts.push(`old:${Context.current().info.attempt}`);
       inFlight.resolve();
       await Context.current().cancelled;
       throw new Error("unreachable");
     };
+    const retried = (...a: Parameters<Activities[typeof step]>) => {
+      attempts.push(`new:${Context.current().info.attempt}`);
+      return (stub[step] as (...x: typeof a) => ReturnType<Activities[typeof step]>)(...a);
+    };
     const { calls, acts } = opsRecorder();
-    const h = await start("render", "2026-12-03");
+    const h = await start(step, step === "render" ? "2026-12-03" : "2026-12-07");
     await h.signal(approveSignal, { decision: "approve" });
-    await oldWorkerUntil("render", { render: oldRender }, inFlight.promise);
-    const next = await worker("render", { ...acts, render: (...a) => {
-        renders++;
-        return stub.render(...a);
-      } });
-    const err = await next.runUntil(h.result().catch((e: unknown) => e));
-    expect(err).toBeInstanceOf(WorkflowFailedError);
-    expect(renders).toBe(1); // never re-run on the new worker
-    expect(calls.filter((c) => c.name === "alert")).toMatchObject([{ args: [{ kind: "run-failed" }] }]);
+    await oldWorkerUntil(step, { [step]: interrupted }, inFlight.promise);
+    const next = await worker(step, { ...acts, [step]: retried });
+    const out = await next.runUntil(h.result());
+    expect(attempts).toEqual(["old:1", "new:2"]);
+    expect(out.broadcast).toBe("sent");
+    expect(calls.filter((c) => c.name === "alert")).toEqual([]);
   }, LONG);
 
   it.skipIf(devServer)("a one-attempt verdict (COHERENCE) the shutdown interrupts parks the run until an operator retries it", async () => {

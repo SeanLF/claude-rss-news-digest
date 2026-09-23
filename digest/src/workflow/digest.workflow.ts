@@ -3,7 +3,8 @@
 //   if (patched("short-change-id")) { new path } else { old path }
 // and the old path deleted (deprecatePatch, then nothing) only once no run started before the change
 // can still be open (4 h run timeout). replay.test.ts replays recorded histories against this file and
-// fails on an ungated change; never re-record the fixtures to make it pass. Activity bodies are free.
+// fails on an ungated change; never re-record the fixtures to make it pass. Activity bodies are free,
+// and so are an activity's options: replay matches an activity by type, not by timeout or retry policy.
 import { ActivityFailure, ApplicationFailure, CancellationScope, CancelledFailure, condition, isCancellation, log, proxyActivities, setHandler, TimeoutFailure, workflowInfo } from "@temporalio/workflow";
 import type { Activities, AlertRequest, DigestInput, DigestOutput, FulltextFetch, FulltextFetcher, GnewsDecode, LinkDecoder } from "../activities/index.js";
 import { mapBounded, MODEL_FANOUT_LIMIT } from "./bounded.js";
@@ -36,8 +37,8 @@ function holdFor(): number {
 export const workflowIdFor = (runDate: string): string => `digest-${runDate}`;
 
 // Three retry classes under one run budget (spec §2.1). Model calls: bounded retries inside the
-// outage-sized run timeout, with heartbeats. Network: quick retries. Verdicts, the assemble and
-// the send: one attempt (a verdict is a result; a send is at-most-once).
+// outage-sized run timeout, with heartbeats. Network: quick retries. Verdicts and the send: one
+// attempt (a verdict is a result; a send is at-most-once).
 const model = proxyActivities<Activities>({
   startToCloseTimeout: "45 minutes",
   heartbeatTimeout: "2 minutes",
@@ -45,6 +46,9 @@ const model = proxyActivities<Activities>({
 });
 const network = proxyActivities<Activities>({ startToCloseTimeout: "2 minutes", retry: { maximumAttempts: NETWORK_MAX_ATTEMPTS, initialInterval: "10 seconds" } });
 const once = proxyActivities<Activities>({ startToCloseTimeout: "10 minutes", retry: { maximumAttempts: 1 } });
+// Render and assemble: the same inputs give the same output (render keeps its timestamp and issue
+// number), so an attempt a deploy interrupts is retried like a fetch instead of failing the run.
+const rebuild = proxyActivities<Activities>({ startToCloseTimeout: "10 minutes", retry: { maximumAttempts: NETWORK_MAX_ATTEMPTS, initialInterval: "10 seconds" } });
 // The send: one attempt, heartbeating, so a timed-out or cancelled attempt is told to stop.
 const send = proxyActivities<Activities>({ startToCloseTimeout: "10 minutes", heartbeatTimeout: "2 minutes", retry: { maximumAttempts: 1 } });
 // The run's record: idempotent database writes, so a retry is safe, retried like a fetch.
@@ -217,7 +221,7 @@ async function runDigest(input: DigestInput, state: RunState): Promise<DigestOut
     const preheader = await preheaderP;
     if (!report) return await finish({ stories: 0, broadcast: "skipped" });
     const repair = await model.repair(runId, drafts, report, input.force);
-    const selections = await once.assemble(runId, drafts, report, repair, preheader, input.force);
+    const selections = await rebuild.assemble(runId, drafts, report, repair, preheader, input.force);
     // Best-effort, as in production: a decoder that is down or fails ships the raw Google-News links.
     const decodeLinks = async () => {
       const links = await once.planGnews(runId, selections, input.force);
@@ -238,7 +242,7 @@ async function runDigest(input: DigestInput, state: RunState): Promise<DigestOut
       if (isCancellation(e)) throw e;
       log.warn("archiving the run's selections and clusters failed; the issue goes on", { runId, error: String(e) });
     });
-    const { html, email } = await once.render(runId, selections, threads, gnews);
+    const { html, email } = await rebuild.render(runId, selections, threads, gnews);
 
     // Only a real send publishes: with the send disabled the run ends like a rejected one, with no
     // web copy, no shown headlines and no completed_at, and the operator is told.
