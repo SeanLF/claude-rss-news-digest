@@ -1,6 +1,7 @@
 import type { UsageRow } from "../store/usage.js";
 import type { Options, SDKMessage } from "@anthropic-ai/claude-agent-sdk";
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import type { SdkQuery } from "../runner/run-stage.js";
 import { ArtifactStore } from "../store/artifacts.js";
@@ -43,11 +44,12 @@ function setup(report: unknown, toolCalls: { name: string; target: string }[] = 
   store.put(300, "articles_1.csv", "article_id,source_id,title,published,summary\nA1,hn,T,2026-09-18,https://x.com/y\nA2,bbc,T2,2026-09-18,s\n");
   const d0 = store.put(300, "draft_s00.json", JSON.stringify({ plan: { index: 0, tier: "must_know", storyIds: ["A1"], contextIds: ["A1"] }, story: story("Talks resume", ["A1"]) }));
   const d1 = store.put(300, "draft_s01.json", JSON.stringify({ plan: { index: 1, tier: "should_know", storyIds: ["A2"], contextIds: ["A2"] }, story: story("Yen jumps", ["A2"]) }));
-  const seen: { n: number; prompt?: string; options?: Options } = { n: 0 };
+  const seen: { n: number; prompt?: string; options?: Options; files?: Record<string, string> } = { n: 0 };
   const q = (({ prompt, options }: { prompt: string; options?: Options }) => {
     seen.n++;
     seen.prompt = prompt;
     if (options) seen.options = options;
+    if (options?.cwd) seen.files = Object.fromEntries(readdirSync(options.cwd).map((f) => [f, readFileSync(join(options.cwd!, f), "utf8")]));
     return (function* () {
       yield { type: "assistant", message: { content: toolCalls.map((t, i) => ({ type: "tool_use", id: String(i), name: t.name, input: { pattern: t.target } })) }, session_id: "s" } as unknown as SDKMessage;
       yield { type: "result", subtype: "success", result: "", structured_output: report, total_cost_usd: 0.9, usage: {}, duration_ms: 5, is_error: false, num_turns: 4, session_id: "s" } as unknown as SDKMessage;
@@ -60,19 +62,19 @@ function setup(report: unknown, toolCalls: { name: string; target: string }[] = 
 const ft = { runId: 300, name: "article_fulltext.json", sha256: "0".repeat(64) };
 
 describe("coherence activity", () => {
-  it("inlines the draft and corpus with links scrubbed, stores the assembled draft and the covered report", async () => {
+  it("hands the Read loop the draft and corpus with links scrubbed, stores the assembled draft and the covered report", async () => {
     const report = { results: [{ headline: "Talks resume", article_ids: ["A1"], pass: true, reason: "ok" }, { headline: "x", article_ids: ["A2"], pass: false, reason: "summary: 58% absent", failed_fields: ["summary"], failure_kinds: { summary: "unsupported" } }] };
-    const { store, seen, act, drafts, rows } = setup(report, [{ name: "Grep", target: "58%" }]);
+    const { store, seen, act, drafts, rows } = setup(report, [{ name: "Read", target: "articles_1.csv" }]);
     const p = await act(300, drafts, ft);
     expect(JSON.parse(store.get(p))).toEqual(report);
     const draft = JSON.parse(store.get(store.find(300, DRAFT_OUTPUT)!)) as { must_know: { headline: string }[]; should_know: { headline: string; why_it_matters?: string }[] };
     expect(draft.must_know.map((s) => s.headline)).toEqual(["Talks resume"]);
     expect(draft.should_know.map((s) => s.headline)).toEqual(["Yen jumps"]);
-    expect(seen.prompt).toContain("## draft_selections.json");
-    expect(seen.prompt).toContain("[link]");
-    expect(seen.prompt).not.toContain("https://");
-    expect(seen.options?.tools).toEqual(["Read", "Grep"]);
-    expect(rows[0]?.unbackedFails).toBe(1); // "58%" is under four characters, so it backs nothing
+    expect(Object.keys(seen.files ?? {}).toSorted()).toEqual(["articles_1.csv", "draft_selections.json"]);
+    expect(seen.files?.["articles_1.csv"]).toContain("[link]");
+    expect(JSON.stringify(seen.files)).not.toContain("https://");
+    expect(seen.options?.tools).toEqual(["Read"]);
+    expect(rows[0]?.unbackedFails).toBeNull(); // attribution by Grep pattern means nothing without Grep
     expect(await act(300, drafts, ft)).toEqual(p);
     expect(seen.n).toBe(1);
   });

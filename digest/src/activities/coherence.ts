@@ -110,7 +110,7 @@ export function coherenceActivity(deps: CoherenceDeps) {
 }
 
 // One checker run over a draft: the draft, the article CSVs and the fulltext inline and on disk,
-// links scrubbed, the inline+Grep body derived from the shipped prompt. The scoped recheck after a
+// links scrubbed, the checker body derived from the shipped prompt. The scoped recheck after a
 // repair is this same run over a draft holding only the patched stories.
 export async function runChecker(deps: CoherenceDeps, runId: number, draftText: string, note?: string) {
   const { store } = deps;
@@ -130,7 +130,7 @@ export async function checkDraft(
   corpus: [string, string][],
   today: string,
   note?: string,
-  shape: CheckerShape = "inline-grep",
+  shape: CheckerShape = "read-loop", // planted band 2026-09-23: 8/8 recall 3/3 at $0.86; inline-grep 6/8 once
 ) {
   const dir = mkdtempSync(join(tmpdir(), "coherence-"));
   try {
@@ -153,7 +153,7 @@ export async function checkDraft(
     deps.heartbeat?.();
     const parsed = CoherenceReportSchema.safeParse(r.structured);
     if (!parsed.success) throw new Error("coherence: report does not match the schema");
-    return { model: spec.model, thinking: spec.thinking, tokens: r.usage, report: parsed.data, costUsd: r.costUsd, durationMs: r.durationMs, numTurns: r.numTurns, toolCalls: r.toolCalls.length, unbacked: unbackedFails(parsed.data, r.toolCalls) };
+    return { model: spec.model, thinking: spec.thinking, tokens: r.usage, report: parsed.data, costUsd: r.costUsd, durationMs: r.durationMs, numTurns: r.numTurns, toolCalls: r.toolCalls.length, unbacked: shape === "inline-grep" ? unbackedFails(parsed.data, r.toolCalls) : null };
   } finally {
     rmSync(dir, { recursive: true, force: true }); // the mkdtemp directory this call created
   }
