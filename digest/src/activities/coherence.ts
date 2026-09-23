@@ -32,6 +32,19 @@ export function buildInlineGrepBody(body: string, inputDir: string): string {
   return out.replace("before writing that story's result", "before giving that story's result");
 }
 
+// orchestrate.build_read_only_body, ported: the shipped checker with Write removed; it still Reads the
+// files and returns the report as its final message. The other side of the spec's pre-registered
+// checker fork (inline+Grep vs the Read loop).
+export function buildReadLoopBody(body: string): string {
+  if (!WRITE_STEP.test(body) || !body.includes(TOOLS_RULE)) throw new Error("coherence body drifted: the Write step or the tools rule is not where buildReadLoopBody expects");
+  return body
+    .replace(WRITE_STEP, "3. " + REPLY_JSON)
+    .replace(TOOLS_RULE, "- DO NOT use Bash or Write. Use the Read tool only.\n")
+    .replace("before writing that story's result", "before giving that story's result")
+    .replaceAll("/app/data/claude_input/", "");
+}
+export type CheckerShape = "inline-grep" | "read-loop";
+
 // Fails whose reason quotes no Grep pattern of the attempt (eval_coherence.unbacked_fail_count):
 // approximate attribution, reported with the usage, never gated.
 export function unbackedFails(report: CoherenceReport, toolCalls: { name: string; target: string }[]): number {
@@ -117,6 +130,7 @@ export async function checkDraft(
   corpus: [string, string][],
   today: string,
   note?: string,
+  shape: CheckerShape = "inline-grep",
 ) {
   const dir = mkdtempSync(join(tmpdir(), "coherence-"));
   try {
@@ -128,9 +142,10 @@ export async function checkDraft(
       parts.push(`## ${name}\n\n${text}`);
     }
     const spec = parseAgentSpec(readFileSync(join(deps.agentsDir, "coherence.md"), "utf8"));
-    const body = buildInlineGrepBody(spec.body, dir);
+    const body = shape === "inline-grep" ? buildInlineGrepBody(spec.body, dir) : buildReadLoopBody(spec.body);
     deps.heartbeat?.();
-    const r = await runStage({ ...spec, body }, { userMessage: parts.join("\n\n") + (note ? `\n\nOperator note for this attempt: ${note}` : ""), inputDir: dir }, {
+    const message = shape === "inline-grep" ? parts.join("\n\n") : `The files are in your working directory, ${dir}. Begin.`;
+    const r = await runStage({ ...spec, body, ...(shape === "read-loop" ? { tools: ["Read" as const] } : {}) }, { userMessage: message + (note ? `\n\nOperator note for this attempt: ${note}` : ""), inputDir: dir }, {
       today,
       outputSchema: coherenceReportJsonSchema(),
       ...(deps.query ? { query: deps.query } : {}), ...(deps.heartbeat ? { heartbeat: deps.heartbeat } : {}), ...(deps.signal?.() ? { signal: deps.signal()! } : {}),

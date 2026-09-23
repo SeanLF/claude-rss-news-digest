@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 import type { SdkQuery } from "../runner/run-stage.js";
 import { ArtifactStore } from "../store/artifacts.js";
 import { freshDb } from "../store/test-db.js";
-import { buildInlineGrepBody, coherenceActivity, COHERENCE_OUTPUT, DRAFT_OUTPUT, unbackedFails } from "./coherence.js";
+import { buildInlineGrepBody, buildReadLoopBody, coherenceActivity, COHERENCE_OUTPUT, DRAFT_OUTPUT, unbackedFails } from "./coherence.js";
 
 const AGENTS = new URL("../../agents/", import.meta.url).pathname;
 // digest/agents/coherence.md carries the production body verbatim; a host-only test holds the two equal.
@@ -20,6 +20,14 @@ describe("buildInlineGrepBody", () => {
     expect(out).toContain("2. For each story in draft_selections.json");
     expect(out).toContain("before you FAIL a field, use the Grep tool");
     expect(out).not.toContain("Use the Write tool");
+    const probes = body.slice(body.indexOf("**For each field, run all three probes"), body.indexOf("**Rules:**"));
+    expect(out).toContain(probes);
+  });
+  it("the read-loop body keeps the probes, drops Write, and reads from the working directory", () => {
+    const out = buildReadLoopBody(body);
+    expect(out).toContain("Reply with the JSON object and nothing else");
+    expect(out).not.toContain("Use the Write tool");
+    expect(out).not.toContain("/app/data/claude_input/");
     const probes = body.slice(body.indexOf("**For each field, run all three probes"), body.indexOf("**Rules:**"));
     expect(out).toContain(probes);
   });

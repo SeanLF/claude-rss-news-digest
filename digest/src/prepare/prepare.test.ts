@@ -35,6 +35,13 @@ describe("prepareArticles", () => {
     const out = prepareArticles([src("hn")], new Map([["hn", [{ title: "Jemalloc 5.4", url: "https://hn.test/1", published: "", summary: "Article URL: https://github.com/jemalloc" }]]]), []);
     expect(out.files[0]!.rows[0]![4]).toBe("Article URL: [link]");
   });
+  it("scrubs before the cap, so a link straddling the 200-character cap leaves no partial URL", () => {
+    const summary = `${"x".repeat(190)} https://github.com/jemalloc/jemalloc/releases`;
+    const out = prepareArticles([src("hn")], new Map([["hn", [{ title: "T", url: "https://hn.test/1", published: "", summary }]]]), []);
+    const kept = out.files[0]!.rows[0]![4]!;
+    expect(kept.length).toBeLessThanOrEqual(200);
+    expect(kept).not.toMatch(/http|github/);
+  });
   it("numbers survivors in source order, drops unsafe and repeated URLs and recent titles", () => {
     const out = prepareArticles([src("a"), src("b")], new Map([["b", [f("B one", "https://b.test/1")]], ["a", [f("A one", "https://a.test/1"), f("A dup", "https://A.test/1/"), f("A ftp", "ftp://a.test/2"), f("Japan raises rates", "https://a.test/3")]]]), ["Japan raises rates"]);
     expect(out.files[0]!.rows.map((r) => [r[0], r[2]])).toEqual([["A1", "A one"], ["A2", "B one"]]);

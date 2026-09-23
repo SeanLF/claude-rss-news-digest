@@ -3,9 +3,15 @@
 # planted/band-2026-09-18: recall 8/8 every rep, false drops 1-3). Run with `make planted`.
 description: COHERENCE planted-defect band on the new runner
 prompts: ["planted278"]
+# Both sides of the spec's pre-registered checker fork (§2.2): inline+Grep, and the Read loop. The
+# threshold is the old Read loop's band: not worse on recall, not worse on false drops.
 providers:
   - id: file://../dist/gate/checker-provider.js
-    config: { fixtureDir: ../docs/proposed/coherence-planted/fixtures/planted278, today: "2026-08-28" }
+    label: inline-grep
+    config: { fixtureDir: ../docs/proposed/coherence-planted/fixtures/planted278, today: "2026-08-28", shape: inline-grep }
+  - id: file://../dist/gate/checker-provider.js
+    label: read-loop
+    config: { fixtureDir: ../docs/proposed/coherence-planted/fixtures/planted278, today: "2026-08-28", shape: read-loop }
 tests:
   - vars:
       draft: ../docs/proposed/coherence-planted/fixtures/planted278/draft_selections.json
