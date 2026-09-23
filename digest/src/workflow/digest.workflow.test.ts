@@ -4,7 +4,7 @@ import { Worker } from "@temporalio/worker";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { Activities, FulltextFetch, FulltextTask } from "../activities/index.js";
 import { stubActivities } from "../activities/stub.js";
-import { DigestWorkflow, workflowIdFor } from "./digest.workflow.js";
+import { DigestWorkflow, TAIL_MARGIN_MS, workflowIdFor } from "./digest.workflow.js";
 import { FULLTEXT_TASK_QUEUE } from "./policy.js";
 import { approveSignal, retrySignal } from "./signals.js";
 
@@ -50,7 +50,7 @@ function tail(overrides: Partial<Activities> = {}) {
       return impl(...args);
     },
   });
-  const names = ["archiveRun", "render", "notifyHold", "saveDigest", "broadcast", "recordShownHeadlines", "finishRun", "abortRun"] as const;
+  const names = ["archiveRun", "render", "sendEnabled", "notifyHold", "saveDigest", "broadcast", "recordShownHeadlines", "finishRun", "abortRun"] as const;
   return { calls, acts: Object.assign({}, ...names.map((n) => spy(n))) as Partial<Activities> };
 }
 
@@ -163,7 +163,7 @@ describe("DigestWorkflow", () => {
     it("archives before the hold, and publishes, sends and records the shown headlines only after it", async () => {
       const { calls, acts } = tail();
       const out = await withWorker(() => approveAndWait("2026-10-02"), acts);
-      expect(calls).toEqual(["archiveRun", "render", "notifyHold", "saveDigest", "broadcast", "recordShownHeadlines", "finishRun"]);
+      expect(calls).toEqual(["archiveRun", "render", "sendEnabled", "notifyHold", "saveDigest", "broadcast", "recordShownHeadlines", "finishRun"]);
       expect(out).toMatchObject({ broadcast: "sent", recipients: 12 });
     }, 120_000);
     it("a rejected issue is neither published, sent nor recorded as shown", async () => {
@@ -173,7 +173,7 @@ describe("DigestWorkflow", () => {
         await h.signal(approveSignal, { decision: "reject" });
         return h.result();
       }, acts);
-      expect(calls).toEqual(["archiveRun", "render", "notifyHold", "finishRun"]);
+      expect(calls).toEqual(["archiveRun", "render", "sendEnabled", "notifyHold", "finishRun"]);
       expect(out.broadcast).toBe("rejected");
     }, 120_000);
     it("a send that fails is not retried: the run is marked failed and the workflow fails", async () => {
@@ -188,11 +188,50 @@ describe("DigestWorkflow", () => {
       expect(out.broadcast).toBe("sent");
       expect(calls).toContain("broadcast");
     }, 120_000);
-    it("with the send disabled the issue is still published and recorded, and says so", async () => {
-      const { calls, acts } = tail({ broadcast: () => Promise.resolve({ broadcastId: "", status: "disabled", recipients: 0 }) });
-      const out = await withWorker(() => approveAndWait("2026-10-06"), acts);
-      expect(calls).toEqual(["archiveRun", "render", "notifyHold", "saveDigest", "broadcast", "recordShownHeadlines", "finishRun"]);
-      expect(out).toMatchObject({ broadcast: "disabled", recipients: 0 });
+    it("with the send disabled nothing is published, sent, held for or recorded as shown", async () => {
+      const { calls, acts } = tail({ sendEnabled: () => Promise.resolve(false) });
+      const out = await withWorker(async () => (await start("2026-10-06")).result(), acts);
+      expect(calls).toEqual(["archiveRun", "render", "sendEnabled", "finishRun"]);
+      expect(out).toMatchObject({ broadcast: "disabled" });
+    }, 120_000);
+    it("a failure recording after a delivered send is retried, not a failed run", async () => {
+      let tries = 0;
+      const { calls, acts } = tail({
+        recordShownHeadlines: () => (++tries === 1 ? Promise.reject(new Error("SQLITE_BUSY: database is locked")) : Promise.resolve({ rows: 3 })),
+        finishRun: () => (tries++ === 2 ? Promise.reject(new Error("SQLITE_BUSY: database is locked")) : Promise.resolve()),
+      });
+      const out = await withWorker(() => approveAndWait("2026-10-07"), acts);
+      expect(out).toMatchObject({ broadcast: "sent" });
+      expect(calls.filter((c) => c === "broadcast")).toHaveLength(1);
+      expect(calls).not.toContain("abortRun");
+    }, 120_000);
+    it("the hold is cut to what the run's budget leaves after the send, and the notice says when it ends", async () => {
+      const ends: (string | null)[] = [];
+      const { acts } = tail({ notifyHold: (_r, _s, at) => {
+        ends.push(at);
+        return Promise.resolve({ sent: true });
+      } });
+      const out = await withWorker(async () => {
+        const h = await start("2026-10-08", {}, { workflowRunTimeout: "1 hour" });
+        const { startTime } = await h.describe();
+        const result = await h.result(); // no signal: the capped hold runs out, well inside the hour
+        return { result, startTime };
+      }, acts);
+      expect(out.result.broadcast).toBe("sent");
+      const held = Date.parse(ends[0]!) - out.startTime.getTime();
+      expect(held).toBeLessThanOrEqual(60 * 60 * 1000 - TAIL_MARGIN_MS + 1000); // the server's start time and the run's can differ by a millisecond
+      expect(held).toBeGreaterThan(0);
+    }, 120_000);
+    it("with no budget left for a hold, the run sends at once and the notice says it was not held", async () => {
+      const ends: (string | null)[] = [];
+      const { calls, acts } = tail({ notifyHold: (_r, _s, at) => {
+        ends.push(at);
+        return Promise.resolve({ sent: true });
+      } });
+      const out = await withWorker(async () => (await start("2026-10-09", {}, { workflowRunTimeout: "20 minutes" })).result(), acts);
+      expect(ends).toEqual([null]);
+      expect(out.broadcast).toBe("sent");
+      expect(calls).toContain("broadcast");
     }, 120_000);
   });
 });

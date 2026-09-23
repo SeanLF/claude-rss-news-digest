@@ -1,4 +1,4 @@
-import { ActivityFailure, CancellationScope, CancelledFailure, condition, isCancellation, log, proxyActivities, setHandler } from "@temporalio/workflow";
+import { ActivityFailure, CancellationScope, CancelledFailure, condition, isCancellation, log, proxyActivities, setHandler, workflowInfo } from "@temporalio/workflow";
 import type { Activities, DigestInput, DigestOutput, FulltextFetch, FulltextFetcher } from "../activities/index.js";
 import { mapBounded, MODEL_FANOUT_LIMIT } from "./bounded.js";
 import { FULLTEXT_TASK_QUEUE, MODEL_MAX_ATTEMPTS, NETWORK_MAX_ATTEMPTS } from "./policy.js";
@@ -6,6 +6,16 @@ import { approveSignal, operatorNoteSignal, retrySignal } from "./signals.js";
 
 export const WORKFLOW_RUN_TIMEOUT = "4 hours";
 export const HOLD_TIMEOUT = 2 * 60 * 60 * 1000; // 2 h, in ms: the hold notification names its end
+// What the tail after the hold needs of the run's budget: the web copy and the send (10 min, one
+// attempt) and the record's retried writes. A hold that ate into it would be killed by the run
+// timeout mid-hold, with nothing sent and the run left "running".
+export const TAIL_MARGIN_MS = 30 * 60 * 1000;
+// The hold, cut to what the run's budget leaves after the tail; 0 when nothing is left.
+function holdFor(): number {
+  const { runStartTime, runTimeoutMs } = workflowInfo();
+  if (!runTimeoutMs) return HOLD_TIMEOUT;
+  return Math.max(0, Math.min(HOLD_TIMEOUT, runStartTime.getTime() + runTimeoutMs - TAIL_MARGIN_MS - Date.now()));
+}
 // Workflow identity replaces the dup-run guard for every kind of start (spec §2.1).
 export const workflowIdFor = (runDate: string): string => `digest-${runDate}`;
 
@@ -46,7 +56,7 @@ export async function DigestWorkflow(input: DigestInput): Promise<DigestOutput> 
   try {
 
     async function finish(out: Omit<DigestOutput, "runId">): Promise<DigestOutput> {
-      await once.finishRun(runId, out);
+      await record.finishRun(runId, out);
       return { runId, ...out };
     }
 
@@ -116,20 +126,29 @@ export async function DigestWorkflow(input: DigestInput): Promise<DigestOutput> 
     });
     const { html, email } = await once.render(runId, selections, threads, gnews);
 
-    // Pre-broadcast hold (spec §2.3 signal 1): 2 h, then proceed. The operator hears of it by email,
-    // best-effort. Nothing reaches readers before the hold ends: the web copy, the send and the
-    // shown headlines (the next day's dedup) all follow it.
-    const holdEndsAt = new Date(Date.now() + HOLD_TIMEOUT).toISOString();
-    await once.notifyHold(runId, selections, holdEndsAt).catch((e: unknown) => {
+    // Only a real send publishes: with the send disabled the run ends like a rejected one, with no
+    // web copy, no shown headlines and no completed_at.
+    if (!(await record.sendEnabled())) {
+      log.warn("BROADCAST_ENABLED is not true: nothing published, sent or recorded as shown", { runId });
+      return await finish({ stories: storyCount, broadcast: "disabled" });
+    }
+    // Pre-broadcast hold (spec §2.3 signal 1): 2 h, then proceed, cut to the run's budget. The
+    // operator hears of it by email, best-effort. Nothing reaches readers before the hold ends: the
+    // web copy, the send and the shown headlines (the next day's dedup) all follow it.
+    const hold = holdFor();
+    await once.notifyHold(runId, selections, hold > 0 ? new Date(Date.now() + hold).toISOString() : null).catch((e: unknown) => {
       if (isCancellation(e)) throw e;
       log.warn("the hold notification failed; holding anyway", { runId, error: String(e) });
     });
-    await condition(() => approval !== undefined, HOLD_TIMEOUT);
+    if (hold > 0) await condition(() => approval !== undefined, hold);
+    else log.warn("no run budget left for the hold; sending without one", { runId });
     if (approval === "reject") return await finish({ stories: storyCount, broadcast: "rejected" });
     await record.saveDigest(runId, html, selections);
     const sent = await once.broadcast(runId, email); // at most once: one attempt (spec §2.1)
+    // After a delivered send every step is an idempotent write, retried: a locked database here
+    // must not mark a run that reached readers failed.
     await record.recordShownHeadlines(runId, selections);
-    return await finish({ stories: storyCount, broadcast: sent.status === "disabled" ? "disabled" : "sent", recipients: sent.recipients });
+    return await finish({ stories: storyCount, broadcast: "sent", recipients: sent.recipients });
   } catch (e) {
     // db.abort_run: marked failed, never deleted, whatever the cause, cancellation included.
     await CancellationScope.nonCancellable(() => record.abortRun(runId, e instanceof Error ? `${e.name}: ${e.message}${e.cause instanceof Error ? ` (${e.cause.message})` : ""}` : String(e)));
