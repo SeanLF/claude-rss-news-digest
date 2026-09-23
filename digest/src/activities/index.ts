@@ -78,6 +78,7 @@ export interface Activities {
   threadsLink(runId: number, force?: boolean): Promise<ThreadsLinked>;
   threadSynthesis(runId: number, plan: ThreadPlan): Promise<ThreadOutcome>;
   threadsFinish(runId: number, report: ThreadsReport): Promise<Pointer>;
+  threadsRetract(runId: number): Promise<{ retracted: boolean; reason?: string }>;
   render(runId: number, selections: Pointer, threads: Pointer, gnews: Pointer): Promise<{ html: Pointer; email: Pointer }>;
   archiveRun(runId: number, selections: Pointer, clusters: Pointer): Promise<void>;
   sendEnabled(): Promise<boolean>;

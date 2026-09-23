@@ -15,6 +15,7 @@ import { ThreadStore, type RenderContext } from "../threads/store.js";
 import { applyInstallment, auditPrompt, auditReask, expandNeighbourhood, parseInstallment, readAudit, synthesisPrompt, whatsNewOf, type Art, type Installment } from "../threads/synthesis.js";
 import { loadArticles } from "./cluster.js";
 import { THREAD_CONTEXT, type ThreadOutcome, type ThreadPlan, type ThreadsLinked, type ThreadsReport } from "./index.js";
+import { ACCEPTED_BROADCAST_STATES, broadcastState, CLAIMED } from "../ops/broadcast-state.js";
 
 // THREADS (run.py::_process_story_threads): link each selected story to a continuing thread or a
 // new one, synthesize and audit today's installment for each continuing thread, then hand the
@@ -346,6 +347,26 @@ export function threadsActivities(deps: ThreadsDeps) {
         });
       }),
 
+    // An issue that was not sent (rejected, held out, disabled, skipped) takes back its thread writes:
+    // circulation's thread pages read installments whether or not the issue went out, and the next
+    // run's synthesis would build on facts no reader was sent. Declines when the database says the
+    // day was broadcast (a resume of a delivered run) or a send may be in flight, and when a later
+    // run already builds on it, as a force does. A decline is logged: its installments stay public.
+    threadsRetract: (runId: number): Promise<{ retracted: boolean; reason?: string }> =>
+      withDb(deps.dbPath, (db) => {
+        const decline = (reason: string) => {
+          console.error(JSON.stringify({ stage: "threads", runId, error: "unsent issue's thread writes kept", reason }));
+          return { retracted: false, reason };
+        };
+        const hasDigests = db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'digests'").get() !== undefined;
+        const day = hasDigests ? broadcastState(db, runId) : null;
+        if (day && (day.id !== null || (day.status !== null && (ACCEPTED_BROADCAST_STATES.has(day.status) || day.status.startsWith(CLAIMED)))))
+          return decline(`the day's broadcast is ${day.status ?? "unknown"}${day.id ? ` (${day.id})` : ""}`);
+        const later = dependentRuns(db, runId);
+        if (later.length) return decline(`later run(s) ${later.join(", ")} build on it`);
+        new ThreadStore(db).transaction(() => undoRun(db, runId));
+        return { retracted: true };
+      }),
     // Records the phase from the run's thread rows and returns the render's context. Recomputed
     // every time, so a resume that lands what an earlier attempt could not says so.
     threadsFinish: (runId: number, report: ThreadsReport): Promise<Pointer> =>

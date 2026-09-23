@@ -32,6 +32,7 @@ export function stubActivities(): Activities {
     threadsLink: () => Promise.resolve({ plans: [{ threadId: 1, articleIds: ["A1", "A2"] }] }),
     threadSynthesis: (_runId, plan) => Promise.resolve({ threadId: plan.threadId, auditFailed: false }),
     threadsFinish: (runId) => Promise.resolve(ptr(runId, THREAD_CONTEXT)),
+    threadsRetract: () => Promise.resolve({ retracted: true }),
     render: (runId) => Promise.resolve({ html: ptr(runId, "digest.html"), email: ptr(runId, "email.html") }),
     archiveRun: () => Promise.resolve(),
     sendEnabled: () => Promise.resolve(true),

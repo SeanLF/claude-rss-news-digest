@@ -36,3 +36,30 @@ Known gaps, all stubs: 10 links are raw `news.google.com` URLs (gnews), and ther
 (threads). The masthead ignores `DIGEST_NAME`, which the Python render also does.
 
 One run is a single sample, not a band.
+
+## Run 305 again, with every stage real (2026-09-23, after plan A's five units merged)
+
+This is a fresh run on a new, migrated scratch copy of the live clone (`data/e2e-20260923T0800Z.db`),
+with production's thread settings (THREADS_ENABLED and THREAD_LATEBIND on) and broadcast disabled. A
+stub check of the worker's wiring found none left: 36 activities, all real.
+
+| stage | result |
+|---|---|
+| curation | 17 stories; COHERENCE flagged 0 of 17 |
+| full text (Python worker) | 33 of 48 extracted, `completed` |
+| Google News links (Python worker) | 13 of 13 decoded, `completed`; 0 raw news.google.com links in the page or the email |
+| threads | linker ok, 8 syntheses, 0 audit failures; 9 thread badges rendered ("Ongoing · day 29") |
+| record | disabled means not delivered: no web copy, no shown headlines, completed_at NULL |
+| cost | $4.49 (write $1.48, extract $1.20, coherence $0.76, select $0.49, threads $0.48) |
+
+Checks on the output:
+- The page holds no internal article ids.
+- Screenshots at desktop and a true 390 px are correct.
+
+The run exposed one defect, fixed alongside this note: the unsent issue still left 17 thread
+installments, which circulation's thread pages would serve. An issue that is not sent now takes back its
+thread writes (`threadsRetract`).
+
+It also confirmed that migrations are not the worker's job. The first start failed loudly on
+`workflow_run_id`, because the scratch copy predated 20260923120000. In temporal mode bin/deploy applies
+migrations, as it does today.

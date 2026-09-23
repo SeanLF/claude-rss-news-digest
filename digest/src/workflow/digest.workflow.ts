@@ -138,6 +138,7 @@ async function runDigest(input: DigestInput, state: RunState): Promise<DigestOut
   // signal about a run that did deliver. An operator's reject or abort is deliberate, so it closes the
   // day's /start with a note rather than leaving it to page. Disabled is no delivery: no ping.
   async function finish(out: Omit<DigestOutput, "runId">): Promise<DigestOutput> {
+    if (out.broadcast !== "sent") await bestEffort(() => tail.threadsRetract(runId));
     await tail.finishRun(runId, out);
     if (out.broadcast === "sent") await bestEffort(() => tail.healthcheck("success"));
     else if (monitored && (out.broadcast === "rejected" || out.broadcast === "skipped")) await bestEffort(() => tail.healthcheck("success", `not sent: ${out.broadcast === "rejected" ? "rejected" : "aborted"} by the operator`));

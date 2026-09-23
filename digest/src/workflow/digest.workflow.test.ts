@@ -36,6 +36,10 @@ async function withWorker<T>(fn: () => Promise<T>, overrides: Partial<Activities
   const python = await Worker.create({ connection: env.nativeConnection, taskQueue: PYTHON_TASK_QUEUE, activities: { fetchFulltext: fetcher, decodeLinks: decoder } });
   return python.runUntil(worker.runUntil(fn()));
 }
+function retracting() {
+  const retracted: number[] = [];
+  return { retracted, acts: { threadsRetract: (runId: number) => { retracted.push(runId); return Promise.resolve({ retracted: true }); } } as Partial<Activities> };
+}
 const approveAndWait = async (runDate: string) => {
   const h = await start(runDate);
   await h.signal(approveSignal, { decision: "approve" });
@@ -399,6 +403,24 @@ describe("DigestWorkflow", () => {
       const out = await withWorker(() => approveAndWait("2026-10-04"), acts);
       expect(out.broadcast).toBe("sent");
       expect(seen.rendered).toEqual([{ runId: 1, name: "thread_context.json", sha256: "0".repeat(64) }]);
+    }, 120_000);
+  });
+  describe("an issue that is not sent takes back its thread writes", () => {
+    it("a rejected issue retracts", async () => {
+      const { retracted, acts } = retracting();
+      const out = await withWorker(async () => {
+        const h = await start("2026-11-30");
+        await h.signal(approveSignal, { decision: "reject" });
+        return h.result();
+      }, acts);
+      expect(out.broadcast).toBe("rejected");
+      expect(retracted).toEqual([1]);
+    }, 120_000);
+    it("a sent issue keeps them", async () => {
+      const { retracted, acts } = retracting();
+      const out = await withWorker(() => approveAndWait("2026-12-01"), acts);
+      expect(out.broadcast).toBe("sent");
+      expect(retracted).toEqual([]);
     }, 120_000);
   });
   describe("the tail: record, hold, send", () => {

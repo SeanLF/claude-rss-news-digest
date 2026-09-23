@@ -404,3 +404,37 @@ describe("a forced re-run of an earlier run", () => {
     expect(s.calls.filter((c) => c.stage === "link")).toHaveLength(2);
   });
 });
+
+describe("an issue that is not sent", () => {
+  const link2 = { links: [{ story: 0, thread: 1 }, { story: 1, thread: null }] };
+  it("takes back its thread writes, so the web tier never shows an installment nobody was sent", async () => {
+    const s = setup({ answers: { link: [link2] } });
+    seedThread(s.db);
+    const before = s.rows("SELECT * FROM thread_installments ORDER BY id");
+    await s.acts.threadsLink(RUN);
+    await s.acts.threadsFinish(RUN, { outcomes: [], failures: [] });
+    expect(await s.acts.threadsRetract(RUN)).toEqual({ retracted: true });
+    expect(s.rows("SELECT * FROM thread_installments ORDER BY id")).toEqual(before);
+    expect(s.rows("SELECT id, label, last_run_id FROM threads ORDER BY id")).toEqual([{ id: 1, label: "Iran nuclear talks", last_run_id: 299 }]);
+    expect(await s.acts.threadsRetract(RUN)).toEqual({ retracted: true }); // idempotent
+  });
+  it.each(["sent", "queued", "claimed exec-1"])("declines for a run whose day already has a %s broadcast: a resumed, delivered issue keeps its threads", async (status) => {
+    const s = setup({ answers: { link: [link2] } });
+    seedThread(s.db);
+    await s.acts.threadsLink(RUN);
+    s.db.exec("CREATE TABLE IF NOT EXISTS digests (date TEXT PRIMARY KEY, run_id INTEGER, html TEXT, broadcast_id TEXT, broadcast_status TEXT)");
+    s.db.prepare("INSERT INTO digests (date, run_id, broadcast_id, broadcast_status) SELECT date(run_at), id, 'b1', ? FROM digest_runs WHERE id = ?").run(status, RUN);
+    const before = s.rows("SELECT * FROM thread_installments ORDER BY id");
+    expect(await s.acts.threadsRetract(RUN)).toMatchObject({ retracted: false });
+    expect(s.rows("SELECT * FROM thread_installments ORDER BY id")).toEqual(before);
+  });
+  it("declines, rather than fails, when a later run already builds on it", async () => {
+    const s = setup({ answers: { link: [link2] } });
+    seedThread(s.db);
+    await s.acts.threadsLink(RUN);
+    s.db.prepare("INSERT INTO thread_installments (thread_id, run_id, cluster_story) VALUES (1, 301, 'Iran talks, day three')").run();
+    const before = s.rows("SELECT * FROM thread_installments ORDER BY id");
+    expect(await s.acts.threadsRetract(RUN)).toEqual({ retracted: false, reason: "later run(s) 301 build on it" });
+    expect(s.rows("SELECT * FROM thread_installments ORDER BY id")).toEqual(before);
+  });
+});
