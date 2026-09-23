@@ -42,6 +42,7 @@
     "linkedom": "0.18.13",
     "oxlint": "1.85.0",
     "oxlint-tsgolint": "7.0.2002",
+    "protobufjs": "8.8.0",
     "typescript": "7.0.2",
     "vitest": "5.0.1"
   },

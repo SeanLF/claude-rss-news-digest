@@ -1,3 +1,9 @@
+// A run in flight replays this code (and threads.ts, bounded.ts) after every worker restart. A change
+// to the commands it issues (an activity or timer added, removed or reordered) is gated:
+//   if (patched("short-change-id")) { new path } else { old path }
+// and the old path deleted (deprecatePatch, then nothing) only once no run started before the change
+// can still be open (4 h run timeout). replay.test.ts replays recorded histories against this file and
+// fails on an ungated change; never re-record the fixtures to make it pass. Activity bodies are free.
 import { ActivityFailure, ApplicationFailure, CancellationScope, CancelledFailure, condition, isCancellation, log, proxyActivities, setHandler, TimeoutFailure, workflowInfo } from "@temporalio/workflow";
 import type { Activities, AlertRequest, DigestInput, DigestOutput, FulltextFetch, FulltextFetcher, GnewsDecode, LinkDecoder } from "../activities/index.js";
 import { mapBounded, MODEL_FANOUT_LIMIT } from "./bounded.js";
