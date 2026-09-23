@@ -4,5 +4,5 @@
 pre-commit:
   commands:
     ci:
-      run: bin/ci
+      run: bin/ci --staged
       stage_fixed: true

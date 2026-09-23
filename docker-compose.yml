@@ -57,8 +57,13 @@ services:
       context: ./circulation
       dockerfile: Dockerfile.ci
     working_dir: /app
+    environment:
+      # Per compose project: cargo's freshness check is by mtime, so a target shared across
+      # worktrees (all mounted at /app) can hand one worktree another's compiled code.
+      - CARGO_TARGET_DIR=/cargo-target
     volumes:
       - ./circulation:/app
+      - cargo-target:/cargo-target
       - ./newsroom/sources.json:/app/sources.json:ro
       # tokens.css is the shared design source `include_str!`'d by src/assets.rs as
       # ../../design/tokens.css -> /design/tokens.css from /app/src (same bind-mount
@@ -141,3 +146,5 @@ volumes:
   claude-sessions:
   bash-history:
   cargo-cache:
+    name: news-digest-cargo-cache
+  cargo-target:
