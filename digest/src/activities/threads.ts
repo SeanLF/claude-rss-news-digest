@@ -11,7 +11,7 @@ import { runStage, type SdkQuery } from "../runner/run-stage.js";
 import type { ArtifactStore, Pointer } from "../store/artifacts.js";
 import { openDb } from "../store/db.js";
 import type { UsageRow } from "../store/usage.js";
-import { assignThreads, linkPrompt, LinksSchema, selectedLabels, validateLinks, type Assignment, type LinkHealth, type LinkTrace } from "../threads/link.js";
+import { assignThreads, linkPrompt, parseLinks, selectedLabels, validateLinks, type Assignment, type LinkHealth, type LinkTrace } from "../threads/link.js";
 import { ThreadStore, type RenderContext } from "../threads/store.js";
 import { answerFor, applyInstallment, auditPrompt, auditReask, expandNeighbourhood, InstallmentSchema, synthesisPrompt, VerdictsSchema, type Art, type Installment } from "../threads/synthesis.js";
 import { loadArticles } from "./cluster.js";
@@ -124,21 +124,21 @@ export function threadsActivities(deps: ThreadsDeps) {
     return s ? AbortSignal.any([s, AbortSignal.timeout(ms)]) : AbortSignal.timeout(ms);
   };
   const spec = (name: string) => parseAgentSpec(readFileSync(join(deps.agentsDir, `${name}.md`), "utf8"));
-  const run = async (name: string, runId: number, stage: string, prompt: string, schema: z.ZodType, ms: number, detail: Record<string, unknown> = {}) => {
+  const run = async (name: string, runId: number, stage: string, prompt: string, schema: z.ZodType | null, ms: number, detail: Record<string, unknown> = {}) => {
     const s = spec(name);
     const clean = scrubUrls(prompt);
     assertNoUrls(clean); // the invariant, checked where text leaves code (spec §1)
     deps.heartbeat?.();
     const r = await runStage(s, { userMessage: clean, inputDir: tmpdir() }, {
       today: store.runDate(runId),
-      outputSchema: z.toJSONSchema(schema, { target: "draft-07" }),
+      ...(schema ? { outputSchema: z.toJSONSchema(schema, { target: "draft-07" }) } : {}),
       signal: signal(ms),
       ...(deps.query ? { query: deps.query } : {}),
       ...(deps.heartbeat ? { heartbeat: deps.heartbeat } : {}),
     });
     deps.heartbeat?.();
     deps.onUsage?.({ model: s.model, thinking: s.thinking, tokens: r.usage, stage, runId, costUsd: r.costUsd, durationMs: r.durationMs, numTurns: r.numTurns, ...detail });
-    return { structured: r.structured, prompt: clean };
+    return { structured: r.structured, text: r.text, prompt: clean };
   };
 
   // The linker's answer, or null when it failed on the last attempt: production's fallback, every
@@ -146,8 +146,8 @@ export function threadsActivities(deps: ThreadsDeps) {
   async function link(runId: number, active: ReturnType<ThreadStore["activeThreads"]>, labels: string[]): Promise<{ mapping: (number | null)[]; health: LinkHealth }> {
     if (!active.length || !labels.length) return { mapping: labels.map(() => null), health: { ok: true, proposed: 0, validated: 0 } };
     try {
-      const { structured } = await run("thread-link", runId, "thread_link", linkPrompt(active, labels), LinksSchema, LINK_TIMEOUT_MS);
-      const links = LinksSchema.parse(structured);
+      const { text } = await run("thread-link", runId, "thread_link", linkPrompt(active, labels), null, LINK_TIMEOUT_MS);
+      const links = parseLinks(text);
       if (!links.links.length) throw new Error("the linker returned no links");
       return validateLinks(links, active, labels.length);
     } catch (e) {

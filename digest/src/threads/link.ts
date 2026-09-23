@@ -10,10 +10,39 @@ export interface LinkHealth { ok: boolean; proposed: number; validated: number }
 export interface StoryTrace { story_index: number; label: string; article_ids: string[]; proposed_thread: number | null; refused: "unknown_thread" | "already_claimed" | null; outcome: "continued" | "new" }
 export interface LinkTrace { linker_ok: boolean; proposed: number; validated: number; candidates: ActiveThread[]; stories: StoryTrace[] }
 
-// The structured answer the linker returns; ids are numbers by schema, so run 244's quoted ids
-// cannot recur, but a hallucinated id or index still can and is refused below.
-export const LinksSchema = z.object({ links: z.array(z.object({ story: z.number().int(), thread: z.number().int().nullable() })) });
-export type Links = z.infer<typeof LinksSchema>;
+export interface Links { links: { story: number | null; thread: number | null }[] }
+
+// The linker answers in free text, not a schema: on run 304, four schema-constrained samples all
+// dropped a continuation that free text made 6 of 6 times (3 Python, 3 TypeScript).
+// threads._as_index: a digit string is the same answer as the number (run 244 quoted every id);
+// anything else, "NEW" and null included, is a new thread.
+export function asIndex(v: unknown): number | null {
+  if (typeof v === "number") return Number.isInteger(v) ? v : null;
+  if (typeof v === "string" && /^\s*\d+\s*$/.test(v)) return Number(v.trim());
+  return null;
+}
+
+// threads._parse_links: the {"links": [...]} object between the first "{" and the last "}", tolerant
+// of fences and prose; throws when nothing usable is there, so the attempt is re-sampled.
+export function parseLinks(text: string): Links {
+  const s = text.indexOf("{");
+  const e = text.lastIndexOf("}");
+  let raw: unknown;
+  try {
+    raw = s >= 0 && e > s ? (JSON.parse(text.slice(s, e + 1)) as unknown) : undefined;
+  } catch {
+    raw = undefined;
+  }
+  const parsed = z.object({ links: z.array(z.unknown()) }).safeParse(raw);
+  if (!parsed.success) throw new Error(`the linker returned no parseable links: ${JSON.stringify(text.slice(0, 300))}`);
+  return {
+    links: parsed.data.links.flatMap((ln) => {
+      if (!ln || typeof ln !== "object") return [];
+      const { story, thread } = ln as { story?: unknown; thread?: unknown };
+      return [{ story: asIndex(story), thread: asIndex(thread) }];
+    }),
+  };
+}
 
 interface Cluster { story?: unknown; article_ids?: unknown }
 interface Pick { article_ids?: unknown; cluster_index?: unknown }
@@ -76,7 +105,7 @@ export function linkPrompt(active: ActiveThread[], labels: string[]): string {
 export function validateLinks(links: Links, active: ActiveThread[], n: number): { mapping: (number | null)[]; health: LinkHealth } {
   const valid = new Set(active.map((t) => t.thread_id));
   const mapping: (number | null)[] = Array.from({ length: n }, () => null);
-  for (const ln of links.links) if (ln.story >= 0 && ln.story < n && ln.thread !== null && valid.has(ln.thread)) mapping[ln.story] = ln.thread;
+  for (const ln of links.links) if (ln.story !== null && ln.story >= 0 && ln.story < n && ln.thread !== null && valid.has(ln.thread)) mapping[ln.story] = ln.thread;
   const proposed = links.links.filter((ln) => ln.thread !== null).length;
   const validated = mapping.filter((v) => v !== null).length;
   if (proposed > validated) console.error(JSON.stringify({ stage: "threads", warning: "linker proposals refused as invalid; those stories start new threads", proposed, validated, candidates: active.length }));

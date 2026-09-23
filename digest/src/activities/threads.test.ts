@@ -26,7 +26,7 @@ function fakeQuery(answers: Partial<Record<Stage, unknown[]>>, calls: Call[]): S
       await Promise.resolve();
       if (next instanceof Error) throw next;
       if (next === undefined) throw new Error(`no scripted answer for ${stage}`);
-      yield { type: "result", subtype: "success", result: "", structured_output: next, total_cost_usd: 0.01, usage: { input_tokens: 10, output_tokens: 5 }, duration_ms: 5, is_error: false, num_turns: 1, session_id: "s" } as unknown as SDKMessage;
+      yield { type: "result", subtype: "success", result: JSON.stringify(next), structured_output: next, total_cost_usd: 0.01, usage: { input_tokens: 10, output_tokens: 5 }, duration_ms: 5, is_error: false, num_turns: 1, session_id: "s" } as unknown as SDKMessage;
     })();
   }) as unknown as SdkQuery;
 }
@@ -87,6 +87,7 @@ describe("threadsLink", () => {
     expect(s.calls.map((c) => c.stage)).toEqual(["link"]);
     expect(s.calls[0]!.prompt).toBe("ACTIVE THREADS:\n  [1] Iran nuclear talks open -> Iran nuclear talks\n\nTODAY'S STORIES:\n  (0) Iran talks in Geneva\n  (1) EU AI act\n\nMap each today-story to a thread id or NEW.");
     expect(s.calls[0]!.options.model).toBe("claude-haiku-4-5-20251001");
+    expect(s.calls[0]!.options.outputFormat).toBeUndefined(); // free text: the schema cost a continuation a day
     expect(s.rows("SELECT id, label, last_run_id FROM threads ORDER BY id")).toEqual([{ id: 1, label: "Iran talks in Geneva", last_run_id: RUN }, { id: 2, label: "EU AI act", last_run_id: RUN }]);
     expect(s.rows(`SELECT thread_id, matched_score FROM thread_installments WHERE run_id = ${RUN} ORDER BY id`)).toEqual([{ thread_id: 1, matched_score: 1 }, { thread_id: 2, matched_score: null }]);
     expect(s.usage.map((u) => u.stage)).toEqual(["thread_link"]);

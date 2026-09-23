@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { selectedLabels, validateLinks } from "./link.js";
+import { asIndex, parseLinks, selectedLabels, validateLinks } from "./link.js";
 
 // Cases carried from newsroom/tests/test_threads.py.
 const clusters = (...groups: [string, string[]][]) => ({ clusters: groups.map(([story, article_ids]) => ({ story, article_ids })) });
@@ -36,5 +36,18 @@ describe("validateLinks", () => {
   });
   it("a genuinely all-new answer proposes nothing", () => {
     expect(validateLinks({ links: [{ story: 0, thread: null }] }, active, 1).health).toEqual({ ok: true, proposed: 0, validated: 0 });
+  });
+});
+
+describe("parseLinks", () => {
+  it("reads the links out of fences and prose, a quoted id as the number", () => {
+    expect(parseLinks('Here you go:\n```json\n{"links": [{"story": 0, "thread": "261"}, {"story": "1", "thread": null}, {"story": 2, "thread": "NEW"}]}\n```')).toEqual({ links: [{ story: 0, thread: 261 }, { story: 1, thread: null }, { story: 2, thread: null }] });
+  });
+  it("throws on an answer with nothing to read, so the attempt is re-sampled", () => {
+    expect(() => parseLinks("I cannot help with that.")).toThrow(/no parseable links/);
+    expect(() => parseLinks('{"links": {"0": 3}}')).toThrow(/no parseable links/);
+  });
+  it.each([[1.5, null], [true, null], ["-5", null], [" 7 ", 7], [null, null]])("asIndex(%j) is %j", (v, want) => {
+    expect(asIndex(v)).toBe(want);
   });
 });
