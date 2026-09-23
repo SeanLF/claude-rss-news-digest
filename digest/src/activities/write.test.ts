@@ -73,6 +73,20 @@ function setup(structured: unknown) {
   }) as unknown as SdkQuery;
   return { store, sel, seen, acts: writeActivities({ store, agentsDir: AGENTS, query: q }) };
 }
+describe("planStories activity", () => {
+  it("records the stories it could not plan in write_branches.json, which the post-run invariants read", async () => {
+    const { store, sel } = setup({ must_know: [story] });
+    const lines: string[] = [];
+    const acts = writeActivities({ store, agentsDir: AGENTS, log: (m) => lines.push(m) });
+    const clustersPtr = store.find(300, "clusters.json")!;
+    await acts.planStories(300, sel, clustersPtr);
+    expect(JSON.parse(store.get(store.find(300, "write_branches.json")!))).toEqual({ dropped: [] });
+    const two = store.replace(300, "selected.json", JSON.stringify({ must_know: [{ cluster_index: 0, article_ids: ["A1"] }], should_know: [{ cluster_index: 9, article_ids: ["A99"] }] }));
+    await acts.planStories(300, two, clustersPtr);
+    expect(JSON.parse(store.get(store.find(300, "write_branches.json")!))).toEqual({ dropped: [{ index: 1, tier: "should_know", reason: "no article in this run's CSVs" }] });
+    expect(lines).toEqual(["write s01 DROPPED (should_know): no article in this run's CSVs"]);
+  });
+});
 describe("writeStory activity", () => {
   it("gives the branch only its evidence, links scrubbed, and stores {plan, story} under the story's name", async () => {
     const { store, sel, seen, acts } = setup({ must_know: [story] });

@@ -41,6 +41,12 @@ export function healthcheck(env: Record<string, string | undefined> = process.en
   };
 }
 
+// The line each finished model call posts to /log, as orchestrate.py posts one per stage.
+export function stageDoneLine(row: { stage: string; story?: unknown; durationMs: number; costUsd: number }): string {
+  const branch = typeof row.story === "number" ? ` s${String(row.story).padStart(2, "0")}` : "";
+  return `${row.stage}${branch} done ${Math.floor(row.durationMs / 1000)}s $${row.costUsd.toFixed(4)}`;
+}
+
 // At most `max` bytes of UTF-8, never splitting a character.
 function truncateUtf8(s: string, max: number): string {
   const bytes = Buffer.from(s, "utf8");
