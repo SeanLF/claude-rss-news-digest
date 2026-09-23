@@ -2,6 +2,7 @@ import { writeFileSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
+import { MockActivityEnvironment } from "@temporalio/testing";
 import { describe, expect, it } from "vitest";
 import { ArtifactStore } from "../store/artifacts.js";
 import { freshDb } from "../store/test-db.js";
@@ -76,6 +77,31 @@ describe("run lifecycle", () => {
       db.exec("INSERT INTO digest_runs (run_at, status) VALUES (datetime('now', '-5 hours'), 'running')");
       if (db.prepare("SELECT date(datetime('now', '-5 hours')) = date('now') AS same").get()!["same"] !== 1) db.exec("DELETE FROM digest_runs WHERE status = 'running'");
       await expect(acts.startRun({ runDate: "" })).resolves.toMatchObject({ sourceIds: ["f"] });
+    });
+    it("a retry of the same execution after its INSERT committed gets the same run back, not AlreadyRan", async () => {
+      const path = freshDb([]);
+      const sourcesFile = join(mkdtempSync(join(tmpdir(), "src-")), "sources.json");
+      writeFileSync(sourcesFile, JSON.stringify([{ id: "f", name: "F", url: "https://f.test/rss", bias: "center", factuality: "high", perspective: "global" }]));
+      const real = new ArtifactStore(path);
+      let failNext = true;
+      // Fails once, after startRun's INSERT has committed: the retry is what this test is about.
+      const store = new Proxy(real, {
+        get(target, prop, receiver) {
+          if (prop === "put" && failNext) return () => { failNext = false; throw new Error("worker lost after the insert"); };
+          const v = Reflect.get(target, prop, receiver) as unknown;
+          return typeof v === "function" ? (v as (...a: unknown[]) => unknown).bind(target) : v;
+        },
+      });
+      const acts = runActivities({ store, dbPath: path, sourcesFile });
+      const env = new MockActivityEnvironment({ workflowExecution: { workflowId: "digest-scheduled", runId: "exec-1" } });
+      await expect(env.run(() => acts.startRun({ runDate: "" }))).rejects.toThrow(/worker lost/);
+      const retried = (await env.run(() => acts.startRun({ runDate: "" }))) as Awaited<ReturnType<typeof acts.startRun>>;
+      const db = new DatabaseSync(path);
+      expect(db.prepare("SELECT id, workflow_run_id FROM digest_runs").all()).toEqual([{ id: retried.runId, workflow_run_id: "exec-1" }]);
+      expect(retried.sourceIds).toEqual(["f"]);
+      // A different execution the same day is still refused while that run is running.
+      const other = new MockActivityEnvironment({ workflowExecution: { workflowId: "digest-manual", runId: "exec-2" } });
+      await expect(other.run(() => acts.startRun({ runDate: "" }))).rejects.toMatchObject({ type: "AlreadyRan" });
     });
     it("force starts regardless (the successor of --force)", async () => {
       const { path, acts } = setup();

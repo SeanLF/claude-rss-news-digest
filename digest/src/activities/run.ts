@@ -32,6 +32,15 @@ const currentAttempt = (): number => {
   }
 };
 
+// The workflow execution calling this activity; undefined outside one (a CLI or a plain test call).
+const currentExecution = (): string | undefined => {
+  try {
+    return Context.current().info.workflowExecution?.runId;
+  } catch {
+    return undefined;
+  }
+};
+
 export function runActivities(deps: RunDeps) {
   const catalogue = (): CatalogueSource[] => activeSources(JSON.parse(readFileSync(deps.sourcesFile, "utf8")));
   return {
@@ -49,6 +58,22 @@ export function runActivities(deps: RunDeps) {
           const ids = parse<{ id: string }>(deps.store.get(csv), { columns: true }).map((s) => s.id);
           return { runId: input.resumeRun, sourceIds: ids, lastRun: lastCompleted(db, row.run_at) };
         }
+        // Idempotent per workflow execution: a retry after this execution's INSERT committed gets
+        // that row back rather than a second one, and the guard below never counts it.
+        const execution = currentExecution();
+        const own = execution === undefined ? undefined : db.prepare("SELECT id FROM digest_runs WHERE workflow_run_id = ?").get(execution);
+        const lastRun = lastCompleted(db);
+        const sourceIds = (runId: number): string[] => {
+          const csv = deps.store.find(runId, "sources.csv");
+          if (csv) return parse<{ id: string }>(deps.store.get(csv), { columns: true }).map((s) => s.id);
+          const sources = catalogue();
+          deps.store.put(runId, "sources.csv", toCsv(SOURCES_HEADER, sources.map((s) => [s.id, s.name, s.bias, s.factuality, s.perspective])));
+          return sources.map((s) => s.id);
+        };
+        if (own) {
+          const runId = Number(own["id"]);
+          return { runId, sourceIds: sourceIds(runId), lastRun };
+        }
         // Both pipelines write digest_runs, so this is the one place a half-applied switch that
         // armed both is caught: a day already sent, or one still running (under the 4 h run
         // budget, so a crashed run's stale "running" row does not block the day), is refused.
@@ -59,12 +84,9 @@ export function runActivities(deps: RunDeps) {
             .get(day);
           if (clash) throw ApplicationFailure.nonRetryable(`${day} already has run ${String(clash["id"])} (${String(clash["status"])}); start with force to run it again`, "AlreadyRan");
         }
-        const sources = catalogue();
-        const lastRun = lastCompleted(db);
-        const { lastInsertRowid } = db.prepare("INSERT INTO digest_runs (articles_kept, articles_emailed, git_sha) VALUES (NULL, NULL, ?)").run(process.env["GIT_SHA"] ?? null);
+        const { lastInsertRowid } = db.prepare("INSERT INTO digest_runs (articles_kept, articles_emailed, git_sha, workflow_run_id) VALUES (NULL, NULL, ?, ?)").run(process.env["GIT_SHA"] ?? null, execution ?? null);
         const runId = Number(lastInsertRowid);
-        deps.store.put(runId, "sources.csv", toCsv(SOURCES_HEADER, sources.map((s) => [s.id, s.name, s.bias, s.factuality, s.perspective])));
-        return { runId, sourceIds: sources.map((s) => s.id), lastRun };
+        return { runId, sourceIds: sourceIds(runId), lastRun };
       } finally {
         db.close();
       }
