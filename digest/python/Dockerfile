@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1
-# The Python worker: the activities that stay in Python, on the `python` task queue. Build context is
+# The Python worker: the activity that stays in Python (fulltext), on the `python` task queue. Build context is
 # the repo root, so the newsroom modules come from newsroom/src and exist in one place.
 FROM python:3.14-slim AS builder
 COPY --from=ghcr.io/astral-sh/uv:0.12.17 /uv /usr/local/bin/
@@ -13,7 +13,7 @@ FROM python:3.14-slim
 RUN useradd --create-home appuser
 WORKDIR /app
 COPY --from=builder --chown=appuser:appuser /app/.venv /app/.venv
-COPY newsroom/src/fulltext.py newsroom/src/gnews.py newsroom/src/config.py digest/python/worker.py digest/python/test_worker.py /app/src/
+COPY newsroom/src/fulltext.py newsroom/src/config.py digest/python/worker.py digest/python/test_worker.py /app/src/
 ENV PATH=/app/.venv/bin:$PATH PYTHONPATH=/app/src PYTHONUNBUFFERED=1
 # Changes every commit, so it sits below the venv copy; bin/deploy's provenance check reads it.
 ARG OCI_REVISION=""

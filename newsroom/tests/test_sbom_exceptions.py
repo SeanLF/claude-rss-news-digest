@@ -7,12 +7,10 @@ ships. ``bin/sbom-unregistered`` reads the SBOM's ``vcs`` references instead, an
 lockfiles for git dependencies (syft gives those no ``vcs`` reference): one that is not a listed
 exception blocks the deploy, and a listed one is printed as unaudited.
 
-Two canaries keep the exception from outliving its reason:
-  - every URL pin must be an exception and every exception a URL pin, so porting to PyPI (which
-    deletes the pin) fails here until the exception goes too;
-  - the upstream check expires. On 2026-09-23 PyPI 0.2.1 (== SSujitX main d38ddbd) lacked what
-    gnews.py needs, listed in ``UPSTREAM_LACKS``. Past ``RECHECK_BY`` this fails until someone
-    re-checks upstream and either ports or moves the date.
+Every URL pin must be an exception and every exception a URL pin, so dropping the pin fails here
+until the exception goes too. The fork's only remaining user is newsroom's gnews.py; the digest
+decodes with gnews-decoder on npm, so the pin and its exception retire with the Python pipeline.
+``RETIRE_BY`` keeps a slipped cut-over from leaving the fork unaudited indefinitely.
 """
 
 import importlib.machinery
@@ -27,15 +25,6 @@ from pathlib import Path
 REPO = Path(__file__).parent.parent.parent
 SCRIPT = REPO / "bin" / "sbom-unregistered"
 PYPROJECTS = [REPO / "newsroom" / "pyproject.toml", REPO / "digest" / "python" / "pyproject.toml"]
-
-UPSTREAM_CHECKED_THROUGH = "0.2.1"
-RECHECK_BY = date(2026, 12, 23)
-UPSTREAM_LACKS = [
-    "a structured HTTP status: a 429 on the article page reads 'Failed to fetch data attributes', "
-    "on batchexecute only as exception text",
-    "a retry of a failed connect (one httpx attempt)",
-    "decode(url, transport=, timeout=), default_transport() and TransportError",
-]
 
 
 def _load():
@@ -191,10 +180,11 @@ def test_every_url_pin_is_an_exception_and_every_exception_a_pin():
     assert _url_pins() == set(_load().EXCEPTIONS)
 
 
-def test_the_upstream_check_has_not_expired():
-    assert date.today() <= RECHECK_BY, (
-        f"googlenewsdecoder upstream was last checked through {UPSTREAM_CHECKED_THROUGH}; it lacked: "
-        + "; ".join(UPSTREAM_LACKS)
-        + ". Re-check PyPI and github.com/SSujitX/google-news-url-decoder: port gnews.py and drop the "
-        "fork pin and its exception, or record the new check here and move RECHECK_BY."
+RETIRE_BY = date(2026, 12, 23)
+
+
+def test_the_fork_exception_has_not_outlived_the_python_pipeline():
+    assert date.today() <= RETIRE_BY, (
+        "newsroom still pins the googlenewsdecoder fork, which ships unaudited. Retire the Python "
+        "pipeline (the digest decodes with gnews-decoder), or review the fork by hand and move RETIRE_BY."
     )

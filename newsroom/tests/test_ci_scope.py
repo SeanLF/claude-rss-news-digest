@@ -43,7 +43,7 @@ PY, RUST, TS, WORKER = ci.PYTHON, ci.RUST, ci.TS, ci.WORKER
         ("digest/package.json", {TS}),
         ("digest/python/worker.py", {WORKER, TS}),
         ("newsroom/src/fulltext.py", {PY, WORKER}),
-        ("newsroom/src/gnews.py", {PY, WORKER}),
+        ("newsroom/src/gnews.py", {PY}),
         ("newsroom/src/config.py", {PY, WORKER}),
         ("circulation/src/markdown.rs", {RUST, PY}),
     ],
@@ -156,7 +156,7 @@ def test_the_copy_parser_sees_the_shared_inputs():
     """Negative control for the parser above: if it read nothing, the test would pass vacuously."""
     ts = _copy_sources("digest/Dockerfile.ci")
     assert {"migrations", "design/tokens.css", "digest"} <= set(ts)
-    assert "newsroom/src/gnews.py" in _copy_sources("digest/python/Dockerfile")
+    assert "newsroom/src/fulltext.py" in _copy_sources("digest/python/Dockerfile")
     assert "newsroom/sources.json" in _rust_mounts()
 
 

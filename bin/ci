@@ -30,7 +30,6 @@ _SCOPE: tuple[tuple[str, frozenset[str]], ...] = (
     ("newsroom/sources.json", ALL_SUITES),
     # Baked into the Python worker's image (digest/python/Dockerfile) and tested in newsroom.
     ("newsroom/src/fulltext.py", frozenset({PYTHON, WORKER})),
-    ("newsroom/src/gnews.py", frozenset({PYTHON, WORKER})),
     ("newsroom/src/config.py", frozenset({PYTHON, WORKER})),
     ("newsroom/Dockerfile.ci", ALL_SUITES),  # the ci image runs bin/ci itself
     ("newsroom/", frozenset({PYTHON})),
