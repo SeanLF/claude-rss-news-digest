@@ -1,8 +1,27 @@
-import { Resend } from "resend";
+import { Resend, type Response as ResendReply } from "resend";
 
 // The one place the worker talks to Resend. Alerts use `emailSender`; the broadcast path takes the
 // client from `resendClient` for the audience API. Both read RESEND_API_KEY, as the Python does.
-export const resendClient = (apiKey: string): Resend => new Resend(apiKey);
+export const RESEND_TIMEOUT_MS = 30_000;
+
+// The SDK sets no timeout and takes no signal, so a hung request would outlive the activity that made
+// it: a cancelled send could still create a broadcast. Every request goes through fetchRequest, the
+// SDK's one fetch, so bounding it there bounds them all; an aborted request is a failed reply.
+class BoundedResend extends Resend {
+  constructor(
+    key: string,
+    private readonly bounds: { timeoutMs: number; signal?: () => AbortSignal | undefined },
+  ) {
+    super(key);
+  }
+  override fetchRequest<T>(path: string, options: RequestInit = {}): Promise<ResendReply<T>> {
+    const outer = this.bounds.signal?.();
+    const signal = AbortSignal.any([AbortSignal.timeout(this.bounds.timeoutMs), ...(outer ? [outer] : [])]);
+    return super.fetchRequest<T>(path, { ...options, signal });
+  }
+}
+export const resendClient = (apiKey: string, bounds: { timeoutMs?: number; signal?: () => AbortSignal | undefined } = {}): Resend =>
+  new BoundedResend(apiKey, { timeoutMs: bounds.timeoutMs ?? RESEND_TIMEOUT_MS, ...(bounds.signal ? { signal: bounds.signal } : {}) });
 
 export interface Email {
   from: string;

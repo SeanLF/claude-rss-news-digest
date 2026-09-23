@@ -1,5 +1,5 @@
-import { describe, expect, it } from "vitest";
-import { emailSender, ResendSendError, type ResendEmails } from "./resend.js";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { emailSender, resendClient, ResendSendError, type ResendEmails } from "./resend.js";
 
 type Call = [payload: unknown, options: unknown];
 const fake = (reply: Awaited<ReturnType<ResendEmails["send"]>>, calls: Call[]): ResendEmails => ({
@@ -9,6 +9,30 @@ const fake = (reply: Awaited<ReturnType<ResendEmails["send"]>>, calls: Call[]): 
   },
 });
 const email = { from: "Alerts <a@example.com>", to: ["ops@example.com"], subject: "s", html: "<p>h</p>" };
+
+// A fetch that never answers until its signal aborts, as a hung connection does.
+const hang = () =>
+  vi.spyOn(globalThis, "fetch").mockImplementation((_url, init) => new Promise((_resolve, reject) => init?.signal?.addEventListener("abort", () => reject(init.signal?.reason as Error))));
+
+describe("resendClient", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+  it("bounds every call: a hung request ends at the timeout as a failed reply", async () => {
+    hang();
+    const t0 = Date.now();
+    const r = await resendClient("re_test", { timeoutMs: 50 }).broadcasts.get("b1");
+    expect(r.error).not.toBeNull();
+    expect(Date.now() - t0).toBeLessThan(2000);
+  });
+  it("a cancelled activity's signal stops the call in flight", async () => {
+    hang();
+    const ac = new AbortController();
+    const p = resendClient("re_test", { timeoutMs: 60_000, signal: () => ac.signal }).broadcasts.create({ from: "a@b.c", segmentId: "s", html: "h", subject: "s" });
+    ac.abort();
+    expect((await p).error).not.toBeNull();
+  });
+});
 
 describe("emailSender", () => {
   it("sends through the SDK and returns the email id, passing the idempotency key as the SDK's option", async () => {

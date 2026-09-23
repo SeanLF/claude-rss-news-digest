@@ -1,8 +1,8 @@
 import { DatabaseSync } from "node:sqlite";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { ArtifactStore } from "../store/artifacts.js";
 import { migratedDb } from "../store/migrated-db.js";
-import { broadcastActivities, CLAIM_TTL_MS, type Mail } from "./broadcast.js";
+import { broadcastActivities, type BroadcastDeps, type Mail } from "./broadcast.js";
 
 type Call = [string, unknown];
 const ok = <T>(data: T) => Promise.resolve({ data, error: null, headers: null });
@@ -46,8 +46,8 @@ function setup(row?: { id?: string; status?: string; recipients?: number }, env:
   const email = store.put(300, "email.html", "<mjml-rendered>issue</mjml-rendered>");
   const selections = store.put(300, "selections.json", JSON.stringify({ must_know: [{ headline: "Deal <signed>", sources: [] }], should_know: [{ headline: "Yen falls", sources: [] }] }));
   const state = () => db.prepare("SELECT broadcast_id AS id, broadcast_status AS status, broadcast_recipients AS recipients FROM digests WHERE date='2026-09-08'").get();
-  const make = (mail: Mail) => broadcastActivities({ store, dbPath: path, mail: () => mail, env, retryDelayMs: 0, execution: () => ({ namespace: "default", workflowId: "digest-2026-09-08", runId: "r-123" }) });
-  return { email, selections, state, make };
+  const make = (mail: Mail, extra: Partial<BroadcastDeps> = {}) => broadcastActivities({ store, dbPath: path, mail: () => mail, env, retryDelayMs: 0, execution: () => ({ namespace: "default", workflowId: "digest-2026-09-08", runId: "r-123" }), ...extra });
+  return { email, selections, state, make, path };
 }
 
 describe("broadcast: at most once per digest date (the 2026-06-16 rule)", () => {
@@ -127,15 +127,74 @@ describe("broadcast: at most once per digest date (the 2026-06-16 rule)", () => 
     expect(String((results.find((r) => r.status === "rejected") as PromiseRejectedResult).reason)).toMatch(/claimed/);
     expect(state()).toEqual({ id: "b-new", status: "sent", recipients: 2 });
   });
-  it("a claim younger than an attempt's lifetime holds the date; an older one, from an attempt that died before creating, is taken over", async () => {
-    const recent = setup({ status: `claimed ${new Date().toISOString()}` });
-    const fresh = fakeMail({});
-    await expect(recent.make(fresh.mail).broadcast(300, recent.email)).rejects.toThrow(/claimed/);
-    expect(fresh.names()).toEqual([]);
-    const stale = setup({ status: `claimed ${new Date(Date.now() - CLAIM_TTL_MS - 1000).toISOString()}` });
-    const fake = fakeMail({});
-    expect(await stale.make(fake.mail).broadcast(300, stale.email)).toMatchObject({ broadcastId: "b-new", status: "sent" });
-    expect(fake.names()).toEqual(["contacts", "create", "send"]);
+  it("a claim of any age holds the date: none is taken over, and the refusal names the command that clears it", async () => {
+    for (const at of [new Date(), new Date(Date.now() - 24 * 60 * 60 * 1000)]) {
+      const s = setup({ status: `claimed ${at.toISOString()} someone` });
+      const fake = fakeMail({});
+      await expect(s.make(fake.mail).broadcast(300, s.email)).rejects.toThrow(/claimed.*node dist\/cli\/clear-claim\.js 2026-09-08/);
+      expect(fake.names().filter((n) => n === "create" || n === "send")).toEqual([]);
+    }
+  });
+  it("takes the claim only after counting the audience, the slow part", async () => {
+    const { email, state, make } = setup({});
+    let atCount: unknown;
+    const fake = fakeMail({ contacts: [
+        () => {
+          atCount = state();
+          return page(["c1"], false)();
+        },
+      ] });
+    await make(fake.mail).broadcast(300, email);
+    expect(atCount).toMatchObject({ status: null });
+  });
+  it("an attempt hung in create past any timeout, then a second attempt: exactly one send", async () => {
+    const { email, state, make } = setup({});
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    const slow = fakeMail({ create: [() => gate.then(() => ok({ id: "b-a" })) as Reply] });
+    const a = make(slow.mail).broadcast(300, email);
+    await new Promise((r) => setTimeout(r, 20)); // A holds the claim and waits in create
+    vi.useFakeTimers({ toFake: ["Date"], now: Date.now() + 16 * 60 * 1000 }); // past any attempt's lifetime
+    const other = fakeMail({});
+    try {
+      await expect(make(other.mail).broadcast(300, email)).rejects.toThrow(/claimed/);
+    } finally {
+      vi.useRealTimers();
+    }
+    release();
+    await a;
+    expect([...slow.names(), ...other.names()].filter((n) => n === "send")).toHaveLength(1);
+    expect(state()).toMatchObject({ id: "b-a", status: "sent" });
+  });
+  it("an attempt whose claim was cleared while it hung in create records nothing and sends nothing", async () => {
+    const { email, state, make, path } = setup({});
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    const slow = fakeMail({ create: [() => gate.then(() => ok({ id: "b-a" })) as Reply] });
+    const a = make(slow.mail).broadcast(300, email).catch((e: unknown) => e);
+    await new Promise((r) => setTimeout(r, 20));
+    const d = new DatabaseSync(path);
+    d.prepare("UPDATE digests SET broadcast_status=NULL WHERE date='2026-09-08'").run(); // the operator clears it
+    d.close();
+    const b = fakeMail({ create: [() => ok({ id: "b-b" })] });
+    await make(b.mail).broadcast(300, email);
+    release();
+    expect(String(await a)).toMatch(/claim/);
+    expect([...slow.names(), ...b.names()].filter((n) => n === "send")).toHaveLength(1);
+    expect(state()).toMatchObject({ id: "b-b", status: "sent" });
+  });
+  it("a cancelled attempt stops before sending, and gives the claim back", async () => {
+    const { email, state, make } = setup({});
+    const ac = new AbortController();
+    const fake = fakeMail({ create: [
+        () => {
+          ac.abort();
+          return ok({ id: "b-new" });
+        },
+      ] });
+    await expect(make(fake.mail, { signal: () => ac.signal }).broadcast(300, email)).rejects.toThrow();
+    expect(fake.names()).not.toContain("send");
+    expect(state()).toMatchObject({ id: null, status: null });
   });
   it("refuses to send a digest that has no saved row, since the row is its idempotency record", async () => {
     const { email, make } = setup();

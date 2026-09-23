@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { Context } from "@temporalio/activity";
 import { ApplicationFailure } from "@temporalio/common";
 import { htmlEscape } from "escape-goat";
@@ -6,6 +7,7 @@ import type { ErrorResponse, Resend } from "resend";
 import type { Selections } from "../render/render.js";
 import type { ArtifactStore, Pointer } from "../store/artifacts.js";
 import { openDb } from "../store/db.js";
+import { ACCEPTED_BROADCAST_STATES, CLAIMED, clearClaimCommand } from "../ops/broadcast-state.js";
 
 // The slice of the Resend client the send uses; tests pass a fake with the same shape.
 export interface Mail {
@@ -14,12 +16,7 @@ export interface Mail {
   emails: Pick<Resend["emails"], "send">;
 }
 
-// A broadcast in any of these states was accepted for delivery, so a send whose response failed
-// actually landed. "sent" is safe only because a first send always goes to a fresh draft.
-export const ACCEPTED_BROADCAST_STATES: ReadonlySet<string> = new Set(["queued", "sending", "sent"]);
-// The send activity's start-to-close is 10 minutes; a claim older than this outlived its attempt.
-export const CLAIM_TTL_MS = 15 * 60 * 1000;
-const CLAIMED = "claimed ";
+export { ACCEPTED_BROADCAST_STATES };
 export const CONTACT_THRESHOLD = 900; // Resend's free tier stops at 1,000 contacts (spec §3)
 
 interface Execution { namespace: string; workflowId: string; runId: string }
@@ -36,6 +33,10 @@ export interface BroadcastDeps {
   env: NodeJS.ProcessEnv;
   retryDelayMs?: number;
   execution?: () => Execution;
+  // The activity's cancellation (a timeout or a cancelled workflow): checked before anything that
+  // could reach readers. The Resend client is bounded by the same signal (mail/resend.ts).
+  signal?: () => AbortSignal | undefined;
+  heartbeat?: () => void;
 }
 export interface BroadcastResult { broadcastId: string; status: string; recipients: number }
 
@@ -85,31 +86,39 @@ export function broadcastActivities(deps: BroadcastDeps) {
       db.close();
     }
   };
-  const record = (date: string, id: string, status: string, recipients?: number) => {
+  // Every write after the claim is conditional on it: `holder` is this attempt's claim string, and
+  // once a draft exists, its id. A write that matches no row means the date is no longer this
+  // attempt's, and nothing more may be sent from it.
+  const record = (date: string, holder: { claim: string } | { id: string }, id: string, status: string, recipients?: number) => {
     const db = openDb(deps.dbPath);
     try {
-      const { changes } = db.prepare("UPDATE digests SET broadcast_id=?, broadcast_status=?, broadcast_recipients=COALESCE(?, broadcast_recipients) WHERE date=?").run(id, status, recipients ?? null, date);
-      if (Number(changes) !== 1) throw new Error(`no digests row for ${date}; broadcast ${id} (${status}) was not recorded`);
+      const { changes } =
+        "claim" in holder
+          ? db.prepare("UPDATE digests SET broadcast_id=?, broadcast_status=?, broadcast_recipients=COALESCE(?, broadcast_recipients) WHERE date=? AND broadcast_id IS NULL AND broadcast_status=?").run(id, status, recipients ?? null, date, holder.claim)
+          : db.prepare("UPDATE digests SET broadcast_id=?, broadcast_status=?, broadcast_recipients=COALESCE(?, broadcast_recipients) WHERE date=? AND broadcast_id=?").run(id, status, recipients ?? null, date, holder.id);
+      if (Number(changes) !== 1) throw ApplicationFailure.nonRetryable(`this attempt lost its claim on the send for ${date}; broadcast ${id} (${status}) was not recorded and nothing more is sent`, "ClaimLost");
     } finally {
       db.close();
     }
   };
 
   // The date's claim, taken under SQLite's write lock: the one attempt that holds it may create a
-  // broadcast. A claim older than an attempt can live was left by one that died before creating
-  // anything, so it is taken over rather than blocking the day.
-  const claim = (date: string) => {
+  // broadcast. A claim is never taken over, however old: an attempt that looks dead may still be in
+  // Resend's create, and taking over sent twice. An operator clears it after checking Resend.
+  const claim = (date: string): string => {
     const db = openDb(deps.dbPath);
     try {
       db.exec("BEGIN IMMEDIATE");
       try {
         const row = db.prepare("SELECT broadcast_id AS id, broadcast_status AS status FROM digests WHERE date=?").get(date) as { id: string | null; status: string | null } | undefined;
-        const held = row?.status?.startsWith(CLAIMED) ? Date.parse(row.status.slice(CLAIMED.length)) : Number.NaN;
-        if (!row || row.id !== null || (!Number.isNaN(held) && Date.now() - held < CLAIM_TTL_MS)) {
-          throw ApplicationFailure.nonRetryable(`the send for ${date} is claimed by another attempt (${row?.id ?? row?.status ?? "no row"}); not sending`, "SendClaimed");
+        if (!row || row.id !== null || row.status?.startsWith(CLAIMED)) {
+          const why = row?.status?.startsWith(CLAIMED) ? `claimed by another attempt (${row.status}); if Resend shows nothing sent for ${date}, clear it with: ${clearClaimCommand(date)}` : `claimed by another attempt (${row?.id ?? "no row"})`;
+          throw ApplicationFailure.nonRetryable(`the send for ${date} is ${why}; not sending`, "SendClaimed");
         }
-        db.prepare("UPDATE digests SET broadcast_status=? WHERE date=?").run(`${CLAIMED}${new Date().toISOString()}`, date);
+        const mine = `${CLAIMED}${new Date().toISOString()} ${randomUUID()}`;
+        db.prepare("UPDATE digests SET broadcast_status=? WHERE date=?").run(mine, date);
         db.exec("COMMIT");
+        return mine;
       } catch (e) {
         db.exec("ROLLBACK");
         throw e;
@@ -118,13 +127,17 @@ export function broadcastActivities(deps: BroadcastDeps) {
       db.close();
     }
   };
-  const release = (date: string) => {
+  const release = (date: string, mine: string) => {
     const db = openDb(deps.dbPath);
     try {
-      db.prepare("UPDATE digests SET broadcast_status=NULL WHERE date=? AND broadcast_id IS NULL AND broadcast_status LIKE ?").run(date, `${CLAIMED}%`);
+      db.prepare("UPDATE digests SET broadcast_status=NULL WHERE date=? AND broadcast_id IS NULL AND broadcast_status=?").run(date, mine);
     } finally {
       db.close();
     }
+  };
+  const stopIfCancelled = () => {
+    deps.heartbeat?.();
+    deps.signal?.()?.throwIfAborted();
   };
 
   // Best-effort: a probe that cannot read the status answers null and the caller assumes nothing.
@@ -196,35 +209,39 @@ export function broadcastActivities(deps: BroadcastDeps) {
         // re-send the same draft only if it never went out.
         const status = await probe(row.id);
         if (status !== null && ACCEPTED_BROADCAST_STATES.has(status)) {
-          record(date, row.id, status);
+          record(date, { id: row.id }, row.id, status);
           log("recovered: already accepted", { id: row.id, status });
           return { broadcastId: row.id, status, recipients: row.recipients ?? 0 };
         }
+        stopIfCancelled();
         const sent = await sendExisting(row.id);
-        record(date, row.id, sent);
+        record(date, { id: row.id }, row.id, sent);
         log("re-sent the existing draft", { id: row.id, status: sent });
         return { broadcastId: row.id, status: sent, recipients: 0 }; // the send API returns no count
       }
       const segmentId = required("RESEND_AUDIENCE_ID");
       const from = required("RESEND_FROM");
       const name = env["DIGEST_NAME"] || "News Digest";
-      claim(date); // before any await: two workflows for one date both read no id above
+      // Counted before the claim: the claim is held only across the create, as briefly as it can be.
+      stopIfCancelled();
+      const recipients = await contactCount(segmentId);
+      if (recipients >= CONTACT_THRESHOLD) console.warn(JSON.stringify({ stage: "broadcast", warning: `audience at ${recipients} contacts, near the free tier's 1,000`, recipients }));
+      stopIfCancelled();
+      const mine = claim(date);
       let id: string;
-      let recipients: number;
       try {
-        recipients = await contactCount(segmentId);
-        if (recipients >= CONTACT_THRESHOLD) console.warn(JSON.stringify({ stage: "broadcast", warning: `audience at ${recipients} contacts, near the free tier's 1,000`, recipients }));
         const day = longDate(date);
         ({ id } = await must(() =>
           deps.mail().broadcasts.create({ from: `${name} <${from}>`, segmentId, subject: `${name} – ${day}`, html, name: `Digest ${day}`, ...(env["CONTACT_EMAIL"] ? { replyTo: env["CONTACT_EMAIL"] } : {}) }),
         ));
+        stopIfCancelled(); // a cancelled attempt stops here: a draft is not a send
       } catch (e) {
-        release(date); // no draft to recover, so the next attempt may create one
+        release(date, mine); // no draft recorded, so the next attempt may create one
         throw e;
       }
-      record(date, id, "created"); // before the send, so a send that fails leaves the id to recover
+      record(date, { claim: mine }, id, "created"); // before the send, and only while the claim is still ours
       const status = await sendExisting(id);
-      record(date, id, status, recipients);
+      record(date, { id }, id, status, recipients);
       log("sent", { id, status, recipients });
       return { broadcastId: id, status, recipients };
     },
