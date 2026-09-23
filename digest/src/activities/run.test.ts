@@ -28,7 +28,8 @@ async function setup(body = RSS) {
 describe("run lifecycle", () => {
   it("starts a run with its source list, fetches newer entries once, and finishes only when sent", async () => {
     const { db, store, acts, calls } = await setup();
-    await db.exec("INSERT INTO digest_runs (run_at, completed_at, status, outcome) VALUES ('2026-09-18 10:25:40', '2026-09-18 10:42:40', 'completed', 'sent')");
+    await db.exec("INSERT INTO runs (started_at, status, outcome) VALUES ('2026-09-18 10:25:40', 'completed', 'sent')");
+    await db.exec("INSERT INTO runs (started_at, status, outcome) VALUES ('2026-09-18 12:00:00', 'completed', 'rejected')"); // not sent, so not the last run
     const { runId, sourceIds, lastRun } = await acts.startRun({ runDate: "2026-09-19" });
     expect(sourceIds).toEqual(["f"]);
     expect(lastRun).toBe("2026-09-18 10:25:40");
@@ -36,13 +37,13 @@ describe("run lifecycle", () => {
     expect(await acts.fetchFeed(runId, "f", lastRun)).toEqual({ sourceId: "f", ok: true, fetched: 2, kept: 1 });
     expect(await acts.fetchFeed(runId, "f", lastRun)).toEqual({ sourceId: "f", ok: true, fetched: 2, kept: 1 }); // resume: no refetch
     expect(calls()).toBe(1);
-    expect(await db.all("SELECT title FROM fetched_articles WHERE run_id=$1", [runId])).toEqual([{ title: "New" }]);
+    expect(await db.all("SELECT title FROM articles WHERE run_id=$1", [runId])).toEqual([{ title: "New" }]);
     await acts.finishRun(runId, { stories: 0, broadcast: "rejected" });
-    expect(await db.one("SELECT completed_at, status, outcome FROM digest_runs WHERE id=$1", [runId])).toEqual({ completed_at: null, status: "completed", outcome: "rejected" });
+    expect(await db.one("SELECT status, outcome FROM runs WHERE id=$1", [runId])).toEqual({ status: "completed", outcome: "rejected" });
     // A rejected run may be resumed, and then sent.
-    await db.run("UPDATE digest_runs SET status='running', outcome=NULL WHERE id=$1", [runId]);
+    await db.run("UPDATE runs SET status='running', outcome=NULL WHERE id=$1", [runId]);
     await acts.finishRun(runId, { stories: 17, broadcast: "sent", recipients: 12 });
-    expect(await db.one("SELECT status, outcome, articles_emailed FROM digest_runs WHERE id=$1", [runId])).toEqual({ status: "completed", outcome: "sent", articles_emailed: 12 });
+    expect(await db.one("SELECT status, outcome FROM runs WHERE id=$1", [runId])).toEqual({ status: "completed", outcome: "sent" });
   });
   it("a feed that cannot be reached records a failed health row on its last attempt", async () => {
     const url = await freshDb([]);
@@ -52,35 +53,35 @@ describe("run lifecycle", () => {
     const acts = runActivities({ store: new ArtifactStore(url), dbUrl: url, sourcesFile, fetch: down });
     const { runId } = await acts.startRun({ runDate: "2026-09-19" });
     expect(await acts.fetchFeed(runId, "f", null)).toMatchObject({ ok: false, fetched: 0, kept: 0 });
-    expect(await openDb(url).one("SELECT success, error_message AS e FROM source_health WHERE run_id=$1", [runId])).toMatchObject({ success: false });
+    expect(await openDb(url).one("SELECT is_success, error AS e FROM source_fetches WHERE run_id=$1", [runId])).toMatchObject({ is_success: false });
   });
   it("a resume without its sources.csv fails rather than fetching today's catalogue", async () => {
     const { db, acts } = await setup();
-    await db.exec("INSERT INTO digest_runs (id, run_at) VALUES (7, '2026-09-18 10:25:40')");
+    await db.exec("INSERT INTO runs (id, started_at) VALUES (7, '2026-09-18 10:25:40')");
     await expect(acts.startRun({ runDate: "2026-09-18", resumeRun: 7 })).rejects.toMatchObject({ type: "MissingInput" });
   });
   it("a resume from a new execution runs a failed or unsent run again under a new attempt; a sent run stays completed", async () => {
     const { db, store, acts } = await setup();
-    await db.exec("INSERT INTO digest_runs (id, run_at, status) VALUES (7, '2026-09-18 10:25:40', 'failed')");
-    await db.exec("INSERT INTO digest_runs (id, run_at, completed_at, status, outcome) VALUES (8, '2026-09-19 10:25:40', '2026-09-19 10:45:00', 'completed', 'sent')");
-    await db.exec("INSERT INTO digest_runs (id, run_at, status, outcome) VALUES (9, '2026-09-20 10:25:40', 'completed', 'held-out')");
-    await db.exec("INSERT INTO run_attempts (run_id, pipeline, workflow_run_id, state) VALUES (7, 'temporal', 'exec-1', 'failed')");
+    await db.exec("INSERT INTO runs (id, started_at, status) VALUES (7, '2026-09-18 10:25:40', 'failed')");
+    await db.exec("INSERT INTO runs (id, started_at, status, outcome) VALUES (8, '2026-09-19 10:25:40', 'completed', 'sent')");
+    await db.exec("INSERT INTO runs (id, started_at, status, outcome) VALUES (9, '2026-09-20 10:25:40', 'completed', 'held-out')");
+    await db.exec("INSERT INTO run_attempts (run_id, pipeline, workflow_run_id, status) VALUES (7, 'temporal', 'exec-1', 'failed')");
     for (const id of [7, 8, 9]) await store.put(id, "sources.csv", "id,name,bias,factuality,perspective\nf,F,center,high,global\n");
     const env = new MockActivityEnvironment({ workflowExecution: { workflowId: "digest-2026-09-18", runId: "exec-2" } });
     await env.run(() => acts.startRun({ runDate: "2026-09-18", resumeRun: 7 }));
     await env.run(() => acts.startRun({ runDate: "2026-09-18", resumeRun: 7 })); // a retry: no second attempt
     await new MockActivityEnvironment({ workflowExecution: { workflowId: "digest-2026-09-19", runId: "exec-3" } }).run(() => acts.startRun({ runDate: "2026-09-19", resumeRun: 8 }));
     await new MockActivityEnvironment({ workflowExecution: { workflowId: "digest-2026-09-20", runId: "exec-4" } }).run(() => acts.startRun({ runDate: "2026-09-20", resumeRun: 9 }));
-    expect(await db.all("SELECT id, status, outcome FROM digest_runs ORDER BY id")).toEqual([
+    expect(await db.all("SELECT id, status, outcome FROM runs ORDER BY id")).toEqual([
       { id: 7, status: "running", outcome: null },
       { id: 8, status: "completed", outcome: "sent" },
       { id: 9, status: "running", outcome: null },
     ]);
-    expect(await db.all("SELECT run_id, workflow_id, workflow_run_id, state FROM run_attempts ORDER BY id")).toEqual([
-      { run_id: 7, workflow_id: null, workflow_run_id: "exec-1", state: "failed" },
-      { run_id: 7, workflow_id: "digest-2026-09-18", workflow_run_id: "exec-2", state: "running" },
-      { run_id: 8, workflow_id: "digest-2026-09-19", workflow_run_id: "exec-3", state: "running" },
-      { run_id: 9, workflow_id: "digest-2026-09-20", workflow_run_id: "exec-4", state: "running" },
+    expect(await db.all("SELECT run_id, workflow_id, workflow_run_id, status FROM run_attempts ORDER BY id")).toEqual([
+      { run_id: 7, workflow_id: null, workflow_run_id: "exec-1", status: "failed" },
+      { run_id: 7, workflow_id: "digest-2026-09-18", workflow_run_id: "exec-2", status: "running" },
+      { run_id: 8, workflow_id: "digest-2026-09-19", workflow_run_id: "exec-3", status: "running" },
+      { run_id: 9, workflow_id: "digest-2026-09-20", workflow_run_id: "exec-4", status: "running" },
     ]);
   });
   it("finishing a run closes this execution's attempt", async () => {
@@ -88,25 +89,40 @@ describe("run lifecycle", () => {
     const env = new MockActivityEnvironment({ workflowExecution: { workflowId: "digest-x", runId: "exec-9" } });
     const { runId } = (await env.run(() => acts.startRun({ runDate: "2026-09-19" }))) as { runId: number };
     await env.run(() => acts.finishRun(runId, { stories: 3, broadcast: "sent", recipients: 2 }));
-    expect(await db.one("SELECT state, ended_at IS NOT NULL AS ended FROM run_attempts WHERE workflow_run_id='exec-9'")).toEqual({ state: "finished", ended: true });
+    expect(await db.one("SELECT status, ended_at IS NOT NULL AS ended FROM run_attempts WHERE workflow_run_id='exec-9'")).toEqual({ status: "completed", ended: true });
+  });
+  // The 2026-06-16 pattern: the issue went up, the send failed, the run failed. It was never sent, so
+  // it resumes and sends, and a forced start of its day ages its articles from the last SENT run.
+  it("a run whose issue is on the web but whose send failed resumes and sends, and is not the last run", async () => {
+    const { db, store, acts } = await setup();
+    await db.exec("INSERT INTO runs (id, started_at, status, outcome) VALUES (10, '2026-09-23 10:25:00', 'completed', 'sent')");
+    await db.exec("INSERT INTO runs (id, started_at, status) VALUES (11, '2026-09-24 10:25:00', 'failed'); INSERT INTO issues (issue_date, revision, run_id, html) VALUES ('2026-09-24', 1, 11, '')");
+    await store.put(11, "sources.csv", "id,name,bias,factuality,perspective\nf,F,center,high,global\n");
+    const forced = (await new MockActivityEnvironment({ workflowExecution: { workflowId: "digest-2026-09-24", runId: "exec-f" } }).run(() => acts.startRun({ runDate: "2026-09-24", force: true }))) as Awaited<ReturnType<typeof acts.startRun>>;
+    expect(forced.lastRun).toBe("2026-09-23 10:25:00");
+    const env = new MockActivityEnvironment({ workflowExecution: { workflowId: "digest-2026-09-24", runId: "exec-r" } });
+    const resumed = (await env.run(() => acts.startRun({ runDate: "2026-09-24", resumeRun: 11 }))) as Awaited<ReturnType<typeof acts.startRun>>;
+    expect(resumed.lastRun).toBe("2026-09-23 10:25:00");
+    await env.run(() => acts.finishRun(11, { stories: 3, broadcast: "sent", recipients: 2 }));
+    expect(await db.one("SELECT status, outcome FROM runs WHERE id=11")).toEqual({ status: "completed", outcome: "sent" });
   });
   describe("the cross-pipeline guard: one digest per day, whichever pipeline started it", () => {
     const today = new Date().toISOString().slice(0, 10);
-    it("refuses a day that already has a completed run", async () => {
+    it("refuses a day that already has a sent run", async () => {
       const { db, acts } = await setup();
-      await db.exec(`INSERT INTO digest_runs (run_at, completed_at, status, outcome) VALUES ('${today} 10:25:40', '${today} 10:45:00', 'completed', 'sent')`);
+      await db.exec(`INSERT INTO runs (started_at, status, outcome) VALUES ('${today} 10:25:40', 'completed', 'sent')`);
       await expect(acts.startRun({ runDate: today })).rejects.toMatchObject({ type: "AlreadyRan", nonRetryable: true });
     });
     it("refuses while another run of the day started within the last 4 h and is still running", async () => {
       const { db, acts } = await setup();
-      await db.exec("INSERT INTO digest_runs (run_at, status) VALUES (now() - interval '30 minutes', 'running')");
+      await db.exec("INSERT INTO runs (started_at, status) VALUES (now() - interval '30 minutes', 'running')");
       await expect(acts.startRun({ runDate: "" })).rejects.toMatchObject({ type: "AlreadyRan" });
     });
     it("starts over a run that failed, or one still marked running after 4 h (a crash)", async () => {
       const { db, acts } = await setup();
-      await db.exec("INSERT INTO digest_runs (run_at, status) VALUES (now() - interval '10 minutes', 'failed')");
-      await db.exec("INSERT INTO digest_runs (run_at, status) VALUES (now() - interval '5 hours', 'running')");
-      await db.exec("DELETE FROM digest_runs WHERE status = 'running' AND (run_at AT TIME ZONE 'UTC')::date <> (now() AT TIME ZONE 'UTC')::date");
+      await db.exec("INSERT INTO runs (started_at, status) VALUES (now() - interval '10 minutes', 'failed')");
+      await db.exec("INSERT INTO runs (started_at, status) VALUES (now() - interval '5 hours', 'running')");
+      await db.exec("DELETE FROM runs WHERE status = 'running' AND (started_at AT TIME ZONE 'UTC')::date <> (now() AT TIME ZONE 'UTC')::date");
       await expect(acts.startRun({ runDate: "" })).resolves.toMatchObject({ sourceIds: ["f"] });
     });
     it("a retry of the same execution after its INSERT committed gets the same run back, not AlreadyRan", async () => {
@@ -132,7 +148,7 @@ describe("run lifecycle", () => {
       await expect(env.run(() => acts.startRun({ runDate: "" }))).rejects.toThrow(/worker lost/);
       const retried = (await env.run(() => acts.startRun({ runDate: "" }))) as Awaited<ReturnType<typeof acts.startRun>>;
       const db = openDb(url);
-      expect(await db.all("SELECT id FROM digest_runs")).toEqual([{ id: retried.runId }]);
+      expect(await db.all("SELECT id FROM runs")).toEqual([{ id: retried.runId }]);
       expect(await db.all("SELECT run_id, workflow_run_id FROM run_attempts")).toEqual([{ run_id: retried.runId, workflow_run_id: "exec-1" }]);
       expect(retried.sourceIds).toEqual(["f"]);
       // A different execution the same day is still refused while that run is running.
@@ -144,11 +160,11 @@ describe("run lifecycle", () => {
       const start = (exec: string) => new MockActivityEnvironment({ workflowExecution: { workflowId: `digest-${exec}`, runId: exec } }).run(() => acts.startRun({ runDate: "" }));
       const results = await Promise.allSettled([start("a"), start("b")]);
       expect(results.map((r) => r.status).toSorted()).toEqual(["fulfilled", "rejected"]);
-      expect(await db.one("SELECT count(*) AS n FROM digest_runs")).toEqual({ n: 1 });
+      expect(await db.one("SELECT count(*) AS n FROM runs")).toEqual({ n: 1 });
     });
     it("force starts regardless (the successor of --force)", async () => {
       const { db, acts } = await setup();
-      await db.exec(`INSERT INTO digest_runs (run_at, completed_at, status, outcome) VALUES ('${today} 10:25:40', '${today} 10:45:00', 'completed', 'sent')`);
+      await db.exec(`INSERT INTO runs (started_at, status, outcome) VALUES ('${today} 10:25:40', 'completed', 'sent')`);
       await expect(acts.startRun({ runDate: today, force: true })).resolves.toMatchObject({ sourceIds: ["f"] });
     });
   });

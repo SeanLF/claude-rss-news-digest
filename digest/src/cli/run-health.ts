@@ -10,7 +10,7 @@ if (first === undefined || Number.isNaN(first)) throw new Error("usage: run-heal
 const db = openDb(dbUrl());
 for (let run = first; run <= (last ?? first); run++) {
   const health = await getRunHealth(db, run, { broadcasting: process.argv.includes("--broadcasting"), threadsEnabled: threadsEnabled(), usageRowsDropped: 0, dormantAfter: threadsConfigFrom(process.env).dormantAfter });
-  const text = (await db.one<{ content: string }>("SELECT content FROM run_artifacts WHERE run_id=$1 AND artifact_name='coherence_report.json' AND state='current'", [run]))?.content ?? null;
+  const text = (await db.one<{ content: string }>("SELECT content FROM artifacts WHERE run_id=$1 AND name='coherence_report.json' AND status='current'", [run]))?.content ?? null;
   console.log(JSON.stringify({ run, violations: violations(health), kinds: coherenceKindCounts(text) }));
 }
 process.exit(0); // the pool would otherwise hold the process open

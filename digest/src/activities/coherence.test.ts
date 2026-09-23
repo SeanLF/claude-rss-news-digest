@@ -84,7 +84,7 @@ describe("coherence activity", () => {
     await act(300, drafts, ft);
     await store.quarantine(300, COHERENCE_OUTPUT);
     await act(300, drafts, ft);
-    expect(await store.states(300, DRAFT_OUTPUT)).not.toContain("quarantined");
+    expect(await store.statuses(300, DRAFT_OUTPUT)).not.toContain("quarantined");
     expect(await store.find(300, COHERENCE_OUTPUT)).toBeDefined();
   });
   it("a report that leaves a story unchecked is a failure and stores nothing", async () => {

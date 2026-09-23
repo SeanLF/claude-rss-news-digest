@@ -27,6 +27,62 @@ added to its nightly `pg_dump`), and brings `jsonb` and readers that need no sha
   against a real `postgres:18.6` container.
 - **Import**: SQLite → Postgres (§5.1 still holds, except the circulation notes).
 
+## Naming (2026-09-23, applied to migration 1 in place)
+
+Sections 1-4 below use the SQLite names they were measured on; the schema, §5.1 and the code use these.
+
+**Convention.** snake_case. Tables are plural nouns (`runs`, `sends`). A table's key is `id`, except
+where the key is the identity itself (`prompts.sha256`, `issues (issue_date, revision)`,
+`sends.issue_date`). A foreign key is `<singular>_id`, prefixed by its role when a table has more than
+one or the plain name would mislead (`raised_run_id`, `resolved_run_id`, `created_run_id`,
+`merged_into_id`). Times are `<verb>_at`, `timestamptz`, UTC. Booleans are `is_…`/`has_…`. Where a thing
+is in its life is `status`; how a finished thing ended is `outcome`. Runs and attempts share the words
+`running`, `completed`, `failed`. No column repeats its table's name. No vendor names, except in a
+value that IS the vendor's id (`resend_id`, Temporal's `workflow_id`/`workflow_run_id`). **Published**
+means on the web (an `issues` row); **sent** means emailed (`sends`, `runs.outcome = 'sent'`). One is
+never used for the other. `published_runs` also counts a run whose send Resend holds (decision 4 in
+§6); a send's row names an issue revision, so in practice that run is on the web too.
+
+| term | meaning | where |
+|---|---|---|
+| run | one day's attempt lineage at an issue | `runs` (`started_at`, `status`, `outcome`) |
+| attempt | one execution of a run: a Python process or a Temporal workflow run | `run_attempts` (`is_forced`, `status`, `ended_at`) |
+| model call | one request to a model, with its tokens, cost and prompt version | `model_calls` (`stage`, `request_model`, `prompt_sha256`, `outcome`) |
+| stage | the pipeline step a call or an artifact belongs to (`write`, `cluster-extract`, ...) | `model_calls.stage`, `artifacts.stage` |
+| artifact | a named input or output of a run, kept whole | `artifacts` (`name`, `status`: current, quarantined, replaced) |
+| prompt | a system prompt and tool set, by content hash | `prompts.sha256` |
+| issue | one day's web publication, append-only by revision | `issues` (`issue_date`, `revision`, `published_at`) |
+| send | the day's email: the claim, then Resend's broadcast | `sends` (`issue_date`, `claim_token` uuid, `resend_id`, `recipients`) |
+| published run | a run readers got: an issue on the web, or a send Resend holds | view `published_runs` |
+| sent run | a run whose digest was emailed, by its own outcome (imported `unrecorded` runs count) | view `sent_runs` |
+| story source | one source article cited under a story in an issue; dedup and search read it | `story_sources` (`headline`, `source_title`, `shown_at`) |
+| article | one feed entry fetched for a run | `articles` (`published_raw`: the feed's own date text) |
+| source fetch | one feed's fetch in a run: success, counts, error | `source_fetches` (`is_success`, `error`, `fetched_at`) |
+| dedup match | a fetched title dropped as a repeat of a recent headline | `dedup_matches` (`title`, `matched_headline`, `matched_at`) |
+| thread | a story followed across days | `threads`; derived state in view `thread_state` |
+| thread update | one run's entry on a thread (the site's "N updates") | `thread_updates` (`label`, `is_continuation`) |
+| question, resolution | an open question a thread raised, and the run that answered it | `thread_questions`, `thread_question_resolutions` (`answer`) |
+
+Token columns take OpenTelemetry's GenAI names (`gen_ai.usage.output_tokens`,
+`gen_ai.usage.cache_creation.input_tokens`, `gen_ai.usage.cache_read.input_tokens`,
+`gen_ai.request.model`; opentelemetry.io's registry, read 2026-09-23, where they are marked moved to
+the GenAI conventions repository) with dots as underscores. `input_tokens` keeps the provider's
+meaning, which excludes the cache; OpenTelemetry's `gen_ai.usage.input_tokens` is the sum of all
+three input columns. The schema says so where the columns are defined.
+
+Renamed from the first draft: `digest_runs` → `runs` (`run_at` → `started_at`; `completed_at` and
+`articles_emailed` dropped: the attempt's `ended_at`, the send's `recipients` and `published_runs`
+replace them), `run_usage` → `model_calls`, `run_artifacts` → `artifacts`, `broadcasts` → `sends`,
+`fetched_articles` → `articles`, `source_health` → `source_fetches`, `dedup_log` → `dedup_matches`,
+`shown_narratives` → `story_sources`, `thread_installments` → `thread_updates`; the column renames are
+the glossary's. The attempt state `closed_by_temporal` (never written) is gone: an attempt the
+reconciler finds closed is `failed`, with the reason in `error`. The queries that read
+`completed_at IS NOT NULL` (the next day's context, the fetch age filter, the one-run-a-day guard, the
+resume guard, thread ageing) read the view `sent_runs` (`outcome` in `sent`, `unrecorded`), which
+selects exactly the rows `completed_at` did under both pipelines. Not `published_runs`: an issue goes
+on the web before its send, so a run whose send then fails is published and never sent, and would
+block its own resume (reviewer-reproduced, 2026-09-23).
+
 ## 0. The answer in six lines
 
 1. ~~**Keep the product database in SQLite.**~~ Superseded: Postgres, above. (Was: neither RAM (measured:
@@ -412,20 +468,20 @@ column, except where a column is named.
 
 | new table | from | expected rows on the clone | content check |
 |---|---|---|---|
-| `digest_runs` | `digest_runs` | 294 | `completed` (290, all with `completed_at`) splits by evidence, since Python marked a run completed whether or not it emailed (`newsroom/src/db.py:178`): `outcome='sent'` for the 265 with `articles_emailed > 0`; `outcome='unrecorded'` for the 25 with 0 (12 have an issue, 13 are same-day runs whose issue a later run overwrote). `running` → `failed` (runs 123, 281: the orphans of §4.1); `failed` stays (218, 229) |
-| `run_attempts` | one per run | 294 | `pipeline='python'`; state from the run's new status; `run_usage.attempt_id` and `run_artifacts.attempt_id` point at it |
-| `run_usage` | `run_usage` | 2,205 over 191 runs, $769.74 | = ; `effort` NULL on 1,744 rows stays NULL ("not recorded", never back-filled) |
-| `run_artifacts` | `run_artifacts` ∪ `selections` | 1,981 + 128 = 2,109, all `current` | = with `sha256` of `content`, and `stage`/`kind`/`branch` from the name (Appendix C, one function shared with the writer); the 128 are `selections.json` for runs that have no such artifact; the other 99 `selections` rows equal their artifact (99/99) |
+| `runs` | `digest_runs` | 294 | `completed` (290, all with `completed_at`, which becomes the attempt's `ended_at`) splits by evidence, since Python marked a run completed whether or not it emailed (`newsroom/src/db.py:178`): `outcome='sent'` for the 265 with `articles_emailed > 0`; `outcome='unrecorded'` for the 25 with 0 (12 have an issue, 13 are same-day runs whose issue a later run overwrote). `running` → `failed` (runs 123, 281: the orphans of §4.1); `failed` stays (218, 229) |
+| `run_attempts` | one per run | 294 | `pipeline='python'`; `status` from the run's new status; `model_calls.attempt_id` and `artifacts.attempt_id` point at it |
+| `model_calls` | `run_usage` | 2,205 over 191 runs, $769.74 | = ; `effort` NULL on 1,744 rows stays NULL ("not recorded", never back-filled) |
+| `artifacts` | `run_artifacts` ∪ `selections` | 1,981 + 128 = 2,109, all `current` | = with `sha256` of `content`, and `stage`/`kind`/`branch` from the name (Appendix C, one function shared with the writer); the 128 are `selections.json` for runs that have no such artifact; the other 99 `selections` rows equal their artifact (99/99) |
 | `issues` | `digests` | 282, all revision 1 | `html` byte-equal 282/282; `published_at` = `digests.created_at` (never NULL); `run_id` NULL on 5 (2025-12-26, -30, -31, 2026-01-16, -17: saved before runs were linked), so `issues.run_id` is nullable, for those rows only |
-| `broadcasts` | `digests` with a send | 100, all `sent` | `resend_id`, `recipients`, `run_id` = `digests.run_id`; `claim_token`, `claimed_at` unknown, so nullable, for imported rows only. `email_artifact` is dropped: no run has an `email.html` artifact (0 rows), and a TS send's email is its run's `email.html` by name |
-| `shown_narratives` (+ full-text index) | same | 30,063 over 277 runs; index 30,063 | = |
-| `fetched_articles` | same | 136,143 over 229 runs | = |
-| `dedup_log` | same, minus `action` | 24,856 | = (`action` is `filtered` on 24,856 of 24,856) |
-| `source_health` | same | 9,645 | = ; `run_id` NULL on 231 (recorded before runs were tracked) |
-| `threads_all` | `threads` | 951 | `created_run_id` = `first_run_id`; derived `label` = old `label` 951/951; derived `status` = old `status` 951/951 (52 active, 899 dormant; the clone has no merged thread, so `merged` is exercised only by a test) |
-| `thread_installments_all` | `thread_installments` | 1,597 | `continued` = `matched_score IS NOT NULL` (641); `content` 605 set |
-| `thread_questions_all` | `thread_questions` | 3,116 | 2,408 open, 708 resolved, every resolving run published |
-| `thread_question_resolutions` | resolved questions | 708 | `(question, resolved_run_id, resolved_how)` |
+| `sends` | `digests` with a broadcast, or whose run emailed someone | 265, all `sent`: 100 broadcasts, 165 mailed before broadcasts (no `resend_id`; `recipients` = the run's `articles_emailed`) | `resend_id`, `recipients`, `run_id` = `digests.run_id`; `claim_token`, `claimed_at` unknown, so nullable, for imported rows only. `email_artifact` is dropped: no run has an `email.html` artifact (0 rows), and a TS send's email is its run's `email.html` by name |
+| `story_sources` (+ search column) | `shown_narratives` | 30,063 over 277 runs; index 30,063 | = |
+| `articles` | `fetched_articles` | 136,143 over 229 runs | = |
+| `dedup_matches` | `dedup_log`, minus `action` | 24,856 | = (`action` is `filtered` on 24,856 of 24,856) |
+| `source_fetches` | `source_health` | 9,645 | = ; `run_id` NULL on 231 (recorded before runs were tracked) |
+| `threads` | `threads` | 951 | `created_run_id` = `first_run_id`; derived `label` = old `label` 951/951; derived `status` = old `status` 951/951 (52 active, 899 dormant; the clone has no merged thread, so `merged` is exercised only by a test) |
+| `thread_updates` | `thread_installments` | 1,597 | `is_continuation` = `matched_score IS NOT NULL` (641); `content` 605 set |
+| `thread_questions` | `thread_questions` | 3,116 | 2,408 open, 708 resolved, every resolving run published |
+| `thread_question_resolutions` | resolved questions | 708 | `(question_id, resolved_run_id, answer)` |
 | not carried | `cluster_runs` (99, equal to `clusters.json` 99/99, none without it), `thread_runs` (98), `story_feedback` (37, last 2026-07-05: exported to `docs/2026-09-23-story-feedback.csv`), `threads.slug`, `dedup_log.action`, the yoyo tables | | |
 
 Things the clone showed that §4 did not say:
@@ -450,28 +506,38 @@ Things the clone showed that §4 did not say:
   `run_attempts` and `broadcasts`, not before it.
 - `archiveRun` stays as an activity that does nothing: the recorded workflow histories schedule it.
 
-**How the import runs (built 2026-09-23, Postgres).** `bin/import-legacy SRC DST_URL`: pgloader loads
-the SQLite file, mounted read-only, table for table into a fresh database
-(`digest/db/import/legacy.load`); the digest image then moves that aside as `legacy`, builds the schema
-with dbmate, copies across in one transaction (`digest/db/import/transform.sql`), checks every row
-against the legacy tables (16 checks in `digest/src/store/import.ts`, each negative-controlled in
-`import.test.ts`), and drops them. pgloader is maintained (pushed 2026-09-14; ghcr image of the same
-day, pinned by digest) though its last release is 3.6.9 of 2022, and it needed two workarounds: its
-default cast writes reals as Lisp floats (`1.0d0`), which Postgres refuses, so reals go through
-`float-to-string` (float fidelity checked: `0.35547812653826977` in both), and it exits 0 when a table
-fails, so the script fails on any ERROR line in its log. Worse, it drops text after a NUL byte with no
-error at all (reviewer-reproduced), and the 16 checks compare against pgloader's own copy; so before
-anything is copied, the load is held to a fingerprint of the SQLite file itself, read with
-`node:sqlite` (per table its rows, per column its non-null count and byte or numeric sum), and a
-WAL-mode file is refused. The image is amd64 only (emulated on the Mac). `issues.published_at` is the
-run's `completed_at` (`digests.created_at` is a backfill stamp on 31 rows); a resolution is dated by its
-resolving run. **Measured on a `cp -c` copy of the prod clone** (`make import-check`): 9-10 s end to
-end (pgloader 4-5 s, fingerprint 0.2 s, schema 0.1-0.2 s, copy 3.1-3.4 s, checks and VACUUM ANALYZE the
-rest), the load matches the file on all 15 tables, all 16 checks and all §5.1 numbers hold
-(`import.clone.test.ts`), the source file's sha256 unchanged, and the database is 169 MB against the
-SQLite file's 202 MB. Run 300's prepare replayed against the imported database reproduces its
-archived article CSVs and context files byte for byte, which found one ordering difference: SQLite left
-same-run ties in descending byte order of the headline, now explicit.
+**How the import runs (built 2026-09-23, Postgres; the copier replaced pgloader the same day).**
+`bin/import-legacy SRC DST_URL` runs one command in the digest image, with SRC mounted read-only
+(`digest/src/cli/import-legacy.ts`). It refuses a target that holds tables and a WAL-mode file, then
+copies the file table for table into a `legacy` schema (`digest/src/store/legacy-copy.ts`: `node:sqlite`
+read-only, one read transaction, batched `INSERT ... SELECT FROM unnest(...)` in one Postgres
+transaction). Integers go across as bigint digits and reals in their shortest round-trip form, so both
+arrive exact; times stay the text SQLite held. A NUL byte (which Postgres text cannot hold), text that
+is not UTF-8, a value whose storage class its column does not declare, or a declared type other than
+INTEGER, REAL, TEXT or DATETIME is refused with its table, column and row, and the copy rolls back.
+The copy is then held to a fingerprint of the file read in the same snapshot: per table its rows, and
+exact digests of each column's values and of its rows (the sum mod 2^64, in two lanes, of each item's
+sha256 over a typed encoding: integer digits, the double's IEEE bytes, the text's UTF-8 bytes),
+computed in JS over the file and in SQL over the copy. A first version compared counts and sums; the
+review showed it passed a changed integer, a sum-preserving pair, a double's last bit and same-length
+text, and `legacy-copy.test.ts` now holds each of those as a negative control. After that the schema is built with dbmate, the
+data copied across in one transaction (`digest/db/import/transform.sql`), every row checked against the
+legacy tables (16 checks in `digest/src/store/import.ts`, each negative-controlled in
+`import.test.ts`), and the legacy tables dropped. pgloader went with its three workarounds (Lisp floats,
+exit 0 on a failed table, text after a NUL dropped silently) and its amd64-only image; the prod file
+has no NUL byte, no invalid UTF-8 and no value outside its declared storage class (measured on the
+clone). `issues.published_at` is the run's `completed_at` (`digests.created_at` is a backfill stamp on
+31 rows); a resolution is dated by its resolving run. **Measured on a `cp -c` copy of the prod clone**
+(`make import-check`, OrbStack on the Mac, host load average 5-9 from other work): 15 s end to end
+against pgloader's 9-10 s (file digests and copy 6.9 s for 211,594 rows of 15 tables, the copy's
+digests 4.0 s, schema 0.1 s, transform 3.0 s, checks and VACUUM ANALYZE the rest), peak RSS 283 MiB in
+the import process (batches of 2,000 rows or 2 Mi characters; 16 Mi gave 487 MiB for no speed; an idle
+node in the same image is 40 MiB and one holding 200 MiB reads 243). The copy matches the file on
+all 15 tables, all 16 checks and all §5.1 numbers hold (`import.clone.test.ts`), the source file's
+sha256 is unchanged, and the database is 167 MB against the SQLite file's 202 MB. Run 300's prepare
+replayed against the imported database reproduces its archived article CSVs and context files byte
+for byte, which found one ordering difference: SQLite left same-run ties in descending byte order of
+the headline, now explicit.
 
 **Lifecycle edges, as test cases** (§4.1). States: `running`, `failed`, and `completed` with each of the
 five pipeline outcomes. Legal: any state to itself (a write that leaves status and outcome alone, which

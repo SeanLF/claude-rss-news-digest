@@ -7,7 +7,7 @@ import { openDb } from "../store/db.js";
 import type { FetchSummary } from "./index.js";
 
 // PREPARE between fetch and curation (spec §2.1): a pure function of the run's archived raw fetch
-// (fetched_articles) and its source list, so every downstream stage replays from the archive without
+// (articles) and its source list, so every downstream stage replays from the archive without
 // a refetch. Deterministic, so a re-run writes identical rows; a differing row means the logic or a
 // threshold changed, which only force may overwrite.
 export function prepareActivity(deps: { store: ArtifactStore; dbUrl: string }) {
@@ -19,9 +19,9 @@ export function prepareActivity(deps: { store: ArtifactStore; dbUrl: string }) {
     const db = openDb(deps.dbUrl);
     {
       const fetched = new Map<string, Fetched[]>();
-      for (const r of await db.all<Fetched & { source_id: string }>("SELECT source_id, title, url, published, summary FROM fetched_articles WHERE run_id=$1 ORDER BY id", [runId]))
+      for (const r of await db.all<Fetched & { source_id: string }>("SELECT source_id, title, url, published_raw AS published, summary FROM articles WHERE run_id=$1 ORDER BY id", [runId]))
         fetched.set(r.source_id, [...(fetched.get(r.source_id) ?? []), r]);
-      if (fetched.size === 0) throw ApplicationFailure.nonRetryable(`run ${runId} has no fetched_articles`, "MissingInput");
+      if (fetched.size === 0) throw ApplicationFailure.nonRetryable(`run ${runId} has no articles`, "MissingInput");
       const at = await runAt(db, runId);
       const recent = await previousHeadlines(db, at);
       const prepared = prepareArticles(sources, fetched, recent.map((h) => h.headline));
@@ -37,12 +37,12 @@ export function prepareActivity(deps: { store: ArtifactStore; dbUrl: string }) {
       };
       const articles: Pointer[] = [];
       for (const f of prepared.files) articles.push(await write(f.name, toCsv(ARTICLE_HEADER, f.rows)));
-      // One dedup_log row per title dropped as a repeat, as the Python writes; only once per run, so
+      // One dedup_matches row per title dropped as a repeat, as the Python writes; only once per run, so
       // a re-run of a deterministic prepare does not duplicate them.
       await db.tx(async (t) => {
-        if ((await t.one("SELECT 1 FROM dedup_log WHERE run_id=$1 LIMIT 1", [runId])) !== undefined) return;
+        if ((await t.one("SELECT 1 FROM dedup_matches WHERE run_id=$1 LIMIT 1", [runId])) !== undefined) return;
         for (const d of prepared.filtered)
-          await t.run("INSERT INTO dedup_log (article_title, article_source_id, matched_headline, similarity, threshold, run_id) VALUES ($1, $2, $3, $4, $5, $6)", [d.title, d.source_id, d.matched, d.similarity, DEDUP_SIMILARITY_THRESHOLD, runId]);
+          await t.run("INSERT INTO dedup_matches (title, source_id, matched_headline, similarity, threshold, run_id) VALUES ($1, $2, $3, $4, $5, $6)", [d.title, d.source_id, d.matched, d.similarity, DEDUP_SIMILARITY_THRESHOLD, runId]);
       }, `dedup ${runId}`);
       const index = await write("article_index.json", JSON.stringify(prepared.index, null, 2));
       if (recent.length) await write("recent_rss_titles.csv", recentTitlesCsv(recent));

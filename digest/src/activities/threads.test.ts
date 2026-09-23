@@ -46,7 +46,7 @@ const CSV = [
 async function setup(opts: { config?: Partial<ThreadsConfig>; answers?: Partial<Record<Stage, unknown[]>>; attempt?: number; execution?: () => string } = {}) {
   const url = await freshDb([297, 298, 299, RUN, 301]);
   const db = openDb(url);
-  await db.exec("UPDATE digest_runs SET status = 'completed', outcome = 'sent', completed_at = run_at WHERE id < 300");
+  await db.exec("UPDATE runs SET status = 'completed', outcome = 'sent' WHERE id < 300");
   const store = new ArtifactStore(url);
   await store.put(RUN, "articles_1.csv", CSV);
   await store.put(RUN, "clusters.json", JSON.stringify({ clusters: [{ story: "Iran talks in Geneva", article_ids: ["A1", "A2"] }, { story: "EU AI act", article_ids: ["A3", "A4"] }] }));
@@ -61,36 +61,36 @@ async function setup(opts: { config?: Partial<ThreadsConfig>; answers?: Partial<
 
 // Every thread as the pipeline sees it, published or not: label and last run from its installments.
 const THREADS = `(SELECT t.id, t.created_run_id AS first_run_id,
-    (SELECT cluster_story FROM thread_installments i WHERE i.thread_id = t.id ORDER BY run_id DESC, id DESC LIMIT 1) AS label,
-    (SELECT max(run_id) FROM thread_installments i WHERE i.thread_id = t.id) AS last_run_id
+    (SELECT label FROM thread_updates i WHERE i.thread_id = t.id ORDER BY run_id DESC, id DESC LIMIT 1) AS label,
+    (SELECT max(run_id) FROM thread_updates i WHERE i.thread_id = t.id) AS last_run_id
   FROM threads t) AS threads`;
 // Every question with its resolution, if any run resolved it.
-const QUESTIONS = `(SELECT q.id, q.question, q.raised_run_id, r.run_id AS resolved_run_id,
+const QUESTIONS = `(SELECT q.id, q.question, q.raised_run_id, r.resolved_run_id,
     CASE WHEN r.question_id IS NULL THEN 'open' ELSE 'resolved' END AS status
   FROM thread_questions q LEFT JOIN thread_question_resolutions r ON r.question_id = q.id) AS thread_questions`;
 
 // A thread the run can continue: seen in run 299 with a synthesized installment and an open question.
 async function seedThread(db: Db): Promise<number> {
   const id = (await db.one<{ id: number }>("INSERT INTO threads (created_run_id) VALUES (298) RETURNING id"))!.id;
-  await db.run("INSERT INTO thread_installments (thread_id, run_id, cluster_story, continued, content) VALUES ($1, 298, 'Iran nuclear talks open', false, NULL)", [id]);
-  await db.run("INSERT INTO thread_installments (thread_id, run_id, cluster_story, continued, content) VALUES ($1, 299, 'Iran nuclear talks', true, $2)", [id, JSON.stringify({ whats_new: [{ fact: "Talks opened in Oman.", sources: ["A9"] }] })]);
+  await db.run("INSERT INTO thread_updates (thread_id, run_id, label, is_continuation, content) VALUES ($1, 298, 'Iran nuclear talks open', false, NULL)", [id]);
+  await db.run("INSERT INTO thread_updates (thread_id, run_id, label, is_continuation, content) VALUES ($1, 299, 'Iran nuclear talks', true, $2)", [id, JSON.stringify({ whats_new: [{ fact: "Talks opened in Oman.", sources: ["A9"] }] })]);
   await db.run("INSERT INTO thread_questions (thread_id, question, raised_run_id) VALUES ($1, 'Will talks move to Geneva?', 299)", [id]);
   return id;
 }
 // Fixtures that rewrite a run's history in a way the lifecycle trigger forbids (a completed run failed).
 async function rewrite(db: Db, sql: string, params: unknown[] = []): Promise<void> {
   await db.tx(async (t) => {
-    await t.exec("ALTER TABLE digest_runs DISABLE TRIGGER digest_runs_transition");
+    await t.exec("ALTER TABLE runs DISABLE TRIGGER runs_transition");
     await t.run(sql, params);
-    await t.exec("ALTER TABLE digest_runs ENABLE TRIGGER digest_runs_transition");
+    await t.exec("ALTER TABLE runs ENABLE TRIGGER runs_transition");
   });
 }
-const sent = (db: Db, id: number) => rewrite(db, "UPDATE digest_runs SET status = 'completed', outcome = 'sent', completed_at = run_at WHERE id = $1", [id]);
+const sent = (db: Db, id: number) => rewrite(db, "UPDATE runs SET status = 'completed', outcome = 'sent' WHERE id = $1", [id]);
 // The day's issue, and its send in `status` (with an id when a draft exists).
 async function publish(db: Db, runId: number, sender: number | null, status: string | null, id: string | null = "b1"): Promise<void> {
-  const day = (await db.one<{ d: string }>("SELECT (run_at AT TIME ZONE 'UTC')::date AS d FROM digest_runs WHERE id = $1", [runId]))!.d;
-  await db.run("INSERT INTO issues (date, revision, run_id, html) VALUES ($1, 1, $2, '')", [day, runId]);
-  if (status !== null) await db.run("INSERT INTO broadcasts (date, run_id, revision, status, resend_id, claim_token, claimed_at) VALUES ($1, $2, 1, $3, $4, 'x', now())", [day, sender ?? runId, status, id]);
+  const day = (await db.one<{ d: string }>("SELECT (started_at AT TIME ZONE 'UTC')::date AS d FROM runs WHERE id = $1", [runId]))!.d;
+  await db.run("INSERT INTO issues (issue_date, revision, run_id, html) VALUES ($1, 1, $2, '')", [day, runId]);
+  if (status !== null) await db.run("INSERT INTO sends (issue_date, run_id, revision, status, resend_id, claim_token, claimed_at) VALUES ($1, $2, 1, $3, $4, gen_random_uuid(), now())", [day, sender ?? runId, status, id]);
 }
 
 const installment = { whats_new: [{ fact: "Talks resumed in Geneva.", sources: ["A1"] }, { fact: "A deal is imminent.", sources: ["A2"] }], resolved: [{ question: "Will talks move to Geneva?", how: "They did." }], new_questions: ["Will a deal be signed?"], still_open: [] };
@@ -117,7 +117,7 @@ describe("threadsLink", () => {
     expect(s.calls[0]!.options.model).toBe("claude-haiku-4-5-20251001");
     expect(s.calls[0]!.options.outputFormat).toBeUndefined(); // free text: the schema cost a continuation a day
     expect(await s.rows(`SELECT id, label, last_run_id FROM ${THREADS} ORDER BY id`)).toEqual([{ id: 1, label: "Iran talks in Geneva", last_run_id: RUN }, { id: 2, label: "EU AI act", last_run_id: RUN }]);
-    expect(await s.rows(`SELECT thread_id, continued FROM thread_installments WHERE run_id = ${RUN} ORDER BY id`)).toEqual([{ thread_id: 1, continued: true }, { thread_id: 2, continued: false }]);
+    expect(await s.rows(`SELECT thread_id, is_continuation FROM thread_updates WHERE run_id = ${RUN} ORDER BY id`)).toEqual([{ thread_id: 1, is_continuation: true }, { thread_id: 2, is_continuation: false }]);
     expect(s.usage.map((u) => u.stage)).toEqual(["thread_link"]);
   });
 
@@ -128,7 +128,7 @@ describe("threadsLink", () => {
     expect(await s.acts.threadsLink(RUN)).toEqual(first);
     expect(s.calls).toHaveLength(1);
     expect(await s.rows("SELECT COUNT(*) AS n FROM threads")).toEqual([{ n: 2 }]);
-    expect(await s.rows(`SELECT COUNT(*) AS n FROM thread_installments WHERE run_id = ${RUN}`)).toEqual([{ n: 2 }]);
+    expect(await s.rows(`SELECT COUNT(*) AS n FROM thread_updates WHERE run_id = ${RUN}`)).toEqual([{ n: 2 }]);
   });
 
   it("two attempts racing on the model commit one identity between them", async () => {
@@ -138,7 +138,7 @@ describe("threadsLink", () => {
     expect(a).toEqual(b);
     expect(s.calls).toHaveLength(2);
     expect(await s.rows("SELECT COUNT(*) AS n FROM threads")).toEqual([{ n: 2 }]);
-    expect(await s.rows(`SELECT COUNT(*) AS n FROM thread_installments WHERE run_id = ${RUN}`)).toEqual([{ n: 2 }]);
+    expect(await s.rows(`SELECT COUNT(*) AS n FROM thread_updates WHERE run_id = ${RUN}`)).toEqual([{ n: 2 }]);
   });
 
   it("an attempt that fails mid-commit leaves no identity behind", async () => {
@@ -146,13 +146,13 @@ describe("threadsLink", () => {
     await s.store.put(RUN, THREAD_LINKS, "{}"); // the commit's own record already taken: its insert fails last
     await expect(s.acts.threadsLink(RUN)).rejects.toThrow(/duplicate key/);
     expect(await s.rows("SELECT COUNT(*) AS n FROM threads")).toEqual([{ n: 0 }]);
-    expect(await s.rows("SELECT COUNT(*) AS n FROM thread_installments")).toEqual([{ n: 0 }]);
+    expect(await s.rows("SELECT COUNT(*) AS n FROM thread_updates")).toEqual([{ n: 0 }]);
   });
 
   it("refuses to link a run whose installments exist without their record", async () => {
     const s = await setup();
     const tid = await seedThread(s.db);
-    await s.db.run("INSERT INTO thread_installments (thread_id, run_id, cluster_story, continued) VALUES ($1, $2, 'x', true)", [tid, RUN]);
+    await s.db.run("INSERT INTO thread_updates (thread_id, run_id, label, is_continuation) VALUES ($1, $2, 'x', true)", [tid, RUN]);
     await expect(s.acts.threadsLink(RUN)).rejects.toThrow(/refusing to link again/);
   });
 
@@ -181,7 +181,7 @@ describe("threadsLink", () => {
 
   it("does not offer a thread that has gone quiet: dormancy is its installments' age, nothing writes it", async () => {
     const s = await setup({ config: { dormantAfter: 1 } });
-    await s.db.exec("INSERT INTO threads (id, created_run_id) VALUES (50, 297); INSERT INTO thread_installments (thread_id, run_id, cluster_story, continued) VALUES (50, 297, 'Old', false)");
+    await s.db.exec("INSERT INTO threads (id, created_run_id) VALUES (50, 297); INSERT INTO thread_updates (thread_id, run_id, label, is_continuation) VALUES (50, 297, 'Old', false)");
     await s.acts.threadsLink(RUN);
     expect(s.calls).toHaveLength(0); // not a candidate, so nothing to ask
   });
@@ -213,7 +213,7 @@ describe("threadSynthesis", () => {
     expect(s.calls.find((c) => c.stage === "audit")!.prompt).toBe(
       "CLAIM 1: Talks resumed in Geneva.\nCITED SOURCE(S):\n  [A1] Iran talks resume in Geneva. Negotiators met again. Full story at [link]\n\nCLAIM 2: A deal is imminent.\nCITED SOURCE(S):\n  [A2] Geneva round two for Iran deal. Second day of talks.",
     );
-    const content = JSON.parse(String((await s.rows(`SELECT content FROM thread_installments WHERE thread_id = 1 AND run_id = ${RUN}`))[0]!["content"])) as Record<string, unknown>;
+    const content = JSON.parse(String((await s.rows(`SELECT content FROM thread_updates WHERE thread_id = 1 AND run_id = ${RUN}`))[0]!["content"])) as Record<string, unknown>;
     expect(content).toEqual({ ...installment, whats_new: [installment.whats_new[0]], cited_ids: ["A1", "A2"] });
     expect(await s.rows(`SELECT question, status, resolved_run_id, raised_run_id FROM ${QUESTIONS} ORDER BY id`)).toEqual([
       { question: "Will talks move to Geneva?", status: "resolved", resolved_run_id: RUN, raised_run_id: 299 },
@@ -250,14 +250,14 @@ describe("threadSynthesis", () => {
   it("fails open when the audit cannot answer, keeping the facts and saying so", async () => {
     const s = await linked({ synthesis: [installment], audit: [new Error("timeout")] });
     expect(await s.acts.threadSynthesis(RUN, s.plan)).toEqual({ threadId: 1, auditFailed: true });
-    const content = JSON.parse(String((await s.rows(`SELECT content FROM thread_installments WHERE thread_id = 1 AND run_id = ${RUN}`))[0]!["content"])) as { whats_new: unknown[] };
+    const content = JSON.parse(String((await s.rows(`SELECT content FROM thread_updates WHERE thread_id = 1 AND run_id = ${RUN}`))[0]!["content"])) as { whats_new: unknown[] };
     expect(content.whats_new).toHaveLength(2);
   });
 
   it("a synthesis failure is thrown for the retry policy, leaving nothing applied", async () => {
     const s = await linked({ synthesis: [new Error("overloaded")] });
     await expect(s.acts.threadSynthesis(RUN, s.plan)).rejects.toThrow(/overloaded/);
-    expect(await s.rows(`SELECT content FROM thread_installments WHERE thread_id = 1 AND run_id = ${RUN}`)).toEqual([{ content: null }]);
+    expect(await s.rows(`SELECT content FROM thread_updates WHERE thread_id = 1 AND run_id = ${RUN}`)).toEqual([{ content: null }]);
   });
 });
 
@@ -273,7 +273,7 @@ describe("threadsFinish", () => {
     expect(JSON.parse(await s.store.content(RUN, THREAD_INSTALLMENTS))).toEqual([{ thread_id: 1, ...installment, cited_ids: ["A1", "A2"] }]);
     expect(JSON.parse(await s.store.content(RUN, THREAD_HEALTH))).toEqual({ link: "ok", linker_ok: true, synthesized: 1, audit_failures: 1, failures: [] });
     expect(await s.acts.threadsFinish(RUN, { outcomes: [outcome], failures: [] })).toEqual(p);
-    expect(await s.store.states(RUN, THREAD_HEALTH)).toEqual(["current"]);
+    expect(await s.store.statuses(RUN, THREAD_HEALTH)).toEqual(["current"]);
   });
 
   it("records a failed link and gives the render nothing to find", async () => {
@@ -294,11 +294,11 @@ describe("a forced re-run", () => {
     await s.store.replace(RUN, "selected.json", JSON.stringify({ must_know: [{ article_ids: ["A3", "A4"], cluster_index: 1 }], should_know: [] }));
     expect(await s.acts.threadsLink(RUN, true)).toEqual({ plans: [] });
     expect(s.calls.filter((c) => c.stage === "link").at(-1)!.prompt).toContain("[1] Iran nuclear talks open -> Iran nuclear talks\n"); // the arc as it stood before the run
-    expect(await s.rows(`SELECT thread_id, cluster_story FROM thread_installments WHERE run_id = ${RUN}`)).toEqual([{ thread_id: 3, cluster_story: "EU AI act" }]);
+    expect(await s.rows(`SELECT thread_id, label FROM thread_updates WHERE run_id = ${RUN}`)).toEqual([{ thread_id: 3, label: "EU AI act" }]);
     expect(await s.rows(`SELECT id, label, last_run_id FROM ${THREADS} ORDER BY id`)).toEqual([{ id: 1, label: "Iran nuclear talks", last_run_id: 299 }, { id: 3, label: "EU AI act", last_run_id: RUN }]);
-    expect(await s.rows("SELECT run_id, COUNT(*) AS n FROM thread_installments GROUP BY run_id ORDER BY run_id")).toEqual([{ run_id: 298, n: 1 }, { run_id: 299, n: 1 }, { run_id: RUN, n: 1 }]);
+    expect(await s.rows("SELECT run_id, COUNT(*) AS n FROM thread_updates GROUP BY run_id ORDER BY run_id")).toEqual([{ run_id: 298, n: 1 }, { run_id: 299, n: 1 }, { run_id: RUN, n: 1 }]);
     expect(JSON.parse(await s.store.get(await s.acts.threadsFinish(RUN, { outcomes: [], failures: [] })))).toEqual({});
-    for (const name of ["thread_assignments.json", "thread_context.json", "thread_health.json", "thread_installments.json", "thread_links.json"]) expect(await s.store.states(RUN, name)).toContain("quarantined");
+    for (const name of ["thread_assignments.json", "thread_context.json", "thread_health.json", "thread_installments.json", "thread_links.json"]) expect(await s.store.statuses(RUN, name)).toContain("quarantined");
   });
   it("reopens what this run resolved, drops what it raised, and resynthesizes", async () => {
     const s = await setup({ answers: { link: [link2, link2], synthesis: [installment, installment], audit: [{ verdicts: [{ id: 1, supported: true }, { id: 2, supported: true }] }, { verdicts: [{ id: 1, supported: true }, { id: 2, supported: false }] }] } });
@@ -316,9 +316,9 @@ describe("a forced re-run", () => {
     const s = await setup({ answers: { link: [link2, link2] } });
     await seedThread(s.db);
     await s.acts.threadsLink(RUN);
-    const before = await s.rows("SELECT * FROM thread_installments WHERE run_id <> 300 ORDER BY id");
+    const before = await s.rows("SELECT * FROM thread_updates WHERE run_id <> 300 ORDER BY id");
     await s.acts.threadsLink(RUN, true);
-    expect(await s.rows("SELECT * FROM thread_installments WHERE run_id <> 300 ORDER BY id")).toEqual(before);
+    expect(await s.rows("SELECT * FROM thread_updates WHERE run_id <> 300 ORDER BY id")).toEqual(before);
     expect(await s.rows(`SELECT question, status FROM ${QUESTIONS}`)).toEqual([{ question: "Will talks move to Geneva?", status: "open" }]);
   });
 });
@@ -328,7 +328,7 @@ describe("resumes and records", () => {
     const s = await setup({ answers: { link: [{ links: [{ story: 0, thread: 1 }, { story: 1, thread: null }] }] } });
     await seedThread(s.db);
     const { plans } = await s.acts.threadsLink(RUN);
-    await s.db.run(`UPDATE thread_installments SET content = $1 WHERE thread_id = 1 AND run_id = ${RUN}`, [JSON.stringify(installment)]);
+    await s.db.run(`UPDATE thread_updates SET content = $1 WHERE thread_id = 1 AND run_id = ${RUN}`, [JSON.stringify(installment)]);
     await s.db.run("INSERT INTO thread_questions (thread_id, question, raised_run_id) VALUES (1, 'Will a deal be signed?', $1)", [RUN]);
     expect(await s.acts.threadSynthesis(RUN, plans[0]!)).toEqual({ threadId: 1, auditFailed: false });
     expect(s.calls.map((c) => c.stage)).toEqual(["link"]);
@@ -387,24 +387,24 @@ describe("a forced re-run of an earlier run", () => {
     const s = await setup({ answers: { link: [link2] } });
     await seedThread(s.db);
     await s.acts.threadsLink(RUN);
-    await s.db.exec("INSERT INTO thread_installments (thread_id, run_id, cluster_story, continued) VALUES (2, 301, 'EU AI act, day two', true)");
-    const before = await s.rows("SELECT * FROM thread_installments ORDER BY id");
+    await s.db.exec("INSERT INTO thread_updates (thread_id, run_id, label, is_continuation) VALUES (2, 301, 'EU AI act, day two', true)");
+    const before = await s.rows("SELECT * FROM thread_updates ORDER BY id");
     await expect(s.acts.threadsLink(RUN, true)).rejects.toThrow(/later run\(s\) 301 build on run 300's threads/);
-    expect(await s.rows("SELECT * FROM thread_installments ORDER BY id")).toEqual(before);
-    expect(await s.store.states(RUN, "thread_assignments.json")).toEqual(["current"]);
+    expect(await s.rows("SELECT * FROM thread_updates ORDER BY id")).toEqual(before);
+    expect(await s.store.statuses(RUN, "thread_assignments.json")).toEqual(["current"]);
   });
   it("refuses when a later run continued a thread this run continued", async () => {
     const s = await setup({ answers: { link: [link2] } });
     await seedThread(s.db);
     await s.acts.threadsLink(RUN);
-    await s.db.exec("INSERT INTO thread_installments (thread_id, run_id, cluster_story, continued) VALUES (1, 301, 'Iran talks, day three', true)");
+    await s.db.exec("INSERT INTO thread_updates (thread_id, run_id, label, is_continuation) VALUES (1, 301, 'Iran talks, day three', true)");
     await expect(s.acts.threadsLink(RUN, true)).rejects.toThrow(/301/);
   });
   it("refuses when a later run resolved a question this run raised", async () => {
     const s = await setup({ answers: { link: [link2] } });
     await seedThread(s.db);
     await s.acts.threadsLink(RUN);
-    await s.db.exec("INSERT INTO thread_questions (id, thread_id, question, raised_run_id) VALUES (90, 1, 'Asked in 300', 300); INSERT INTO thread_question_resolutions (question_id, run_id, how) VALUES (90, 301, 'answered')");
+    await s.db.exec("INSERT INTO thread_questions (id, thread_id, question, raised_run_id) VALUES (90, 1, 'Asked in 300', 300); INSERT INTO thread_question_resolutions (question_id, resolved_run_id, answer) VALUES (90, 301, 'answered')");
     await expect(s.acts.threadsLink(RUN, true)).rejects.toThrow(/301/);
     expect(await s.rows("SELECT COUNT(*) AS n FROM thread_questions WHERE raised_run_id = 300")).toEqual([{ n: 1 }]);
   });
@@ -425,11 +425,11 @@ describe("an issue that is not sent", () => {
   it("takes back its thread writes, so the web tier never shows an installment nobody was sent", async () => {
     const s = await setup({ answers: { link: [link2] } });
     await seedThread(s.db);
-    const before = await s.rows("SELECT * FROM thread_installments ORDER BY id");
+    const before = await s.rows("SELECT * FROM thread_updates ORDER BY id");
     await s.acts.threadsLink(RUN);
     await s.acts.threadsFinish(RUN, { outcomes: [], failures: [] });
     expect(await s.acts.threadsRetract(RUN)).toEqual({ retracted: true });
-    expect(await s.rows("SELECT * FROM thread_installments ORDER BY id")).toEqual(before);
+    expect(await s.rows("SELECT * FROM thread_updates ORDER BY id")).toEqual(before);
     expect(await s.rows(`SELECT id, label, last_run_id FROM ${THREADS} ORDER BY id`)).toEqual([{ id: 1, label: "Iran nuclear talks", last_run_id: 299 }]);
     expect(await s.acts.threadsRetract(RUN)).toEqual({ retracted: true }); // idempotent
   });
@@ -438,24 +438,24 @@ describe("an issue that is not sent", () => {
     await seedThread(s.db);
     await s.acts.threadsLink(RUN);
     await publish(s.db, RUN, RUN, status, status === "claimed" ? null : "b1");
-    const before = await s.rows("SELECT * FROM thread_installments ORDER BY id");
+    const before = await s.rows("SELECT * FROM thread_updates ORDER BY id");
     expect(await s.acts.threadsRetract(RUN)).toMatchObject({ retracted: false });
-    expect(await s.rows("SELECT * FROM thread_installments ORDER BY id")).toEqual(before);
+    expect(await s.rows("SELECT * FROM thread_updates ORDER BY id")).toEqual(before);
   });
   it("declines, rather than fails, when a later run already builds on it", async () => {
     const s = await setup({ answers: { link: [link2] } });
     await seedThread(s.db);
     await s.acts.threadsLink(RUN);
-    await s.db.exec("INSERT INTO thread_installments (thread_id, run_id, cluster_story, continued) VALUES (1, 301, 'Iran talks, day three', true)");
-    const before = await s.rows("SELECT * FROM thread_installments ORDER BY id");
+    await s.db.exec("INSERT INTO thread_updates (thread_id, run_id, label, is_continuation) VALUES (1, 301, 'Iran talks, day three', true)");
+    const before = await s.rows("SELECT * FROM thread_updates ORDER BY id");
     expect(await s.acts.threadsRetract(RUN)).toEqual({ retracted: false, reason: "later run(s) 301 build on it" });
-    expect(await s.rows("SELECT * FROM thread_installments ORDER BY id")).toEqual(before);
+    expect(await s.rows("SELECT * FROM thread_updates ORDER BY id")).toEqual(before);
   });
 });
 
 async function fail(db: Db, id: number, runAt?: string): Promise<void> {
-  await rewrite(db, "UPDATE digest_runs SET status = 'failed', outcome = NULL, completed_at = NULL WHERE id = $1", [id]);
-  if (runAt) await db.run("UPDATE digest_runs SET run_at = $1 WHERE id = $2", [runAt, id]);
+  await rewrite(db, "UPDATE runs SET status = 'failed', outcome = NULL WHERE id = $1", [id]);
+  if (runAt) await db.run("UPDATE runs SET started_at = $1 WHERE id = $2", [runAt, id]);
 }
 // Runs fn with the JSON log lines on stderr captured and stdout silenced.
 async function quietly<T>(fn: () => Promise<T>): Promise<{ result: T; logged: Record<string, unknown>[] }> {
@@ -475,7 +475,7 @@ async function quietly<T>(fn: () => Promise<T>): Promise<{ result: T; logged: Re
 describe("a failed run nobody resumed", () => {
   const link2 = { links: [{ story: 0, thread: 1 }, { story: 1, thread: null }] };
   const EARLIER = 299;
-  const earlierRows = (s: Awaited<ReturnType<typeof setup>>) => s.rows(`SELECT thread_id, cluster_story FROM thread_installments WHERE run_id = ${EARLIER}`);
+  const earlierRows = (s: Awaited<ReturnType<typeof setup>>) => s.rows(`SELECT thread_id, label FROM thread_updates WHERE run_id = ${EARLIER}`);
 
   it("the resume horizon is the workflow's run timeout", () => {
     expect(`${RESUME_HORIZON_HOURS} hours`).toBe(WORKFLOW_RUN_TIMEOUT);
@@ -498,7 +498,7 @@ describe("a failed run nobody resumed", () => {
     await fail(s.db, 298);
     await fail(s.db, EARLIER);
     await quietly(() => s.acts.threadsLink(RUN));
-    expect(await s.rows("SELECT COUNT(*) AS n FROM thread_installments WHERE run_id IN (298, 299)")).toEqual([{ n: 0 }]);
+    expect(await s.rows("SELECT COUNT(*) AS n FROM thread_updates WHERE run_id IN (298, 299)")).toEqual([{ n: 0 }]);
   });
 
   it("takes back a failed run whose digest was saved but never sent", async () => {
@@ -517,13 +517,13 @@ describe("a failed run nobody resumed", () => {
     await seedThread(s.db);
     const recent = new Date(Date.now() - 60 * 60 * 1000).toISOString().replace("T", " ").slice(0, 19);
     await fail(s.db, EARLIER, recent);
-    await s.db.run("UPDATE digest_runs SET run_at = $1 WHERE id = $2", [recent, RUN]);
+    await s.db.run("UPDATE runs SET started_at = $1 WHERE id = $2", [recent, RUN]);
     await quietly(() => s.acts.threadsLink(RUN));
     expect(await earlierRows(s)).toEqual([]);
     expect(s.calls[0]!.prompt).toContain("ACTIVE THREADS:\n  [1] Iran nuclear talks open\n\n");
     await publish(s.db, RUN, RUN, "sent");
     await sent(s.db, RUN);
-    expect(await s.rows(`SELECT COUNT(*) AS n FROM thread_installments WHERE run_id = ${RUN}`)).toEqual([{ n: 2 }]);
+    expect(await s.rows(`SELECT COUNT(*) AS n FROM thread_updates WHERE run_id = ${RUN}`)).toEqual([{ n: 2 }]);
   });
 
   it("judges delivery by sender: a broadcast a later, completed run sent does not keep the failed run's writes", async () => {
@@ -615,9 +615,9 @@ describe("a failed run nobody resumed", () => {
     const s = await setup({ answers: { link: [link2] } });
     await seedThread(s.db);
     await fail(s.db, 298);
-    const before = await s.rows("SELECT * FROM thread_installments WHERE run_id = 298");
+    const before = await s.rows("SELECT * FROM thread_updates WHERE run_id = 298");
     const { logged } = await quietly(() => s.acts.threadsLink(RUN));
-    expect(await s.rows("SELECT * FROM thread_installments WHERE run_id = 298")).toEqual(before);
+    expect(await s.rows("SELECT * FROM thread_updates WHERE run_id = 298")).toEqual(before);
     expect(logged).toContainEqual(expect.objectContaining({ runId: 298, reason: "later run(s) 299 build on it" }));
   });
 });

@@ -246,7 +246,7 @@ async function runDigest(input: DigestInput, state: RunState): Promise<DigestOut
     const { html, email } = await rebuild.render(runId, selections, threads, gnews);
 
     // Only a real send publishes: with the send disabled the run ends like a rejected one, with no
-    // web copy, no shown headlines and no completed_at, and the operator is told.
+    // web copy, no story sources and no sent outcome, and the operator is told.
     if (!(await record.sendEnabled())) {
       log.warn("BROADCAST_ENABLED is not true: nothing published, sent or recorded as shown", { runId });
       await notSent("disabled", "broadcasting disabled on this worker");

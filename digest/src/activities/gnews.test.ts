@@ -65,7 +65,7 @@ describe("gnews", () => {
     const plan = await acts.planGnews(300, sel);
     expect(plan.urls).toHaveLength(3);
     expect(plan.existing).toBeUndefined();
-    expect(await store.states(300, DECODED_LINKS)).toContain("quarantined");
+    expect(await store.statuses(300, DECODED_LINKS)).toContain("quarantined");
     expect(await store.find(300, GNEWS_HEALTH)).toBeUndefined();
   });
   it.each(["busy", "cancelled"])("a %s pass spent nothing, so a resume plans it again", async (outcome) => {

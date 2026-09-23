@@ -45,7 +45,7 @@ export function weeklyRecapActivity(deps: WeeklyRecapDeps): (runId: number, forc
     if (existing && !force) return existing;
     const write = (text: string): Promise<Pointer> => (force ? store.replace(runId, WEEKLY_RECAP, text) : store.put(runId, WEEKLY_RECAP, text));
     const db = openDb(deps.dbUrl);
-    const prior = (await db.one<{ content: string }>("SELECT content FROM run_artifacts WHERE artifact_name=$1 AND run_id < $2 AND state = 'current' ORDER BY run_id DESC LIMIT 1", [WEEKLY_RECAP, runId]))?.content ?? null;
+    const prior = (await db.one<{ content: string }>("SELECT content FROM artifacts WHERE name=$1 AND run_id < $2 AND status = 'current' ORDER BY run_id DESC LIMIT 1", [WEEKLY_RECAP, runId]))?.content ?? null;
     const titles = (await previousHeadlines(db, await runAt(db, runId))).map((t) => t.headline).filter(Boolean).map((t) => `- ${t}`).join("\n");
     const carry = async (): Promise<Pointer | null> => (prior === null ? null : write(prior));
     const today = await store.runDate(runId);

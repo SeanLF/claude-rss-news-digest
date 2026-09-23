@@ -5,14 +5,14 @@ import type { ArtifactStore, Pointer } from "../store/artifacts.js";
 import { openDb } from "../store/db.js";
 import { endAttempt } from "./run.js";
 
-export interface ShownRow { headline: string; tier: "must_know" | "should_know"; source_id: string | null; original_title: string | null; cluster_id: string | null }
+export interface ShownRow { headline: string; tier: "must_know" | "should_know"; source_id: string | null; source_title: string | null; cluster_id: string | null }
 
 // render.extract_headlines: one row per source per story, over the selections as resolved against
 // the run's article index. The next day's prepare reads these back for dedup.
 export function shownHeadlines(selections: Selections, index: Record<string, unknown>): ShownRow[] {
   const resolved = resolveArticleIds(selections, index);
   return (["must_know", "should_know"] as const).flatMap((tier) =>
-    resolved[tier].flatMap((item) => item.sources.map((src) => ({ headline: item.headline ?? "", tier, source_id: src.source_id ?? null, original_title: src.original_title ?? null, cluster_id: item.cluster_id ?? null }))),
+    resolved[tier].flatMap((item) => item.sources.map((src) => ({ headline: item.headline ?? "", tier, source_id: src.source_id ?? null, source_title: src.original_title ?? null, cluster_id: item.cluster_id ?? null }))),
   );
 }
 
@@ -38,23 +38,23 @@ export function recordActivities(deps: RecordDeps) {
       const web = webArchiveHtml(await store.get(html));
       const preheader = (await selectionsOf(selections)).preheader ?? "";
       await db().tx(async (t) => {
-        const latest = await t.one<{ revision: number; run_id: number | null; html: string; preheader: string }>("SELECT revision, run_id, html, preheader FROM issues WHERE date=$1 ORDER BY revision DESC LIMIT 1", [date]);
+        const latest = await t.one<{ revision: number; run_id: number | null; html: string; preheader: string }>("SELECT revision, run_id, html, preheader FROM issues WHERE issue_date=$1 ORDER BY revision DESC LIMIT 1", [date]);
         const keep = preheader === "" && latest ? latest.preheader : preheader;
         if (latest && latest.run_id === runId && latest.html === web && latest.preheader === keep) return;
-        await t.run("INSERT INTO issues (date, revision, run_id, html, preheader) VALUES ($1, $2, $3, $4, $5)", [date, (latest?.revision ?? 0) + 1, runId, web, keep]);
+        await t.run("INSERT INTO issues (issue_date, revision, run_id, html, preheader) VALUES ($1, $2, $3, $4, $5)", [date, (latest?.revision ?? 0) + 1, runId, web, keep]);
       }, `issue ${date}`);
       return { date };
     },
 
     recordShownHeadlines: async (runId: number, selections: Pointer): Promise<{ rows: number }> => {
-      // Without the index every row would carry no source_id and no original_title, and the next
+      // Without the index every row would carry no source_id and no source_title, and the next
       // day's dedup would match nothing: fail rather than write them.
       const indexPtr = await store.find(runId, "article_index.json");
       if (!indexPtr) throw ApplicationFailure.nonRetryable(`run ${runId} has no article_index.json to resolve its shown headlines`, "MissingInput");
       const rows = shownHeadlines(await selectionsOf(selections), JSON.parse(await store.get(indexPtr)) as Record<string, unknown>);
       await db().tx(async (t) => {
-        await t.run("DELETE FROM shown_narratives WHERE run_id=$1", [runId]);
-        for (const r of rows) await t.run("INSERT INTO shown_narratives (headline, tier, source_id, original_title, cluster_id, run_id) VALUES ($1, $2, $3, $4, $5, $6)", [r.headline, r.tier, r.source_id, r.original_title, r.cluster_id, runId]);
+        await t.run("DELETE FROM story_sources WHERE run_id=$1", [runId]);
+        for (const r of rows) await t.run("INSERT INTO story_sources (headline, tier, source_id, source_title, cluster_id, run_id) VALUES ($1, $2, $3, $4, $5, $6)", [r.headline, r.tier, r.source_id, r.source_title, r.cluster_id, runId]);
       }, `shown ${runId}`);
       return { rows: rows.length };
     },
@@ -63,7 +63,7 @@ export function recordActivities(deps: RecordDeps) {
     // running run fails; a completed one keeps its outcome, and the attempt carries the error.
     abortRun: async (runId: number, error: string): Promise<void> => {
       await db().tx(async (t) => {
-        await t.run("UPDATE digest_runs SET status='failed', error=$1 WHERE id=$2 AND status='running'", [error, runId]);
+        await t.run("UPDATE runs SET status='failed', error=$1 WHERE id=$2 AND status='running'", [error, runId]);
         await endAttempt(t, runId, "failed", error);
       });
     },

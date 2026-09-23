@@ -37,7 +37,7 @@ describe("fulltext", () => {
     expect(plan.tasks).toHaveLength(3);
     expect(plan.existing).toBeUndefined();
     expect(await store.find(300, FULLTEXT_OUTPUT)).toBeUndefined();
-    expect(await store.states(300, FULLTEXT_OUTPUT)).toContain("quarantined");
+    expect(await store.statuses(300, FULLTEXT_OUTPUT)).toContain("quarantined");
     await acts.storeFulltext(300, { tasks: 3, results: { A1: "Body text that came back this time." }, outcome: "completed" });
     expect((await acts.planFulltext(300, sel)).existing).toBeDefined();
   });

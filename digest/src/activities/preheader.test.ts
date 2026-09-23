@@ -43,6 +43,6 @@ describe("preheader activity", () => {
     // rewritten drafts mean a new preheader, never the stale one
     const d2 = await store.put(300, "draft_s02.json", JSON.stringify({ plan: { index: 0, tier: "must_know", storyIds: ["A9"], contextIds: ["A9"] }, story: { headline: "Deal signed", summary: "s", sources: [] } }));
     await preheaderActivity({ store, agentsDir: new URL("../../agents/", import.meta.url).pathname, query: q })(300, [d2]);
-    expect(await store.states(300, "preheader.json")).toContain("quarantined");
+    expect(await store.statuses(300, "preheader.json")).toContain("quarantined");
   });
 });

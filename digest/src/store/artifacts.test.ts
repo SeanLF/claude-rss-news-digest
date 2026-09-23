@@ -24,7 +24,7 @@ describe("ArtifactStore on the product schema", () => {
     const url = await freshDb();
     const s = new ArtifactStore(url);
     const p = await s.put(300, "recap.txt", "one");
-    await openDb(url).run("UPDATE run_artifacts SET content='tampered'");
+    await openDb(url).run("UPDATE artifacts SET content='tampered'");
     await expect(s.get(p)).rejects.toThrow(IntegrityError);
     await expect(s.get({ ...p, name: "missing.txt" })).rejects.toThrow(IntegrityError);
   });
@@ -38,14 +38,14 @@ describe("ArtifactStore on the product schema", () => {
     await s.quarantine(300, "recap.txt");
     expect(await s.get(await s.replace(300, "recap.txt", "better"))).toBe("better");
     expect(await s.get(await s.replace(300, "recap.txt", "best"))).toBe("best");
-    expect(await s.states(300, "recap.txt")).toEqual(["quarantined", "quarantined", "replaced", "current"]);
+    expect(await s.statuses(300, "recap.txt")).toEqual(["quarantined", "quarantined", "replaced", "current"]);
   });
   it("records the stage, kind and fan-out branch its name encodes, and the run's latest attempt", async () => {
     const url = await freshDb([300]);
     const db = openDb(url);
     await db.run("INSERT INTO run_attempts (id, run_id, pipeline) VALUES (7, 300, 'temporal'), (8, 300, 'temporal')");
     await new ArtifactStore(url).put(300, "draft_s03.json", "{}");
-    expect(await db.one("SELECT stage, kind, branch, attempt_id FROM run_artifacts")).toEqual({ stage: "write", kind: "output", branch: "s03", attempt_id: 8 });
+    expect(await db.one("SELECT stage, kind, branch, attempt_id FROM artifacts")).toEqual({ stage: "write", kind: "output", branch: "s03", attempt_id: 8 });
     expect(artifactKind("articles_2.csv")).toEqual({ stage: "prepare", kind: "input", branch: "c2" });
     expect(artifactKind("something_new.txt")).toEqual({ stage: null, kind: null, branch: null });
   });
@@ -69,22 +69,22 @@ describe("ArtifactStore on the product schema", () => {
     await s.put(300, "recap.txt", "bad");
     await s.quarantine(300, "recap.txt");
     await expect(s.quarantine(300, "recap.txt")).rejects.toThrow(IntegrityError);
-    expect(await s.states(300, "recap.txt")).toEqual(["quarantined"]);
+    expect(await s.statuses(300, "recap.txt")).toEqual(["quarantined"]);
   });
 });
 
-describe("run_usage", () => {
+describe("model_calls", () => {
   it("records a call and sums a run's cost since a moment", async () => {
     const db = openDb(await freshDb([300]));
     await recordUsage(db, { stage: "write", runId: 300, model: "claude-sonnet-5", thinking: "adaptive", effort: "(sdk default)", costUsd: 0.25, durationMs: 9, tokens: { input_tokens: 10, output_tokens: 3, cache_read_input_tokens: 7 }, story: 2 });
     await recordUsage(db, { stage: "coherence", runId: 300, model: "claude-sonnet-5", thinking: "adaptive", effort: "high", costUsd: 0.5, durationMs: 9, tokens: {} });
     expect(await runCost(db, 300, "2000-01-01 00:00:00")).toEqual({ costUsd: 0.75, calls: 2 });
     expect(await runCost(db, 300, "2999-01-01 00:00:00")).toEqual({ costUsd: 0, calls: 0 });
-    expect(await db.one("SELECT cache_read_tokens AS c FROM run_usage WHERE subagent='write'")).toEqual({ c: 7 });
+    expect(await db.one("SELECT cache_read_input_tokens AS c FROM model_calls WHERE stage='write'")).toEqual({ c: 7 });
     // config-drift.sql reads NULL as "(not recorded)": each call records the effort it ran under.
-    expect(await db.all("SELECT subagent, effort, branch, result FROM run_usage ORDER BY id")).toEqual([
-      { subagent: "write", effort: "(sdk default)", branch: "s02", result: "ok" },
-      { subagent: "coherence", effort: "high", branch: null, result: "ok" },
+    expect(await db.all("SELECT stage, request_model, effort, branch, outcome FROM model_calls ORDER BY id")).toEqual([
+      { stage: "write", request_model: "claude-sonnet-5", effort: "(sdk default)", branch: "s02", outcome: "ok" },
+      { stage: "coherence", request_model: "claude-sonnet-5", effort: "high", branch: null, outcome: "ok" },
     ]);
   });
   it("versions the prompt by content hash, once per distinct prompt", async () => {
@@ -94,9 +94,9 @@ describe("run_usage", () => {
     await recordUsage(db, row);
     await recordUsage(db, row);
     await recordUsage(db, { ...row, prompt: { ...prompt, tools: ["Read" as const] } });
-    const shas = await db.all<{ prompt_sha: string }>("SELECT prompt_sha FROM run_usage ORDER BY id");
-    expect(shas[0]!.prompt_sha).toBe(shas[1]!.prompt_sha);
-    expect(shas[2]!.prompt_sha).not.toBe(shas[0]!.prompt_sha);
+    const shas = await db.all<{ prompt_sha256: string }>("SELECT prompt_sha256 FROM model_calls ORDER BY id");
+    expect(shas[0]!.prompt_sha256).toBe(shas[1]!.prompt_sha256);
+    expect(shas[2]!.prompt_sha256).not.toBe(shas[0]!.prompt_sha256);
     expect(await db.all("SELECT name, first_run_id FROM prompts")).toEqual([
       { name: "recap", first_run_id: 300 },
       { name: "recap", first_run_id: 300 },

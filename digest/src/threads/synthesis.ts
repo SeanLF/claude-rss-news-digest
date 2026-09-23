@@ -206,6 +206,6 @@ export async function applyInstallment(store: ThreadStore, threadId: number, ope
   if (fresh.length && JSON.stringify(cleanQuestions(fresh, citedIds)) !== JSON.stringify(fresh))
     console.warn(JSON.stringify({ stage: "threads", warning: "a new question cites an article id inline; the public ledger will suppress it", thread_id: threadId }));
   if (fresh.length) await store.addQuestions(threadId, fresh, runId);
-  await store.setInstallmentContent(threadId, runId, JSON.stringify(verified));
+  await store.setUpdateContent(threadId, runId, JSON.stringify(verified));
   return verified;
 }

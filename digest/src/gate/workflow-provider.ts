@@ -1,6 +1,6 @@
 // A promptfoo provider (its JavaScript extension point) that runs one closed day through the digest
 // workflow on local Temporal and reports what the band compares: the assembled selections as output,
-// cost from run_usage, latency from the call. promptfoo's --repeat makes the reps; its cost and
+// cost from model_calls, latency from the call. promptfoo's --repeat makes the reps; its cost and
 // latency assertions hold the old system's band as thresholds.
 import { approveSignal } from "../workflow/signals.js";
 import { connect, startDigest } from "../client.js";
@@ -22,7 +22,7 @@ export default class DigestWorkflowProvider {
   }
   async callApi(_prompt: string, context: { vars: Vars }) {
     const run = Number(context.vars.run);
-    const since = new Date().toISOString().replace("T", " ").slice(0, 19); // run_usage's recorded_at format
+    const since = new Date().toISOString().replace("T", " ").slice(0, 19); // model_calls's recorded_at format
     const t0 = Date.now();
     const handle = await startDigest(await connect(), context.vars.date, { resumeRun: run, force: true });
     await handle.signal(approveSignal, { decision: "approve" }); // the hold is not part of the band

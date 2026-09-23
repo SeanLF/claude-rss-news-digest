@@ -22,7 +22,7 @@ describe("ops activities", () => {
     await store.put(305, "coherence_report.json", JSON.stringify({ results: [{ pass: false, failed_fields: ["summary"], failure_kinds: { summary: "unsupported" } }] }));
     const ops = opsActivities({ dbUrl: path, env, maxAttempts: 3 });
     const req = await ops.checkRunHealth(305, true);
-    expect(req).toEqual({ kind: "run-health", runId: 305, violations: ["ZERO_STORIES: the run completed but shipped no stories", "NO_USAGE_RECORDED: no subagent stage recorded usage, so the curation phase left no trace"] });
+    expect(req).toEqual({ kind: "run-health", runId: 305, violations: ["ZERO_STORIES: the run completed but shipped no stories", "NO_USAGE_RECORDED: no stage recorded a model call, so the curation phase left no trace"] });
     expect(log).toHaveBeenCalledWith(JSON.stringify({ stage: "coherence", runId: 305, failureKinds: { contradicted: 0, unsupported: 1, unlabelled: 0 } }));
   });
   it("checkRunHealth is best-effort: a database it cannot read returns no alert instead of failing the run", async () => {
@@ -33,7 +33,7 @@ describe("ops activities", () => {
   });
   it("checkFeeds reads the threshold from HEALTH_ALERT_THRESHOLD", async () => {
     const path = await db();
-    for (let i = 0; i < 2; i++) await openDb(path).run("INSERT INTO source_health (source_id, success, run_id) VALUES ('the_hindu', false, 305)");
+    for (let i = 0; i < 2; i++) await openDb(path).run("INSERT INTO source_fetches (source_id, is_success, run_id) VALUES ('the_hindu', false, 305)");
     expect(await opsActivities({ dbUrl: path, env, maxAttempts: 3 }).checkFeeds(305, ["the_hindu"])).toBeNull();
     expect(await opsActivities({ dbUrl: path, env: { ...env, HEALTH_ALERT_THRESHOLD: "2" }, maxAttempts: 3 }).checkFeeds(305, ["the_hindu"])).toMatchObject({ kind: "source-health", failing: [["the_hindu", 2]], threshold: 2 });
   });
@@ -51,7 +51,7 @@ describe("ops activities", () => {
   it("a run-failed alert reads the day's broadcast state, so a send the workflow never heard back from is not called unsent", async () => {
     vi.spyOn(console, "log").mockImplementation(() => undefined);
     const path = await migratedDb([{ id: 305, runAt: "2026-09-23 10:25:00" }]);
-    await openDb(path).exec("INSERT INTO issues (date, revision, run_id, html) VALUES ('2026-09-23', 1, 305, ''); INSERT INTO broadcasts (date, run_id, revision, status, resend_id) VALUES ('2026-09-23', 305, 1, 'sending', 'b1')");
+    await openDb(path).exec("INSERT INTO issues (issue_date, revision, run_id, html) VALUES ('2026-09-23', 1, 305, ''); INSERT INTO sends (issue_date, run_id, revision, status, resend_id) VALUES ('2026-09-23', 305, 1, 'sending', 'b1')");
     const sent: Email[] = [];
     const send = (e: Email) => {
       sent.push(e);

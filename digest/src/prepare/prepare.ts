@@ -11,7 +11,7 @@ export const DEDUP_SIMILARITY_THRESHOLD = 0.8;
 export const ARTICLE_HEADER = ["article_id", "source_id", "title", "published", "summary"] as const;
 
 export interface Source { id: string; name: string; bias: string; factuality: string; perspective: string }
-// author is optional: the live fetch has it, the archive (fetched_articles) never stored it.
+// author is optional: the live fetch has it, the archive (articles) never stored it.
 export interface Fetched { title: string; url: string; published: string | null; summary: string | null; author?: string | null }
 export interface IndexEntry { url: string; source_id: string; bias: string; original_title: string; name: string; wire: boolean; wire_agency: string | null }
 export interface Prepared {

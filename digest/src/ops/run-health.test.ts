@@ -114,10 +114,10 @@ describe("coherenceKindCounts", () => {
 
 async function runs(): Promise<Db> {
   const db = openDb(await migratedDb([{ id: 9, runAt: "2026-09-01 10:00:00" }, { id: 10, runAt: "2026-09-02 10:00:00" }]));
-  await db.exec("INSERT INTO issues (date, revision, run_id, html) VALUES ('2026-09-01', 1, 9, ''), ('2026-09-02', 1, 10, '')");
+  await db.exec("INSERT INTO issues (issue_date, revision, run_id, html) VALUES ('2026-09-01', 1, 9, ''), ('2026-09-02', 1, 10, '')");
   return db;
 }
-const artifact = (db: Db, name: string, content: string) => db.run("INSERT INTO run_artifacts (run_id, artifact_name, content, sha256) VALUES (10, $1, $2, '')", [name, content]);
+const artifact = (db: Db, name: string, content: string) => db.run("INSERT INTO artifacts (run_id, name, content, sha256) VALUES (10, $1, $2, '')", [name, content]);
 
 describe("getRunHealth", () => {
   const opts = { broadcasting: true, threadsEnabled: true, usageRowsDropped: 0 };
@@ -129,10 +129,10 @@ describe("getRunHealth", () => {
     await artifact(db, "write_branches.json", JSON.stringify({ dropped: [{ index: 3 }] }));
     await artifact(db, "thread_links.json", JSON.stringify({ linker_ok: false, stories: [{ refused: "already_claimed" }, {}] }));
     await artifact(db, "repair_health.json", JSON.stringify({ outcome: "spec_error", detail: "repair.md" }));
-    await db.exec("INSERT INTO shown_narratives (headline, tier, run_id) VALUES ('a', 'must_know', 10), ('a', 'must_know', 10), ('b', 'should_know', 10)");
-    await db.exec("INSERT INTO run_usage (run_id, subagent, model) VALUES (10, 'select', 'm'), (10, 'write', 'm'), (10, 'write', 'm')");
+    await db.exec("INSERT INTO story_sources (headline, tier, run_id) VALUES ('a', 'must_know', 10), ('a', 'must_know', 10), ('b', 'should_know', 10)");
+    await db.exec("INSERT INTO model_calls (run_id, stage, request_model) VALUES (10, 'select', 'm'), (10, 'write', 'm'), (10, 'write', 'm')");
     await db.exec("INSERT INTO threads (id, created_run_id) VALUES (1, 9), (2, 10)");
-    await db.exec("INSERT INTO thread_installments (thread_id, run_id, cluster_story, continued) VALUES (1, 9, 's', false), (1, 10, 's', true), (2, 10, 't', false)");
+    await db.exec("INSERT INTO thread_updates (thread_id, run_id, label, is_continuation) VALUES (1, 9, 's', false), (1, 10, 's', true), (2, 10, 't', false)");
     const h = await getRunHealth(db, 10, opts);
     expect(h).toEqual({
       run_id: 10, shipped: 2, stages: 2, artifacts: 6, recipients: null, thread_continuations: 1, threads_available: 1,
@@ -152,15 +152,15 @@ describe("getRunHealth", () => {
   it("reads a boolean as SQLite's json_extract did, and counts a send's recipients by its run", async () => {
     const db = await runs();
     await artifact(db, "thread_links.json", JSON.stringify({ linker_ok: true, stories: [] }));
-    await db.exec("INSERT INTO broadcasts (date, run_id, revision, status, recipients) VALUES ('2026-09-02', 10, 1, 'sent', 12)");
+    await db.exec("INSERT INTO sends (issue_date, run_id, revision, status, recipients) VALUES ('2026-09-02', 10, 1, 'sent', 12)");
     expect(await getRunHealth(db, 10, opts)).toMatchObject({ linker_ok: true, dropped_continuations: 0, recipients: 12 });
     expect(await getRunHealth(db, 9, opts)).toMatchObject({ recipients: null, artifacts: 0 });
   });
   it("counts the threads the run's linker could have been offered, by the configured dormancy", async () => {
     const db = openDb(await migratedDb([7, 8, 9, 10, 11].map((id) => ({ id, runAt: `2026-09-0${id - 6} 10:00:00` }))));
-    for (const id of [7, 8, 9, 10]) await db.run("UPDATE digest_runs SET status='completed', outcome='sent', completed_at=run_at WHERE id=$1", [id]);
-    await db.exec("INSERT INTO issues (date, revision, run_id, html) SELECT (run_at AT TIME ZONE 'UTC')::date, 1, id, '' FROM digest_runs WHERE id <= 10");
-    await db.exec("INSERT INTO threads (id, created_run_id) VALUES (1, 7), (2, 11); INSERT INTO thread_installments (thread_id, run_id, cluster_story, continued) VALUES (1, 7, 's', false), (2, 11, 't', false)");
+    for (const id of [7, 8, 9, 10]) await db.run("UPDATE runs SET status='completed', outcome='sent' WHERE id=$1", [id]);
+    await db.exec("INSERT INTO issues (issue_date, revision, run_id, html) SELECT (started_at AT TIME ZONE 'UTC')::date, 1, id, '' FROM runs WHERE id <= 10");
+    await db.exec("INSERT INTO threads (id, created_run_id) VALUES (1, 7), (2, 11); INSERT INTO thread_updates (thread_id, run_id, label, is_continuation) VALUES (1, 7, 's', false), (2, 11, 't', false)");
     // Thread 1 was last seen in run 7, with runs 8, 9, 10 completed since: 3 runs.
     expect(await getRunHealth(db, 11, { ...opts, dormantAfter: 3 })).toMatchObject({ threads_available: 1 });
     expect(await getRunHealth(db, 11, { ...opts, dormantAfter: 2 })).toMatchObject({ threads_available: 0 });
