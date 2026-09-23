@@ -1,4 +1,6 @@
+import type { AlertRequest } from "../ops/alerts.js";
 import type { Pointer } from "../store/artifacts.js";
+export type { AlertRequest };
 
 // failStage is a test hook the stub honours; real activities ignore it.
 export interface DigestInput {
@@ -36,11 +38,20 @@ export interface GnewsDecode { links: number; decoded: Record<string, string>; a
 export interface GnewsPlan { urls: string[]; existing?: Pointer; skip?: "disabled" | "no_candidates" }
 // The activity the Python worker serves on PYTHON_TASK_QUEUE for the decode.
 export interface LinkDecoder { decodeLinks(urls: string[]): Promise<GnewsDecode> }
+// THREADS: a continuing thread to synthesize, with its story's articles; what one synthesis
+// reported; and what the workflow saw of the whole phase, which the finish records.
+export interface ThreadPlan { threadId: number; articleIds: string[] }
+export interface ThreadsLinked { plans: ThreadPlan[]; skip?: "disabled" }
+export interface ThreadOutcome { threadId: number; auditFailed: boolean }
+export interface ThreadsReport { linkError?: string; timedOut?: boolean; outcomes: ThreadOutcome[]; failures: { threadId: number; error: string }[] }
 export interface FetchSummary { sourceId: string; ok: boolean; fetched: number; kept: number; error?: string }
 export interface DigestOutput {
   runId: number;
   stories: number;
-  broadcast: "sent" | "rejected" | "skipped";
+  // "disabled": BROADCAST_ENABLED is off, so nothing was published, like "rejected".
+  // "held-out": the budget left no time for a review, so it was not sent unreviewed.
+  broadcast: "sent" | "disabled" | "rejected" | "skipped" | "held-out";
+  recipients?: number;
 }
 
 // The activity interface plan A2 fills, one function per stage; every model call and every
@@ -64,10 +75,26 @@ export interface Activities {
   assemble(runId: number, drafts: Pointer[], report: Pointer, repair: Pointer, preheader: Pointer | null, force?: boolean): Promise<Pointer>;
   planGnews(runId: number, selections: Pointer, force?: boolean): Promise<GnewsPlan>;
   storeGnews(runId: number, decoded: GnewsDecode, force?: boolean): Promise<Pointer>;
-  threads(runId: number, selections: Pointer): Promise<Pointer>;
+  threadsLink(runId: number, force?: boolean): Promise<ThreadsLinked>;
+  threadSynthesis(runId: number, plan: ThreadPlan): Promise<ThreadOutcome>;
+  threadsFinish(runId: number, report: ThreadsReport): Promise<Pointer>;
   render(runId: number, selections: Pointer, threads: Pointer, gnews: Pointer): Promise<{ html: Pointer; email: Pointer }>;
-  broadcast(runId: number, email: Pointer): Promise<{ broadcastId: string }>;
+  archiveRun(runId: number, selections: Pointer, clusters: Pointer): Promise<void>;
+  sendEnabled(): Promise<boolean>;
+  // holdEndsAt null: no run budget was left for a hold, and the send follows at once.
+  notifyHold(runId: number, selections: Pointer, holdEndsAt: string | null): Promise<{ sent: boolean }>;
+  saveDigest(runId: number, html: Pointer, selections: Pointer): Promise<{ date: string }>;
+  broadcast(runId: number, email: Pointer): Promise<{ broadcastId: string; status: string; recipients: number }>;
+  recordShownHeadlines(runId: number, selections: Pointer): Promise<{ rows: number }>;
   finishRun(runId: number, output: Omit<DigestOutput, "runId">): Promise<void>;
+  // Operations (src/activities/ops.ts): best-effort, none can fail a run.
+  weeklyRecap(runId: number, force?: boolean): Promise<Pointer | null>;
+  healthcheck(event: "start" | "success" | "fail", note?: string): Promise<void>;
+  healthcheckLog(message: string): Promise<void>;
+  checkFeeds(runId: number, sourceIds: string[]): Promise<AlertRequest | null>;
+  checkRunHealth(runId: number, broadcasting: boolean): Promise<AlertRequest | null>;
+  alert(req: AlertRequest): Promise<void>;
+  abortRun(runId: number, error: string): Promise<void>;
 }
 export const STORY_COUNT_STUB = 3;
 // What threads and gnews hand render: each story's thread context by cluster label, and each

@@ -28,6 +28,9 @@
     "lightningcss": "1.33.0",
     "ml-hclust": "4.0.0",
     "mrml": "1.6.1",
+    "p-retry": "8.0.1",
+    "parse5": "8.0.1",
+    "resend": "6.28.1",
     "zod": "4.6.5"
   },
   "devDependencies": {

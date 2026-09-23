@@ -1,0 +1,76 @@
+{
+  "judges": {
+    "claude-opus-5-5": {
+      "reps": 5,
+      "perCriterion": {
+        "1": 0.8,
+        "2": 0.8,
+        "3": 1,
+        "4": 0.8,
+        "5": 1,
+        "6": 1,
+        "7": 1
+      },
+      "overall": 0.9142857142857143
+    },
+    "codex": {
+      "reps": 5,
+      "perCriterion": {
+        "1": 0.4,
+        "2": 0.6,
+        "3": 0.8,
+        "4": 1,
+        "5": 1,
+        "6": 1,
+        "7": 1
+      },
+      "overall": 0.8285714285714286
+    }
+  },
+  "disagreements": [
+    {
+      "story": 0,
+      "criterion": 1
+    },
+    {
+      "story": 0,
+      "criterion": 6
+    },
+    {
+      "story": 1,
+      "criterion": 6
+    },
+    {
+      "story": 2,
+      "criterion": 1
+    },
+    {
+      "story": 2,
+      "criterion": 3
+    },
+    {
+      "story": 2,
+      "criterion": 4
+    },
+    {
+      "story": 2,
+      "criterion": 6
+    },
+    {
+      "story": 3,
+      "criterion": 1
+    },
+    {
+      "story": 3,
+      "criterion": 2
+    },
+    {
+      "story": 3,
+      "criterion": 6
+    },
+    {
+      "story": 4,
+      "criterion": 1
+    }
+  ]
+}

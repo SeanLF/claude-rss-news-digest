@@ -84,8 +84,13 @@ def _decode_pass(urls: list[str]) -> dict:
     return {"links": len(urls), "decoded": decoded, "attempted": attempted, "outcome": outcome}
 
 
+def namespace() -> str:
+    # Production sets the repo's own namespace; the local dev server only has "default".
+    return os.environ.get("TEMPORAL_NAMESPACE", "default")
+
+
 async def main() -> None:
-    client = await Client.connect(os.environ.get("TEMPORAL_ADDRESS", "localhost:7233"))
+    client = await Client.connect(os.environ.get("TEMPORAL_ADDRESS", "localhost:7233"), namespace=namespace())
     with ThreadPoolExecutor(max_workers=2) as pool:
         activities = [fetch_fulltext, decode_links]
         await Worker(client, task_queue=TASK_QUEUE, activities=activities, activity_executor=pool).run()

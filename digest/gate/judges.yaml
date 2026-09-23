@@ -6,12 +6,15 @@ prompts: [file://../dist/gate/judge-prompt.js]
 providers:
   - id: anthropic:claude-agent-sdk
     label: claude-opus-5-5
-    config: { model: claude-opus-5-5, working_dir: ../docs/proposed/gate-fixtures/day-300/inputs, permission_mode: dontAsk }
+    # apiKeyRequired false: the worker authenticates with the subscription's CLAUDE_CODE_OAUTH_TOKEN, not an API key.
+    config: { model: claude-opus-5-5, apiKeyRequired: false, working_dir: ../../docs/proposed/gate-fixtures/day-300/inputs, permission_mode: dontAsk }
   - id: openai:codex-sdk
     label: codex
-    config: { working_dir: ../docs/proposed/gate-fixtures/day-300/inputs, sandbox_mode: read-only, skip_git_repo_check: true }
+    # promptfoo withholds CODEX_HOME from the Codex process unless cli_env names it; the Makefile copies the login there.
+    config: { working_dir: ../../docs/proposed/gate-fixtures/day-300/inputs, sandbox_mode: read-only, skip_git_repo_check: true, cli_env: { CODEX_HOME: /tmp/codex } }
 tests:
-  - vars: { digest: file://../docs/proposed/gate-fixtures/day-300/digest.html }
+  # Every path here resolves against this file's directory (gate/), not the working directory.
+  - vars: { digest: file://../../docs/proposed/gate-fixtures/day-300/digest.html }
     assert:
       - type: javascript
         value: "(() => { const s = output.indexOf('['), e = output.lastIndexOf(']'); return s >= 0 && e > s && Array.isArray(JSON.parse(output.slice(s, e + 1))); })()"

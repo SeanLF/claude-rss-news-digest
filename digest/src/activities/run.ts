@@ -32,6 +32,15 @@ const currentAttempt = (): number => {
   }
 };
 
+// The workflow execution calling this activity; undefined outside one (a CLI or a plain test call).
+const currentExecution = (): string | undefined => {
+  try {
+    return Context.current().info.workflowExecution?.runId;
+  } catch {
+    return undefined;
+  }
+};
+
 export function runActivities(deps: RunDeps) {
   const catalogue = (): CatalogueSource[] => activeSources(JSON.parse(readFileSync(deps.sourcesFile, "utf8")));
   return {
@@ -49,12 +58,35 @@ export function runActivities(deps: RunDeps) {
           const ids = parse<{ id: string }>(deps.store.get(csv), { columns: true }).map((s) => s.id);
           return { runId: input.resumeRun, sourceIds: ids, lastRun: lastCompleted(db, row.run_at) };
         }
-        const sources = catalogue();
+        // Idempotent per workflow execution: a retry after this execution's INSERT committed gets
+        // that row back rather than a second one, and the guard below never counts it.
+        const execution = currentExecution();
+        const own = execution === undefined ? undefined : db.prepare("SELECT id FROM digest_runs WHERE workflow_run_id = ?").get(execution);
         const lastRun = lastCompleted(db);
-        const { lastInsertRowid } = db.prepare("INSERT INTO digest_runs (articles_kept, articles_emailed, git_sha) VALUES (NULL, NULL, ?)").run(process.env["GIT_SHA"] ?? null);
+        const sourceIds = (runId: number): string[] => {
+          const csv = deps.store.find(runId, "sources.csv");
+          if (csv) return parse<{ id: string }>(deps.store.get(csv), { columns: true }).map((s) => s.id);
+          const sources = catalogue();
+          deps.store.put(runId, "sources.csv", toCsv(SOURCES_HEADER, sources.map((s) => [s.id, s.name, s.bias, s.factuality, s.perspective])));
+          return sources.map((s) => s.id);
+        };
+        if (own) {
+          const runId = Number(own["id"]);
+          return { runId, sourceIds: sourceIds(runId), lastRun };
+        }
+        // Both pipelines write digest_runs, so this is the one place a half-applied switch that
+        // armed both is caught: a day already sent, or one still running (under the 4 h run
+        // budget, so a crashed run's stale "running" row does not block the day), is refused.
+        const day = input.runDate || new Date().toISOString().slice(0, 10);
+        if (!input.force) {
+          const clash = db
+            .prepare("SELECT id, status FROM digest_runs WHERE date(run_at) = ? AND (completed_at IS NOT NULL OR (status = 'running' AND run_at >= datetime('now', '-4 hours'))) ORDER BY id DESC LIMIT 1")
+            .get(day);
+          if (clash) throw ApplicationFailure.nonRetryable(`${day} already has run ${String(clash["id"])} (${String(clash["status"])}); start with force to run it again`, "AlreadyRan");
+        }
+        const { lastInsertRowid } = db.prepare("INSERT INTO digest_runs (articles_kept, articles_emailed, git_sha, workflow_run_id) VALUES (NULL, NULL, ?, ?)").run(process.env["GIT_SHA"] ?? null, execution ?? null);
         const runId = Number(lastInsertRowid);
-        deps.store.put(runId, "sources.csv", toCsv(SOURCES_HEADER, sources.map((s) => [s.id, s.name, s.bias, s.factuality, s.perspective])));
-        return { runId, sourceIds: sources.map((s) => s.id), lastRun };
+        return { runId, sourceIds: sourceIds(runId), lastRun };
       } finally {
         db.close();
       }
@@ -103,11 +135,15 @@ export function runActivities(deps: RunDeps) {
       }
     },
 
-    // completed_at is what "readers saw this run" means to every context query, so only a sent digest sets it.
+    // completed_at is what "readers saw this run" means to every context query, so only a sent digest
+    // sets it; any other ending leaves it NULL and its status says why (rejected, disabled, skipped).
+    // db.complete_run: articles_emailed is the send's recipient count (the column is misnamed), and
+    // articles_kept the fetch-time count, SUM(source_health.articles_kept), as the Python snapshots it.
     finishRun: async (runId: number, out: Omit<DigestOutput, "runId">): Promise<void> => {
       const db = openDb(deps.dbPath);
       try {
-        if (out.broadcast === "sent") db.prepare("UPDATE digest_runs SET completed_at = COALESCE(completed_at, datetime('now', 'utc')), status='completed', articles_emailed=? WHERE id=?").run(out.stories, runId);
+        if (out.broadcast === "sent")
+          db.prepare("UPDATE digest_runs SET completed_at = COALESCE(completed_at, datetime('now', 'utc')), status='completed', articles_emailed=?, articles_kept=(SELECT SUM(articles_kept) FROM source_health WHERE run_id=?) WHERE id=?").run(out.recipients ?? 0, runId, runId);
         else db.prepare("UPDATE digest_runs SET status=? WHERE id=? AND completed_at IS NULL").run(out.broadcast, runId);
       } finally {
         db.close();

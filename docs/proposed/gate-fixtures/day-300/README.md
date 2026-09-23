@@ -55,3 +55,27 @@ Run 300's `articles_*.csv` carried 24 URLs inside Hacker News summaries ("Articl
 says no URL reaches a model stage; for HN items today it does. The prepare step should scrub summaries.
 
 Raw verdicts and reasons: `band.json`.
+
+## Band on Opus 5.5 (2026-09-23)
+
+`make judges` run through promptfoo for the first time (ea79d32), 5 reps per family on this same
+fixture. Agreement output: `band-opus55-2026-09-23.json`.
+
+| criterion | Claude Opus 5.5 | Codex |
+|---|---|---|
+| 1 | 0.8 | 0.4 |
+| 2 | 0.8 | 0.6 |
+| 3 | 1.0 | 0.8 |
+| 4 | 0.8 | 1.0 |
+| 5 | 1.0 | 1.0 |
+| 6 | 1.0 | 1.0 |
+| 7 | 1.0 | 1.0 |
+| overall | 0.91 | 0.83 |
+
+Against the Opus 5 band above: Claude's self-agreement rose from 0.66 to 0.91 and Codex's from
+0.71 to 0.83. Criterion 6 (selection) went from 0.2 for both to 1.0.
+
+There are 11 cross-family disagreements, against 7 before. They are listed in the JSON and are for
+Sean to adjudicate. This is one fixture and one band. The harness changed between the two bands
+(promptfoo providers instead of the CLIs, and Codex's sandbox now able to start), so the figures are
+not a pure model comparison.

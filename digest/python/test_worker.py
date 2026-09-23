@@ -192,3 +192,10 @@ def test_the_pinned_decoder_is_the_fork_gnews_calls():
 
     assert "timeout" in decode.__code__.co_varnames
     assert callable(default_transport) and issubclass(TransportError, Exception)
+
+
+def test_the_namespace_is_temporal_namespace_so_production_uses_the_repos_own(monkeypatch):
+    monkeypatch.setenv("TEMPORAL_NAMESPACE", "news-digest")
+    assert worker.namespace() == "news-digest"
+    monkeypatch.delenv("TEMPORAL_NAMESPACE")
+    assert worker.namespace() == "default"
