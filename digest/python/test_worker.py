@@ -72,7 +72,9 @@ def test_the_decode_is_the_activity_the_workflow_calls():
 
 
 def test_decodes_each_link_serially_at_the_production_timeout_and_pace(monkeypatch):
-    seen, sleeps = fake_decoder(monkeypatch, {"R1": "https://www.reuters.com/r1", "R2": None, "N3": "https://asia.nikkei.com/n3"})
+    seen, sleeps = fake_decoder(
+        monkeypatch, {"R1": "https://www.reuters.com/r1", "R2": None, "N3": "https://asia.nikkei.com/n3"}
+    )
     out = ActivityEnvironment().run(worker.decode_links, [GN("R1"), GN("R2"), GN("N3")])
     decoded = {GN("R1"): "https://www.reuters.com/r1", GN("N3"): "https://asia.nikkei.com/n3"}
     assert out == {"links": 3, "decoded": decoded, "attempted": 3, "outcome": "completed"}
@@ -81,9 +83,16 @@ def test_decodes_each_link_serially_at_the_production_timeout_and_pace(monkeypat
 
 
 def test_a_429_stops_the_pass_and_keeps_what_was_decoded(monkeypatch):
-    seen, _ = fake_decoder(monkeypatch, {"R1": "https://www.reuters.com/r1", "R2": 429, "R3": "https://www.reuters.com/r3"})
+    seen, _ = fake_decoder(
+        monkeypatch, {"R1": "https://www.reuters.com/r1", "R2": 429, "R3": "https://www.reuters.com/r3"}
+    )
     out = ActivityEnvironment().run(worker.decode_links, [GN("R1"), GN("R2"), GN("R3")])
-    assert out == {"links": 3, "decoded": {GN("R1"): "https://www.reuters.com/r1"}, "attempted": 2, "outcome": "rate_limited"}
+    assert out == {
+        "links": 3,
+        "decoded": {GN("R1"): "https://www.reuters.com/r1"},
+        "attempted": 2,
+        "outcome": "rate_limited",
+    }
     assert [t for t, _ in seen] == ["R1", "R2"]
 
 
@@ -92,12 +101,19 @@ def test_the_deadline_is_checked_between_links(monkeypatch):
     clock = iter([0.0, 1.0, 121.0])
     monkeypatch.setattr(worker, "time", types.SimpleNamespace(monotonic=lambda: next(clock)))
     out = ActivityEnvironment().run(worker.decode_links, [GN("R1"), GN("R2")])
-    assert out == {"links": 2, "decoded": {GN("R1"): "https://www.reuters.com/r1"}, "attempted": 1, "outcome": "deadline"}
+    assert out == {
+        "links": 2,
+        "decoded": {GN("R1"): "https://www.reuters.com/r1"},
+        "attempted": 1,
+        "outcome": "deadline",
+    }
 
 
 def test_a_token_is_decoded_once_per_pass_and_afresh_on_the_next(monkeypatch):
     seen, _ = fake_decoder(monkeypatch, {"R1": None})
-    first = ActivityEnvironment().run(worker.decode_links, [GN("R1"), "https://news.google.com/rss/articles/R1?hl=en-US"])
+    first = ActivityEnvironment().run(
+        worker.decode_links, [GN("R1"), "https://news.google.com/rss/articles/R1?hl=en-US"]
+    )
     second = ActivityEnvironment().run(worker.decode_links, [GN("R1")])
     assert (first["attempted"], second["attempted"]) == (1, 1)
     assert len(seen) == 2  # the worker outlives a run: a failure must not be cached into the next
