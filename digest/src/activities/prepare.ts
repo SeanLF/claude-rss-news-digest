@@ -4,13 +4,14 @@ import { previousHeadlines, recentDigestHeadlines, recentTitlesCsv, recentTxt, r
 import { ARTICLE_HEADER, DEDUP_SIMILARITY_THRESHOLD, prepareArticles, toCsv, type Fetched, type Source } from "../prepare/prepare.js";
 import { ConflictError, type ArtifactStore, type Pointer } from "../store/artifacts.js";
 import { openDb } from "../store/db.js";
+import type { FetchSummary } from "./index.js";
 
 // PREPARE between fetch and curation (spec §2.1): a pure function of the run's archived raw fetch
 // (fetched_articles) and its source list, so every downstream stage replays from the archive without
 // a refetch. Deterministic, so a re-run writes identical rows; a differing row means the logic or a
 // threshold changed, which only force may overwrite.
 export function prepareActivity(deps: { store: ArtifactStore; dbPath: string }) {
-  return async (runId: number, _fetched: Pointer[], force = false): Promise<{ articles: Pointer[]; index: Pointer }> => {
+  return async (runId: number, _fetched: FetchSummary[], force = false): Promise<{ articles: Pointer[]; index: Pointer }> => {
     const { store } = deps;
     const sourcesPtr = store.find(runId, "sources.csv");
     if (!sourcesPtr) throw ApplicationFailure.nonRetryable(`run ${runId} has no sources.csv; fetch has not run`, "MissingInput");

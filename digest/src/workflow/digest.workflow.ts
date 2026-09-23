@@ -1,6 +1,5 @@
 import { ActivityFailure, CancelledFailure, condition, isCancellation, proxyActivities, setHandler } from "@temporalio/workflow";
 import type { Activities, DigestInput, DigestOutput } from "../activities/index.js";
-import { SOURCE_IDS_STUB } from "../activities/index.js";
 import { mapBounded, MODEL_FANOUT_LIMIT } from "./bounded.js";
 import { MODEL_MAX_ATTEMPTS } from "./policy.js";
 import { approveSignal, operatorNoteSignal, retrySignal } from "./signals.js";
@@ -38,7 +37,7 @@ export async function DigestWorkflow(input: DigestInput): Promise<DigestOutput> 
     notes[stage] = note;
   });
 
-  const { runId } = await once.startRun(input);
+  const { runId, sourceIds, lastRun } = await once.startRun(input);
 
   async function finish(out: Omit<DigestOutput, "runId">): Promise<DigestOutput> {
     await once.finishRun(runId, out);
@@ -59,7 +58,9 @@ export async function DigestWorkflow(input: DigestInput): Promise<DigestOutput> 
     }
   }
 
-  const fetched = await Promise.all(SOURCE_IDS_STUB.map((s) => network.fetchFeed(runId, s)));
+  // One activity per feed under the network policy; a feed that fails is recorded and the run goes on
+  // thin (a thin day ships and logs, spec §2), so failures are settled rather than thrown.
+  const fetched = (await Promise.allSettled(sourceIds.map((s) => network.fetchFeed(runId, s, lastRun)))).flatMap((r) => (r.status === "fulfilled" ? [r.value] : []));
   const { articles } = await once.prepare(runId, fetched, input.force);
   // CLUSTER = plan → extract fan-out (one model call per batch, each under its own retry policy)
   // → deterministic join; a batch that exhausts its retries is a lost batch the join title-falls back.

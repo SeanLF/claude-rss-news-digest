@@ -4,8 +4,8 @@ import { stubActivities } from "./stub.js";
 describe("stub activities", () => {
   it("startRun honours resumeRun and defaults to 1", async () => {
     const a = stubActivities();
-    expect(await a.startRun({ runDate: "2026-09-21" })).toEqual({ runId: 1 });
-    expect(await a.startRun({ runDate: "2026-09-21", resumeRun: 303, force: true })).toEqual({ runId: 303 });
+    expect(await a.startRun({ runDate: "2026-09-21" })).toMatchObject({ runId: 1 });
+    expect(await a.startRun({ runDate: "2026-09-21", resumeRun: 303, force: true })).toMatchObject({ runId: 303 });
   });
   it("select throws non-retryably only when the input asks it to", async () => {
     const a = stubActivities();

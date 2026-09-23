@@ -8,8 +8,8 @@ const ptr = (runId: number, name: string): Pointer => ({ runId, name, sha256: "0
 // signals, identity and budget can be exercised end to end before any stage is real.
 export function stubActivities(): Activities {
   return {
-    startRun: (input: DigestInput) => Promise.resolve({ runId: input.resumeRun ?? 1 }),
-    fetchFeed: (runId, sourceId) => Promise.resolve(ptr(runId, `feed_${sourceId}.json`)),
+    startRun: (input: DigestInput) => Promise.resolve({ runId: input.resumeRun ?? 1, sourceIds: ["reuters", "bbc_world", "al_jazeera"], lastRun: null }),
+    fetchFeed: (_runId, sourceId) => Promise.resolve({ sourceId, ok: true, fetched: 1, kept: 1 }),
     prepare: (runId) => Promise.resolve({ articles: [ptr(runId, "articles_1.csv")], index: ptr(runId, "article_index.json") }),
     planBatches: () => Promise.resolve({ batches: [{ index: 0, ids: ["A1"] }] }),
     extractBatch: (runId, b) => Promise.resolve(ptr(runId, `cluster_tags_b${b.index}.json`)),

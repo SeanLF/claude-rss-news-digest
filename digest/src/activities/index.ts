@@ -21,6 +21,7 @@ export interface StoryPlan {
   contextIds: string[];
   clusterIndex?: number;
 }
+export interface FetchSummary { sourceId: string; ok: boolean; fetched: number; kept: number; error?: string }
 export interface DigestOutput {
   runId: number;
   stories: number;
@@ -30,9 +31,9 @@ export interface DigestOutput {
 // The activity interface plan A2 fills, one function per stage; every model call and every
 // network fetch is an activity, and each returns a pointer into the artifact store, never a blob.
 export interface Activities {
-  startRun(input: DigestInput): Promise<{ runId: number }>;
-  fetchFeed(runId: number, sourceId: string): Promise<Pointer>;
-  prepare(runId: number, fetched: Pointer[], force?: boolean): Promise<{ articles: Pointer[]; index: Pointer }>;
+  startRun(input: DigestInput): Promise<{ runId: number; sourceIds: string[]; lastRun: string | null }>;
+  fetchFeed(runId: number, sourceId: string, lastRun: string | null): Promise<FetchSummary>;
+  prepare(runId: number, fetched: FetchSummary[], force?: boolean): Promise<{ articles: Pointer[]; index: Pointer }>;
   planBatches(runId: number, articles: Pointer[]): Promise<{ batches: ExtractBatch[] }>;
   extractBatch(runId: number, batch: ExtractBatch, force?: boolean): Promise<Pointer>;
   joinClusters(runId: number, tagBatches: (Pointer | null)[], force?: boolean): Promise<Pointer>;
@@ -51,5 +52,4 @@ export interface Activities {
   broadcast(runId: number, email: Pointer): Promise<{ broadcastId: string }>;
   finishRun(runId: number, output: Omit<DigestOutput, "runId">): Promise<void>;
 }
-export const SOURCE_IDS_STUB: readonly string[] = ["reuters", "bbc_world", "al_jazeera"];
 export const STORY_COUNT_STUB = 3;

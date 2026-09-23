@@ -23,6 +23,7 @@
     "csv-parse": "7.0.2",
     "csv-stringify": "6.8.3",
     "entities": "8.1.0",
+    "feedsmith": "3.0.0",
     "ml-hclust": "4.0.0",
     "zod": "4.6.5"
   },
@@ -40,5 +41,13 @@
     "protobufjs@7.6.6": true,
     "protobufjs@8.8.0": true,
     "@temporalio/core-bridge@1.24.0": true
+  },
+  "optionalDependencies": {
+    "@oxlint-tsgolint/darwin-arm64": "7.0.2002",
+    "@oxlint-tsgolint/linux-arm64": "7.0.2002",
+    "@oxlint-tsgolint/linux-x64": "7.0.2002",
+    "@oxlint/binding-darwin-arm64": "1.85.0",
+    "@oxlint/binding-linux-arm64-gnu": "1.85.0",
+    "@oxlint/binding-linux-x64-gnu": "1.85.0"
   }
 }

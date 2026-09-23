@@ -8,6 +8,7 @@ import { clusterActivities } from "./cluster.js";
 import { coherenceActivity } from "./coherence.js";
 import { preheaderActivity } from "./preheader.js";
 import { prepareActivity } from "./prepare.js";
+import { runActivities } from "./run.js";
 import { recapActivity } from "./recap.js";
 import { repairActivity } from "./repair.js";
 import { MODEL_MAX_ATTEMPTS } from "../workflow/policy.js";
@@ -39,5 +40,5 @@ export function workerActivities(): Activities {
   const usageDb = openDb(dbPath());
   const log = (row: UsageRow) => recordUsage(usageDb, row);
   const deps = { store, agentsDir: agentsDir(), heartbeat: safeHeartbeat, signal: safeSignal, onUsage: log };
-  return { ...stubActivities(), ...clusterActivities(deps), recap: recapActivity(deps), ...writeActivities(deps), select: selectActivity(deps), preheader: preheaderActivity(deps), coherence: coherenceActivity(deps), repair: repairActivity({ ...deps, maxAttempts: MODEL_MAX_ATTEMPTS }), assemble: assembleActivity(deps), prepare: prepareActivity({ store, dbPath: dbPath() }) };
+  return { ...stubActivities(), ...clusterActivities(deps), recap: recapActivity(deps), ...writeActivities(deps), select: selectActivity(deps), preheader: preheaderActivity(deps), coherence: coherenceActivity(deps), repair: repairActivity({ ...deps, maxAttempts: MODEL_MAX_ATTEMPTS }), assemble: assembleActivity(deps), prepare: prepareActivity({ store, dbPath: dbPath() }), ...runActivities({ store, dbPath: dbPath(), sourcesFile: process.env["SOURCES_FILE"] ?? "/app/sources.json" }) };
 }
