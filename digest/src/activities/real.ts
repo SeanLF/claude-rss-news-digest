@@ -7,6 +7,7 @@ import { assembleActivity } from "./assemble.js";
 import { clusterActivities } from "./cluster.js";
 import { coherenceActivity } from "./coherence.js";
 import { fulltextActivities } from "./fulltext.js";
+import { gnewsActivities } from "./gnews.js";
 import { preheaderActivity } from "./preheader.js";
 import { prepareActivity } from "./prepare.js";
 import { runActivities } from "./run.js";
@@ -45,5 +46,5 @@ export function workerActivities(): Activities {
   const usageDb = openDb(dbPath());
   const log = (row: UsageRow) => recordUsage(usageDb, row);
   const deps = { store, agentsDir: agentsDir(), heartbeat: safeHeartbeat, signal: safeSignal, onUsage: log };
-  return { ...stubActivities(), ...clusterActivities(deps), recap: recapActivity(deps), ...writeActivities(deps), select: selectActivity(deps), preheader: preheaderActivity(deps), coherence: coherenceActivity(deps), repair: repairActivity({ ...deps, maxAttempts: MODEL_MAX_ATTEMPTS }), assemble: assembleActivity(deps), ...fulltextActivities({ store, perStory: Number(process.env["FULLTEXT_PER_STORY"] ?? 3), enabled: !["0", "false", "no"].includes((process.env["FULLTEXT_ENABLED"] ?? "true").toLowerCase()) }), render: renderActivity({ store, dbPath: dbPath(), assets: renderAssets(), env: envFrom(process.env) }), prepare: prepareActivity({ store, dbPath: dbPath() }), ...runActivities({ store, dbPath: dbPath(), sourcesFile: process.env["SOURCES_FILE"] ?? "/app/sources.json" }) };
+  return { ...stubActivities(), ...clusterActivities(deps), recap: recapActivity(deps), ...writeActivities(deps), select: selectActivity(deps), preheader: preheaderActivity(deps), coherence: coherenceActivity(deps), repair: repairActivity({ ...deps, maxAttempts: MODEL_MAX_ATTEMPTS }), assemble: assembleActivity(deps), ...fulltextActivities({ store, perStory: Number(process.env["FULLTEXT_PER_STORY"] ?? 3), enabled: !["0", "false", "no"].includes((process.env["FULLTEXT_ENABLED"] ?? "true").toLowerCase()) }), ...gnewsActivities({ store, enabled: ["1", "true", "yes"].includes((process.env["GNEWS_RESOLVE_ENABLED"] ?? "true").toLowerCase()) }), render: renderActivity({ store, dbPath: dbPath(), assets: renderAssets(), env: envFrom(process.env) }), prepare: prepareActivity({ store, dbPath: dbPath() }), ...runActivities({ store, dbPath: dbPath(), sourcesFile: process.env["SOURCES_FILE"] ?? "/app/sources.json" }) };
 }

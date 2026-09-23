@@ -1,5 +1,5 @@
 import { ActivityFailure, CancelledFailure, condition, isCancellation, proxyActivities, setHandler } from "@temporalio/workflow";
-import type { Activities, DigestInput, DigestOutput, FulltextFetch, FulltextFetcher } from "../activities/index.js";
+import type { Activities, DigestInput, DigestOutput, FulltextFetch, FulltextFetcher, GnewsDecode, LinkDecoder } from "../activities/index.js";
 import { mapBounded, MODEL_FANOUT_LIMIT } from "./bounded.js";
 import { PYTHON_TASK_QUEUE, MODEL_MAX_ATTEMPTS, NETWORK_MAX_ATTEMPTS } from "./policy.js";
 import { approveSignal, operatorNoteSignal, retrySignal } from "./signals.js";
@@ -25,6 +25,9 @@ const verdict = proxyActivities<Activities>({ startToCloseTimeout: "45 minutes",
 // The Python fetch bounds itself (a 120 s deadline plus 30 s grace, then SIGKILL); the start-to-close
 // covers that with room. A worker that never picks the task up is the schedule-to-start timeout.
 const python = proxyActivities<FulltextFetcher>({ taskQueue: PYTHON_TASK_QUEUE, scheduleToStartTimeout: "5 minutes", startToCloseTimeout: "4 minutes", retry: { maximumAttempts: 2 } });
+// The decode bounds itself (GNEWS_RESOLVE_DEADLINE_S, checked between links, so one decode past it).
+// One attempt: a retry would spend the per-IP daily budget again on links the first attempt already tried.
+const decoder = proxyActivities<LinkDecoder>({ taskQueue: PYTHON_TASK_QUEUE, scheduleToStartTimeout: "5 minutes", startToCloseTimeout: "4 minutes", retry: { maximumAttempts: 1 } });
 
 export async function DigestWorkflow(input: DigestInput): Promise<DigestOutput> {
   let approval: "approve" | "reject" | undefined;
@@ -103,7 +106,19 @@ export async function DigestWorkflow(input: DigestInput): Promise<DigestOutput> 
   if (!report) return finish({ stories: 0, broadcast: "skipped" });
   const repair = await model.repair(runId, drafts, report, input.force);
   const selections = await once.assemble(runId, drafts, report, repair, preheader, input.force);
-  const [gnews, threads] = await Promise.all([network.gnews(runId, selections), model.threads(runId, selections)]);
+  // Best-effort, as in production: a decoder that is down or fails ships the raw Google-News links.
+  const decodeLinks = async () => {
+    const links = await once.planGnews(runId, selections, input.force);
+    if (links.existing) return links.existing;
+    const decoded = links.skip
+      ? { links: 0, decoded: {}, attempted: 0, outcome: links.skip }
+      : await decoder.decodeLinks(links.urls).catch((e: unknown): GnewsDecode => {
+          if (isCancellation(e)) throw e;
+          return { links: links.urls.length, decoded: {}, attempted: 0, outcome: "unavailable" };
+        });
+    return once.storeGnews(runId, decoded, input.force);
+  };
+  const [gnews, threads] = await Promise.all([decodeLinks(), model.threads(runId, selections)]);
   const { email } = await once.render(runId, selections, threads, gnews);
 
   // Pre-broadcast hold (spec §2.3 signal 1): 2 h, then proceed.

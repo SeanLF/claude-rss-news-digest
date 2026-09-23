@@ -29,6 +29,13 @@ export interface FulltextFetch { tasks: number; results: Record<string, string>;
 export interface FulltextPlan { tasks: FulltextTask[]; existing?: Pointer; skip?: "disabled" | "no_candidates" }
 // The activity the Python worker serves on PYTHON_TASK_QUEUE.
 export interface FulltextFetcher { fetchFulltext(tasks: FulltextTask[]): Promise<FulltextFetch> }
+// What the Python `decodeLinks` activity returns: the links it was given, those it decoded, the decode
+// requests it made, and how the pass ended ("completed", "rate_limited", "deadline"), or
+// "unavailable" when nothing answered on its queue.
+export interface GnewsDecode { links: number; decoded: Record<string, string>; attempted: number; outcome: string }
+export interface GnewsPlan { urls: string[]; existing?: Pointer; skip?: "disabled" | "no_candidates" }
+// The activity the Python worker serves on PYTHON_TASK_QUEUE for the decode.
+export interface LinkDecoder { decodeLinks(urls: string[]): Promise<GnewsDecode> }
 export interface FetchSummary { sourceId: string; ok: boolean; fetched: number; kept: number; error?: string }
 export interface DigestOutput {
   runId: number;
@@ -55,7 +62,8 @@ export interface Activities {
   coherence(runId: number, drafts: Pointer[], fulltext: Pointer, note?: string, force?: boolean): Promise<Pointer>;
   repair(runId: number, drafts: Pointer[], report: Pointer, force?: boolean): Promise<Pointer>;
   assemble(runId: number, drafts: Pointer[], report: Pointer, repair: Pointer, preheader: Pointer | null, force?: boolean): Promise<Pointer>;
-  gnews(runId: number, selections: Pointer): Promise<Pointer>;
+  planGnews(runId: number, selections: Pointer, force?: boolean): Promise<GnewsPlan>;
+  storeGnews(runId: number, decoded: GnewsDecode, force?: boolean): Promise<Pointer>;
   threads(runId: number, selections: Pointer): Promise<Pointer>;
   render(runId: number, selections: Pointer, threads: Pointer, gnews: Pointer): Promise<{ html: Pointer; email: Pointer }>;
   broadcast(runId: number, email: Pointer): Promise<{ broadcastId: string }>;
