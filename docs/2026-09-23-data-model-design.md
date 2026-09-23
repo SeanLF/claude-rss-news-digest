@@ -116,7 +116,8 @@ file is 211,456,000 bytes on the box and in the clone (51,625 pages of 4 KiB).
    installment for 951 of 951 threads, so the header is a cache of the installments.
 3. **One Postgres for everything vs "readers survive any pipeline failure".** Temporal's Postgres is torn
    down in `python` mode, restarted by a pin bump, and capped at 384 MiB beside Temporal. Putting the
-   product there makes the public site depend on the pipeline's infrastructure.
+   product there makes the public site depend on the pipeline's infrastructure. *Resolved by Sean's
+   answers:* downtime is acceptable and `python` mode retires, so this no longer decides it (section 3).
 4. **Idempotency on output vs force vs "the artifacts are the record".** `replace` is
    `INSERT OR REPLACE`, which destroys the prior sample, and quarantine renames rows to
    `<name>.corrupt.<n>`. The run-305 A/B reran run 305 in place: its `run_usage` holds Python's $5.77 and
@@ -288,17 +289,21 @@ CREATE TABLE broadcasts (
   revision      INTEGER NOT NULL,                              -- the issues revision that was emailed
   status        TEXT NOT NULL CHECK (status IN ('claimed','draft','queued','sending','sent','failed')),
   recipients    INTEGER,
-  email_artifact TEXT NOT NULL DEFAULT 'email.html'          -- (run_id, name) in run_artifacts
+  email_artifact TEXT NOT NULL DEFAULT 'email.html',         -- (run_id, name) in run_artifacts
+  FOREIGN KEY (date, revision) REFERENCES issues(date, revision)
 ) STRICT;
 
-CREATE VIEW published_runs AS   -- published = on the web or emailed (Sean, 2026-09-23)
+-- published = on the web or emailed (Sean, 2026-09-23). 'queued' and 'sending' count: once Resend has the
+-- broadcast it cannot be recalled, so its threads are about to be public anyway.
+CREATE VIEW published_runs AS
   SELECT run_id FROM issues
   UNION SELECT run_id FROM broadcasts WHERE status IN ('queued','sending','sent');
 
 CREATE VIEW digests AS  -- compatibility for circulation until the web rewrite
   SELECT i.date, i.html, i.preheader, i.run_id, b.resend_id AS broadcast_id, b.status AS broadcast_status,
          b.recipients AS broadcast_recipients, b.run_id AS broadcast_run_id
-  FROM issues i LEFT JOIN broadcasts b USING (date);
+  FROM issues i LEFT JOIN broadcasts b USING (date)
+  WHERE i.revision = (SELECT max(revision) FROM issues WHERE date = i.date);
 ```
 
 - `published_runs` encodes the rule `retract()` already uses (`mayHaveGone`: accepted states or a claim), once.
@@ -309,6 +314,9 @@ CREATE VIEW digests AS  -- compatibility for circulation until the web rewrite
   run then ends `published`, not `failed`. The page can show "updated since the email" when the served
   revision is newer than `broadcasts.revision`. An operator-approved notice to subscribers is a later
   option, not built.
+- An `issues` row is the web publication, so it is inserted after the pre-send hold is approved, never
+  before; otherwise `published_runs` would expose a held run's threads. Today `saveDigest` writes the web
+  copy before the send claim; whether that is before or after the hold in the TS workflow is unverified.
 
 ### 4.5 Threads
 
@@ -361,7 +369,7 @@ of migrations over today's tables. Instead:
 |---|---|---|---|
 | 0 | now | drop the two unshipped 2026-09-23 migrations (`workflow_run_id`, `broadcast_run_id`); both are unapplied on prod (`$P "SELECT migration_id FROM _yoyo_migration ORDER BY 1 DESC LIMIT 1"` → `20260916190000`) and their jobs move into `run_attempts` and `broadcasts` | revert the commit |
 | 1 | with plan A | write the new schema as dbmate migration 1 (`digest/db/migrations/`); point the TS store and its tests at it; staged mode runs on a scratch DB built from it | revert |
-| 2 | with plan A | `bin/import-legacy`: `ATTACH` today's `digest.db` read-only and `INSERT ... SELECT` into the new schema. Carries runs, usage, artifacts, issues (as revision 1), broadcasts, threads, installments, questions, source health, shown narratives. Leaves behind `selections` (backfilled into artifacts first for the 128 runs that exist only there), `cluster_runs`, `thread_runs`, `story_feedback` (exported to a CSV under `docs/`), `threads.slug`, `dedup_log.action` | delete the new file |
+| 2 | with plan A | `bin/import-legacy`: `ATTACH` today's `digest.db` read-only and `INSERT ... SELECT` into the new schema. Carries runs, usage, artifacts, issues (as revision 1), broadcasts, threads, installments, questions, source health, shown narratives, `fetched_articles` and `dedup_log` (next-day dedup reads both). Leaves behind `selections` (backfilled into artifacts first for the 128 runs that exist only there), `cluster_runs`, `thread_runs`, `story_feedback` (exported to a CSV under `docs/`), `threads.slug`, `dedup_log.action` | delete the new file |
 | 3 | gate days | staged mode refreshes its scratch DB by running the import against the latest prod backup, so all three gate days exercise the import as well as the schema | |
 | 4 | cut-over deploy | stop the timer, take the verified snapshot, run the import, swap the file, deploy circulation reading the new schema (through the `digests` compatibility view if its port is not ready), start the timer | put the old file back and redeploy the Python tag. Valid until the first TypeScript run writes; after that, restore the snapshot and lose that day |
 | 5 | after cut-over | delete `newsroom/`, yoyo, the retract and sweep code, and the compatibility views as circulation is ported | |
