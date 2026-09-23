@@ -38,7 +38,6 @@ beforeAll(async () => {
     taskQueue: PYTHON_TASK_QUEUE, // unversioned, as the Python worker is in production
     activities: {
       fetchFulltext: (tasks: unknown[]) => Promise.resolve({ tasks: tasks.length, results: {}, outcome: "completed" }),
-      decodeLinks: (urls: string[]) => Promise.resolve({ links: urls.length, decoded: {}, attempted: urls.length, outcome: "completed" }),
     },
   });
   python = { shutdown: () => w.shutdown(), done: w.run() };
@@ -95,10 +94,10 @@ describe("worker versioning on a dev server", () => {
       expect(await versionOf(h)).toEqual({ behavior: PINNED, buildId: "build-a" });
       // The Python worker is unversioned, on its own queue; a pinned run's activities there still reach it.
       const evs = (await h.fetchHistory()).events ?? [];
-      const scheduled = evs.filter((e) => ["fetchFulltext", "decodeLinks"].includes(e.activityTaskScheduledEventAttributes?.activityType?.name ?? "")).map((e) => String(e.eventId));
+      const scheduled = evs.filter((e) => e.activityTaskScheduledEventAttributes?.activityType?.name === "fetchFulltext").map((e) => String(e.eventId));
       const completed = evs.filter((e) => scheduled.includes(String(e.activityTaskCompletedEventAttributes?.scheduledEventId)));
-      expect(scheduled.length).toBe(2);
-      expect(completed.length).toBe(2);
+      expect(scheduled.length).toBe(1);
+      expect(completed.length).toBe(1);
     });
   }, 120_000);
 

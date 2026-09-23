@@ -28,6 +28,7 @@ export function stubActivities(): Activities {
     repair: (runId) => Promise.resolve(ptr(runId, "repair_resolution.json")),
     assemble: (runId) => Promise.resolve(ptr(runId, "selections.json")),
     planGnews: () => Promise.resolve({ urls: ["https://news.google.com/rss/articles/X"] }),
+    decodeLinks: (urls) => Promise.resolve({ links: urls.length, decoded: {}, attempted: urls.length, outcome: "completed" }),
     storeGnews: (runId) => Promise.resolve(ptr(runId, DECODED_LINKS)),
     threadsLink: () => Promise.resolve({ plans: [{ threadId: 1, articleIds: ["A1", "A2"] }] }),
     threadSynthesis: (_runId, plan) => Promise.resolve({ threadId: plan.threadId, auditFailed: false }),

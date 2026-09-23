@@ -20,20 +20,19 @@ afterAll(async () => {
 
 const taskQueue = "digest-test";
 // `fetcher` stands in for the Python worker on its own queue; null means nothing answers
-// there, as when that worker is down.
+// there, as when that worker is down. `decoder` is the decode, on the workflow's own worker.
 const emptyFetch = (tasks: FulltextTask[]): Promise<FulltextFetch> => Promise.resolve({ tasks: tasks.length, results: {}, outcome: "completed" });
 const noDecode = (urls: string[]): Promise<GnewsDecode> => Promise.resolve({ links: urls.length, decoded: {}, attempted: urls.length, outcome: "completed" });
-const noFulltext: Activities["planFulltext"] = () => Promise.resolve({ tasks: [], skip: "disabled" as const });
 const noLinks: Activities["planGnews"] = () => Promise.resolve({ urls: [], skip: "no_candidates" as const });
 async function withWorker<T>(fn: () => Promise<T>, overrides: Partial<Activities> = {}, fetcher: ((tasks: FulltextTask[]) => Promise<FulltextFetch>) | null = emptyFetch, decoder: (urls: string[]) => Promise<GnewsDecode> = noDecode): Promise<T> {
   const worker = await Worker.create({
     connection: env.nativeConnection,
     taskQueue,
     workflowsPath: new URL("./digest.workflow.ts", import.meta.url).pathname,
-    activities: { ...stubActivities(), ...overrides },
+    activities: { ...stubActivities(), decodeLinks: decoder, ...overrides },
   });
   if (!fetcher) return worker.runUntil(fn());
-  const python = await Worker.create({ connection: env.nativeConnection, taskQueue: PYTHON_TASK_QUEUE, activities: { fetchFulltext: fetcher, decodeLinks: decoder } });
+  const python = await Worker.create({ connection: env.nativeConnection, taskQueue: PYTHON_TASK_QUEUE, activities: { fetchFulltext: fetcher } });
   return python.runUntil(worker.runUntil(fn()));
 }
 function retracting() {
@@ -258,7 +257,7 @@ describe("DigestWorkflow", () => {
       stored.length = 0;
       // The test server does not skip time while an activity task sits unclaimed, so the clock is
       // moved past the schedule-to-start timeout by hand. The decode is skipped here so the fetch is
-      // the one unclaimed task; the gnews tests take the decode's turn.
+      // the one unclaimed task.
       const out = await withWorker(async () => {
         const h = await start("2026-09-29");
         await env.sleep("6 minutes");
@@ -290,7 +289,7 @@ describe("DigestWorkflow", () => {
       expect(stored).toEqual([]);
     }, 120_000);
   });
-  describe("gnews across the language line", () => {
+  describe("gnews", () => {
     const GN = "https://news.google.com/rss/articles/X";
     const stored: GnewsDecode[] = [];
     const rendered: string[] = [];
@@ -306,7 +305,7 @@ describe("DigestWorkflow", () => {
       stored.length = 0;
       rendered.length = 0;
     };
-    it("hands the surviving links to the python queue, stores what comes back, and renders with it", async () => {
+    it("hands the surviving links to the decoder, stores what comes back, and renders with it", async () => {
       reset();
       const seen: string[][] = [];
       const out = await withWorker(() => approveAndWait("2026-10-02"), { storeGnews, render }, emptyFetch, (urls) => {
@@ -329,20 +328,7 @@ describe("DigestWorkflow", () => {
       expect(stored).toEqual([{ links: 1, decoded: {}, attempted: 0, outcome: "failed" }]);
       expect(out.broadcast).toBe("sent");
     }, 120_000);
-    it("goes on with the raw links when nothing answers on the python queue, stored as unavailable", async () => {
-      reset();
-      // Full text is switched off so the decode is the one task left unclaimed; the test server
-      // does not skip time past it, so the clock is moved by hand, as for the fetch.
-      const out = await withWorker(async () => {
-        const h = await start("2026-10-06");
-        await env.sleep("6 minutes");
-        await h.signal(approveSignal, { decision: "approve" });
-        return h.result();
-      }, { storeGnews, planFulltext: noFulltext }, null);
-      expect(stored).toEqual([{ links: 1, decoded: {}, attempted: 0, outcome: "unavailable" }]);
-      expect(out.broadcast).toBe("sent");
-    }, 300_000); // this sleep measured about 91 s of wall time, near the default 120 s
-    it("records a skipped decode without calling Python", async () => {
+    it("records a skipped decode without calling the decoder", async () => {
       reset();
       let calls = 0;
       await withWorker(() => approveAndWait("2026-10-04"), { storeGnews, planGnews: () => Promise.resolve({ urls: [], skip: "no_candidates" as const }) }, emptyFetch, (urls) => {

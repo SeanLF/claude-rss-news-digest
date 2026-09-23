@@ -1,14 +1,13 @@
-// Google-News link decoding at publish (spec §2.1): the decode is newsroom/src/gnews.py behind the
-// Python worker's `decodeLinks` activity, since googlenewsdecoder has no TypeScript equivalent that
-// reports a 429; choosing the links and storing the result stay here, over the survivors only.
+// Google-News link decoding at publish (spec §2.1): choosing the links and storing the result, over
+// the survivors only. The decode between them is the `decodeLinks` activity (gnews-decode.ts).
 import { resolveArticleIds, type Selections } from "../render/render.js";
 import type { ArtifactStore, Pointer } from "../store/artifacts.js";
 import { DECODED_LINKS, type GnewsDecode, type GnewsPlan } from "./index.js";
 
 export const GNEWS_HEALTH = "gnews_health.json";
 // A stored attempt that may have spent requests is kept on a resume, even a partial or failed one:
-// the constraint is a per-IP daily budget. Only "unavailable" (no worker picked the decode up) and
-// "disabled" reached no decoder, so only they are planned again.
+// the constraint is a per-IP daily budget. Any other outcome spent nothing ("busy", "cancelled",
+// "disabled", and "unavailable" from before the decode moved onto this worker), so it is planned again.
 const SETTLED = new Set(["completed", "no_candidates", "rate_limited", "deadline", "failed"]);
 // digest._CANARY_MIN_ATTEMPTS: one undecodable article is not evidence the contract moved.
 const CANARY_MIN_ATTEMPTS = 3;
@@ -43,11 +42,11 @@ export function gnewsActivities(deps: { store: ArtifactStore; enabled: boolean }
       return urls.length ? { urls } : { urls, skip: "no_candidates" };
     },
     async storeGnews(runId: number, result: GnewsDecode, force = false): Promise<Pointer> {
-      // gnews._fetch's own check, repeated where a string from another process becomes a link.
+      // Repeated where a string from the decode becomes a link a reader clicks.
       const decoded = Object.fromEntries(Object.entries(result.decoded).filter(([, to]) => to.startsWith("http")));
       const upgraded = Object.keys(decoded).length;
       if (result.links && !upgraded && result.outcome !== "rate_limited" && result.attempted >= CANARY_MIN_ATTEMPTS) {
-        console.warn(JSON.stringify({ stage: "gnews", warning: "upgraded 0 shown links; the decoder contract has probably moved again, check googlenewsdecoder for an update", links: result.links, attempted: result.attempted }));
+        console.warn(JSON.stringify({ stage: "gnews", warning: "upgraded 0 shown links; the decoder contract has probably moved again, check gnews-decoder for an update (npm run test:live there)", links: result.links, attempted: result.attempted }));
       }
       const write = (name: string, text: string) => (force ? store.replace(runId, name, text) : store.put(runId, name, text));
       write(GNEWS_HEALTH, JSON.stringify({ links: result.links, decoded: upgraded, attempted: result.attempted, outcome: result.outcome }));

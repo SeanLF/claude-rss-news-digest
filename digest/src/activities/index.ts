@@ -31,12 +31,12 @@ export interface FulltextFetch { tasks: number; results: Record<string, string>;
 export interface FulltextPlan { tasks: FulltextTask[]; existing?: Pointer; skip?: "disabled" | "no_candidates" }
 // The activity the Python worker serves on PYTHON_TASK_QUEUE.
 export interface FulltextFetcher { fetchFulltext(tasks: FulltextTask[]): Promise<FulltextFetch> }
-// What the Python `decodeLinks` activity returns: the links it was given, those it decoded, the decode
-// requests it made, and how the pass ended ("completed", "rate_limited", "deadline", "cancelled"), or
-// "unavailable" when nothing picked it up and "failed" when it broke after it started.
+// What the `decodeLinks` activity returns: the links it was given, those it decoded, the decodes that
+// reached the network, and how the pass ended ("completed", "rate_limited", "deadline", "cancelled",
+// "busy"), or "failed" when it broke. Runs before the TypeScript decode also stored "unavailable".
 export interface GnewsDecode { links: number; decoded: Record<string, string>; attempted: number; outcome: string }
 export interface GnewsPlan { urls: string[]; existing?: Pointer; skip?: "disabled" | "no_candidates" }
-// The activity the Python worker serves on PYTHON_TASK_QUEUE for the decode.
+// The decode (gnews-decode.ts), proxied apart for its own timeouts and single attempt.
 export interface LinkDecoder { decodeLinks(urls: string[]): Promise<GnewsDecode> }
 // THREADS: a continuing thread to synthesize, with its story's articles; what one synthesis
 // reported; and what the workflow saw of the whole phase, which the finish records.
@@ -56,7 +56,7 @@ export interface DigestOutput {
 
 // The activity interface plan A2 fills, one function per stage; every model call and every
 // network fetch is an activity, and each returns a pointer into the artifact store, never a blob.
-export interface Activities {
+export interface Activities extends LinkDecoder {
   startRun(input: DigestInput): Promise<{ runId: number; sourceIds: string[]; lastRun: string | null }>;
   fetchFeed(runId: number, sourceId: string, lastRun: string | null): Promise<FetchSummary>;
   prepare(runId: number, fetched: FetchSummary[], force?: boolean): Promise<{ articles: Pointer[]; index: Pointer }>;

@@ -63,7 +63,6 @@ async function main(outDir: string, address = process.env["TEMPORAL_ADDRESS"] ??
     taskQueue: PYTHON_TASK_QUEUE,
     activities: {
       fetchFulltext: (tasks: FulltextTask[]) => Promise.resolve({ tasks: tasks.length, results: {}, outcome: "completed" }),
-      decodeLinks: (urls: string[]) => Promise.resolve({ links: urls.length, decoded: {}, attempted: urls.length, outcome: "completed" }),
     },
   });
   await python.runUntil(async () => {
