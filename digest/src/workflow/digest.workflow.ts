@@ -60,7 +60,7 @@ export async function DigestWorkflow(input: DigestInput): Promise<DigestOutput> 
   }
 
   const fetched = await Promise.all(SOURCE_IDS_STUB.map((s) => network.fetchFeed(runId, s)));
-  const { articles } = await once.prepare(runId, fetched);
+  const { articles } = await once.prepare(runId, fetched, input.force);
   // CLUSTER = plan → extract fan-out (one model call per batch, each under its own retry policy)
   // → deterministic join; a batch that exhausts its retries is a lost batch the join title-falls back.
   const recapP = model.recap(runId, input.force);

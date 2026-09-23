@@ -32,7 +32,7 @@ export interface DigestOutput {
 export interface Activities {
   startRun(input: DigestInput): Promise<{ runId: number }>;
   fetchFeed(runId: number, sourceId: string): Promise<Pointer>;
-  prepare(runId: number, fetched: Pointer[]): Promise<{ articles: Pointer[]; index: Pointer }>;
+  prepare(runId: number, fetched: Pointer[], force?: boolean): Promise<{ articles: Pointer[]; index: Pointer }>;
   planBatches(runId: number, articles: Pointer[]): Promise<{ batches: ExtractBatch[] }>;
   extractBatch(runId: number, batch: ExtractBatch, force?: boolean): Promise<Pointer>;
   joinClusters(runId: number, tagBatches: (Pointer | null)[], force?: boolean): Promise<Pointer>;
