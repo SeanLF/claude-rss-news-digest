@@ -160,6 +160,9 @@ async function retract(db: Db, runId: number): Promise<Retraction> {
     console.error(JSON.stringify({ stage: "threads", runId, error: "unsent issue's thread writes kept", reason }));
     return { retracted: false, reason };
   };
+  // A run readers got, on the web or by email, is public, and so are its thread updates: saveDigest
+  // puts the issue on the web before the send, so a send that fails after it does not unpublish them.
+  if (await db.one("SELECT 1 FROM published_runs WHERE run_id = $1", [runId])) return decline("its issue is published");
   const run = await db.one<{ date: string }>("SELECT (started_at AT TIME ZONE 'UTC')::date AS date FROM runs WHERE id = $1", [runId]);
   const day = run ? await sendRow(db, run.date) : undefined;
   const mayHaveGone = day !== undefined && (day.id !== null || day.status === "claimed" || ACCEPTED_BROADCAST_STATES.has(day.status));
@@ -181,8 +184,8 @@ export const RESUME_HORIZON_HOURS = RUN_TIMEOUT_HOURS;
 
 // abortRun keeps a failed run's thread writes for a resume. A failed run is abandoned once the
 // horizon has passed or a later run of its day supersedes it; a resume sets it back to 'running'
-// (startRun), which is never swept. Unless its own issue may have gone out, nobody was sent its writes:
-// take them back before this run links, so it links on the state the failed run began in, newest
+// (startRun), which is never swept. Unless it is published (web or email) or its day's send may have
+// gone out, no reader has its writes: take them back before this run links, so it links on the state the failed run began in, newest
 // first so a chain of failed runs unwinds without the later one counting as a dependent.
 // A 'running' leftover (a crash the workflow never marked) is left alone: nothing can tell it from a
 // run still in progress, and no crash has left one with thread writes (prod clone, 2026-09-23).
