@@ -39,8 +39,8 @@ const CSV = [
   "A4,Brussels votes on AI rules,Vote held.,politico",
 ].join("\n");
 
-function setup(opts: { config?: Partial<ThreadsConfig>; answers?: Partial<Record<Stage, unknown[]>>; attempt?: number } = {}) {
-  const path = freshDb([297, 298, 299, RUN]);
+function setup(opts: { config?: Partial<ThreadsConfig>; answers?: Partial<Record<Stage, unknown[]>>; attempt?: number; execution?: () => string } = {}) {
+  const path = freshDb([297, 298, 299, RUN, 301]);
   const db = new DatabaseSync(path);
   for (const f of readdirSync(MIGRATIONS).filter((n) => /thread|installment/.test(n)).toSorted()) db.exec(readFileSync(`${MIGRATIONS}${f}`, "utf8"));
   db.exec("UPDATE digest_runs SET completed_at = run_at WHERE id < 300");
@@ -51,7 +51,7 @@ function setup(opts: { config?: Partial<ThreadsConfig>; answers?: Partial<Record
   const calls: Call[] = [];
   const usage: UsageRow[] = [];
   const config: ThreadsConfig = { ...threadsConfigFrom({}), enabled: true, latebind: null, digestDomain: "news.example", ...opts.config };
-  const acts = threadsActivities({ store, dbPath: path, agentsDir: AGENTS, config, maxAttempts: 3, query: fakeQuery(opts.answers ?? {}, calls), onUsage: (r) => usage.push(r), attempt: () => opts.attempt ?? 1 });
+  const acts = threadsActivities({ store, dbPath: path, agentsDir: AGENTS, config, maxAttempts: 3, query: fakeQuery(opts.answers ?? {}, calls), onUsage: (r) => usage.push(r), attempt: () => opts.attempt ?? 1, ...(opts.execution ? { execution: opts.execution } : {}) });
   const rows = (sql: string) => db.prepare(sql).all() as Record<string, unknown>[];
   return { db, store, calls, usage, acts, rows };
 }
@@ -363,5 +363,44 @@ describe("threadsConfigFrom", () => {
   });
   it.each([["THREAD_DORMANT_AFTER", "three"], ["THREAD_DORMANT_AFTER", "2.5"], ["THREAD_DORMANT_AFTER", "-1"], ["THREAD_DORMANT_AFTER", ""], ["THREAD_LATEBIND_MAX_EXTRA", "x"]])("refuses %s=%j loudly", (name, value) => {
     expect(() => threadsConfigFrom({ THREADS_ENABLED: "1", THREAD_LATEBIND: "1", [name]: value })).toThrow(new RegExp(name));
+  });
+});
+
+describe("a forced re-run of an earlier run", () => {
+  const link2 = { links: [{ story: 0, thread: 1 }, { story: 1, thread: null }] };
+  it("refuses when a later run continued a thread this run created, and leaves everything as it was", async () => {
+    const s = setup({ answers: { link: [link2] } });
+    seedThread(s.db);
+    await s.acts.threadsLink(RUN);
+    s.db.prepare("INSERT INTO thread_installments (thread_id, run_id, cluster_story) VALUES (2, 301, 'EU AI act, day two')").run();
+    const before = s.rows("SELECT * FROM thread_installments ORDER BY id");
+    await expect(s.acts.threadsLink(RUN, true)).rejects.toThrow(/later run\(s\) 301 build on run 300's threads/);
+    expect(s.rows("SELECT * FROM thread_installments ORDER BY id")).toEqual(before);
+    expect(s.store.names(RUN).filter((n) => n.includes(".corrupt."))).toEqual([]);
+  });
+  it("refuses when a later run continued a thread this run continued", async () => {
+    const s = setup({ answers: { link: [link2] } });
+    seedThread(s.db);
+    await s.acts.threadsLink(RUN);
+    s.db.prepare("INSERT INTO thread_installments (thread_id, run_id, cluster_story) VALUES (1, 301, 'Iran talks, day three')").run();
+    await expect(s.acts.threadsLink(RUN, true)).rejects.toThrow(/301/);
+  });
+  it("refuses when a later run resolved a question this run raised", async () => {
+    const s = setup({ answers: { link: [link2] } });
+    seedThread(s.db);
+    await s.acts.threadsLink(RUN);
+    s.db.prepare("INSERT INTO thread_questions (thread_id, question, status, raised_run_id, resolved_run_id) VALUES (1, 'Asked in 300', 'resolved', 300, 301)").run();
+    await expect(s.acts.threadsLink(RUN, true)).rejects.toThrow(/301/);
+    expect(s.rows("SELECT COUNT(*) AS n FROM thread_questions WHERE raised_run_id = 300")).toEqual([{ n: 1 }]);
+  });
+  it("a retried forced link in the same execution does not undo what its first attempt committed", async () => {
+    const s = setup({ answers: { link: [link2, link2, link2] }, execution: () => "exec-1" });
+    seedThread(s.db);
+    await s.acts.threadsLink(RUN);
+    const first = await s.acts.threadsLink(RUN, true);
+    const ids = s.rows("SELECT id FROM threads ORDER BY id");
+    expect(await s.acts.threadsLink(RUN, true)).toEqual(first);
+    expect(s.rows("SELECT id FROM threads ORDER BY id")).toEqual(ids);
+    expect(s.calls.filter((c) => c.stage === "link")).toHaveLength(2);
   });
 });

@@ -75,6 +75,16 @@ export interface ThreadsDeps {
   signal?: () => AbortSignal | undefined;
   onUsage?: (row: UsageRow) => void;
   attempt?: () => number;
+  execution?: () => string | undefined;
+}
+
+// The workflow execution this activity runs in; outside an activity (tests, CLIs) there is none.
+function currentExecution(): string | undefined {
+  try {
+    return Context.current().info.workflowExecution?.runId;
+  } catch {
+    return undefined;
+  }
 }
 
 function currentAttempt(): number {
@@ -117,7 +127,30 @@ function threadArtifacts(db: DatabaseSync, runId: number): string[] {
 // its thread artifacts aside, so relinking starts from the state the run began in. Another run's
 // rows are never touched: a thread this run continued gets back the label and last run of its
 // latest remaining installment, and a thread this run created goes only if nothing else holds it.
-function undoRun(db: DatabaseSync, runId: number): void {
+// Later runs that build on this run's thread writes: an installment on a thread this run created
+// or continued, or a resolution of a question this run raised. Undoing under them would strip a
+// thread's first day or delete their resolutions, so a force refuses instead.
+export function dependentRuns(db: DatabaseSync, runId: number): number[] {
+  const rows = db
+    .prepare(
+      `SELECT run_id AS r FROM thread_installments
+       WHERE run_id > ? AND thread_id IN (SELECT thread_id FROM thread_installments WHERE run_id = ?)
+       UNION
+       SELECT resolved_run_id FROM thread_questions WHERE raised_run_id = ? AND resolved_run_id > ?
+       ORDER BY 1`,
+    )
+    .all(runId, runId, runId, runId) as { r: number }[];
+  return rows.map((x) => x.r);
+}
+
+// Which execution last undid this run's threads: a retried forced link in the same execution must
+// not take back what its first attempt committed. Not named thread*, so the undo does not set it aside.
+const UNDO_MARKER = "force_undo_threads.json";
+
+export function undoRun(db: DatabaseSync, runId: number): void {
+  const later = dependentRuns(db, runId);
+  if (later.length)
+    throw ApplicationFailure.nonRetryable(`refusing to force run ${runId}'s threads: later run(s) ${later.join(", ")} build on run ${runId}'s threads; they stay as they are, relink by hand`, "ThreadsHaveDependents");
   const touched = (db.prepare("SELECT DISTINCT thread_id AS t FROM thread_installments WHERE run_id = ?").all(runId) as { t: number }[]).map((r) => r.t);
   db.prepare("UPDATE thread_questions SET status = 'open', resolved_run_id = NULL, resolved_how = NULL WHERE resolved_run_id = ?").run(runId);
   db.prepare("DELETE FROM thread_questions WHERE raised_run_id = ?").run(runId);
@@ -163,6 +196,7 @@ export function plansFrom(assignments: StoredAssignment[], trace: LinkTrace | un
 export function threadsActivities(deps: ThreadsDeps) {
   const { store, config } = deps;
   const attempt = deps.attempt ?? currentAttempt;
+  const execution = deps.execution ?? currentExecution;
   const signal = (ms: number): AbortSignal => {
     const s = deps.signal?.();
     return s ? AbortSignal.any([s, AbortSignal.timeout(ms)]) : AbortSignal.timeout(ms);
@@ -207,7 +241,13 @@ export function threadsActivities(deps: ThreadsDeps) {
       withDb(deps.dbPath, async (db) => {
         if (!config.enabled) return { plans: [], skip: "disabled" as const };
         const ts = new ThreadStore(db);
-        if (force) ts.transaction(() => undoRun(db, runId));
+        if (force)
+          ts.transaction(() => {
+            const exec = execution();
+            if (exec !== undefined && artifactIn(db, runId, UNDO_MARKER) === JSON.stringify({ execution: exec })) return;
+            undoRun(db, runId);
+            if (exec !== undefined) setIn(db, runId, UNDO_MARKER, JSON.stringify({ execution: exec }));
+          });
         const read = () => {
           const a = artifactIn(db, runId, THREAD_ASSIGNMENTS);
           const t = artifactIn(db, runId, THREAD_LINKS);
