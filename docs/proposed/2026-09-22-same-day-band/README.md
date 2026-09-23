@@ -23,3 +23,22 @@ counts it; a point comparison against one run would be inside the noise. The sto
 between reps with identical inputs is the SELECT instability already on record (Jaccard 0.24-0.34).
 
 Not in this band: the recheck's own band (plan A1 task 1 step 7, `bin/eval-repair --recheck-runs 3`), still owed.
+
+## The new system on the same day (2026-09-22)
+
+`make band` (promptfoo `--repeat 3`, `digest/gate/band.yaml`): the TypeScript workflow on local Temporal, every
+curation artifact regenerated (`--resume 300 --force`), approval sent at start so the hold is not counted.
+Cost is the rep's `run_usage` rows; latency is start to result. Raw results: `new-system-promptfoo.json`.
+
+| system | cost USD | wall s | stories |
+|---|---|---|---|
+| old (Python), 3 reps | 6.08, 4.36, 4.89 | 1035, 779, 850 | 16, 16, 22 |
+| new (TypeScript), 3 reps | 3.96, 4.88, 4.11 | 710, 834, 732 | 17, 17, 16 |
+
+Every new rep sits inside the old band's ceiling on cost and time (promptfoo's `cost` and `latency`
+assertions, thresholds $6.08 and 1035 s, passed 3/3). The new band is lower and tighter on both, from one
+day and three reps each; that is the §7.4 speed-and-cost criterion only, not the gate, which also needs
+the planted-defect recall on the new runner and the two judges on three days.
+
+An earlier hand-rolled attempt (now deleted) completed one rep at $4.14 and 579 s before its worker was
+OOM-killed at a 512 MiB cap; the worker now runs at 2 GiB with a restart policy.

@@ -1,0 +1,560 @@
+{
+  "evalId": "eval-aEf-2026-09-22T23:49:28",
+  "results": {
+    "version": 3,
+    "timestamp": "2026-09-22T23:49:28.419Z",
+    "prompts": [
+      {
+        "id": "c35d40dafb19519f24fbbe1d5cfe148e8b9165c1173395b4a7c7f373003d06d5",
+        "raw": "run {{run}} on {{date}}",
+        "label": "run {{run}} on {{date}}",
+        "provider": "digest-workflow",
+        "metrics": {
+          "score": 3,
+          "testPassCount": 3,
+          "testFailCount": 0,
+          "testErrorCount": 0,
+          "assertPassCount": 9,
+          "assertFailCount": 0,
+          "totalLatencyMs": 2274911,
+          "tokenUsage": {
+            "prompt": 0,
+            "completion": 0,
+            "cached": 0,
+            "total": 0,
+            "numRequests": 3,
+            "completionDetails": {
+              "reasoning": 0,
+              "acceptedPrediction": 0,
+              "rejectedPrediction": 0,
+              "cacheReadInputTokens": 0,
+              "cacheCreationInputTokens": 0
+            },
+            "assertions": {
+              "total": 0,
+              "prompt": 0,
+              "completion": 0,
+              "cached": 0,
+              "numRequests": 0,
+              "completionDetails": {
+                "reasoning": 0,
+                "acceptedPrediction": 0,
+                "rejectedPrediction": 0,
+                "cacheReadInputTokens": 0,
+                "cacheCreationInputTokens": 0
+              }
+            }
+          },
+          "namedScores": {},
+          "namedScoresCount": {},
+          "namedScoreWeights": {},
+          "cost": 12.94098675
+        }
+      }
+    ],
+    "results": [
+      {
+        "cost": 3.9576949,
+        "gradingResult": {
+          "pass": true,
+          "score": 1,
+          "reason": "All assertions passed",
+          "namedScores": {},
+          "tokensUsed": {
+            "total": 0,
+            "prompt": 0,
+            "completion": 0,
+            "cached": 0,
+            "numRequests": 0
+          },
+          "componentResults": [
+            {
+              "pass": true,
+              "score": 1,
+              "reason": "Assertion passed",
+              "assertion": {
+                "type": "javascript",
+                "value": "JSON.parse(output).must_know.length > 0"
+              }
+            },
+            {
+              "pass": true,
+              "score": 1,
+              "reason": "Assertion passed",
+              "assertion": {
+                "type": "cost",
+                "threshold": 6.08
+              }
+            },
+            {
+              "pass": true,
+              "score": 1,
+              "reason": "Assertion passed",
+              "assertion": {
+                "type": "latency",
+                "threshold": 1035000
+              }
+            }
+          ]
+        },
+        "id": "3d844b96-eca6-48ea-aa7b-1d867c345684",
+        "latencyMs": 709602,
+        "namedScores": {},
+        "prompt": {
+          "raw": "run 300 on 2026-09-18",
+          "label": "run {{run}} on {{date}}",
+          "config": {}
+        },
+        "promptId": "c35d40dafb19519f24fbbe1d5cfe148e8b9165c1173395b4a7c7f373003d06d5",
+        "promptIdx": 0,
+        "provider": {
+          "id": "digest-workflow",
+          "label": ""
+        },
+        "response": {
+          "output": "{\n  \"must_know\": [\n    {\n      \"headline\": \"Russians begin voting in first Duma election since Ukraine invasion, as Kremlin bars antiwar party\",\n      \"summary\": \"Voting began Friday in Russia's three-day parliamentary election, the first since Moscow's full-scale invasion of Ukraine in 2022, with the ruling United Russia party -- which won more than two-thirds of Duma seats in 2021 -- expected to dominate again. Russia's Supreme Court barred Yabloko, the only registered antiwar party, from the ballot in August, and President Vladimir Putin has cast the vote as a barometer of public support for the war even as fuel queues and conscription fears unsettle voters.\",\n      \"why_it_matters\": \"The Kremlin revoked Yabloko's registration only after interest in the sole antiwar party surged fivefold on Russia's top search engine, surpassing even searches for United Russia -- suggesting the vote Putin calls a barometer of war support risked showing the opposite, which is why the party was pulled before Russians could cast a ballot.\",\n      \"sources\": [\n        {\n          \"article_id\": \"A4\"\n        },\n        {\n          \"article_id\": \"A14\"\n        },\n        {\n          \"article_id\": \"A70\"\n        },\n        {\n          \"article_id\": \"A137\"\n        },\n        {\n          \"article_id\": \"A158\"\n        },\n        {\n          \"article_id\": \"A177\"\n        },\n        {\n          \"article_id\": \"A184\"\n        },\n        {\n          \"article_id\": \"A188\"\n        },\n        {\n          \"article_id\": \"A200\"\n        },\n        {\n          \"article_id\": \"A297\"\n        },\n        {\n          \"article_id\": \"A300\"\n        },\n        {\n          \"article_id\": \"A334\"\n        },\n        {\n          \"article_id\": \"A471\"\n        },\n        {\n          \"article_id\": \"A488\"\n        },\n        {\n          \"article_id\": \"A490\"\n        },\n        {\n          \"article_id\": \"A491\"\n        },\n        {\n          \"article_id\": \"A589\"\n        }\n      ],\n      \"reporting_varies\": [\n        {\n          \"source\": \"Al Jazeera\",\n          \"angle\": \"Focuses on the mechanics of pre-election 'ballot sterilisation' -- how the Kremlin identified and removed even managed-opposition candidates it feared could attract protest votes.\",\n          \"bias\": \"left-leaning international\"\n        },\n        {\n          \"source\": \"New York Times\",\n          \"angle\": \"Frames the vote as mattering chiefly to Putin's inner circle as a source of domestic legitimacy, not as a genuine measure of public opinion.\",\n          \"bias\": \"center-left\"\n        },\n        {\n          \"source\": \"France 24\",\n          \"angle\": \"Cites a Chatham House analyst arguing the results won't measure real support for Putin or the war given the absence of meaningful competition.\",\n          \"bias\": \"center, French state-funded\"\n        }\n      ],\n      \"cluster_id\": \"Russia 2025 parliamentary elections amid Ukraine war\"\n    },\n    {\n      \"headline\": \"Bank of Japan raises rates to 31-year high; yen slides despite hike\",\n      \"summary\": \"The Bank of Japan raised its benchmark interest rate by a quarter point to 1.25%, the highest level since 1995, as it moves to counter inflation running above its 2% target. The yen instead fell to a two-week low after the decision, as two board members signaled future rate rises might come more slowly than markets had expected. The hike follows the Federal Reserve's own rate increase this week and comes amid pressure from Washington and a shrinking labor pool that is pushing up wages.\",\n      \"why_it_matters\": \"The hike is meant to curb inflation, but the yen's slide to a two-week low right after the announcement illustrates a risk analysts flagged: a widening US-Japan rate gap can weaken the currency further and lift import costs, feeding the same inflation the BoJ is trying to contain.\",\n      \"sources\": [\n        {\n          \"article_id\": \"A21\"\n        },\n        {\n          \"article_id\": \"A157\"\n        },\n        {\n          \"article_id\": \"A159\"\n        },\n        {\n          \"article_id\": \"A337\"\n        },\n        {\n          \"article_id\": \"A350\"\n        },\n        {\n          \"article_id\": \"A355\"\n        },\n        {\n          \"article_id\": \"A360\"\n        },\n        {\n          \"article_id\": \"A366\"\n        },\n        {\n          \"article_id\": \"A367\"\n        },\n        {\n          \"article_id\": \"A555\"\n        },\n        {\n          \"article_id\": \"A650\"\n        }\n      ],\n      \"reporting_varies\": [\n        {\n          \"source\": \"Al Jazeera\",\n          \"angle\": \"frames the hike as a response to inflation and Washington pressure, citing demographic wage pressures\",\n          \"bias\": \"factual/neutral\"\n        },\n        {\n          \"source\": \"Financial Times\",\n          \"angle\": \"emphasizes the yen's renewed slide despite hawkish comments from the BoJ governor\",\n          \"bias\": \"markets-focused\"\n        },\n        {\n          \"source\": \"Wall Street Journal\",\n          \"angle\": \"focuses on how the hike makes US assets less attractive to Tokyo investors, noting board members hinted at a slower future pace\",\n          \"bias\": \"markets-focused\"\n        }\n      ],\n      \"cluster_id\": \"Bank of Japan interest rate hike to 31-year high\"\n    },\n    {\n      \"headline\": \"US clears $24.3bn F-35 sale to Saudi Arabia over Israeli and China concerns\",\n      \"summary\": \"The State Department on Thursday approved a $24.3 billion sale of 48 F-35 stealth fighter jets to Saudi Arabia, which would make it the first Arab country to acquire the aircraft. Israeli officials have raised concerns about preserving Israel's military edge, while US intelligence agencies have warned that China could access sensitive F-35 technology through Riyadh's ties with Beijing. Congress now has 30 days to review the deal, which Democratic Representative Raja Krishnamoorthi has already opposed.\",\n      \"why_it_matters\": \"The sale would put Saudi Arabia's F-35 fleet on par with Israel's current 50 jets, testing the qualitative military edge US law has long guaranteed Israel over regional neighbors, even as intelligence officials warn Riyadh's growing military relationship with China could expose the jet's technology to Beijing.\",\n      \"sources\": [\n        {\n          \"article_id\": \"A35\"\n        },\n        {\n          \"article_id\": \"A39\"\n        },\n        {\n          \"article_id\": \"A63\"\n        },\n        {\n          \"article_id\": \"A186\"\n        },\n        {\n          \"article_id\": \"A220\"\n        },\n        {\n          \"article_id\": \"A311\"\n        },\n        {\n          \"article_id\": \"A477\"\n        },\n        {\n          \"article_id\": \"A385\"\n        }\n      ],\n      \"reporting_varies\": [\n        {\n          \"source\": \"Al-Monitor\",\n          \"angle\": \"Frames the sale as another step in Saudi Arabia's arms buildup since the Iran war began, detailing prior deals for bombs, tank engines and rocket guidance systems\",\n          \"bias\": \"neutral, transaction-focused\"\n        },\n        {\n          \"source\": \"Haaretz\",\n          \"angle\": \"Centers on Israeli concern over losing regional air superiority and Netanyahu's office citing understandings with Washington to preserve Israel's edge\",\n          \"bias\": \"Israeli security perspective\"\n        },\n        {\n          \"source\": \"NYT\",\n          \"angle\": \"Leads with US intelligence agencies' internal warnings that China could acquire or steal F-35 technology via Saudi Arabia\",\n          \"bias\": \"US national-security-risk framing\"\n        }\n      ],\n      \"cluster_id\": \"US approves $24 billion F-35 jet sale to Saudi Arabia\"\n    },\n    {\n      \"headline\": \"Xi due in Washington Wednesday; Trump to greet him personally at Joint Base Andrews\",\n      \"summary\": \"Chinese President Xi Jinping is due in Washington Wednesday for a state visit, and President Trump will personally greet him on the tarmac at Joint Base Andrews, a rare reception, according to a US official. The agenda is expected to cover artificial intelligence, tariffs and a possible extension of the trade-war truce; Beijing may send executives from BYD, CATL and Xiaomi, and Washington has delayed planned tariffs on Chinese excess industrial capacity until after the visit. China's Wang Yi and US Secretary of State Marco Rubio held a phone call ahead of the trip, and the two governments are discussing new measures to strengthen military-to-military ties.\",\n      \"why_it_matters\": \"The rare tarmac welcome signals personal warmth between the two leaders, but Beijing has already rebuffed US calls to slow AI development ahead of the summit, showing protocol niceties may not translate into concessions on the technology and tariff disputes each side is expected to press at the table.\",\n      \"sources\": [\n        {\n          \"article_id\": \"A465\"\n        },\n        {\n          \"article_id\": \"A457\"\n        },\n        {\n          \"article_id\": \"A352\"\n        },\n        {\n          \"article_id\": \"A506\"\n        },\n        {\n          \"article_id\": \"A466\"\n        },\n        {\n          \"article_id\": \"A467\"\n        },\n        {\n          \"article_id\": \"A285\"\n        }\n      ],\n      \"cluster_id\": \"Xi Jinping US visit and Xi-Trump summit 2026\"\n    },\n    {\n      \"headline\": \"Canada and EU face limits to relationship after symbolic membership overture\",\n      \"summary\": \"Canadian Prime Minister Mark Carney this week secured an offer to become the European Union's first 'associate member' — a status that does not currently exist in EU law — but Reuters and the Straits Times report the deal is a mostly symbolic victory in Carney's campaign to diversify Canada's ties away from the US. Any arrangement would require agreement from all 27 EU member states, some of which have voiced reservations, and could take years to implement. Carney welcomed the proposal in a speech to the European Parliament in Strasbourg, while US President Donald Trump has called the idea 'laughable' and threatened 'very serious' tariffs on Europe if he judges it a 'hostile act.'\",\n      \"why_it_matters\": \"The offer requires unanimous sign-off from all 27 EU states and could take years to define, so Strasbourg's applause does not guarantee Canada any near-term alternative to the US market it is trying to diversify away from — even as Trump has already threatened 'very serious' tariffs on Europe over the mere idea, meaning Carney's hedge against US pressure risks inviting more of it before it delivers anything concrete.\",\n      \"sources\": [\n        {\n          \"article_id\": \"A54\"\n        },\n        {\n          \"article_id\": \"A64\"\n        },\n        {\n          \"article_id\": \"A67\"\n        },\n        {\n          \"article_id\": \"A354\"\n        },\n        {\n          \"article_id\": \"A484\"\n        },\n        {\n          \"article_id\": \"A496\"\n        },\n        {\n          \"article_id\": \"A550\"\n        },\n        {\n          \"article_id\": \"A598\"\n        },\n        {\n          \"article_id\": \"A640\"\n        },\n        {\n          \"article_id\": \"A646\"\n        },\n        {\n          \"article_id\": \"A119\"\n        }\n      ],\n      \"reporting_varies\": [\n        {\n          \"source\": \"Reuters / Straits Times\",\n          \"angle\": \"Frames the offer as mostly symbolic, stressing that 'associate member' status is undefined and needs approval from all 27 EU states\",\n          \"bias\": \"neutral wire framing\"\n        },\n        {\n          \"source\": \"Der Spiegel\",\n          \"angle\": \"European media roundup finds agreement on the political rationale for the overture but skepticism about how it would actually be implemented\",\n          \"bias\": \"center-left European outlet\"\n        },\n        {\n          \"source\": \"The Guardian (editorial)\",\n          \"angle\": \"Praises Carney's response to Trump's tariff pressure as a clarity of vision that Britain lacks post-Brexit\",\n          \"bias\": \"left-leaning opinion\"\n        }\n      ],\n      \"cluster_id\": \"EU proposes Canada associate membership amid US trade tensions\"\n    }\n  ],\n  \"should_know\": [\n    {\n      \"headline\": \"Indonesia receives first aircraft carrier, a gift from Italy\",\n      \"summary\": \"Indonesia has received its first aircraft carrier, a former Italian vessel given to it by Italy, as part of a military upgrade. The government says the ship will help with disaster relief across the archipelago, but the acquisition has drawn debate among defence analysts and opposition politicians over its true cost and purpose.\",\n      \"sources\": [\n        {\n          \"article_id\": \"A8\"\n        },\n        {\n          \"article_id\": \"A554\"\n        }\n      ],\n      \"cluster_id\": \"Indonesia acquires first aircraft carrier\"\n    },\n    {\n      \"headline\": \"South Korea's Lee rules out sending troops to Middle East despite Trump pressure\",\n      \"summary\": \"South Korean President Lee Jae Myung said Friday he will not deploy military assets to the Middle East in a way that could draw Seoul into the US war on Iran, ruling out any deployment to the Strait of Hormuz. His comments came after President Trump repeatedly pressed South Korea for a \\\"little hand\\\" in the conflict, and follow reports Lee is under growing US pressure over a $350 billion investment pledge he insists will go only to \\\"commercially viable\\\" projects.\",\n      \"sources\": [\n        {\n          \"article_id\": \"A16\"\n        },\n        {\n          \"article_id\": \"A28\"\n        },\n        {\n          \"article_id\": \"A303\"\n        },\n        {\n          \"article_id\": \"A168\"\n        },\n        {\n          \"article_id\": \"A557\"\n        }\n      ],\n      \"cluster_id\": \"South Korea rules out Hormuz deployment and facilitates US-North Korea talks\"\n    },\n    {\n      \"headline\": \"Sweden's Kristersson resigns as PM, clearing way for Social Democrats' return\",\n      \"summary\": \"Sweden's Prime Minister Ulf Kristersson resigned after the left-wing opposition won a slim majority in this week's general election. His departure clears the way for the Social Democrats' leader, who previously held the post, to form a new government.\",\n      \"sources\": [\n        {\n          \"article_id\": \"A133\"\n        },\n        {\n          \"article_id\": \"A307\"\n        },\n        {\n          \"article_id\": \"A422\"\n        },\n        {\n          \"article_id\": \"A481\"\n        },\n        {\n          \"article_id\": \"A601\"\n        }\n      ],\n      \"cluster_id\": \"Sweden 2026 general election and Kristersson resignation\"\n    },\n    {\n      \"headline\": \"SPD surge could slow AfD's bid to lead a German state government\",\n      \"summary\": \"A late surge by Germany's Social Democrats in an eastern state could blunt the far-right AfD's momentum as the party seeks to control a state government for the first time. German art institutions are bracing for that possibility, after the AfD's push for state-backed \\\"patriotic\\\" art drew comparisons to Nazi-era policies.\",\n      \"sources\": [\n        {\n          \"article_id\": \"A146\"\n        },\n        {\n          \"article_id\": \"A296\"\n        }\n      ],\n      \"cluster_id\": \"AfD momentum threatened by Social Democrat surge in German state election\"\n    },\n    {\n      \"headline\": \"Russia places Nestlé, Auchan and Leroy Merlin units under state control\",\n      \"summary\": \"Russia seized control of Nestlé's local operations and put French retailers Auchan and Leroy Merlin under temporary external administration, according to a presidential decree. It is the first such move against Western-owned assets since 2023.\",\n      \"sources\": [\n        {\n          \"article_id\": \"A152\"\n        },\n        {\n          \"article_id\": \"A658\"\n        }\n      ],\n      \"cluster_id\": \"Russia seizes control of Nestlé and Auchan western-owned operations\"\n    },\n    {\n      \"headline\": \"China's upgraded Djibouti base seen boosting surveillance reach, report says\",\n      \"summary\": \"China has upgraded its military base in Djibouti in ways that should significantly enhance its ability to monitor military activity across the Middle East and Africa, according to a report by a US think tank. The Djibouti facility is China's only formally acknowledged overseas military base.\",\n      \"sources\": [\n        {\n          \"article_id\": \"A34\"\n        },\n        {\n          \"article_id\": \"A90\"\n        },\n        {\n          \"article_id\": \"A513\"\n        }\n      ],\n      \"cluster_id\": \"China upgrades Djibouti military base enhancing regional monitoring capability\"\n    },\n    {\n      \"headline\": \"US sanctions squeeze Iran further as Mahan Air halts flights, crypto exchange targeted\",\n      \"summary\": \"Mahan Air, a major Iranian airline, said it will stop flying to Turkey and Oman, just over a week after new US restrictions were announced. Separately, the US sanctioned an Iranian financier's crypto exchange, saying it processes payments tied to the Strait of Hormuz.\",\n      \"sources\": [\n        {\n          \"article_id\": \"A314\"\n        },\n        {\n          \"article_id\": \"A396\"\n        }\n      ],\n      \"cluster_id\": \"US sweeping sanctions on Iranian airlines deepening Iran's isolation\"\n    },\n    {\n      \"headline\": \"US and China diverge on aims of AI regulation, WSJ finds\",\n      \"summary\": \"American debate over AI regulation centers on protecting humanity from the technology, while Beijing's chief concern is safeguarding the Communist Party's control, according to a Wall Street Journal analysis. A related opinion piece argues that current US AI regulation efforts serve China's interests, drawing a comparison to a scene from 'The Godfather.'\",\n      \"sources\": [\n        {\n          \"article_id\": \"A644\"\n        },\n        {\n          \"article_id\": \"A656\"\n        }\n      ],\n      \"cluster_id\": \"US-China divergence on AI regulation frameworks\"\n    },\n    {\n      \"headline\": \"Warren Buffett to step down as Berkshire Hathaway chair, hands role to Howard Buffett\",\n      \"summary\": \"Berkshire Hathaway has named Howard Buffett as its new chairman. Warren Buffett will step down from the chair role and take on the title of chair emeritus.\",\n      \"sources\": [\n        {\n          \"article_id\": \"A150\"\n        }\n      ],\n      \"cluster_id\": \"Warren Buffett steps down as Berkshire Hathaway chair, Howard Buffett named successor\"\n    },\n    {\n      \"headline\": \"Hong Kong unveils its first five-year plan, centred on Northern Metropolis megaproject\",\n      \"summary\": \"Hong Kong's government unveiled the city's first-ever five-year plan this week alongside leader John Lee's 2026 policy address. The plan centres on the Northern Metropolis, a megaproject spanning roughly a third of the city, and includes three planned university towns and a push to expand Hong Kong's gold holdings, with possible vaults built in the Northern Metropolis to bolster the city's status as a financial hub. Lee said talent admission schemes could add about 1.2 per cent to GDP each year.\",\n      \"sources\": [\n        {\n          \"article_id\": \"A435\"\n        },\n        {\n          \"article_id\": \"A437\"\n        },\n        {\n          \"article_id\": \"A441\"\n        },\n        {\n          \"article_id\": \"A445\"\n        },\n        {\n          \"article_id\": \"A452\"\n        },\n        {\n          \"article_id\": \"A454\"\n        }\n      ],\n      \"cluster_id\": \"Hong Kong debut five-year plan and 2026 policy address\"\n    },\n    {\n      \"headline\": \"Ebola outbreak in Congo remains serious, African health body says\",\n      \"summary\": \"The ongoing Ebola outbreak in the Democratic Republic of Congo is still serious, with data indicating gaps in infection prevention and control, Africa's top public health agency said.\",\n      \"sources\": [\n        {\n          \"article_id\": \"A515\"\n        }\n      ],\n      \"cluster_id\": \"Ebola outbreak in Democratic Republic of Congo September 2026\"\n    },\n    {\n      \"headline\": \"Meta's oversight board orders removal of UK deepfake videos\",\n      \"summary\": \"Meta's Oversight Board ruled that Facebook was wrong to leave up AI-generated deepfake videos targeting a Labour councillor and a Muslim campaigner in the UK, and ordered the company to take them down. The board criticised Meta's safeguards against such fakes as \\\"inadequate\\\", amid wider calls to curb the spread of deepfakes.\",\n      \"sources\": [\n        {\n          \"article_id\": \"A596\"\n        }\n      ],\n      \"cluster_id\": \"Meta Oversight Board orders removal of UK deepfake videos and criticises safeguards\"\n    }\n  ],\n  \"preheader\": \"Russians vote in first Duma election since Ukraine invasion; Bank of Japan raises rates to 31-year high; US clears $24.3bn F-35 sale to Saudi Arabia.\",\n  \"not_covered_blurb\": \"We held back several in-scope stories with new developments today: Ukraine's record 2027 defence spending plan, the self-immolation protest at the UN over Tibet, Pakistan's mosque bombing, Russian drone strikes on Kyiv, and the Houthi Red Sea shipping situation — all either lacked sufficiently new facts beyond recent coverage or were edged out by today's stronger global stories.\"\n}",
+          "cost": 3.9576949,
+          "latencyMs": 709602,
+          "metadata": {
+            "runId": 300,
+            "stories": 17,
+            "broadcast": "sent",
+            "calls": 40
+          }
+        },
+        "score": 1,
+        "success": true,
+        "testCase": {
+          "vars": {
+            "run": 300,
+            "date": "2026-09-18"
+          },
+          "assert": [
+            {
+              "type": "javascript",
+              "value": "JSON.parse(output).must_know.length > 0"
+            },
+            {
+              "type": "cost",
+              "threshold": 6.08
+            },
+            {
+              "type": "latency",
+              "threshold": 1035000
+            }
+          ],
+          "options": {},
+          "metadata": {}
+        },
+        "testIdx": 0,
+        "tokenUsage": {
+          "prompt": 0,
+          "completion": 0,
+          "cached": 0,
+          "total": 0,
+          "numRequests": 1,
+          "completionDetails": {
+            "reasoning": 0,
+            "acceptedPrediction": 0,
+            "rejectedPrediction": 0,
+            "cacheReadInputTokens": 0,
+            "cacheCreationInputTokens": 0
+          },
+          "assertions": {
+            "total": 0,
+            "prompt": 0,
+            "completion": 0,
+            "cached": 0,
+            "numRequests": 0,
+            "completionDetails": {
+              "reasoning": 0,
+              "acceptedPrediction": 0,
+              "rejectedPrediction": 0,
+              "cacheReadInputTokens": 0,
+              "cacheCreationInputTokens": 0
+            }
+          }
+        },
+        "vars": {
+          "run": 300,
+          "date": "2026-09-18"
+        },
+        "metadata": {
+          "runId": 300,
+          "stories": 17,
+          "broadcast": "sent",
+          "calls": 40,
+          "_promptfooFileMetadata": {}
+        },
+        "failureReason": 0
+      },
+      {
+        "cost": 4.87465535,
+        "gradingResult": {
+          "pass": true,
+          "score": 1,
+          "reason": "All assertions passed",
+          "namedScores": {},
+          "tokensUsed": {
+            "total": 0,
+            "prompt": 0,
+            "completion": 0,
+            "cached": 0,
+            "numRequests": 0
+          },
+          "componentResults": [
+            {
+              "pass": true,
+              "score": 1,
+              "reason": "Assertion passed",
+              "assertion": {
+                "type": "javascript",
+                "value": "JSON.parse(output).must_know.length > 0"
+              }
+            },
+            {
+              "pass": true,
+              "score": 1,
+              "reason": "Assertion passed",
+              "assertion": {
+                "type": "cost",
+                "threshold": 6.08
+              }
+            },
+            {
+              "pass": true,
+              "score": 1,
+              "reason": "Assertion passed",
+              "assertion": {
+                "type": "latency",
+                "threshold": 1035000
+              }
+            }
+          ]
+        },
+        "id": "c20de3a2-ab22-4642-a3f0-2fb428463f01",
+        "latencyMs": 833524,
+        "namedScores": {},
+        "prompt": {
+          "raw": "run 300 on 2026-09-18",
+          "label": "run {{run}} on {{date}}",
+          "config": {}
+        },
+        "promptId": "c35d40dafb19519f24fbbe1d5cfe148e8b9165c1173395b4a7c7f373003d06d5",
+        "promptIdx": 0,
+        "provider": {
+          "id": "digest-workflow",
+          "label": ""
+        },
+        "response": {
+          "output": "{\n  \"must_know\": [\n    {\n      \"headline\": \"Russia opens three-day Duma election with war critics barred from ballot\",\n      \"summary\": \"Russians began voting Friday in a three-day State Duma election, the first since Russia's full-scale invasion of Ukraine in 2022. President Vladimir Putin's United Russia, which won more than two-thirds of Duma seats in 2021, is expected to dominate again after Russia's Supreme Court barred Yabloko, the only registered antiwar party, from the ballot in August and restricted Communist Party candidates. The vote unfolds amid fuel queues, Ukrainian drone strikes and fears of a new conscription drive, with the Kremlin needing to recruit about 400,000 people a year to replenish the army.\",\n      \"why_it_matters\": \"The Kremlin's decision to crack down on even loyal 'managed opposition' parties like the Communists, not just genuine dissenters, shows how much it fears a protest vote amid war fatigue and fuel shortages -- meaning the result will measure the extent of suppression more than actual public support for the war Putin has cast the election as a barometer of.\",\n      \"sources\": [\n        {\n          \"article_id\": \"A14\"\n        },\n        {\n          \"article_id\": \"A4\"\n        },\n        {\n          \"article_id\": \"A137\"\n        },\n        {\n          \"article_id\": \"A158\"\n        },\n        {\n          \"article_id\": \"A177\"\n        },\n        {\n          \"article_id\": \"A188\"\n        },\n        {\n          \"article_id\": \"A488\"\n        },\n        {\n          \"article_id\": \"A589\"\n        }\n      ],\n      \"reporting_varies\": [\n        {\n          \"source\": \"Al Jazeera\",\n          \"angle\": \"Focuses on the Kremlin's pre-election crackdown on 'managed opposition' parties like Yabloko and the Communists, framing the vote as driven by fear of a protest vote\",\n          \"bias\": \"critical of Kremlin\"\n        },\n        {\n          \"source\": \"NYT\",\n          \"angle\": \"Frames the election through the lens of why autocrats stage votes at all, arguing it matters mainly for Putin's inner circle as a source of legitimacy\",\n          \"bias\": \"analytical/critical\"\n        },\n        {\n          \"source\": \"Financial Times / DW\",\n          \"angle\": \"Centers on ordinary Russians facing fuel queues, drone strikes and conscription fears as the backdrop to voting\",\n          \"bias\": \"descriptive, war-fatigue focus\"\n        }\n      ],\n      \"cluster_id\": \"Russia 2025 parliamentary elections dismissed as undemocratic\"\n    },\n    {\n      \"headline\": \"Trump to personally greet Xi at Joint Base Andrews ahead of Wednesday summit\",\n      \"summary\": \"Chinese President Xi Jinping will make a state visit to Washington next Wednesday, and Trump plans to personally greet him on the tarmac at Joint Base Andrews, a rare airport reception, according to a US official. Talks are expected to cover artificial intelligence, tariffs and a possible extension of the trade-war truce, with the two sides also discussing measures to strengthen military-to-military ties. Executives from BYD, CATL and Xiaomi may join Xi's delegation, and Washington has delayed threatened tariffs on Chinese industrial overcapacity until after the summit, for reasons that are unclear.\",\n      \"why_it_matters\": \"Washington's decision to delay tariffs on Chinese industrial overcapacity until after the summit, for an unstated reason, while simultaneously discussing deeper military-to-military ties, suggests officials are managing trade friction just enough to protect the diplomatic spectacle without resolving the underlying dispute.\",\n      \"sources\": [\n        {\n          \"article_id\": \"A465\"\n        },\n        {\n          \"article_id\": \"A457\"\n        },\n        {\n          \"article_id\": \"A467\"\n        },\n        {\n          \"article_id\": \"A352\"\n        },\n        {\n          \"article_id\": \"A506\"\n        }\n      ],\n      \"reporting_varies\": [\n        {\n          \"source\": \"SCMP\",\n          \"angle\": \"Emphasizes the rare protocol gesture of Trump greeting Xi at the airport and possible new military-to-military measures.\",\n          \"bias\": \"Hong Kong-based outlet often attentive to how Beijing's diplomatic status is being treated.\"\n        },\n        {\n          \"source\": \"BBC\",\n          \"angle\": \"Focuses on families of Americans detained in China, including a scholar's wife who testified to Congress, pressing Trump to raise their cases with Xi.\",\n          \"bias\": \"Western outlet foregrounding human-rights and individual-case framing over trade diplomacy.\"\n        },\n        {\n          \"source\": \"The Diplomat\",\n          \"angle\": \"Warns of a potential mismatch between US and Japanese positions on China ahead of the summit.\",\n          \"bias\": \"Asia-Pacific policy outlet emphasizing concerns about allied unity.\"\n        }\n      ],\n      \"cluster_id\": \"Xi Jinping US visit and Xi-Trump summit preparations\"\n    },\n    {\n      \"headline\": \"US approves $24.3bn F-35 jet sale to Saudi Arabia over Israeli, China concerns\",\n      \"summary\": \"The US State Department approved a $24.3 billion sale of 48 F-35 stealth fighter jets to Saudi Arabia on Thursday, a deal that would make it the first Arab country to fly the plane. The package, which includes 49 F135 engines, must still clear a 30-day congressional review; Democratic Representative Raja Krishnamoorthi has already opposed it, citing intelligence warnings that China could access F-35 technology through Saudi Arabia's ties with Beijing. Israel, currently the only Middle Eastern operator of the jet, has voiced concern about losing its military edge, though Prime Minister Netanyahu's office says understandings with Washington will preserve it.\",\n      \"why_it_matters\": \"The sale tests two pillars of long-standing US arms policy at once: Washington's guarantee that Israel keeps a qualitative military edge, and its trust that Gulf partners won't leak F-35 secrets to Beijing -- a risk the administration's own intelligence agencies have flagged given Saudi Arabia's growing military ties with China.\",\n      \"sources\": [\n        {\n          \"article_id\": \"A35\"\n        },\n        {\n          \"article_id\": \"A39\"\n        },\n        {\n          \"article_id\": \"A63\"\n        },\n        {\n          \"article_id\": \"A121\"\n        },\n        {\n          \"article_id\": \"A186\"\n        },\n        {\n          \"article_id\": \"A220\"\n        },\n        {\n          \"article_id\": \"A311\"\n        },\n        {\n          \"article_id\": \"A385\"\n        },\n        {\n          \"article_id\": \"A477\"\n        },\n        {\n          \"article_id\": \"A519\"\n        }\n      ],\n      \"reporting_varies\": [\n        {\n          \"source\": \"New York Times\",\n          \"angle\": \"Emphasizes US intelligence warnings that China could acquire F-35 technology via Saudi Arabia\",\n          \"bias\": \"center-left\"\n        },\n        {\n          \"source\": \"Haaretz\",\n          \"angle\": \"Focuses on Israeli concern over losing regional air superiority and Netanyahu's assurances\",\n          \"bias\": \"center\"\n        },\n        {\n          \"source\": \"Al-Monitor / AFP wire reports\",\n          \"angle\": \"Straight factual account of the deal's terms and congressional review process\",\n          \"bias\": \"center\"\n        }\n      ],\n      \"cluster_id\": \"US approves $24 billion F-35 sale to Saudi Arabia\"\n    },\n    {\n      \"headline\": \"Bank of Japan raises rates to 31-year high of 1.25%, but yen slides on split vote\",\n      \"summary\": \"The Bank of Japan raised its benchmark rate by 0.25 points to 1.25%, the highest level since 1995 and its first hike since June. Two board members opposed the increase, and Governor Kazuo Ueda's hawkish comments failed to stop the yen from sliding to a two-week low, as investors read the dissent as a sign future rises could come more slowly than expected. The move follows the Federal Reserve's rate hike this week and the European Central Bank's increase to 2.5% last week.\",\n      \"why_it_matters\": \"A yen that weakens even as the BoJ hikes shows markets betting on a slower tightening path, which risks widening the gap with U.S. and European rates further and feeding back into the same import-driven inflation the bank is trying to contain.\",\n      \"sources\": [\n        {\n          \"article_id\": \"A21\"\n        },\n        {\n          \"article_id\": \"A157\"\n        },\n        {\n          \"article_id\": \"A159\"\n        },\n        {\n          \"article_id\": \"A274\"\n        },\n        {\n          \"article_id\": \"A360\"\n        },\n        {\n          \"article_id\": \"A650\"\n        },\n        {\n          \"article_id\": \"A355\"\n        },\n        {\n          \"article_id\": \"A260\"\n        }\n      ],\n      \"reporting_varies\": [\n        {\n          \"source\": \"Reuters\",\n          \"angle\": \"Framed the hike as a widely expected move confirming the BoJ's tightening path\",\n          \"bias\": \"wire service, neutral\"\n        },\n        {\n          \"source\": \"Nikkei Asia\",\n          \"angle\": \"Emphasized dashed market hopes for a more aggressive pace of tightening\",\n          \"bias\": \"regional financial press\"\n        },\n        {\n          \"source\": \"Wall Street Journal\",\n          \"angle\": \"Focused on how the hike makes U.S. assets less attractive to Japanese investors\",\n          \"bias\": \"financial press, investor-flow angle\"\n        }\n      ],\n      \"cluster_id\": \"Bank of Japan interest rate hike decision and Ueda press conference\"\n    },\n    {\n      \"headline\": \"Gulf conflict disrupts energy supplies to Pakistan and Bangladesh\",\n      \"summary\": \"Pakistan announced austerity measures to conserve fuel as the Gulf conflict spirals, and energy disruption has also hit Bangladesh as the crisis worsens.\",\n      \"why_it_matters\": \"Fuel austerity in Pakistan and energy disruption in Bangladesh show the Gulf conflict straining energy-import-dependent economies outside the Gulf itself, not just the oil producers and shippers directly in the conflict zone.\",\n      \"sources\": [\n        {\n          \"article_id\": \"A430\"\n        },\n        {\n          \"article_id\": \"A431\"\n        }\n      ],\n      \"cluster_id\": \"Suicide vehicle bombing kills at least 16 at mosque in Pakistan during Friday prayers\"\n    }\n  ],\n  \"should_know\": [\n    {\n      \"headline\": \"Canada-EU 'associate member' offer meets doubts over what it means\",\n      \"summary\": \"Canadian Prime Minister Mark Carney welcomed a European Union proposal to make Canada the bloc's first 'associate member', addressing the European Parliament in Strasbourg after US President Trump called the idea 'laughable' and threatened 'very serious' tariffs on Europe over it. The status does not currently exist within the EU, would require agreement from all 27 member states, and could take years to implement; Reuters and the Guardian report the tie-up still faces real limits, with no clarity yet on what it would mean in practice.\",\n      \"sources\": [\n        {\n          \"article_id\": \"A54\"\n        },\n        {\n          \"article_id\": \"A64\"\n        },\n        {\n          \"article_id\": \"A550\"\n        },\n        {\n          \"article_id\": \"A354\"\n        }\n      ],\n      \"cluster_id\": \"EU proposes associate membership for Canada amid US trade tensions\"\n    },\n    {\n      \"headline\": \"Houthi advance toward Marib forces 125,000 Yemenis to flee\",\n      \"summary\": \"Iran-backed Houthi fighters have advanced toward Yemen's oil-rich Marib province, clashing with Saudi-backed government forces in an escalation of the country's 12-year civil war. An estimated 125,000 people, including more than 57,000 children, have fled since fighting erupted in July, with many escaping by boat. The advance has also extended Houthi control along the Red Sea coast, threatening a key alternative shipping route for Gulf oil.\",\n      \"sources\": [\n        {\n          \"article_id\": \"A304\"\n        },\n        {\n          \"article_id\": \"A290\"\n        },\n        {\n          \"article_id\": \"A180\"\n        },\n        {\n          \"article_id\": \"A206\"\n        }\n      ],\n      \"cluster_id\": \"Houthi threats to Red Sea shipping and global trade during Iran-US war\"\n    },\n    {\n      \"headline\": \"Russia places Nestlé, Auchan and Leroy Merlin under state administration\",\n      \"summary\": \"Russia seized control of Nestlé's local operations and put the Russian businesses of French retailers Auchan and Leroy Merlin under temporary external administration, according to a presidential decree. It is the first such move against Western-owned assets since 2023.\",\n      \"sources\": [\n        {\n          \"article_id\": \"A152\"\n        },\n        {\n          \"article_id\": \"A658\"\n        }\n      ],\n      \"cluster_id\": \"Russia seizes control of Nestlé and Auchan operations\"\n    },\n    {\n      \"headline\": \"South Korea's Lee rejects Trump pressure to send troops for Iran war\",\n      \"summary\": \"South Korean President Lee Jae Myung said Friday he will not deploy any military assets to the Middle East in a way that could draw Seoul into the US war on Iran, ruling out sending forces to the Strait of Hormuz. The move rebuffs President Trump's repeated demand for what Trump called \\\"a little hand\\\" from South Korea, a longtime American ally; Lee said he would instead work to facilitate possible US-North Korea talks.\",\n      \"sources\": [\n        {\n          \"article_id\": \"A16\"\n        },\n        {\n          \"article_id\": \"A28\"\n        },\n        {\n          \"article_id\": \"A303\"\n        },\n        {\n          \"article_id\": \"A557\"\n        }\n      ],\n      \"cluster_id\": \"South Korea ruling out Hormuz military deployment while facilitating US-North Korea talks\"\n    },\n    {\n      \"headline\": \"Hong Kong unveils first five-year plan built around Northern Metropolis megaproject\",\n      \"summary\": \"Hong Kong this week unveiled its first-ever five-year plan alongside the 2026 policy address, centered on the Northern Metropolis megaproject spanning roughly a third of the city. Chief Executive John Lee said talent admission schemes could add about 1.2 per cent to GDP each year, while officials outlined plans for three new university towns favoring self-funded campuses and possible gold vaults in the Northern Metropolis to bolster the city's status as a financial hub.\",\n      \"sources\": [\n        {\n          \"article_id\": \"A435\"\n        },\n        {\n          \"article_id\": \"A445\"\n        },\n        {\n          \"article_id\": \"A452\"\n        },\n        {\n          \"article_id\": \"A454\"\n        },\n        {\n          \"article_id\": \"A437\"\n        }\n      ],\n      \"cluster_id\": \"Hong Kong debut five-year plan and 2026 policy address\"\n    },\n    {\n      \"headline\": \"Earl Spencer's memoir says King Charles seemed 'giddily elated' after Diana's death\",\n      \"summary\": \"Charles Spencer, brother of the late Princess Diana, writes in a forthcoming memoir that King Charles sounded like a 'lottery winner' and appeared 'giddily elated' after Diana's death, and suggests some at Buckingham Palace were 'relieved' too. Buckingham Palace has rejected the criticism in the book. Spencer's extracts, published by the Daily Mail, also claim Diana separated from Charles in part because he was in love with his valet.\",\n      \"sources\": [\n        {\n          \"article_id\": \"A86\"\n        },\n        {\n          \"article_id\": \"A141\"\n        },\n        {\n          \"article_id\": \"A389\"\n        },\n        {\n          \"article_id\": \"A475\"\n        },\n        {\n          \"article_id\": \"A526\"\n        },\n        {\n          \"article_id\": \"A586\"\n        }\n      ],\n      \"cluster_id\": \"King Charles III warns AI company executives of existential dangers of AI\"\n    },\n    {\n      \"headline\": \"China's Djibouti base upgrades boost monitoring reach, report finds\",\n      \"summary\": \"China has upgraded its military base in Djibouti in ways that should significantly enhance its ability to monitor military activity across the Middle East and Africa, according to a report by a US think tank. The Djibouti facility is China's only formally acknowledged overseas military base.\",\n      \"sources\": [\n        {\n          \"article_id\": \"A34\"\n        },\n        {\n          \"article_id\": \"A90\"\n        },\n        {\n          \"article_id\": \"A513\"\n        }\n      ],\n      \"cluster_id\": \"China upgrades Djibouti military base to boost regional monitoring\"\n    },\n    {\n      \"headline\": \"SPD surge could slow AfD's bid to lead a German state for the first time\",\n      \"summary\": \"A late surge by the governing Social Democrats in an eastern German state could blunt the far-right AfD's momentum as it seeks to become the first party of its kind to control a state government. German art institutions are meanwhile bracing for a fight, as the AfD's push for \\\"patriotic\\\" art policies has drawn comparisons to Nazi-era cultural controls.\",\n      \"sources\": [\n        {\n          \"article_id\": \"A146\"\n        },\n        {\n          \"article_id\": \"A296\"\n        }\n      ],\n      \"cluster_id\": \"AfD facing setback in German eastern state election\"\n    },\n    {\n      \"headline\": \"Indonesia receives first aircraft carrier, a gift from Italy, amid cost debate\",\n      \"summary\": \"Indonesia has received its first aircraft carrier, a former Italian vessel given as a gift from Italy, as part of a wider military upgrade. Jakarta says the ship will aid disaster relief across the archipelago, but the acquisition has drawn debate among defence analysts and opposition politicians who question its true cost and purpose.\",\n      \"sources\": [\n        {\n          \"article_id\": \"A8\"\n        },\n        {\n          \"article_id\": \"A554\"\n        }\n      ],\n      \"cluster_id\": \"Indonesia acquires first aircraft carrier in military upgrade\"\n    },\n    {\n      \"headline\": \"Boko Haram fighters used AI chatbots to build bombs, Cambridge study finds\",\n      \"summary\": \"Boko Haram's ISWAP and JAS factions used chatbots including ChatGPT, Claude, Gemini, Grok, Meta AI and DeepSeek for bomb-making advice, attack planning and battlefield problem-solving, according to University of Cambridge researchers who interviewed 27 former members. One former JAS commander described a 23-person unit working from a solar-powered room to query AI and train commanders, and trainers reportedly taught members how to bypass the chatbots' safety restrictions. Separately, Al Jazeera obtained material showing ISIL supporters sharing similar bypass instructions on a pro-ISIL forum monitored by researchers at Tech Against Terrorism.\",\n      \"sources\": [\n        {\n          \"article_id\": \"A7\"\n        }\n      ],\n      \"cluster_id\": \"ISIL exploitation of AI chatbots for bomb-making instructions\"\n    },\n    {\n      \"headline\": \"US and China diverge sharply on what AI guardrails should protect\",\n      \"summary\": \"An analysis finds that America's debate over AI regulation centers on protecting humanity from the technology's risks, while Beijing's approach centers on safeguarding the Communist Party's control. A companion opinion piece argues that US-style AI regulation could work to China's advantage.\",\n      \"sources\": [\n        {\n          \"article_id\": \"A644\"\n        },\n        {\n          \"article_id\": \"A656\"\n        }\n      ],\n      \"cluster_id\": \"US-China divergence on AI regulation and guardrails\"\n    },\n    {\n      \"headline\": \"Malaysia's king lets Najib Razak swap prison for house arrest\",\n      \"summary\": \"Malaysia's king agreed to let jailed former prime minister Najib Razak serve the rest of his sentence under house arrest, the government said, four years after his conviction in the multibillion-dollar 1MDB corruption scandal. Najib will serve out his term at a luxury home rather than in prison.\",\n      \"sources\": [\n        {\n          \"article_id\": \"A91\"\n        },\n        {\n          \"article_id\": \"A302\"\n        },\n        {\n          \"article_id\": \"A642\"\n        }\n      ],\n      \"cluster_id\": \"Najib Razak house arrest sentence commutation by Malaysian king\"\n    }\n  ],\n  \"preheader\": \"Russia bars war critics from Duma election; Trump to meet Xi as US approves Saudi F-35 sale.\",\n  \"not_covered_blurb\": \"Also notable today but cut for space: Ukraine's record $140bn 2027 defence budget, Russia's daring covert attack plots in the West, ongoing drone strikes on Ukrainian cities, and the continuing Ebola outbreak in the Democratic Republic of Congo.\"\n}",
+          "cost": 4.87465535,
+          "latencyMs": 833524,
+          "metadata": {
+            "runId": 300,
+            "stories": 17,
+            "broadcast": "sent",
+            "calls": 40
+          }
+        },
+        "score": 1,
+        "success": true,
+        "testCase": {
+          "vars": {
+            "run": 300,
+            "date": "2026-09-18"
+          },
+          "assert": [
+            {
+              "type": "javascript",
+              "value": "JSON.parse(output).must_know.length > 0"
+            },
+            {
+              "type": "cost",
+              "threshold": 6.08
+            },
+            {
+              "type": "latency",
+              "threshold": 1035000
+            }
+          ],
+          "options": {},
+          "metadata": {}
+        },
+        "testIdx": 1,
+        "tokenUsage": {
+          "prompt": 0,
+          "completion": 0,
+          "cached": 0,
+          "total": 0,
+          "numRequests": 1,
+          "completionDetails": {
+            "reasoning": 0,
+            "acceptedPrediction": 0,
+            "rejectedPrediction": 0,
+            "cacheReadInputTokens": 0,
+            "cacheCreationInputTokens": 0
+          },
+          "assertions": {
+            "total": 0,
+            "prompt": 0,
+            "completion": 0,
+            "cached": 0,
+            "numRequests": 0,
+            "completionDetails": {
+              "reasoning": 0,
+              "acceptedPrediction": 0,
+              "rejectedPrediction": 0,
+              "cacheReadInputTokens": 0,
+              "cacheCreationInputTokens": 0
+            }
+          }
+        },
+        "vars": {
+          "run": 300,
+          "date": "2026-09-18"
+        },
+        "metadata": {
+          "runId": 300,
+          "stories": 17,
+          "broadcast": "sent",
+          "calls": 40,
+          "_promptfooFileMetadata": {}
+        },
+        "failureReason": 0
+      },
+      {
+        "cost": 4.1086365,
+        "gradingResult": {
+          "pass": true,
+          "score": 1,
+          "reason": "All assertions passed",
+          "namedScores": {},
+          "tokensUsed": {
+            "total": 0,
+            "prompt": 0,
+            "completion": 0,
+            "cached": 0,
+            "numRequests": 0
+          },
+          "componentResults": [
+            {
+              "pass": true,
+              "score": 1,
+              "reason": "Assertion passed",
+              "assertion": {
+                "type": "javascript",
+                "value": "JSON.parse(output).must_know.length > 0"
+              }
+            },
+            {
+              "pass": true,
+              "score": 1,
+              "reason": "Assertion passed",
+              "assertion": {
+                "type": "cost",
+                "threshold": 6.08
+              }
+            },
+            {
+              "pass": true,
+              "score": 1,
+              "reason": "Assertion passed",
+              "assertion": {
+                "type": "latency",
+                "threshold": 1035000
+              }
+            }
+          ]
+        },
+        "id": "7cde26f3-ff10-410d-b0d3-de3788d3ea4b",
+        "latencyMs": 731785,
+        "namedScores": {},
+        "prompt": {
+          "raw": "run 300 on 2026-09-18",
+          "label": "run {{run}} on {{date}}",
+          "config": {}
+        },
+        "promptId": "c35d40dafb19519f24fbbe1d5cfe148e8b9165c1173395b4a7c7f373003d06d5",
+        "promptIdx": 0,
+        "provider": {
+          "id": "digest-workflow",
+          "label": ""
+        },
+        "response": {
+          "output": "{\n  \"must_know\": [\n    {\n      \"headline\": \"Russia opens three-day Duma vote after barring last antiwar party\",\n      \"summary\": \"Russians began voting Friday in a three-day election for the State Duma, the first since Russia's full-scale invasion of Ukraine, with President Vladimir Putin's United Russia party set to extend the two-thirds majority it won in 2021 as the war heads into its fifth year. The Kremlin barred Yabloko, the only registered party opposing the war, from the party-list ballot after a Supreme Court ruling in August, following a surge in public interest that saw searches for the party spike fivefold. Voters face fuel queues and fear a new mobilization wave; the Kremlin needs to recruit about 400,000 people a year to keep the army's ranks full.\",\n      \"why_it_matters\": \"The pre-election crackdown - deregistering Yabloko days after interest in it spiked fivefold, and barring a popular Communist Party critic with over two million YouTube subscribers over a social-media post featuring the late Alexei Navalny's photo - shows the Kremlin views even a token protest vote as an unacceptable risk, undercutting its own framing of the election as a measure of genuine public support for the war.\",\n      \"sources\": [\n        {\n          \"article_id\": \"A4\"\n        },\n        {\n          \"article_id\": \"A14\"\n        },\n        {\n          \"article_id\": \"A70\"\n        },\n        {\n          \"article_id\": \"A137\"\n        },\n        {\n          \"article_id\": \"A158\"\n        },\n        {\n          \"article_id\": \"A175\"\n        },\n        {\n          \"article_id\": \"A177\"\n        },\n        {\n          \"article_id\": \"A184\"\n        },\n        {\n          \"article_id\": \"A188\"\n        },\n        {\n          \"article_id\": \"A200\"\n        },\n        {\n          \"article_id\": \"A297\"\n        },\n        {\n          \"article_id\": \"A300\"\n        },\n        {\n          \"article_id\": \"A334\"\n        },\n        {\n          \"article_id\": \"A471\"\n        },\n        {\n          \"article_id\": \"A488\"\n        },\n        {\n          \"article_id\": \"A490\"\n        },\n        {\n          \"article_id\": \"A491\"\n        },\n        {\n          \"article_id\": \"A589\"\n        }\n      ],\n      \"reporting_varies\": [\n        {\n          \"source\": \"Al Jazeera\",\n          \"angle\": \"Focuses on the mechanics of the Kremlin's pre-election crackdown on 'managed opposition' parties, detailing how Yabloko's registration was revoked and a Communist critic barred\",\n          \"bias\": \"Analytical, critical of Kremlin electoral control\"\n        },\n        {\n          \"source\": \"The Guardian\",\n          \"angle\": \"Frames the vote within Putin's broader 'tightening grip', linking it to reporting on state surveillance of citizens via a mobile app\",\n          \"bias\": \"Critical of Kremlin authoritarianism\"\n        },\n        {\n          \"source\": \"France 24\",\n          \"angle\": \"Cites a Chatham House analyst arguing the results will not measure real support for Putin or the war, given the absence of meaningful competition\",\n          \"bias\": \"Expert-sourced, skeptical framing\"\n        }\n      ],\n      \"cluster_id\": \"Russia 2025 parliamentary election condemned as undemocratic\"\n    },\n    {\n      \"headline\": \"UN mission says US strike on Iran school killed over 100 children, may be war crime\",\n      \"summary\": \"A UN fact-finding mission said Thursday it has \\\"reasonable grounds to believe\\\" the United States carried out two strikes in Iran in February: one on a primary school in Minab that killed more than 100 children, mistakes investigators said \\\"went beyond negligence,\\\" and a same-day strike on a sports complex in Lamerd that reportedly killed 22 civilians. The same mission concluded Iranian forces separately committed crimes against humanity during a crackdown on protesters, with the worst repression occurring in January. Washington has not acknowledged carrying out the February strikes.\",\n      \"why_it_matters\": \"The report gives evidentiary weight to atrocity claims on both sides of the war: UN investigators say a US strike killed more than 100 children in a school Washington still hasn't acknowledged bombing, while the same mission found Iranian security forces committed crimes against humanity during a protest crackdown that peaked in January, leaving neither government able to claim the moral high ground.\",\n      \"sources\": [\n        {\n          \"article_id\": \"A15\"\n        },\n        {\n          \"article_id\": \"A56\"\n        },\n        {\n          \"article_id\": \"A71\"\n        },\n        {\n          \"article_id\": \"A179\"\n        },\n        {\n          \"article_id\": \"A294\"\n        },\n        {\n          \"article_id\": \"A305\"\n        },\n        {\n          \"article_id\": \"A483\"\n        }\n      ],\n      \"cluster_id\": \"UN findings of US war crimes in strikes on Iranian school and sports complex\"\n    },\n    {\n      \"headline\": \"Bank of Japan raises rates to 31-year high of 1.25%, yen slides to two-week low\",\n      \"summary\": \"The Bank of Japan raised its benchmark interest rate by 0.25 points to 1.25%, the highest level in 31 years, in a split vote with two board members opposed. Governor Kazuo Ueda called it a shift in policy phase, but the yen fell to a two-week low of 158 per dollar after his remarks suggested further hikes may come more slowly than markets expected. The move follows the U.S. Federal Reserve's rate increase earlier in the week and comes as Japan's core inflation holds above the central bank's 2% target.\",\n      \"why_it_matters\": \"The yen weakened even as rates rose, a sign markets doubt the BOJ can keep pace with the Fed and ECB; a widening U.S.-Japan rate gap risks pushing the yen down further and importing more inflation through pricier imports, the opposite of what the hike aims to achieve.\",\n      \"sources\": [\n        {\n          \"article_id\": \"A21\"\n        },\n        {\n          \"article_id\": \"A157\"\n        },\n        {\n          \"article_id\": \"A159\"\n        },\n        {\n          \"article_id\": \"A258\"\n        },\n        {\n          \"article_id\": \"A259\"\n        },\n        {\n          \"article_id\": \"A260\"\n        },\n        {\n          \"article_id\": \"A270\"\n        },\n        {\n          \"article_id\": \"A274\"\n        },\n        {\n          \"article_id\": \"A337\"\n        },\n        {\n          \"article_id\": \"A350\"\n        },\n        {\n          \"article_id\": \"A355\"\n        },\n        {\n          \"article_id\": \"A360\"\n        },\n        {\n          \"article_id\": \"A366\"\n        },\n        {\n          \"article_id\": \"A367\"\n        },\n        {\n          \"article_id\": \"A555\"\n        },\n        {\n          \"article_id\": \"A650\"\n        }\n      ],\n      \"reporting_varies\": [\n        {\n          \"source\": \"Al Jazeera\",\n          \"angle\": \"Frames the hike around inflation, wage pressure and pressure from Washington to keep pace with the Fed\",\n          \"bias\": \"straight wire reporting\"\n        },\n        {\n          \"source\": \"Reuters\",\n          \"angle\": \"Focuses on market reaction, describing the yen's slump as a sign the hike 'underwhelmed' investors\",\n          \"bias\": \"straight wire reporting\"\n        },\n        {\n          \"source\": \"WSJ\",\n          \"angle\": \"Emphasizes the effect on Japanese investors, saying the move makes U.S. assets less attractive to Tokyo\",\n          \"bias\": \"business-investor framing\"\n        }\n      ],\n      \"cluster_id\": \"Bank of Japan interest rate hike decision and Governor Ueda press conference\"\n    },\n    {\n      \"headline\": \"US approves $24.3bn F-35 sale to Saudi Arabia over Israeli and intelligence concerns\",\n      \"summary\": \"The US State Department approved a $24.3 billion sale of 48 F-35 stealth fighter jets to Saudi Arabia on Thursday, a step toward making the kingdom the first Arab country to acquire the aircraft. The sale, first announced by President Trump ahead of a White House visit by Crown Prince Mohammed bin Salman, now faces a 30-day congressional review; Democratic lawmakers have already objected, citing intelligence warnings that Saudi Arabia's military ties with China could expose sensitive F-35 technology, while Israeli officials have voiced concern about preserving their military edge as the only Middle East country currently flying the jet.\",\n      \"why_it_matters\": \"The deal moves ahead despite the administration's own intelligence agencies warning that Beijing could exploit Saudi Arabia's military relationship with China to access F-35 technology, and despite Israel's concerns about losing the air-power edge it has held as the region's sole operator of the jet.\",\n      \"sources\": [\n        {\n          \"article_id\": \"A35\"\n        },\n        {\n          \"article_id\": \"A39\"\n        },\n        {\n          \"article_id\": \"A63\"\n        },\n        {\n          \"article_id\": \"A121\"\n        },\n        {\n          \"article_id\": \"A186\"\n        },\n        {\n          \"article_id\": \"A220\"\n        },\n        {\n          \"article_id\": \"A311\"\n        },\n        {\n          \"article_id\": \"A385\"\n        },\n        {\n          \"article_id\": \"A477\"\n        },\n        {\n          \"article_id\": \"A519\"\n        }\n      ],\n      \"reporting_varies\": [\n        {\n          \"source\": \"NYT\",\n          \"angle\": \"Frames the sale around unresolved US intelligence warnings that China could acquire F-35 technology through Saudi ties, despite those concerns\",\n          \"bias\": \"center-left, US establishment\"\n        },\n        {\n          \"source\": \"Haaretz\",\n          \"angle\": \"Emphasizes Israeli anxiety over losing its regional air superiority and Netanyahu's office seeking assurances from Washington\",\n          \"bias\": \"Israeli, center-left\"\n        },\n        {\n          \"source\": \"Al-Monitor/AFP wire coverage\",\n          \"angle\": \"Situates the sale within a string of major Saudi arms purchases this year amid the ongoing Iran war and Houthi attacks on the kingdom\",\n          \"bias\": \"regional wire reporting, largely neutral\"\n        }\n      ],\n      \"cluster_id\": \"US approves $24.3 billion F-35 sale to Saudi Arabia\"\n    },\n    {\n      \"headline\": \"Canada-EU 'associate member' plan hits limits as key terms remain undefined\",\n      \"summary\": \"Two days after the EU offered Canada a chance to become its first-ever \\\"associate member,\\\" Reuters and other outlets reported the arrangement faces real limits: the status does not currently exist in EU law, remains undefined, and would need unanimous approval from all 27 member states — a process that could take years. Prime Minister Mark Carney had welcomed the offer in an address to the European Parliament in Strasbourg, saying Canada is not seeking full EU membership but closer cooperation on defence, critical minerals and energy, while US President Donald Trump called the idea \\\"laughable\\\" and threatened \\\"very serious tariffs\\\" on Europe if he judged it a hostile act.\",\n      \"why_it_matters\": \"A status that doesn't yet exist in EU law and needs sign-off from 27 governments means Carney's diplomatic win over Washington could stay symbolic for years, even as Trump's tariff threat looms immediately.\",\n      \"sources\": [\n        {\n          \"article_id\": \"A54\"\n        },\n        {\n          \"article_id\": \"A354\"\n        },\n        {\n          \"article_id\": \"A496\"\n        },\n        {\n          \"article_id\": \"A550\"\n        },\n        {\n          \"article_id\": \"A598\"\n        },\n        {\n          \"article_id\": \"A484\"\n        }\n      ],\n      \"reporting_varies\": [\n        {\n          \"source\": \"Reuters/Straits Times\",\n          \"angle\": \"Emphasizes practical limits to the relationship and its mostly symbolic nature\",\n          \"bias\": \"Neutral, analytical\"\n        },\n        {\n          \"source\": \"The Guardian\",\n          \"angle\": \"Frames the overture as strategic ambition, drawing lessons for post-Brexit Britain\",\n          \"bias\": \"Center-left, editorializing\"\n        },\n        {\n          \"source\": \"SCMP\",\n          \"angle\": \"Frames Carney's embrace of the plan as defiance of Trump despite his objections\",\n          \"bias\": \"Focuses on US-Canada friction\"\n        }\n      ],\n      \"cluster_id\": \"EU proposal for Canada associate membership\"\n    }\n  ],\n  \"should_know\": [\n    {\n      \"headline\": \"Indonesia calls off search for missing volcano journalists, recovers bodies from capsized boat\",\n      \"summary\": \"Indonesian rescuers ended a 10-day search for eight people missing at sea, including five journalists who had been covering the eruption of Mount Anak Krakatau. Recovery teams have since begun efforts to right the capsized vessel and have recovered three bodies.\",\n      \"sources\": [\n        {\n          \"article_id\": \"A30\"\n        },\n        {\n          \"article_id\": \"A101\"\n        },\n        {\n          \"article_id\": \"A369\"\n        }\n      ],\n      \"cluster_id\": \"Indonesia acquires first aircraft carrier\"\n    },\n    {\n      \"headline\": \"China's Djibouti base upgrades widen surveillance reach, report says\",\n      \"summary\": \"China has upgraded its military base in Djibouti in ways that should significantly boost its ability to monitor military activity across the Middle East and Africa, according to a report by a US think tank. The Djibouti base is China's only formally acknowledged overseas military installation.\",\n      \"sources\": [\n        {\n          \"article_id\": \"A34\"\n        },\n        {\n          \"article_id\": \"A90\"\n        },\n        {\n          \"article_id\": \"A399\"\n        },\n        {\n          \"article_id\": \"A513\"\n        }\n      ],\n      \"cluster_id\": \"China upgrades Djibouti military base for enhanced regional monitoring\"\n    },\n    {\n      \"headline\": \"Turkey detains finance executives as it moves to support markets after fund selloff\",\n      \"summary\": \"Turkish authorities detained several finance executives on Thursday as part of an effort to contain a market rout that exposed strains in the country's investment-fund industry. Turkey's government stepped in to support markets after a liquidity crunch at funds triggered a broader selloff.\",\n      \"sources\": [\n        {\n          \"article_id\": \"A38\"\n        },\n        {\n          \"article_id\": \"A287\"\n        },\n        {\n          \"article_id\": \"A404\"\n        }\n      ],\n      \"cluster_id\": \"Turkey detains finance executives amid market turmoil\"\n    },\n    {\n      \"headline\": \"Car bomb kills at least 16 at Pakistan mosque during Friday prayers\",\n      \"summary\": \"A vehicle loaded with explosives rammed into a mosque in Pakistan during Friday prayers, killing at least 16 people, a senior police official told the BBC.\",\n      \"sources\": [\n        {\n          \"article_id\": \"A53\"\n        }\n      ],\n      \"cluster_id\": \"Suicide vehicle bomb attack on mosque in Pakistan during Friday prayers\"\n    },\n    {\n      \"headline\": \"Xi to arrive in Washington next Wednesday for rare Trump tarmac welcome\",\n      \"summary\": \"Chinese President Xi Jinping is due in Washington next Wednesday for a state visit, and President Trump will personally greet him on the tarmac at Joint Base Andrews, a rare honor, a US official said. The two sides are expected to discuss AI, tariffs and a potential extension of their trade-war truce, and are weighing possible measures to boost military-to-military ties; Chinese Foreign Minister Wang Yi and US Secretary of State Marco Rubio held a phone call days ahead of the trip. The US has reportedly delayed tariffs on excess industrial capacity until after the summit.\",\n      \"sources\": [\n        {\n          \"article_id\": \"A465\"\n        },\n        {\n          \"article_id\": \"A457\"\n        },\n        {\n          \"article_id\": \"A467\"\n        },\n        {\n          \"article_id\": \"A466\"\n        },\n        {\n          \"article_id\": \"A506\"\n        },\n        {\n          \"article_id\": \"A372\"\n        }\n      ],\n      \"cluster_id\": \"Xi Jinping US visit and Xi-Trump summit\"\n    },\n    {\n      \"headline\": \"Malaysia's king lets ex-PM Najib Razak serve sentence under house arrest\",\n      \"summary\": \"Malaysia's king agreed to let jailed former prime minister Najib Razak serve the rest of his sentence under house arrest, the government said, four years after his conviction. Najib was found guilty in the multibillion-dollar 1MDB scandal and will now serve his time at a luxury home instead of prison.\",\n      \"sources\": [\n        {\n          \"article_id\": \"A91\"\n        },\n        {\n          \"article_id\": \"A302\"\n        },\n        {\n          \"article_id\": \"A642\"\n        }\n      ],\n      \"cluster_id\": \"Malaysia ex-PM Najib Razak house arrest sentence arrangement\"\n    },\n    {\n      \"headline\": \"Russia places Nestlé, Auchan and Leroy Merlin operations under external administration\",\n      \"summary\": \"Russia's government put the local operations of Nestlé, French retailer Auchan and home-improvement chain Leroy Merlin under temporary external administration, according to a presidential decree. The Financial Times called it the first such move against Western-owned assets since 2023.\",\n      \"sources\": [\n        {\n          \"article_id\": \"A152\"\n        },\n        {\n          \"article_id\": \"A658\"\n        }\n      ],\n      \"cluster_id\": \"Russia seizing control of Nestlé and Auchan western-owned operations\"\n    },\n    {\n      \"headline\": \"Éric Zemmour joins France's 2027 presidential race\",\n      \"summary\": \"Far-right politician Éric Zemmour said Friday he will run in France's 2027 presidential election, joining far-right rival Marine Le Pen, who was runner-up to President Emmanuel Macron.\",\n      \"sources\": [\n        {\n          \"article_id\": \"A182\"\n        }\n      ],\n      \"cluster_id\": \"Éric Zemmour enters 2027 French presidential race\"\n    },\n    {\n      \"headline\": \"France to cut spending by €54 billion in 2027 budget\",\n      \"summary\": \"Prime Minister Sébastien Lecornu said France will cut public spending by €54 billion next year to rein in the deficit, which the government now expects to reach 5.4% of GDP rather than its earlier 5.1% target. Pensions will not be reduced and public benefits will not be frozen, but public sector workers will forgo cost-of-living adjustments, as the plan comes seven months before the presidential election amid a jump in global oil prices and fresh protest calls.\",\n      \"sources\": [\n        {\n          \"article_id\": \"A185\"\n        },\n        {\n          \"article_id\": \"A532\"\n        }\n      ],\n      \"cluster_id\": \"France plans €54 billion spending cuts to reduce deficit\"\n    },\n    {\n      \"headline\": \"Hong Kong unveils first five-year plan, anchored by Northern Metropolis megaproject\",\n      \"summary\": \"Hong Kong unveiled its first-ever five-year plan alongside the 2026 policy address, centered on the Northern Metropolis, a development zone set to span roughly a third of the city. The plan calls for three university towns and possible gold vaults in the Northern Metropolis, plus new electric-vehicle infrastructure, and city leader John Lee said talent admission schemes could add about 1.2% to GDP annually. A Wall Street Journal opinion piece described it as a Beijing-style five-year plan for a city that grew rich on freedom.\",\n      \"sources\": [\n        {\n          \"article_id\": \"A437\"\n        },\n        {\n          \"article_id\": \"A445\"\n        },\n        {\n          \"article_id\": \"A452\"\n        },\n        {\n          \"article_id\": \"A454\"\n        },\n        {\n          \"article_id\": \"A444\"\n        },\n        {\n          \"article_id\": \"A435\"\n        },\n        {\n          \"article_id\": \"A655\"\n        }\n      ],\n      \"cluster_id\": \"Hong Kong debut five-year plan and 2026 policy address\"\n    },\n    {\n      \"headline\": \"Russia's Max super-app used to surveil citizens, research finds\",\n      \"summary\": \"Research cited by the Guardian shows tens of millions of Russians have been forced to install Max, a mobile 'super-app' that functions as a backdoor on their devices. The findings point to a state-directed effort to monitor citizens through mandatory use of the platform over the past 18 months.\",\n      \"sources\": [\n        {\n          \"article_id\": \"A553\"\n        }\n      ],\n      \"cluster_id\": \"Russia using Max mobile super-app to surveil citizens\"\n    }\n  ],\n  \"preheader\": \"Russia bars last antiwar party ahead of Duma vote; UN says US strike on Iran school killed over 100 children; Bank of Japan raises rates to 31-year high.\",\n  \"not_covered_blurb\": \"Left out today: South Korea's ruling out Hormuz military deployment, Iran's tanker attack in the strait, Houthi Red Sea shipping threats, the Philippines school shooting, Russian drone strikes on Kyiv, and the ongoing South Africa femicide investigation — all meaningful stories but either well-covered in recent recaps or without significant new facts beyond yesterday.\"\n}",
+          "cost": 4.1086365,
+          "latencyMs": 731785,
+          "metadata": {
+            "runId": 300,
+            "stories": 16,
+            "broadcast": "sent",
+            "calls": 38
+          }
+        },
+        "score": 1,
+        "success": true,
+        "testCase": {
+          "vars": {
+            "run": 300,
+            "date": "2026-09-18"
+          },
+          "assert": [
+            {
+              "type": "javascript",
+              "value": "JSON.parse(output).must_know.length > 0"
+            },
+            {
+              "type": "cost",
+              "threshold": 6.08
+            },
+            {
+              "type": "latency",
+              "threshold": 1035000
+            }
+          ],
+          "options": {},
+          "metadata": {}
+        },
+        "testIdx": 2,
+        "tokenUsage": {
+          "prompt": 0,
+          "completion": 0,
+          "cached": 0,
+          "total": 0,
+          "numRequests": 1,
+          "completionDetails": {
+            "reasoning": 0,
+            "acceptedPrediction": 0,
+            "rejectedPrediction": 0,
+            "cacheReadInputTokens": 0,
+            "cacheCreationInputTokens": 0
+          },
+          "assertions": {
+            "total": 0,
+            "prompt": 0,
+            "completion": 0,
+            "cached": 0,
+            "numRequests": 0,
+            "completionDetails": {
+              "reasoning": 0,
+              "acceptedPrediction": 0,
+              "rejectedPrediction": 0,
+              "cacheReadInputTokens": 0,
+              "cacheCreationInputTokens": 0
+            }
+          }
+        },
+        "vars": {
+          "run": 300,
+          "date": "2026-09-18"
+        },
+        "metadata": {
+          "runId": 300,
+          "stories": 16,
+          "broadcast": "sent",
+          "calls": 38,
+          "_promptfooFileMetadata": {}
+        },
+        "failureReason": 0
+      }
+    ],
+    "stats": {
+      "successes": 3,
+      "failures": 0,
+      "errors": 0,
+      "tokenUsage": {
+        "prompt": 0,
+        "completion": 0,
+        "cached": 0,
+        "total": 0,
+        "numRequests": 3,
+        "completionDetails": {
+          "reasoning": 0,
+          "acceptedPrediction": 0,
+          "rejectedPrediction": 0,
+          "cacheReadInputTokens": 0,
+          "cacheCreationInputTokens": 0
+        },
+        "assertions": {
+          "total": 0,
+          "prompt": 0,
+          "completion": 0,
+          "cached": 0,
+          "numRequests": 0,
+          "completionDetails": {
+            "reasoning": 0,
+            "acceptedPrediction": 0,
+            "rejectedPrediction": 0,
+            "cacheReadInputTokens": 0,
+            "cacheCreationInputTokens": 0
+          }
+        }
+      },
+      "durationMs": 2274986,
+      "evaluationDurationMs": 2274986
+    }
+  },
+  "config": {
+    "tags": {},
+    "description": "same-day curation band, TypeScript workflow",
+    "prompts": [
+      "run {{run}} on {{date}}"
+    ],
+    "providers": [
+      {
+        "id": "file://../dist/gate/workflow-provider.js"
+      }
+    ],
+    "tests": [
+      {
+        "vars": {
+          "run": 300,
+          "date": "2026-09-18"
+        },
+        "assert": [
+          {
+            "type": "javascript",
+            "value": "JSON.parse(output).must_know.length > 0"
+          },
+          {
+            "type": "cost",
+            "threshold": 6.08
+          },
+          {
+            "type": "latency",
+            "threshold": 1035000
+          }
+        ]
+      }
+    ],
+    "env": {},
+    "outputPath": [
+      "../data/band-20260922T234912Z.json"
+    ],
+    "extensions": [],
+    "metadata": {},
+    "evaluateOptions": {}
+  },
+  "shareableUrl": null,
+  "metadata": {
+    "promptfooVersion": "0.123.1",
+    "nodeVersion": "v26.9.0",
+    "platform": "darwin",
+    "arch": "arm64",
+    "exportedAt": "2026-09-23T00:27:23.488Z",
+    "evaluationCreatedAt": "2026-09-22T23:49:28.419Z",
+    "author": "citib41620@paylaar.com"
+  },
+  "vars": [
+    "run",
+    "date"
+  ],
+  "runtimeOptions": {
+    "eventSource": "cli",
+    "showProgressBar": true,
+    "repeat": 3,
+    "maxConcurrency": 1,
+    "cache": false
+  }
+}
