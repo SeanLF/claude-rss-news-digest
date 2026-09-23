@@ -88,6 +88,8 @@ PACKAGE_LOCK = {
         "node_modules/gitdep": {"version": "1.0.0", "resolved": "git+ssh://git@github.com/o/gitdep.git#abc"},
         "node_modules/shorthand": {"version": "1.0.0", "resolved": "github:o/shorthand#def"},
         "node_modules/linked": {"resolved": "packages/linked", "link": True},
+        "node_modules/tarball": {"version": "1.0.0", "resolved": "https://evil.example/x.tgz"},
+        "node_modules/lookalike": {"version": "1.0.0", "resolved": "https://registry.npmjs.org.evil.example/y.tgz"},
     },
 }
 
@@ -106,6 +108,8 @@ def test_git_dependencies_in_lockfiles_are_found(tmp_path):
         ("forked", "git+https://github.com/someone/forked?rev=1234#1234abcd"),
         ("gitdep", "git+ssh://git@github.com/o/gitdep.git#abc"),
         ("shorthand", "github:o/shorthand#def"),
+        ("tarball", "https://evil.example/x.tgz"),
+        ("lookalike", "https://registry.npmjs.org.evil.example/y.tgz"),
     ]
 
 
@@ -117,6 +121,7 @@ def test_a_git_dependency_in_a_lockfile_blocks_though_the_sbom_is_clean(tmp_path
     )
     assert r.returncode == 1
     assert "someone/forked" in r.stderr and "o/gitdep" in r.stderr and "github:o/shorthand" in r.stderr
+    assert "evil.example/x.tgz" in r.stderr
 
 
 def test_registry_only_lockfiles_pass(tmp_path):

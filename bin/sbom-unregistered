@@ -7,7 +7,8 @@ still_active audits by purl, and a URL install keeps its registry purl: the goog
 reads as pkg:pypi/googlenewsdecoder@0.2.0, so the audit reports PyPI's googlenewsdecoder, another
 package. syft records a Python URL install as a `vcs` reference, and that is what this reads. It
 reports Cargo and npm git dependencies with no such reference, so their lockfiles are read too:
-Cargo.lock `source = "git+..."`, package-lock `resolved` values starting `git+` or `github:`.
+Cargo.lock `source = "git+..."`, package-lock `resolved` values starting `git+` or `github:`, or
+fetched from any host but registry.npmjs.org.
 
 Exit 0: none, or only listed exceptions (each printed as unaudited). Exit 1: an unlisted one.
 Exit 2: an input could not be read. Tested by newsroom/tests/test_sbom_exceptions.py.
@@ -15,6 +16,7 @@ Exit 2: an input could not be read. Tested by newsroom/tests/test_sbom_exception
 
 import json
 import sys
+from urllib.parse import urlparse
 
 import tomllib
 
@@ -28,10 +30,12 @@ EXCEPTIONS = {
 }
 
 GIT_PREFIXES = ("git+", "github:")
+# A tarball from any other host is as unaudited as a git dependency. In-repo paths (`link`) have no scheme.
+NPM_REGISTRY = "registry.npmjs.org"
 
 
 def lockfile_sources(paths: list[str]) -> list[tuple[str, str]]:
-    """(package, source) for every git dependency in the given Cargo.lock and package-lock.json files."""
+    """(package, source) for every git or off-registry dependency in the given Cargo.lock and package-lock.json files."""
     found: list[tuple[str, str]] = []
     for path in paths:
         with open(path, "rb") as f:
@@ -43,7 +47,10 @@ def lockfile_sources(paths: list[str]) -> list[tuple[str, str]]:
         else:
             for key, p in (json.loads(raw).get("packages") or {}).items():
                 resolved = str(p.get("resolved", ""))
-                if resolved.startswith(GIT_PREFIXES):
+                remote = urlparse(resolved).scheme in ("http", "https")
+                if resolved.startswith(GIT_PREFIXES) or (
+                    remote and urlparse(resolved).hostname != NPM_REGISTRY
+                ):
                     found.append(
                         (p.get("name") or key.rsplit("node_modules/", 1)[-1], resolved)
                     )
