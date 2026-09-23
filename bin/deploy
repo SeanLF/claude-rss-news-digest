@@ -1033,8 +1033,13 @@ apply_terraform() {
   worker_digest=$(cat "$DIGEST_DIR/$SERVICE_WORKER.digest" 2>/dev/null || echo "")
   python_digest=$(cat "$DIGEST_DIR/$SERVICE_PYTHON.digest" 2>/dev/null || echo "")
 
-  local -a targets=("${TF_TARGETS[@]}")
+  local -a targets=("${TF_TARGETS[@]}") vars=()
   temporal_on && targets+=("${TF_TEMPORAL_TARGETS[@]}")
+  # The importer terraform ships to the box (staged refresh, cut-over import), from the checkout that
+  # built the worker image rather than terraform's default sibling checkout. Only where the Temporal
+  # stack is on: python-mode infra need not declare the variable, and terraform refuses a value for
+  # an undeclared one.
+  temporal_on && vars+=(-var="news_digest_import_legacy_path=$(cd "$SCRIPT_DIR/.." && pwd)/bin/import-legacy")
 
   local plan_output plan_exit
   set +e
@@ -1045,6 +1050,7 @@ apply_terraform() {
     -var="news_digest_circulation_digest=$circulation_digest" \
     -var="news_digest_worker_digest=$worker_digest" \
     -var="news_digest_python_digest=$python_digest" \
+    "${vars[@]}" \
     -detailed-exitcode \
     -out=/tmp/news-digest-tfplan \
     -compact-warnings \
