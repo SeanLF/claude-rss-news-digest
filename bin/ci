@@ -47,6 +47,13 @@ def suites_for(paths: list[str]) -> frozenset[str]:
     """The suites a set of changed paths reaches. A path no rule claims reaches every suite."""
     suites: set[str] = set()
     for path in paths:
+        # Container definitions are what test_ci_scope.py reads to check this table, so a change
+        # to any of them must run that test (Python) as well as the suite it builds.
+        name = path.rsplit("/", 1)[-1]
+        if name.startswith("Dockerfile") or name == ".dockerignore" or (
+            name.startswith("docker-compose") and name.endswith((".yml", ".yaml"))
+        ):
+            return ALL_SUITES
         for prefix, owners in _SCOPE:
             if path == prefix or (prefix.endswith("/") and path.startswith(prefix)):
                 suites |= owners

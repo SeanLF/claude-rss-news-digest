@@ -68,6 +68,15 @@ def test_a_path_one_suite_owns_runs_only_that_suite(path, suites):
         "lefthook.yml",
         "Makefile",
         "newsroom/Dockerfile.ci",
+        # Container definitions, which the routing tests below parse: under a narrow prefix too.
+        "digest/Dockerfile.ci",
+        "digest/Dockerfile",
+        "digest/python/Dockerfile",
+        "circulation/Dockerfile.ci",
+        "circulation/Dockerfile",
+        "newsroom/Dockerfile",
+        "docker-compose.override.yml",
+        ".dockerignore",
         # Anything no rule names.
         ".claude/agents/write.md",
         "docs/operations.md",
