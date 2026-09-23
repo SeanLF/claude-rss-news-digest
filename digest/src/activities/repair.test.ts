@@ -101,6 +101,6 @@ describe("repair activity", () => {
     await repairActivity({ store: first.store, agentsDir: AGENTS, query: m2.q, maxAttempts: 3 })(300, drafts, report);
     expect(m2.calls).toEqual(["repair", "recheck"]);
     expect((await first.doc()).results[0]?.status).toBe("repaired");
-    expect(await first.store.states(300, REPAIR_OUTPUT)).toContain("quarantined");
+    expect(await first.store.statuses(300, REPAIR_OUTPUT)).toContain("quarantined");
   });
 });

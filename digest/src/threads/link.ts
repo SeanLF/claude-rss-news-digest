@@ -136,11 +136,11 @@ export async function assignThreads(store: ThreadStore, stories: StoryLabel[], r
     trace.stories.push({ story_index: i, label: st.story, article_ids: [...st.article_ids], proposed_thread: tid, refused, outcome: continued ? "continued" : "new" });
     if (continued) {
       claimed.add(tid);
-      await store.recordInstallment(tid, runId, st.story, false);
+      await store.addUpdate(tid, runId, st.story, false);
       assignments.push({ thread_id: tid, is_new: false, story: st.story, article_ids: [...st.article_ids] });
     } else {
       const id = await store.createThread(runId);
-      await store.recordInstallment(id, runId, st.story, true);
+      await store.addUpdate(id, runId, st.story, true);
       assignments.push({ thread_id: id, is_new: true, story: st.story, article_ids: [...st.article_ids] });
     }
   }

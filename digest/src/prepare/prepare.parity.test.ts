@@ -17,11 +17,11 @@ const PARITY_URL = process.env["PARITY_DATABASE_URL"];
 describe.skipIf(!PARITY_URL)("prepare parity with the Python on run 300", () => {
   it("reproduces the archived article CSVs row for row and file for file", async () => {
     const db = openDb(PARITY_URL!);
-    const contents = new Map((await db.all<{ n: string; c: string }>("SELECT artifact_name AS n, content AS c FROM run_artifacts WHERE run_id=300 AND state='current'")).map((r) => [r.n, r.c]));
+    const contents = new Map((await db.all<{ n: string; c: string }>("SELECT name AS n, content AS c FROM artifacts WHERE run_id=300 AND status='current'")).map((r) => [r.n, r.c]));
     const art = (name: string) => contents.get(name);
     const sources = parse<Source>(art("sources.csv")!, { columns: true });
     const fetched = new Map<string, Fetched[]>();
-    for (const r of await db.all<Fetched & { source_id: string }>("SELECT source_id, title, url, published, summary FROM fetched_articles WHERE run_id=300 ORDER BY id"))
+    for (const r of await db.all<Fetched & { source_id: string }>("SELECT source_id, title, url, published_raw AS published, summary FROM articles WHERE run_id=300 ORDER BY id"))
       fetched.set(r.source_id, [...(fetched.get(r.source_id) ?? []), r]);
     const titles = (await previousHeadlines(db, await runAt(db, 300))).map((h) => h.headline);
     const ours = prepareArticles(sources, fetched, titles, { scrubLinks: false });

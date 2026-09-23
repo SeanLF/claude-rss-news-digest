@@ -35,7 +35,7 @@ export function opsActivities(deps: OpsDeps) {
     healthcheck: (event: "start" | "success" | "fail", note?: string): Promise<void> => hc.ping(event === "success" ? undefined : event, note),
     healthcheckLog: (message: string): Promise<void> => hc.log(message),
 
-    // Feeds that keep failing, as run.py alerts on source_health after the fetch.
+    // Feeds that keep failing, as run.py alerts on source_fetches after the fetch.
     checkFeeds: async (runId: number, sourceIds: string[]): Promise<AlertRequest | null> => {
       try {
         return await feedHealthAlert(openDb(deps.dbUrl), runId, sourceIds, Number(deps.env["HEALTH_ALERT_THRESHOLD"] ?? 3));
@@ -50,7 +50,7 @@ export function opsActivities(deps: OpsDeps) {
     checkRunHealth: async (runId: number, broadcasting: boolean): Promise<AlertRequest | null> => {
       try {
         const db = openDb(deps.dbUrl);
-        const report = await db.one<{ content: string }>("SELECT content FROM run_artifacts WHERE run_id=$1 AND artifact_name='coherence_report.json' AND state='current'", [runId]);
+        const report = await db.one<{ content: string }>("SELECT content FROM artifacts WHERE run_id=$1 AND name='coherence_report.json' AND status='current'", [runId]);
         const kinds = coherenceKindCounts(report?.content);
         if (kinds) console.log(JSON.stringify({ stage: "coherence", runId, failureKinds: kinds }));
         const health = await getRunHealth(db, runId, { broadcasting, threadsEnabled: threadsEnabled(deps.env), usageRowsDropped: 0, dormantAfter: threadsConfigFrom(deps.env).dormantAfter });

@@ -16,7 +16,7 @@ COPY newsroom/templates/digest-template.html newsroom/templates/digest.css /app/
 COPY design/tokens.css /app/design/tokens.css
 # Build with the dev toolchain, then drop it: tsc is a devDependency.
 RUN npm run build && npm prune --omit=dev
-# Below the build: these change every commit. GIT_SHA is what digest_runs.git_sha records;
+# Below the build: these change every commit. GIT_SHA is what runs.git_sha records;
 # the revision label is what bin/deploy's provenance check reads.
 ARG GIT_SHA
 ENV GIT_SHA=${GIT_SHA}

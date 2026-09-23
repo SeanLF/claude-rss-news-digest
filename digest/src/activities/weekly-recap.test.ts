@@ -24,9 +24,9 @@ function fakeQuery(reply: string | Error, calls: Calls): SdkQuery {
 async function setup(prior: string | null) {
   const path = await freshDb([300, 301]);
   const db = openDb(path);
-  await db.run("UPDATE digest_runs SET run_at='2026-09-25 10:25:00' WHERE id=301");
+  await db.run("UPDATE runs SET started_at='2026-09-25 10:25:00' WHERE id=301");
   for (const [h, t, at] of [["Editorial headline", "Ceasefire talks resume", "2026-09-24 10:40:00"], ["Another", null, "2026-09-20 10:40:00"], ["Too old", null, "2026-09-10 10:40:00"], ["Written after the run", null, "2026-09-25 11:00:00"]])
-    await db.run("INSERT INTO shown_narratives (headline, tier, original_title, shown_at) VALUES ($1, 'must_know', $2, $3)", [h, t, at]);
+    await db.run("INSERT INTO story_sources (headline, tier, source_title, shown_at) VALUES ($1, 'must_know', $2, $3)", [h, t, at]);
   const store = new ArtifactStore(path);
   if (prior !== null) await store.put(300, WEEKLY_RECAP, prior);
   return { store, path };
@@ -87,7 +87,7 @@ describe("weekly recap activity", () => {
   });
   it("with nothing shown in the week and no earlier recap, stores nothing", async () => {
     const s = await setup(null);
-    await openDb(s.path).exec("DELETE FROM shown_narratives");
+    await openDb(s.path).exec("DELETE FROM story_sources");
     expect(await weeklyRecapActivity(deps(s, fakeQuery("x", { n: 0 })))(301)).toBeNull();
   });
 });

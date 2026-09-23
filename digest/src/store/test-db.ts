@@ -14,7 +14,7 @@ export async function migratedDb(runs: { id: number; runAt: string }[] = []): Pr
     return pgliteDb(pg);
   });
   const db = openDb(key);
-  for (const r of runs) await db.run("INSERT INTO digest_runs (id, run_at) VALUES ($1, $2)", [r.id, r.runAt]);
+  for (const r of runs) await db.run("INSERT INTO runs (id, started_at) VALUES ($1, $2)", [r.id, r.runAt]);
   await db.exec(RESET_IDENTITIES);
   return key;
 }

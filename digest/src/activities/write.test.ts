@@ -110,7 +110,7 @@ describe("writeStory activity", () => {
     await store.put(300, draftName(0), JSON.stringify({ plan: { ...plan, contextIds: ["A1"] }, story }));
     await acts.writeStory(300, plan, sel);
     expect(seen.n).toBe(1);
-    expect(await store.states(300, draftName(0))).toEqual(["quarantined", "current"]);
+    expect(await store.statuses(300, draftName(0))).toEqual(["quarantined", "current"]);
   });
   it("a content problem fails retryably and stores nothing", async () => {
     const { store, sel, acts } = await setup({ must_know: [{ ...story, sources: [{ article_id: "A3" }] }] });

@@ -13,7 +13,7 @@ const stub = (runId: number, name: string): Pointer => ({ runId, name, sha256: "
 async function setup() {
   const dbUrl = await freshDb([300]);
   // Two days already published, the first in two revisions: the issue number counts days.
-  await openDb(dbUrl).exec("INSERT INTO issues (date, revision, html) VALUES ('2026-09-16', 1, ''), ('2026-09-16', 2, ''), ('2026-09-17', 1, '')");
+  await openDb(dbUrl).exec("INSERT INTO issues (issue_date, revision, html) VALUES ('2026-09-16', 1, ''), ('2026-09-16', 2, ''), ('2026-09-17', 1, '')");
   const store = new ArtifactStore(dbUrl);
   const selections = await store.put(300, "selections.json", JSON.stringify({ must_know: [{ headline: "Russia votes", summary: "Voting began.", why_it_matters: "It matters.", cluster_id: "duma", sources: [{ article_id: "A1" }] }], should_know: [{ headline: "Yen falls", summary: "The yen fell.", sources: [{ article_id: "A2" }] }], preheader: "Russia votes" }));
   await store.put(300, "article_index.json", JSON.stringify({
@@ -61,7 +61,7 @@ describe("render activity", () => {
     const b = await store.put(300, "selections.json.v2", JSON.stringify({ must_know: [{ headline: "Two", summary: "s", sources: [{ article_id: "A2" }] }], should_know: [] }));
     const out = await activity(300, b, stub(300, "thread_context.json"), stub(300, "gnews_links.json"));
     expect(await store.get(out.html)).toContain("Two");
-    expect(await store.states(300, WEB_OUTPUT)).toContain("quarantined");
-    expect(await store.states(300, EMAIL_OUTPUT)).toContain("quarantined");
+    expect(await store.statuses(300, WEB_OUTPUT)).toContain("quarantined");
+    expect(await store.statuses(300, EMAIL_OUTPUT)).toContain("quarantined");
   });
 });

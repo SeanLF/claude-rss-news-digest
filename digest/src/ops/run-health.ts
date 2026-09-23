@@ -42,7 +42,7 @@ type Rule = [code: string, fires: (h: RunHealth) => boolean, message: string | (
 const RULES: Rule[] = [
   ["ZERO_STORIES", (h) => h.shipped === 0, "the run completed but shipped no stories"],
   ["ZERO_RECIPIENTS", (h) => h.broadcasting && h.recipients === 0, "a digest was built but sent to nobody"],
-  ["NO_USAGE_RECORDED", (h) => h.stages === 0, "no subagent stage recorded usage, so the curation phase left no trace"],
+  ["NO_USAGE_RECORDED", (h) => h.stages === 0, "no stage recorded a model call, so the curation phase left no trace"],
   [
     "USAGE_ROWS_LOST",
     (h) => (h.usage_rows_dropped ?? 0) > 0,
@@ -172,25 +172,25 @@ const textOf = (v: Json | undefined, key: string): string | null => {
 // `broadcasting`, `threadsEnabled` and `dormantAfter` are the run's own configuration, not DB state;
 // `usageRowsDropped` is process state (rows that never reached the table cannot be counted from it).
 // threads_available is what the run's linker could have been offered: published threads last seen
-// within `dormantAfter` completed runs before this one, as ThreadStore.activeThreads counts them.
+// within `dormantAfter` sent runs before this one, as ThreadStore.activeThreads counts them.
 export async function getRunHealth(db: Sql, runId: number, opts: { broadcasting: boolean; threadsEnabled: boolean; usageRowsDropped: number; dormantAfter?: number }): Promise<RunHealth> {
   const counts = (await db.one<{ shipped: number; stages: number; artifacts: number; recipients: number | null; thread_continuations: number; threads_available: number }>(
     `SELECT
-       (SELECT COUNT(DISTINCT headline) FROM shown_narratives WHERE run_id = $1) AS shipped,
-       (SELECT COUNT(DISTINCT subagent) FROM run_usage WHERE run_id = $1) AS stages,
-       (SELECT COUNT(*) FROM run_artifacts WHERE run_id = $1 AND state = 'current') AS artifacts,
-       (SELECT SUM(recipients) FROM broadcasts WHERE run_id = $1) AS recipients,
-       (SELECT COUNT(*) FROM thread_installments WHERE run_id = $1 AND continued) AS thread_continuations,
+       (SELECT COUNT(DISTINCT headline) FROM story_sources WHERE run_id = $1) AS shipped,
+       (SELECT COUNT(DISTINCT stage) FROM model_calls WHERE run_id = $1) AS stages,
+       (SELECT COUNT(*) FROM artifacts WHERE run_id = $1 AND status = 'current') AS artifacts,
+       (SELECT SUM(recipients) FROM sends WHERE run_id = $1) AS recipients,
+       (SELECT COUNT(*) FROM thread_updates WHERE run_id = $1 AND is_continuation) AS thread_continuations,
        (SELECT COUNT(*) FROM threads t
-          JOIN (SELECT thread_id, max(run_id) AS last_run_id FROM thread_installments
+          JOIN (SELECT thread_id, max(run_id) AS last_run_id FROM thread_updates
                 WHERE run_id < $1 AND run_id IN (SELECT run_id FROM published_runs) GROUP BY thread_id) l ON l.thread_id = t.id
-          WHERE t.merged_into IS NULL
-            AND (SELECT COUNT(*) FROM digest_runs r WHERE r.id > l.last_run_id AND r.id < $1 AND r.completed_at IS NOT NULL) <= $2) AS threads_available`,
+          WHERE t.merged_into_id IS NULL
+            AND (SELECT COUNT(*) FROM sent_runs s WHERE s.run_id > l.last_run_id AND s.run_id < $1) <= $2) AS threads_available`,
     [runId, opts.dormantAfter ?? 3],
   ))!;
   const names = ["cluster_health.json", "fulltext_health.json", "selections.json", "thread_links.json", "repair_health.json", "write_branches.json"];
   const docs = new Map<string, Json | undefined>();
-  for (const r of await db.all<{ n: string; c: string }>("SELECT artifact_name AS n, content AS c FROM run_artifacts WHERE run_id = $1 AND state = 'current' AND artifact_name = ANY($2::text[])", [runId, names]))
+  for (const r of await db.all<{ n: string; c: string }>("SELECT name AS n, content AS c FROM artifacts WHERE run_id = $1 AND status = 'current' AND name = ANY($2::text[])", [runId, names]))
     docs.set(r.n, parsed(r.c));
   const cluster = docs.get("cluster_health.json");
   const fulltext = docs.get("fulltext_health.json");

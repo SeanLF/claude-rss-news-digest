@@ -154,6 +154,6 @@ export function dates(now: Date) {
 
 // db.get_issue_number: the edition's rank among published days, counting this one if it is not yet published.
 export async function issueNumber(db: Sql, date: string): Promise<number> {
-  const r = await db.one<{ n: number; stored: boolean }>("SELECT COUNT(DISTINCT date) AS n, bool_or(date = $1::date) AS stored FROM issues WHERE date <= $1::date", [date]);
+  const r = await db.one<{ n: number; stored: boolean }>("SELECT COUNT(DISTINCT issue_date) AS n, bool_or(issue_date = $1::date) AS stored FROM issues WHERE issue_date <= $1::date", [date]);
   return r!.stored ? r!.n : r!.n + 1;
 }

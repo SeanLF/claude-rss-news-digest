@@ -82,66 +82,77 @@ describe("the legacy import (transform and verify)", () => {
     const pg = await imported();
     const q = async (sql: string) => (await pg.query(sql)).rows;
     expect(await broken(pg)).toEqual([]);
-    expect(await q("SELECT id, status, outcome, completed_at FROM digest_runs ORDER BY id")).toEqual([
-      { id: 1, status: "completed", outcome: "sent", completed_at: "2026-09-10 10:45:00" },
-      { id: 2, status: "completed", outcome: "unrecorded", completed_at: "2026-09-11 10:40:00" },
-      { id: 3, status: "completed", outcome: "sent", completed_at: "2026-09-11 14:20:00" },
-      { id: 4, status: "failed", outcome: null, completed_at: null },
-      { id: 5, status: "failed", outcome: null, completed_at: null },
-      { id: 6, status: "completed", outcome: "sent", completed_at: "2026-09-14 10:50:00" },
+    expect(await q("SELECT r.id, r.status, r.outcome, a.status AS attempt, a.ended_at FROM runs r JOIN run_attempts a ON a.run_id = r.id ORDER BY r.id")).toEqual([
+      { id: 1, status: "completed", outcome: "sent", attempt: "completed", ended_at: "2026-09-10 10:45:00" },
+      { id: 2, status: "completed", outcome: "unrecorded", attempt: "completed", ended_at: "2026-09-11 10:40:00" },
+      { id: 3, status: "completed", outcome: "sent", attempt: "completed", ended_at: "2026-09-11 14:20:00" },
+      { id: 4, status: "failed", outcome: null, attempt: "failed", ended_at: null },
+      { id: 5, status: "failed", outcome: null, attempt: "failed", ended_at: null },
+      { id: 6, status: "completed", outcome: "sent", attempt: "completed", ended_at: "2026-09-14 10:50:00" },
     ]);
-    expect(await q("SELECT run_id, state FROM run_attempts ORDER BY id")).toEqual([1, 2, 3, 4, 5, 6].map((id) => ({ run_id: id, state: [4, 5].includes(id) ? "failed" : "finished" })));
-    expect(await q("SELECT run_id, artifact_name, state, stage, kind, branch FROM run_artifacts ORDER BY run_id, id")).toEqual([
-      { run_id: 1, artifact_name: "selections.json", state: "current", stage: "assemble", kind: "output", branch: null },
-      { run_id: 3, artifact_name: "selections.json", state: "current", stage: "assemble", kind: "output", branch: null },
-      { run_id: 3, artifact_name: "draft_s01.json", state: "current", stage: "write", kind: "output", branch: "s01" },
-      { run_id: 3, artifact_name: "recap.txt", state: "quarantined", stage: "recap", kind: "output", branch: null },
-      { run_id: 3, artifact_name: "recap.txt", state: "current", stage: "recap", kind: "output", branch: null },
+    expect(await q("SELECT run_id, name, status, stage, kind, branch FROM artifacts ORDER BY run_id, id")).toEqual([
+      { run_id: 1, name: "selections.json", status: "current", stage: "assemble", kind: "output", branch: null },
+      { run_id: 3, name: "selections.json", status: "current", stage: "assemble", kind: "output", branch: null },
+      { run_id: 3, name: "draft_s01.json", status: "current", stage: "write", kind: "output", branch: "s01" },
+      { run_id: 3, name: "recap.txt", status: "quarantined", stage: "recap", kind: "output", branch: null },
+      { run_id: 3, name: "recap.txt", status: "current", stage: "recap", kind: "output", branch: null },
     ]);
-    expect(await q("SELECT date, revision, run_id, preheader FROM issues ORDER BY date")).toEqual([
-      { date: "2025-12-26", revision: 1, run_id: null, preheader: "" },
-      { date: "2026-09-10", revision: 1, run_id: 1, preheader: "pre" },
-      { date: "2026-09-11", revision: 1, run_id: 3, preheader: "pre3" },
-      { date: "2026-09-14", revision: 1, run_id: 6, preheader: "" },
+    expect(await q("SELECT issue_date, revision, run_id, preheader FROM issues ORDER BY issue_date")).toEqual([
+      { issue_date: "2025-12-26", revision: 1, run_id: null, preheader: "" },
+      { issue_date: "2026-09-10", revision: 1, run_id: 1, preheader: "pre" },
+      { issue_date: "2026-09-11", revision: 1, run_id: 3, preheader: "pre3" },
+      { issue_date: "2026-09-14", revision: 1, run_id: 6, preheader: "" },
     ]);
-    expect(await q("SELECT date, run_id, resend_id, status, recipients, claim_token FROM broadcasts ORDER BY date")).toEqual([
-      { date: "2026-09-10", run_id: 1, resend_id: "b1", status: "sent", recipients: 12, claim_token: null },
-      { date: "2026-09-14", run_id: 6, resend_id: "b6", status: "sent", recipients: 11, claim_token: null },
+    // Run 3 emailed 12 readers before broadcasts existed: a send with no broadcast id.
+    expect(await q("SELECT issue_date, run_id, resend_id, status, recipients, claim_token FROM sends ORDER BY issue_date")).toEqual([
+      { issue_date: "2026-09-10", run_id: 1, resend_id: "b1", status: "sent", recipients: 12, claim_token: null },
+      { issue_date: "2026-09-11", run_id: 3, resend_id: null, status: "sent", recipients: 12, claim_token: null },
+      { issue_date: "2026-09-14", run_id: 6, resend_id: "b6", status: "sent", recipients: 11, claim_token: null },
     ]);
-    expect(await q("SELECT success, run_id FROM source_health ORDER BY id")).toEqual([{ success: true, run_id: 1 }, { success: false, run_id: null }]);
-    expect(await q("SELECT similarity FROM dedup_log")).toEqual([{ similarity: 0.5242494216998329 }]);
+    expect(await q("SELECT is_success, error, run_id FROM source_fetches ORDER BY id")).toEqual([{ is_success: true, error: null, run_id: 1 }, { is_success: false, error: "x", run_id: null }]);
+    expect(await q("SELECT title, source_id, similarity FROM dedup_matches")).toEqual([{ title: "T", source_id: "reuters", similarity: 0.5242494216998329 }]);
+    expect(await q("SELECT published_raw FROM articles")).toEqual([{ published_raw: "Thu, 10 Sep 2026 08:00:00 GMT" }]);
+    expect(await q("SELECT stage, request_model, cache_creation_input_tokens, cache_read_input_tokens FROM model_calls ORDER BY id")).toEqual([
+      { stage: "write", request_model: "m", cache_creation_input_tokens: 0, cache_read_input_tokens: 7 },
+      { stage: "select", request_model: "m", cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+    ]);
     expect(await q("SELECT id, label, status FROM thread_state ORDER BY id")).toEqual([{ id: 1, label: "Deal day two", status: "active" }, { id: 2, label: "Yen", status: "active" }]);
-    expect(await q("SELECT id, status, resolved_run_id, resolved_how FROM thread_question_state ORDER BY id")).toEqual([
-      { id: 1, status: "resolved", resolved_run_id: 6, resolved_how: "It held." },
-      { id: 2, status: "open", resolved_run_id: null, resolved_how: null },
+    expect(await q("SELECT id, is_continuation FROM thread_updates ORDER BY id")).toEqual([{ id: 1, is_continuation: false }, { id: 2, is_continuation: true }, { id: 3, is_continuation: false }]);
+    expect(await q("SELECT id, status, resolved_run_id, answer FROM thread_question_state ORDER BY id")).toEqual([
+      { id: 1, status: "resolved", resolved_run_id: 6, answer: "It held." },
+      { id: 2, status: "open", resolved_run_id: null, answer: null },
     ]);
-    expect(await q("SELECT search @@ websearch_to_tsquery('english', 'deal') AS hit FROM shown_narratives")).toEqual([{ hit: true }]);
+    expect(await q("SELECT source_title, search @@ websearch_to_tsquery('english', 'deal') AS hit FROM story_sources")).toEqual([{ source_title: "Deal is signed", hit: true }]);
     // The identities continue after the imported ids.
-    await pg.exec("INSERT INTO digest_runs DEFAULT VALUES");
-    expect(await q("SELECT max(id) AS id FROM digest_runs")).toEqual([{ id: 7 }]);
+    await pg.exec("INSERT INTO runs DEFAULT VALUES");
+    expect(await q("SELECT max(id) AS id FROM runs")).toEqual([{ id: 7 }]);
     await dropLegacy(pgliteDb(pg));
     expect(await q("SELECT count(*) AS n FROM pg_namespace WHERE nspname = 'legacy'")).toEqual([{ n: 0 }]);
   });
 
   // Negative controls: each check must see its own kind of loss.
   it.each([
-    ["every issue, html byte for byte", "UPDATE issues SET html = html || ' ' WHERE date = '2026-09-10'"],
-    ["every thread's derived label is its stored label", "UPDATE thread_installments SET cluster_story = 'x' WHERE id = 2"],
+    ["every issue, html byte for byte", "UPDATE issues SET html = html || ' ' WHERE issue_date = '2026-09-10'"],
+    ["every thread's derived label is its stored label", "UPDATE thread_updates SET label = 'x' WHERE id = 2"],
     ["every thread's derived status is its stored status", "UPDATE legacy.threads SET status = 'dormant' WHERE id = 2"],
-    ["every artifact, content byte for byte", "UPDATE run_artifacts SET content = 'y' WHERE id = 2"],
-    ["a sent outcome only where the legacy run emailed someone", "ALTER TABLE digest_runs DISABLE TRIGGER digest_runs_transition; UPDATE digest_runs SET outcome = 'sent', completed_at = now() WHERE id = 2"],
-    ["every send, with its broadcast id and recipients", "UPDATE broadcasts SET recipients = 13 WHERE date = '2026-09-10'"],
+    ["every artifact, content byte for byte", "UPDATE artifacts SET content = 'y' WHERE id = 2"],
+    ["a sent outcome only where the legacy run emailed someone", "ALTER TABLE runs DISABLE TRIGGER runs_transition; UPDATE runs SET outcome = 'sent' WHERE id = 2"],
+    ["every send, with its broadcast id and recipients", "UPDATE sends SET recipients = 13 WHERE issue_date = '2026-09-10'"],
+    ["every send, with its broadcast id and recipients", "DELETE FROM sends WHERE issue_date = '2026-09-11'"],
+    ["every send, with its broadcast id and recipients", "UPDATE sends SET status = 'failed' WHERE issue_date = '2026-09-14'"],
     ["every question, open or resolved as it was", "DELETE FROM thread_question_resolutions"],
-    ["a selections.json for every run the retired table held", "DELETE FROM run_artifacts WHERE run_id = 1"],
-    ["every legacy run is a run, with its times, counts and error", "UPDATE digest_runs SET run_at = run_at + interval '1 hour' WHERE id = 5"],
-    ["every model call, column for column", "UPDATE run_usage SET input_tokens = output_tokens, output_tokens = input_tokens WHERE id = 1"],
-    ["no issue the legacy file did not have", "INSERT INTO issues (date, revision, html) VALUES ('2026-09-10', 2, '')"],
-    ["every shown headline, column for column", "UPDATE shown_narratives SET tier = 'should_know'"],
-    ["every fetched article, column for column", "UPDATE fetched_articles SET published = NULL"],
-    ["every source health row, column for column", "UPDATE source_health SET recorded_at = recorded_at + interval '1 second' WHERE id = 2"],
-    ["every dedup row, column for column", "UPDATE dedup_log SET similarity = 0.52"],
-    ["every installment, continued as the linker decided", "UPDATE thread_installments SET run_id = 3 WHERE id = 2"],
-  ])("%s: fails when the copy loses it", async (name, loss) => {
+    ["every question, open or resolved as it was", "UPDATE thread_question_resolutions SET answer = ''"],
+    ["a selections.json for every run the retired table held", "DELETE FROM artifacts WHERE run_id = 1"],
+    ["every legacy run is a run, with its times, counts and error", "UPDATE runs SET started_at = started_at + interval '1 hour' WHERE id = 5"],
+    ["every legacy run is a run, with its times, counts and error", "UPDATE run_attempts SET ended_at = NULL WHERE id = 1"],
+    ["every model call, column for column", "UPDATE model_calls SET input_tokens = output_tokens, output_tokens = input_tokens WHERE id = 1"],
+    ["no issue the legacy file did not have", "INSERT INTO issues (issue_date, revision, html) VALUES ('2026-09-10', 2, '')"],
+    ["every shown story source, column for column", "UPDATE story_sources SET tier = 'should_know'"],
+    ["every fetched article, column for column", "UPDATE articles SET published_raw = NULL"],
+    ["every source fetch, column for column", "UPDATE source_fetches SET fetched_at = fetched_at + interval '1 second' WHERE id = 2"],
+    ["every dedup match, column for column", "UPDATE dedup_matches SET similarity = 0.52"],
+    ["every thread update, a continuation as the linker decided", "UPDATE thread_updates SET run_id = 3 WHERE id = 2"],
+  ])("%s: fails when the copy loses it (%s)", async (name, loss) => {
     const pg = await imported();
     expect(await broken(pg)).toEqual([]);
     await pg.exec(loss);

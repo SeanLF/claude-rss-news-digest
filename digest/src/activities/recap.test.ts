@@ -52,7 +52,7 @@ describe("recap activity", () => {
     await store.put(300, RECAP_OUTPUT, "   ");
     const p = await recap(300);
     expect(await store.get(p)).toBe("A quiet week of steady themes.");
-    expect(await store.states(300, RECAP_OUTPUT)).toContain("quarantined");
+    expect(await store.statuses(300, RECAP_OUTPUT)).toContain("quarantined");
     expect(calls.n).toBe(1);
   });
   it("force replaces a valid archived recap with a fresh sample", async () => {

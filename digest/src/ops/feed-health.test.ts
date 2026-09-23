@@ -6,7 +6,7 @@ import { feedHealthAlert } from "./feed-health.js";
 async function seed(rows: [source: string, success: number, minutesAgo: number, runId: number][]): Promise<Db> {
   const db = openDb(await freshDb([300, 301]));
   for (const [s, ok, ago, run] of rows)
-    await db.run("INSERT INTO source_health (source_id, success, recorded_at, run_id) VALUES ($1, $2, now() - make_interval(mins => $3), $4)", [s, ok === 1, ago, run]);
+    await db.run("INSERT INTO source_fetches (source_id, is_success, fetched_at, run_id) VALUES ($1, $2, now() - make_interval(mins => $3), $4)", [s, ok === 1, ago, run]);
   return db;
 }
 

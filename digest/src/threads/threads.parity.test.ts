@@ -96,16 +96,16 @@ describe("threads parity with the Python on archived runs", () => {
     expect(await json(THREAD_CONTEXT)).toEqual(exp.contexts);
 
     const db = openDb(url);
-    const installments = (await db.all<Record<string, unknown>>("SELECT thread_id, run_id, cluster_story, CASE WHEN continued THEN 1.0 END AS matched_score, content FROM thread_installments WHERE run_id = $1 ORDER BY id", [run])).map((r) => ({ ...r, content: typeof r["content"] === "string" ? (JSON.parse(r["content"]) as unknown) : null }));
+    const installments = (await db.all<Record<string, unknown>>("SELECT thread_id, run_id, label AS cluster_story, CASE WHEN is_continuation THEN 1.0 END AS matched_score, content FROM thread_updates WHERE run_id = $1 ORDER BY id", [run])).map((r) => ({ ...r, content: typeof r["content"] === "string" ? (JSON.parse(r["content"]) as unknown) : null }));
     const threads = await db.all(
-      `SELECT t.id, (SELECT cluster_story FROM thread_installments i WHERE i.thread_id = t.id ORDER BY run_id DESC, id DESC LIMIT 1) AS label,
-              t.created_run_id AS first_run_id, (SELECT max(run_id) FROM thread_installments i WHERE i.thread_id = t.id) AS last_run_id, t.merged_into
+      `SELECT t.id, (SELECT label FROM thread_updates i WHERE i.thread_id = t.id ORDER BY run_id DESC, id DESC LIMIT 1) AS label,
+              t.created_run_id AS first_run_id, (SELECT max(run_id) FROM thread_updates i WHERE i.thread_id = t.id) AS last_run_id, t.merged_into_id AS merged_into
        FROM threads t ORDER BY t.id`,
     );
     const questions = await db.all(
-      `SELECT q.thread_id, q.question, CASE WHEN r.question_id IS NULL THEN 'open' ELSE 'resolved' END AS status, q.raised_run_id, r.run_id AS resolved_run_id, r.how AS resolved_how
+      `SELECT q.thread_id, q.question, CASE WHEN r.question_id IS NULL THEN 'open' ELSE 'resolved' END AS status, q.raised_run_id, r.resolved_run_id, r.answer AS resolved_how
        FROM thread_questions q LEFT JOIN thread_question_resolutions r ON r.question_id = q.id
-       WHERE q.raised_run_id = $1 OR r.run_id = $1 ORDER BY q.thread_id, q.question COLLATE "C", q.raised_run_id`,
+       WHERE q.raised_run_id = $1 OR r.resolved_run_id = $1 ORDER BY q.thread_id, q.question COLLATE "C", q.raised_run_id`,
       [run],
     );
     const legacyThreads = (exp.tables.threads as Record<string, unknown>[]).map(({ slug: _slug, status: _status, ...t }) => t);

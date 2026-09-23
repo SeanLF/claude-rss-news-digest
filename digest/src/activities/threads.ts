@@ -14,7 +14,7 @@ import { ThreadStore, type ActiveThread, type RenderContext } from "../threads/s
 import { applyInstallment, auditPrompt, auditReask, expandNeighbourhood, parseInstallment, readAudit, synthesisPrompt, whatsNewOf, type Art, type Installment } from "../threads/synthesis.js";
 import { loadArticles } from "./cluster.js";
 import { THREAD_CONTEXT, type ThreadOutcome, type ThreadPlan, type ThreadsLinked, type ThreadsReport } from "./index.js";
-import { ACCEPTED_BROADCAST_STATES, broadcastRow } from "../ops/broadcast-state.js";
+import { ACCEPTED_BROADCAST_STATES, sendRow } from "../ops/broadcast-state.js";
 import { RUN_TIMEOUT_HOURS } from "../workflow/policy.js";
 
 // THREADS (run.py::_process_story_threads): link each selected story to a continuing thread or a
@@ -103,7 +103,7 @@ export const threadUrl = (domain: string, id: number): string => (domain ? `http
 // transaction. Health, context and the installments list are derived from the run's thread rows, so
 // a finish replaces them (setIn) rather than keeping a first answer a later resume has made wrong.
 async function threadArtifacts(db: Sql, runId: number): Promise<string[]> {
-  return (await db.all<{ n: string }>("SELECT artifact_name AS n FROM run_artifacts WHERE run_id = $1 AND state = 'current' AND artifact_name LIKE 'thread%'", [runId])).map((r) => r.n);
+  return (await db.all<{ n: string }>("SELECT name AS n FROM artifacts WHERE run_id = $1 AND status = 'current' AND name LIKE 'thread%'", [runId])).map((r) => r.n);
 }
 
 // One writer at a time for a run's thread identity: the link, each installment, the finish.
@@ -114,11 +114,11 @@ const lockOf = (runId: number) => `threads ${runId}`;
 // thread's first day or delete their resolutions, so a force refuses instead.
 export async function dependentRuns(db: Sql, runId: number): Promise<number[]> {
   const rows = await db.all<{ r: number }>(
-    `SELECT run_id AS r FROM thread_installments
-     WHERE run_id > $1 AND thread_id IN (SELECT thread_id FROM thread_installments WHERE run_id = $1)
+    `SELECT run_id AS r FROM thread_updates
+     WHERE run_id > $1 AND thread_id IN (SELECT thread_id FROM thread_updates WHERE run_id = $1)
      UNION
-     SELECT r.run_id FROM thread_question_resolutions r JOIN thread_questions q ON q.id = r.question_id
-     WHERE q.raised_run_id = $1 AND r.run_id > $1
+     SELECT r.resolved_run_id FROM thread_question_resolutions r JOIN thread_questions q ON q.id = r.question_id
+     WHERE q.raised_run_id = $1 AND r.resolved_run_id > $1
      ORDER BY 1`,
     [runId],
   );
@@ -138,16 +138,16 @@ export async function undoRun(db: Sql, runId: number): Promise<void> {
   const later = await dependentRuns(db, runId);
   if (later.length)
     throw ApplicationFailure.nonRetryable(`refusing to force run ${runId}'s threads: later run(s) ${later.join(", ")} build on run ${runId}'s threads; they stay as they are, relink by hand`, "ThreadsHaveDependents");
-  const touched = (await db.all<{ t: number }>("SELECT DISTINCT thread_id AS t FROM thread_installments WHERE run_id = $1", [runId])).map((r) => r.t);
-  await db.run("DELETE FROM thread_question_resolutions WHERE run_id = $1", [runId]);
+  const touched = (await db.all<{ t: number }>("SELECT DISTINCT thread_id AS t FROM thread_updates WHERE run_id = $1", [runId])).map((r) => r.t);
+  await db.run("DELETE FROM thread_question_resolutions WHERE resolved_run_id = $1", [runId]);
   await db.run("DELETE FROM thread_questions WHERE raised_run_id = $1", [runId]);
-  await db.run("DELETE FROM thread_installments WHERE run_id = $1", [runId]);
+  await db.run("DELETE FROM thread_updates WHERE run_id = $1", [runId]);
   for (const tid of touched)
     await db.run(
       `DELETE FROM threads t WHERE id = $1 AND created_run_id = $2
-         AND NOT EXISTS (SELECT 1 FROM thread_installments WHERE thread_id = t.id)
+         AND NOT EXISTS (SELECT 1 FROM thread_updates WHERE thread_id = t.id)
          AND NOT EXISTS (SELECT 1 FROM thread_questions WHERE thread_id = t.id)
-         AND NOT EXISTS (SELECT 1 FROM threads m WHERE m.merged_into = t.id)`,
+         AND NOT EXISTS (SELECT 1 FROM threads m WHERE m.merged_into_id = t.id)`,
       [tid, runId],
     );
   for (const name of await threadArtifacts(db, runId)) await quarantineIn(db, runId, name);
@@ -160,13 +160,13 @@ async function retract(db: Db, runId: number): Promise<Retraction> {
     console.error(JSON.stringify({ stage: "threads", runId, error: "unsent issue's thread writes kept", reason }));
     return { retracted: false, reason };
   };
-  const run = await db.one<{ date: string }>("SELECT (run_at AT TIME ZONE 'UTC')::date AS date FROM digest_runs WHERE id = $1", [runId]);
-  const day = run ? await broadcastRow(db, run.date) : undefined;
+  const run = await db.one<{ date: string }>("SELECT (started_at AT TIME ZONE 'UTC')::date AS date FROM runs WHERE id = $1", [runId]);
+  const day = run ? await sendRow(db, run.date) : undefined;
   const mayHaveGone = day !== undefined && (day.id !== null || day.status === "claimed" || ACCEPTED_BROADCAST_STATES.has(day.status));
   // Delivery is judged by sender: the day's broadcast is another run's only when its claiming run is
   // a different, completed one.
   if (day && mayHaveGone) {
-    const other = day.runId !== runId && (await db.one("SELECT 1 FROM digest_runs WHERE id = $1 AND status = 'completed'", [day.runId])) !== undefined;
+    const other = day.runId !== runId && (await db.one("SELECT 1 FROM runs WHERE id = $1 AND status = 'completed'", [day.runId])) !== undefined;
     if (!other) return decline(`the day's broadcast is ${day.status}${day.id ? ` (${day.id})` : ""}`);
   }
   const later = await dependentRuns(db, runId);
@@ -188,13 +188,13 @@ export const RESUME_HORIZON_HOURS = RUN_TIMEOUT_HOURS;
 // run still in progress, and no crash has left one with thread writes (prod clone, 2026-09-23).
 export async function retractAbandoned(db: Db, runId: number): Promise<number[]> {
   const abandoned = await db.all<{ id: number }>(
-    `SELECT id FROM digest_runs d
-     WHERE id < $1 AND completed_at IS NULL AND status = 'failed'
-       AND (run_at < now() - make_interval(hours => $2)
-            OR EXISTS (SELECT 1 FROM digest_runs l WHERE l.id > d.id AND (l.run_at AT TIME ZONE 'UTC')::date = (d.run_at AT TIME ZONE 'UTC')::date))
-       AND (EXISTS (SELECT 1 FROM thread_installments WHERE run_id = d.id)
+    `SELECT id FROM runs d
+     WHERE id < $1 AND status = 'failed'
+       AND (started_at < now() - make_interval(hours => $2)
+            OR EXISTS (SELECT 1 FROM runs l WHERE l.id > d.id AND (l.started_at AT TIME ZONE 'UTC')::date = (d.started_at AT TIME ZONE 'UTC')::date))
+       AND (EXISTS (SELECT 1 FROM thread_updates WHERE run_id = d.id)
             OR EXISTS (SELECT 1 FROM thread_questions WHERE raised_run_id = d.id)
-            OR EXISTS (SELECT 1 FROM thread_question_resolutions WHERE run_id = d.id))
+            OR EXISTS (SELECT 1 FROM thread_question_resolutions WHERE resolved_run_id = d.id))
      ORDER BY id DESC`,
     [runId, RESUME_HORIZON_HOURS],
   );
@@ -283,7 +283,7 @@ export function threadsActivities(deps: ThreadsDeps) {
       if (done) return { plans: done };
       const retracted = await retractAbandoned(db, runId);
       if (retracted.length) console.log(JSON.stringify({ stage: "threads", runId, retractedAbandonedRuns: retracted }));
-      if ((await new ThreadStore(db).runInstallments(runId)) > 0)
+      if ((await new ThreadStore(db).countRunUpdates(runId)) > 0)
         throw ApplicationFailure.nonRetryable(`run ${runId} has thread installments but no ${THREAD_ASSIGNMENTS}; refusing to link again and duplicate them (a forced re-run undoes them)`, "ThreadIdentityUnrecorded");
       const need = async (name: string) => {
         const p = await store.find(runId, name);
@@ -315,7 +315,7 @@ export function threadsActivities(deps: ThreadsDeps) {
       };
       const done = await recorded(db);
       if (done) return done;
-      const content = await ts.installmentContent(tid, runId);
+      const content = await ts.updateContent(tid, runId);
       if (content === undefined) throw ApplicationFailure.nonRetryable(`thread ${tid} has no installment in run ${runId}`, "NoInstallment");
       // Content without the audit record was applied by the Python (a resumed run): done. Applying
       // again would duplicate its questions.
@@ -405,7 +405,7 @@ export function threadsActivities(deps: ThreadsDeps) {
         // In assignment order, as synthesize_threads appends them; content is set only by an applied installment.
         const installments: ({ thread_id: number } & object)[] = [];
         for (const a of assignments) {
-          const c = a.is_new ? null : await ts.installmentContent(a.thread_id, runId);
+          const c = a.is_new ? null : await ts.updateContent(a.thread_id, runId);
           if (c) installments.push({ thread_id: a.thread_id, ...(JSON.parse(c) as object) });
         }
         const landed = new Set(installments.map((i) => i.thread_id));

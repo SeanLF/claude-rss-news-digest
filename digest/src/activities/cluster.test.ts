@@ -77,8 +77,8 @@ describe("cluster activities", () => {
     await store.put(300, "cluster_health.json", '{"stale": true}');
     const c = await acts.joinClusters(300, [p]);
     expect((JSON.parse(await store.get(c)) as { clusters: unknown[] }).clusters.length).toBe(2);
-    expect(await store.states(300, "clusters.json")).toContain("quarantined");
-    expect(await store.states(300, "cluster_health.json")).toContain("quarantined");
+    expect(await store.statuses(300, "clusters.json")).toContain("quarantined");
+    expect(await store.statuses(300, "cluster_health.json")).toContain("quarantined");
   });
   it("refuses a degenerate partition when too many articles are tagless", async () => {
     const { acts } = await setup({ items: [] });

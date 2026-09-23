@@ -69,7 +69,7 @@ ${FOOTER}`,
       const claimed = !delivered && status?.startsWith(CLAIMED);
       // Never suggest a resume after an accepted broadcast; with a claim held, only once Resend is checked.
       const [headline, state, next] = delivered
-        ? [`${what} after the digest was sent`, `The digest was sent (broadcast ${htmlEscape(status ?? "accepted")}); the failure came after it.`, "Do not resume or re-send: readers have it. Only the run's record (shown headlines, completed_at) may need repair."]
+        ? [`${what} after the digest was sent`, `The digest was sent (broadcast ${htmlEscape(status ?? "accepted")}); the failure came after it.`, "Do not resume or re-send: readers have it. Only the run's record (story sources, outcome) may need repair."]
         : claimed
           ? [`${what} with a send claim held`, `A send attempt holds the day's claim (${htmlEscape(status ?? "")}), so whether the digest went out is unknown.`, `Check Resend for the day's broadcast before anything else. If nothing went out, clear the claim in the worker container with <code>${htmlEscape(clearClaimCommand(req.date ?? "DATE"))}</code>, then resume: ${resumeHint(req.runId)}.`]
           : status !== null

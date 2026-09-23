@@ -42,14 +42,14 @@ const ENV = { BROADCAST_ENABLED: "true", RESEND_API_KEY: "re_test", RESEND_FROM:
 async function setup(row?: { id?: string; status?: string; recipients?: number }, env: Record<string, string> = ENV) {
   const url = await migratedDb([{ id: 300, runAt: "2026-09-08 10:25:40" }]);
   const db = openDb(url);
-  if (row) await db.run("INSERT INTO issues (date, revision, run_id, html) VALUES ('2026-09-08', 1, 300, '<html></html>')");
+  if (row) await db.run("INSERT INTO issues (issue_date, revision, run_id, html) VALUES ('2026-09-08', 1, 300, '<html></html>')");
   if (row?.id || row?.status)
-    await db.run("INSERT INTO broadcasts (date, run_id, revision, resend_id, status, recipients, claim_token, claimed_at) VALUES ('2026-09-08', 300, 1, $1, $2, $3, 'someone', now())", [row.id ?? null, row.status ?? "claimed", row.recipients ?? null]);
+    await db.run("INSERT INTO sends (issue_date, run_id, revision, resend_id, status, recipients, claim_token, claimed_at) VALUES ('2026-09-08', 300, 1, $1, $2, $3, '00000000-0000-4000-8000-000000000001', now())", [row.id ?? null, row.status ?? "claimed", row.recipients ?? null]);
   const store = new ArtifactStore(url);
   const email = await store.put(300, "email.html", "<mjml-rendered>issue</mjml-rendered>");
   const selections = await store.put(300, "selections.json", JSON.stringify({ must_know: [{ headline: "Deal <signed>", sources: [] }], should_know: [{ headline: "Yen falls", sources: [] }] }));
   // The day's send as the tests read it: no row reads as nothing claimed.
-  const state = async () => (await db.one("SELECT resend_id AS id, status, recipients FROM broadcasts WHERE date='2026-09-08'")) ?? { id: null, status: null, recipients: null };
+  const state = async () => (await db.one("SELECT resend_id AS id, status, recipients FROM sends WHERE issue_date='2026-09-08'")) ?? { id: null, status: null, recipients: null };
   const make = (mail: Mail, extra: Partial<BroadcastDeps> = {}) => broadcastActivities({ store, dbUrl: url, mail: () => mail, env, retryDelayMs: 0, execution: () => ({ namespace: "default", workflowId: "digest-2026-09-08", runId: "r-123" }), ...extra });
   return { email, selections, state, make, url, db };
 }
@@ -120,15 +120,15 @@ describe("broadcast: at most once per digest date (the 2026-06-16 rule)", () => 
     const fake = fakeMail({
       create: [
         () => {
-          atCreate = db.one("SELECT run_id, revision, status FROM broadcasts");
+          atCreate = db.one("SELECT run_id, revision, status FROM sends");
           return ok({ id: "b-new" });
         },
       ],
     });
     await make(fake.mail).broadcast(300, email);
     expect(await atCreate).toEqual({ run_id: 300, revision: 1, status: "claimed" });
-    await db.exec("INSERT INTO digest_runs (id, run_at) VALUES (301, '2026-09-08 14:00:00'); INSERT INTO issues (date, revision, run_id, html) VALUES ('2026-09-08', 2, 301, '')");
-    expect(await db.one("SELECT run_id, revision, status FROM broadcasts")).toEqual({ run_id: 300, revision: 1, status: "sent" });
+    await db.exec("INSERT INTO runs (id, started_at) VALUES (301, '2026-09-08 14:00:00'); INSERT INTO issues (issue_date, revision, run_id, html) VALUES ('2026-09-08', 2, 301, '')");
+    expect(await db.one("SELECT run_id, revision, status FROM sends")).toEqual({ run_id: 300, revision: 1, status: "sent" });
   });
   it("unless BROADCAST_ENABLED is true it says so and refuses to send, never calling Resend", async () => {
     for (const flag of [undefined, "", "false", "1", "yes"]) {
@@ -154,7 +154,7 @@ describe("broadcast: at most once per digest date (the 2026-06-16 rule)", () => 
   it("a claim of any age holds the date: none is taken over, and the refusal names the command that clears it", async () => {
     for (const at of [new Date(), new Date(Date.now() - 24 * 60 * 60 * 1000)]) {
       const s = await setup({ status: "claimed" });
-      await s.db.run("UPDATE broadcasts SET claimed_at = $1", [at.toISOString()]);
+      await s.db.run("UPDATE sends SET claimed_at = $1", [at.toISOString()]);
       const fake = fakeMail({});
       await expect(s.make(fake.mail).broadcast(300, s.email)).rejects.toThrow(/claimed.*node dist\/cli\/clear-claim\.js 2026-09-08/);
       expect(fake.names().filter((n) => n === "create" || n === "send")).toEqual([]);
@@ -218,7 +218,7 @@ describe("broadcast: at most once per digest date (the 2026-06-16 rule)", () => 
     const slow = fakeMail({ create: [() => gate.then(() => ok({ id: "b-a" })) as Reply] });
     const a = make(slow.mail).broadcast(300, email).catch((e: unknown) => e);
     await new Promise((r) => setTimeout(r, 20));
-    await db.run("DELETE FROM broadcasts WHERE date='2026-09-08'"); // the operator clears it
+    await db.run("DELETE FROM sends WHERE issue_date='2026-09-08'"); // the operator clears it
     const b = fakeMail({ create: [() => ok({ id: "b-b" })] });
     await make(b.mail).broadcast(300, email);
     release();
