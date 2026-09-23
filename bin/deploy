@@ -1,6 +1,6 @@
 #!/bin/bash
 # Deploy news-digest infrastructure
-# Usage: bin/deploy [--skip-build] [--skip-web-check] [--skip-sbom-audit] [-y|--yes] [--dry-run]
+# Usage: bin/deploy [--skip-build] [--skip-web-check] [--skip-sbom-audit] [-y|--yes] [--dry-run] [--force]
 #
 # Builds and pushes Docker images, then applies Terraform
 #
@@ -10,6 +10,7 @@
 #   --skip-sbom-audit Skip the still_active vulnerability gate on the generated SBOMs
 #   -y, --yes     Skip confirmation prompt
 #   --dry-run     Show what would be done without making changes
+#   --force       Deploy inside the Temporal run window (10:00-11:45Z) when the Temporal pipeline is live
 #
 # Required environment variables (set in .env):
 #   REGISTRY  - Docker registry URL (e.g., registry.example.com:5000)
@@ -52,6 +53,7 @@ SKIP_WEB_CHECK=false
 SKIP_SBOM_AUDIT=false
 AUTO_APPROVE=false
 DRY_RUN=false
+FORCE=false
 
 for arg in "$@"; do
   case $arg in
@@ -60,6 +62,7 @@ for arg in "$@"; do
     --skip-sbom-audit) SKIP_SBOM_AUDIT=true ;;
     -y|--yes) AUTO_APPROVE=true ;;
     --dry-run) DRY_RUN=true ;;
+    --force) FORCE=true ;;
   esac
 done
 
@@ -587,19 +590,23 @@ build_and_push() {
   build_and_push_image "$SERVICE_NEWSROOM" "." "newsroom/Dockerfile" "--build-arg GIT_SHA=${SHA:0:7}" image &
   local news_pid=$!
 
-  # Image scans, like newsroom: the worker's graph is the pruned node_modules the image ships, and
-  # the fulltext image installs from pyproject.toml pins with no lockfile a source scan could read.
-  build_and_push_image "$SERVICE_WORKER" "." "digest/Dockerfile" "--build-arg GIT_SHA=${SHA:0:7}" image &
-  local worker_pid=$!
-
-  build_and_push_image "$SERVICE_FULLTEXT" "." "digest/fulltext/Dockerfile" "" image &
-  local fulltext_pid=$!
+  # The Temporal workers only when the box runs them: in "python" mode they are not built, gated
+  # or pushed, so a problem in digest/ cannot block a Python deploy. Image scans, like newsroom:
+  # the worker's graph is the pruned node_modules the image ships, and the fulltext image installs
+  # from pyproject.toml pins with no lockfile a source scan could read.
+  local worker_pid="" fulltext_pid=""
+  if temporal_on; then
+    build_and_push_image "$SERVICE_WORKER" "." "digest/Dockerfile" "--build-arg GIT_SHA=${SHA:0:7}" image &
+    worker_pid=$!
+    build_and_push_image "$SERVICE_FULLTEXT" "." "digest/fulltext/Dockerfile" "" image &
+    fulltext_pid=$!
+  fi
 
   local circ_failed=false news_failed=false worker_failed=false fulltext_failed=false
   wait "$circ_pid" || circ_failed=true
   wait "$news_pid" || news_failed=true
-  wait "$worker_pid" || worker_failed=true
-  wait "$fulltext_pid" || fulltext_failed=true
+  if [ -n "$worker_pid" ]; then wait "$worker_pid" || worker_failed=true; fi
+  if [ -n "$fulltext_pid" ]; then wait "$fulltext_pid" || fulltext_failed=true; fi
 
   if [ "$circ_failed" = "true" ] || [ "$news_failed" = "true" ] || [ "$worker_failed" = "true" ] || [ "$fulltext_failed" = "true" ]; then
     # "or its SBOM audit": generate_sbom runs BEFORE the push, so an image that built cleanly
@@ -711,13 +718,50 @@ run_migrations() {
   log_success "Migrations applied"
 }
 
-# Deploys never overlap the run window (spec §2.1): the daily Temporal schedule is paused before
-# anything is migrated or restarted, and its state is re-derived after the apply. Pausing is
-# idempotent, so it runs whichever pipeline is live; while Python is live the schedule is paused
-# anyway and resume_schedule pauses it again.
+# Which pipeline the box runs: terraform's var.news_digest_pipeline, read from the infra repo the
+# way mcp_smoke reads the domain. "python" means no Temporal stack on the box, and then this script
+# never builds, targets, pauses or restores anything of it.
+PIPELINE_MODE=""
+
+read_pipeline_mode() {
+  log_step "Reading the live pipeline mode..."
+  local raw
+  raw=$(echo 'var.news_digest_pipeline' | "$INFRA_DIR/bin/tf" console 2>/dev/null | tr -d '"[:space:]') || raw=""
+  case $raw in
+    python|staged|temporal) PIPELINE_MODE=$raw ;;
+    # Not a guess and not a default: a mode read wrong would skip the pause, or build and target a
+    # stack that is not there. Same lesson as mcp_smoke's domain (a warning captured as a value).
+    *) log_error "var.news_digest_pipeline did not resolve to python|staged|temporal (got: '$(printf '%.60s' "${raw:-<empty>}")')"; return 1 ;;
+  esac
+  log_info "Pipeline mode: $PIPELINE_MODE"
+}
+
+temporal_on() { [[ $PIPELINE_MODE == staged || $PIPELINE_MODE == temporal ]]; }
+
+# A paused schedule drops the slot it misses, and a deploy restarts the worker under a run, so with
+# Temporal live a deploy is refused from 10:00Z (before the 10:25Z start) to 11:45Z (past a normal
+# run's end). digest-schedule sync still starts a missed day once if a --force deploy spans 10:25Z.
+check_run_window() {
+  [[ $PIPELINE_MODE == temporal ]] || return 0
+  local now
+  now=$(date -u +%H%M)
+  if (( 10#$now >= 1000 && 10#$now < 1145 )); then
+    if [[ $FORCE == true ]]; then
+      log_error "deploying inside the Temporal run window (${now}Z) under --force"
+      return 0
+    fi
+    log_error "${now}Z is inside the Temporal run window (10:00-11:45Z) -- deploy after it, or pass --force"
+    return 1
+  fi
+}
+
+# Deploys never overlap the run window (spec §2.1): in "staged" and "temporal" the daily schedule is
+# paused before anything is migrated or restarted, and its state is re-derived after the apply.
+# In "python" there is no schedule and neither function runs.
 SCHEDULE_PAUSED=false
 
 pause_schedule() {
+  temporal_on || return 0
   log_step "Pausing the Temporal schedule..."
   # Marked paused in a dry run too, so the preview shows the resume that pairs with it.
   dry_run_skip "bin/ssh $SCHEDULE_CTL pause" && { SCHEDULE_PAUSED=true; return 0; }
@@ -742,8 +786,9 @@ pause_schedule() {
   esac
 }
 
-# The bootstrap unit, not a bare unpause: it knows which pipeline is live, so a deploy while Python
-# is live leaves the schedule paused. It also re-runs ensureSchedule from the new image.
+# The bootstrap unit, not a bare unpause: it knows the mode, so a "staged" deploy leaves the
+# schedule paused, and in "temporal" it starts today's run once if 10:25Z passed while paused. It
+# also re-runs ensureSchedule from the new image.
 resume_schedule() {
   [[ $SCHEDULE_PAUSED == true ]] || return 0
   log_step "Restoring the Temporal schedule's state..."
@@ -773,7 +818,11 @@ TF_TARGETS=(
   -target=null_resource.news_digest_alert
   -target=null_resource.news_digest_deadman
   -target=null_resource.digest_server
-  # The TypeScript pipeline (news-digest-temporal.tf). Every one is named, for the reason above.
+)
+
+# The TypeScript pipeline (news-digest-temporal.tf), targeted only when the box runs it. Tearing it
+# down (staged -> python) is a deliberate targeted apply in the runbook, never a side effect here.
+TF_TEMPORAL_TARGETS=(
   -target=null_resource.news_digest_temporal_db
   -target=null_resource.news_digest_temporal_server
   -target=null_resource.news_digest_temporal_bootstrap
@@ -793,10 +842,13 @@ apply_terraform() {
   worker_digest=$(cat "$DIGEST_DIR/$SERVICE_WORKER.digest" 2>/dev/null || echo "")
   fulltext_digest=$(cat "$DIGEST_DIR/$SERVICE_FULLTEXT.digest" 2>/dev/null || echo "")
 
+  local -a targets=("${TF_TARGETS[@]}")
+  temporal_on && targets+=("${TF_TEMPORAL_TARGETS[@]}")
+
   local plan_output plan_exit
   set +e
   plan_output=$("$INFRA_DIR/bin/tf" plan \
-    "${TF_TARGETS[@]}" \
+    "${targets[@]}" \
     -var="news_digest_deploy_sha=$SHA" \
     -var="news_digest_newsroom_digest=$newsroom_digest" \
     -var="news_digest_circulation_digest=$circulation_digest" \
@@ -996,6 +1048,8 @@ main() {
   check_docker || exit 1
   check_tailscale || exit 1
   check_web || exit 1
+  read_pipeline_mode || exit 1
+  check_run_window || exit 1
 
   # Git operations
   log_stage "GIT OPERATIONS"
@@ -1009,9 +1063,11 @@ main() {
     echo ""
     echo "About to:"
     [[ $SKIP_BUILD == false ]] && echo "  - Build and push Docker images"
-    echo "  - Pause the Temporal schedule for the deploy, and restore it after"
-    echo "  - Apply Terraform (news_digest_env, news_digest_service, news_digest_alert, news_digest_deadman, digest_server,"
-    echo "    and the Temporal stack: news_digest_temporal_db/_server/_bootstrap/_backup, news_digest_workers)"
+    echo "  - Apply Terraform (news_digest_env, news_digest_service, news_digest_alert, news_digest_deadman, digest_server)"
+    if temporal_on; then
+      echo "  - Pipeline mode $PIPELINE_MODE: build the Temporal workers, pause the schedule for the deploy and restore it"
+      echo "    after, and apply the Temporal stack (news_digest_temporal_db/_server/_bootstrap/_backup, news_digest_workers)"
+    fi
     echo "  - Run database migrations"
     echo ""
     read -p "Continue? [y/N] " -n 1 -r

@@ -1,149 +1,192 @@
 # Temporal cut-over and rollback runbook (2026-09-23)
 
-The TypeScript pipeline runs on Temporal on the production box beside the Python one. One terraform
-variable decides which of the two is live. This runbook covers the flip, the flip back, and running the
-Temporal side day to day. Terraform: `$INFRA_DIR/infrastructure/terraform/news-digest-temporal.tf`,
-branch `digest-temporal` of seanfloyd.dev. Spec: §2.1 and §5 of
-`docs/superpowers/specs/2026-09-21-four-systems-rewrite-design.md`.
+The TypeScript pipeline runs on Temporal on the production box. One terraform variable decides whether
+it is on the box at all, and which pipeline sends the digest. This runbook covers staging it, the flip,
+the flip back, and running the Temporal side day to day.
+
+Terraform: `$INFRA_DIR/infrastructure/terraform/news-digest-temporal.tf`, branch `digest-temporal` of
+seanfloyd.dev. Spec: §2.1 and §5 of `docs/superpowers/specs/2026-09-21-four-systems-rewrite-design.md`.
 
 ## The switch
 
-`news_digest_pipeline` in `terraform.tfvars`, `"python"` (default) or `"temporal"`:
+`news_digest_pipeline` in `terraform.tfvars`:
 
-| | `python` | `temporal` |
-|---|---|---|
-| `news-digest.timer` (12:25 Europe/Paris) | enabled | disabled; the service stays installed |
-| Temporal schedule `digest-daily` (10:25Z) | paused, note "live pipeline: python" | unpaused |
-| healthchecks.io success ping | sent by the Python run | sent by `news-digest-deadman` after `--verify-today` passes |
-| Temporal server, Postgres, UI, both workers | running | running |
+| | `python` (default) | `staged` | `temporal` |
+|---|---|---|---|
+| Temporal stack (server, Postgres, UI, workers, dumps) | not on the box | running | running |
+| `news-digest.timer` (12:25 Europe/Paris) | enabled | enabled | disabled; the service stays installed |
+| schedule `digest-daily` (10:25Z) | none | paused | unpaused |
+| worker's database (`DIGEST_DB_PATH`) | | `digest-staged.db`, a copy | `digest.db` |
+| worker broadcasts (`BROADCAST_ENABLED`) | | `false` | `true` |
+| healthchecks.io success ping | the Python run | the Python run | `news-digest-deadman`, after `--verify-today` |
+| what `bin/deploy` builds and applies | circulation, newsroom | + both workers, the stack, pause and restore | same as staged, and refuses 10:00-11:45Z without `--force` |
 
-Both sides are rendered from the one variable, so one apply cannot leave both pipelines armed. The workers
-run in either mode, so a worker that cannot start on the box shows up before the cut-over.
+- **`python`** costs nothing. A Python deploy never builds, gates, targets or pauses anything Temporal,
+  so a problem in `digest/` cannot block it.
+- **`staged`** is for verifying prod before the flip. It is not meant to stay on: it holds about
+  560 MiB beside a Python run that is capped at 2 GiB.
+- **`temporal`** is the cut-over. It is Sean's call, after three passed gate days (spec §7.5).
 
-The flip is Sean's call, after three passed gate days (spec §7.5).
+Two guards stop both pipelines from sending the same day:
+- **The TypeScript `startRun`** refuses a day whose `digest_runs` already has a completed run, or a run
+  still `running` that started within 4 h. The Python pipeline writes the same table, so this holds
+  whichever pipeline started first. `force` overrides it.
+- **Terraform ordering**: the bootstrap that unpauses the schedule depends on the timer resource, so
+  going to `temporal` disables the timer first.
 
-## What is on the box
+`bin/deploy` reads the mode with `tf console` on every run. An unreadable mode stops the deploy.
+
+## What is on the box (staged and temporal)
 
 | unit | what | memory cap |
 |---|---|---|
 | `news-digest-temporal-postgres` | `postgres:18.6-alpine3.24`, volume `news-digest-temporal-pg` | 384 MiB |
 | `news-digest-temporal-schema` | one-shot: `temporal-sql-tool` create/setup/update-schema (admin-tools 1.32.0) | |
 | `news-digest-temporal` | `temporalio/server:1.32.0`, no published port | 512 MiB |
-| `news-digest-temporal-ui` | `temporalio/ui:2.54.1` on 127.0.0.1:8233 only | 128 MiB |
-| `news-digest-temporal-bootstrap` | one-shot: namespace `news-digest` (30-day retention), `ensureSchedule`, pause state | |
-| `news-digest-worker` | the TypeScript worker, queue `digest` | 2 GiB |
-| `news-digest-fulltext` | the Python fulltext worker, queue `fulltext` | 512 MiB |
+| `news-digest-temporal-ui` | `temporalio/ui:2.54.1` on 127.0.0.1:8233, and on the tailnet via `tailscale serve` | 128 MiB |
+| `news-digest-temporal-bootstrap` | one-shot: namespace `news-digest` (30-day retention), `ensureSchedule`, pause state, missed-slot start | |
+| `news-digest-worker` | the TypeScript worker, queue `digest`; env `.env` then `worker.env` | 1280 MiB |
+| `news-digest-fulltext` | the Python fulltext worker, queue `fulltext` | 448 MiB |
 | `news-digest-temporal-backup.timer` | nightly `pg_dump` at 03:15 UTC, kept 14 days | |
 
-Everything sits on the docker network `news-digest-temporal`. The workers also join `digest-v6`, because
-they fetch the feeds and france24 only answers over IPv6. Every long-running unit restarts on failure. Five
-failures in ten minutes stop the restarts and email an alert through `news-digest-alert@`.
+- Everything sits on the docker network `news-digest-temporal`. The workers also join `digest-v6`:
+  they fetch the feeds, and france24 answers only over IPv6.
+- Long-running units restart on failure. Five failures in ten minutes stop the restarts and email
+  through `news-digest-alert@`.
+- The Postgres password is generated on the box, in `/opt/news-digest/temporal-db.env` (0600). It is not
+  in tfvars, state or 1Password.
+- `worker.env` (0600) holds `BROADCAST_ENABLED`, `DIGEST_DB_PATH`, `TEMPORAL_UI_URL`
+  (`https://seanfloyd-hetzner.tail739266.ts.net:8233`) and `HEALTH_ALERT_EMAIL`.
 
-The Postgres password is generated on the box, in `/opt/news-digest/temporal-db.env`. It is not in
-tfvars, state or 1Password.
+### Memory budget (temporal)
 
-### Memory budget
+Read on the box on 2026-09-23 (`free -m`, `docker stats`): 3819 MiB total, no swap, 994 MiB used with
+no digest running. That leaves 2825 MiB.
 
-Read on the box on 2026-09-23 with `free -m` and `docker stats`: 3819 MiB total, no swap, 994 MiB used
-with no digest running (seanfloyd.dev web 178, registry 30, kamal-proxy 13, circulation 4, the rest the
-system). The Temporal stack adds, idle:
+The caps sum to 2752 MiB: Postgres 384, server 512, UI 128, fulltext 448, worker 1280. Every container
+can sit at its cap at once and 73 MiB are still free.
 
-| | measured |
-|---|---|
-| server + Postgres | 262 MiB on prod (2026-09-21); 277 MiB in the local rehearsal |
-| digest worker | 137-198 MiB (local) |
-| fulltext worker | 79 MiB (local) |
-| UI | 7 MiB (local) |
+The worker's 1280 MiB covers the WRITE fan-out: 4 Claude Code processes at about 245 MiB each is
+980 MiB. The node worker itself measured 137-198 MiB idle, so the total is about 1180 MiB, plus
+headroom. The worker was OOM-killed at 512 MiB. If the fan-out width (Semaphore 4) changes, this cap
+changes with it.
 
-That is about 1.5 GiB in use with nothing running. A run adds the running pipeline's container, capped at
-2 GiB either way. The Python run's peak has never been measured. At the cap, the box is at about 3.5 of
-3.8 GiB, with page cache as the only slack. If the box OOMs during a run, first lower the fulltext cap
-(its extraction runs in a child process), then the UI's. The digest worker's 2 GiB stays: it was
-OOM-killed at 512 MiB running four Claude Code processes at once.
+Idle, measured locally: server + Postgres 213-277 MiB (262 on prod on 2026-09-21), worker 137-208,
+fulltext 67-79, UI 7.
+
+## Staged verification
+
+1. `news_digest_pipeline = "staged"`, then `bin/deploy`.
+2. The worker unit copies `digest.db` to `digest-staged.db` before every start. It uses SQLite's
+   online backup API, run in the newsroom image. The TypeScript run writes only the copy, so Python's
+   fetch window (`get_last_run_time`) and its duplicate-run guard never see it. Broadcast is off.
+3. Health, all read-only:
+   ```
+   bin/ssh 'systemctl is-active news-digest-temporal-postgres news-digest-temporal news-digest-temporal-ui news-digest-worker news-digest-fulltext'
+   bin/ssh 'systemctl is-active news-digest-temporal-schema news-digest-temporal-bootstrap'   # one-shots: active (exited)
+   T='docker run --rm --network news-digest-temporal -e TEMPORAL_ADDRESS=news-digest-temporal:7233 -e TEMPORAL_NAMESPACE=news-digest temporalio/admin-tools:1.32.0 temporal'
+   bin/ssh "$T schedule describe -s digest-daily -o json" | jq .schedule.state     # paused, "mode staged"
+   bin/ssh 'journalctl -u news-digest-temporal-backup --since -2d --no-pager | tail -3'
+   bin/ssh 'docker stats --no-stream'
+   ```
+4. A prod run against the copy, after the Python run has finished for the day. Refresh the copy
+   first. The run needs `force`, because the copy holds today's completed Python run:
+   ```
+   bin/ssh systemctl restart news-digest-worker        # refreshes digest-staged.db, then starts
+   bin/ssh "$T workflow start -t digest --type DigestWorkflow -w digest-staged-$(date -u +%F) -i '{\"runDate\":\"$(date -u +%F)\",\"force\":true}'"
+   ```
+   Watch it in the UI. It holds before broadcast (2 h, or a signal), and with broadcast off it sends
+   nothing either way.
 
 ## Before the cut-over
 
 1. Three passed gate days (spec §7).
-2. `broadcast` is a real activity, not a stub. Run 305 (`docs/proposed/2026-09-23-e2e/`) still had
-   broadcast, gnews and threads stubbed.
-3. The stack has been deployed with `python` live and is healthy. All of these are read-only:
-   ```
-   bin/ssh 'systemctl is-active news-digest-temporal-postgres news-digest-temporal news-digest-temporal-ui news-digest-worker news-digest-fulltext'
-   bin/ssh 'systemctl is-active news-digest-temporal-schema news-digest-temporal-bootstrap'   # one-shots: active (exited)
-   bin/ssh 'docker run --rm --network news-digest-temporal -e TEMPORAL_ADDRESS=news-digest-temporal:7233 temporalio/admin-tools:1.32.0 temporal schedule describe -n news-digest -s digest-daily -o json' | jq .schedule.state
-   bin/ssh 'journalctl -u news-digest-temporal-backup --since -2d --no-pager | tail -3'   # a dump from last night
-   bin/ssh 'docker stats --no-stream'
-   ```
-4. healthchecks.io: once the flip is made, the success ping arrives at the dead-man time (15:00
-   Europe/Paris), not when the run ends. Set the check's schedule or grace to cover that before
-   flipping, or the first Temporal day alerts falsely.
+2. `broadcast` is a real activity. Run 305 still had broadcast, gnews and threads stubbed.
+3. A clean staged run on prod (above).
+4. healthchecks.io: the success ping will arrive at the dead-man time (15:00 Europe/Paris), not at run
+   end. Widen the check's schedule or grace first, or the first Temporal day alerts falsely.
 5. The schedule is fixed at 10:25Z. The Python timer is 12:25 Europe/Paris, which is 10:25Z in summer
-   and 11:25Z in winter (CET, from 2026-10-25). After the flip, the digest lands an hour earlier in
-   winter than it does now.
+   and 11:25Z in winter (CET from 2026-10-25), so in winter the digest lands an hour earlier.
 
 ## Cut-over
 
-Do the flip outside the run window. Not while a Python run is in progress
-(`bin/ssh systemctl is-active news-digest.service` must say `inactive`), and not between 10:20Z and a
-digest landing.
+Outside the run window. `bin/ssh systemctl is-active news-digest.service` must say `inactive`.
 
-1. In `$INFRA_DIR/infrastructure/terraform/terraform.tfvars`: `news_digest_pipeline = "temporal"`.
-2. `bin/deploy` (or `bin/deploy --skip-build -y` if the images are already current). The deploy pauses
-   the schedule, applies, and then restarts `news-digest-temporal-bootstrap`, which unpauses it because
-   `temporal` is now live. The timer resource re-renders and disables `news-digest.timer`.
-3. Verify:
+1. `news_digest_pipeline = "temporal"`, then `bin/deploy`. The apply disables the timer, then the
+   bootstrap unpauses the schedule. The worker is re-pointed at `digest.db` with broadcast on.
+   - If it is past 10:25Z and today has no `DigestWorkflow`, the bootstrap starts today's run once. A
+     paused schedule drops its missed slot rather than catching it up.
+   - If Python already sent today, `startRun` refuses that run with `AlreadyRan`: a failed workflow,
+     no email.
+2. Verify:
    ```
-   bin/ssh systemctl is-enabled news-digest.timer            # disabled
-   bin/ssh systemctl list-timers --no-pager | grep digest     # no news-digest.timer
-   # schedule state: no "paused"; note "live pipeline: temporal"
+   bin/ssh systemctl is-enabled news-digest.timer                    # disabled
+   bin/ssh "$T schedule describe -s digest-daily -o json" | jq .schedule.state   # no "paused"
+   bin/ssh 'grep -E "BROADCAST|DIGEST_DB" /opt/news-digest/worker.env'  # true, digest.db
    ```
-4. The next day: the workflow `digest-scheduled` ran (UI, below), `bin/ops run` shows the run completed,
-   the dead-man passed, and healthchecks.io got its ping.
+3. The next day: `bin/ops run` shows the run completed, the dead-man passed, and healthchecks.io got
+   its ping.
 
-## Rollback
+## Rollback (temporal -> python or staged)
 
-1. `news_digest_pipeline = "python"`, then `bin/deploy --skip-build -y`. The timer is re-enabled and the
-   schedule paused, in one apply.
-2. If a Temporal run is in progress and should not finish (for example, it would broadcast), end it:
-   ```
-   bin/ssh 'docker run --rm --network news-digest-temporal -e TEMPORAL_ADDRESS=news-digest-temporal:7233 temporalio/admin-tools:1.32.0 temporal workflow terminate -n news-digest -w <workflow id> --reason rollback'
-   ```
-3. If the day has no digest, run it through Python by hand: `bin/ssh systemctl start --no-block news-digest.service`.
-   The Python dup-run guard reads `digest_runs`, which the TypeScript run writes too. A day the TypeScript
-   run completed is refused unless forced.
-4. Nothing on the Temporal side needs undoing. Its artifacts are rows in `digest.db`, which the
-   pre-migration snapshot of every deploy already covers.
+The order matters. `news-digest.timer` has `Persistent=true`, so `enable --now` fires at once if 12:25
+Paris has passed. The Temporal side must be quiet before the apply re-enables it.
 
-A rollback of the Temporal stack itself (bad worker image) is an ordinary deploy of an earlier commit. The
-worker digests are in the `deploy/*` tag messages, like the other images.
+1. Stop the Temporal side first:
+   ```
+   bin/ssh /opt/news-digest/bin/digest-schedule pause "rollback"
+   bin/ssh "$T workflow list -q 'ExecutionStatus=\"Running\"'"
+   bin/ssh "$T workflow terminate -w <id> --reason rollback"      # each running one
+   ```
+2. Set `news_digest_pipeline = "staged"` (keeps the stack, for forensics) and run
+   `bin/deploy --skip-build -y`. The timer comes back, the schedule stays paused, and the worker moves
+   to the copy with broadcast off.
+3. If the day has no digest: `bin/ssh systemctl start --no-block news-digest.service`. Python's guard
+   refuses a day that already has a completed run.
+4. To remove the stack as well, set `"python"` and run the teardown below.
+
+Nothing on the Temporal side needs undoing in `digest.db`: its rows are covered by the pre-migration
+snapshot every deploy takes.
+
+## Teardown (staged -> python)
+
+`bin/deploy` in `python` mode does not target the Temporal resources, so it never tears them down as a
+side effect. Tear down deliberately:
+```
+cd "$INFRA_DIR" && bin/tf apply --fresh -target=null_resource.news_digest_workers \
+  -target=null_resource.news_digest_temporal_bootstrap -target=null_resource.news_digest_temporal_backup \
+  -target=null_resource.news_digest_temporal_server -target=null_resource.news_digest_temporal_db
+```
+The destroy provisioners pause the schedule, stop and remove the units, and turn off `tailscale serve`
+on :8233. They keep the Postgres volume, `temporal-db.env` and the dumps, so a later `staged` resumes
+the same history.
 
 ## Day to day
 
-- **UI, and the three signals**: `ssh -L 8233:localhost:8233 root@seanfloyd-hetzner`, then
-  http://localhost:8233. The UI has no login, so it is bound to loopback. From the CLI:
-  ```
-  T='docker run --rm --network news-digest-temporal -e TEMPORAL_ADDRESS=news-digest-temporal:7233 -e TEMPORAL_NAMESPACE=news-digest temporalio/admin-tools:1.32.0 temporal'
-  bin/ssh "$T workflow list --limit 5"
-  bin/ssh "$T workflow signal -w <id> --name approve --input '{\"decision\":\"approve\"}'"
-  ```
-- **Pause by hand**: `bin/ssh /opt/news-digest/bin/digest-schedule pause "reason"`. Restore with
-  `bin/ssh systemctl restart news-digest-temporal-bootstrap`. That restores the state the live pipeline
-  calls for; it never unpauses while Python is live.
-- **Deploys**: `bin/deploy` pauses before the snapshot and migrations. It restores after the apply and the
-  tag, and again from its exit trap if it dies partway. A run in progress when a deploy starts is reported,
-  not blocked: the worker restarts under it, and it resumes from its last completed activity. One gap: the
-  apply's own bootstrap step restores the schedule a few seconds before the workers restart on the new
-  image.
+- **UI and the three signals.** Open `https://seanfloyd-hetzner.tail739266.ts.net:8233` on the tailnet;
+  it has no login and is not on any public interface. From the CLI (`$T` as above):
+  `bin/ssh "$T workflow signal -w <id> --name approve --input '{\"decision\":\"approve\"}'"`.
+- **Pause by hand:** `bin/ssh /opt/news-digest/bin/digest-schedule pause "reason"`. Restore with
+  `bin/ssh systemctl restart news-digest-temporal-bootstrap`, which sets the state the mode calls for.
+- **Deploys** in staged or temporal:
+  - The schedule is paused before the snapshot and the migrations, and restored after the apply and
+    the tag. The exit trap restores it too if the deploy dies partway.
+  - In temporal mode, a deploy between 10:00Z and 11:45Z needs `--force`.
+  - A run already in progress is reported, not blocked: the worker restarts under it and resumes from
+    its last completed activity.
+  - Known gap: the apply's own bootstrap step restores the schedule a few seconds before the workers
+    restart on the new image.
 
 ## Backups and the restore drill
 
-Dumps are in `/opt/news-digest/temporal-dumps/`, `<db>-<UTC stamp>.dump` (custom format), for
-`temporal` and `temporal_visibility`. A dump counts only after `pg_restore --list` has read it back.
-A truncated archive fails that step (tested). They are on-box only: Temporal's history is for visibility
-and forensics, and the record is `digest.db` (spec §2.1).
+Dumps land in `/opt/news-digest/temporal-dumps/` as `<db>-<UTC stamp>.dump` (custom format), for
+`temporal` and `temporal_visibility`.
+- A dump counts only after `pg_restore --list` has read it back. A truncated archive fails that
+  check (tested).
+- They stay on the box. Temporal's history is for forensics; the record is `digest.db` (spec §2.1).
 
-The drill (spec §5 asks for one). It was rehearsed locally on 2026-09-23 and has not yet been run on the
-box. It restores into a scratch Postgres and server beside the live ones, and touches neither:
+The drill (spec §5 asks for one) was rehearsed locally on 2026-09-23. It has not yet been run on the box.
+It restores into a scratch Postgres and server beside the live ones and touches neither:
 ```
 bin/ssh
 cd /opt/news-digest
@@ -156,31 +199,31 @@ done
 docker run -d --name restore-temporal --network news-digest-temporal --env-file temporal-db.env \
   -e DB=postgres12 -e DB_PORT=5432 -e POSTGRES_SEEDS=restore-pg -e BIND_ON_IP=0.0.0.0 \
   -v /opt/news-digest/temporal/dynamicconfig:/etc/temporal/config/dynamicconfig:ro temporalio/server:1.32.0
-# pause first: the restored schedule is live, and this server would start a run of its own at 10:25Z
-T='docker run --rm --network news-digest-temporal -e TEMPORAL_ADDRESS=restore-temporal:7233 -e TEMPORAL_NAMESPACE=news-digest temporalio/admin-tools:1.32.0 temporal'
-$T schedule toggle -s digest-daily --pause --reason "restore drill"
-$T schedule describe -s digest-daily -o json | jq .schedule.state
-$T workflow list --limit 3
+R='docker run --rm --network news-digest-temporal -e TEMPORAL_ADDRESS=restore-temporal:7233 -e TEMPORAL_NAMESPACE=news-digest temporalio/admin-tools:1.32.0 temporal'
+$R schedule toggle -s digest-daily --pause --reason "restore drill"   # a restored live schedule would fire
+$R schedule describe -s digest-daily -o json | jq .schedule.state
+$R workflow list --limit 3
 docker rm -f restore-temporal restore-pg && docker volume rm restore-pg
 ```
-No worker polls the scratch server: the workers are pointed at `news-digest-temporal`, so nothing it
-holds can run.
 
-**Lost password file.** Postgres reads `POSTGRES_PASSWORD` only when the volume is first initialised.
-If `temporal-db.env` is gone and the volume is not, the next provision writes a new password that
-Postgres does not know. Recover it with
+**Lost password file.** Postgres reads `POSTGRES_PASSWORD` only when the volume is first initialised,
+so a new `temporal-db.env` over an old volume locks Temporal out. Recover with
 `docker exec news-digest-temporal-postgres psql -U temporal -d postgres -c "ALTER ROLE temporal PASSWORD '<value from the new file>'"`.
 Local connections inside the container are trusted, so this works without the old password.
 
 ## Unverified until the first apply
 
-- Every provisioning script and unit ran only in a local rehearsal. Its Exec lines ran verbatim against
-  local docker, the units passed `systemd-analyze verify` on Ubuntu 24.04, and the scripts passed
-  shellcheck. None of it has run under systemd on the box. Ordering at boot, `StartLimit*`, `OnFailure`
-  and `docker network prune` against live networks are all unexercised.
-- Postgres 18 runs under Temporal 1.32.0 here, not the 16 in Temporal's own samples. It was rehearsed
-  locally (schema, server, namespace, schedule, dump, restore), on arm64 rather than the box's amd64.
-- The worker has never processed a workflow on the box. Its `--env-file` is the Python container's
-  `.env`, and the TypeScript render and broadcast read their settings from it. Nobody has checked
-  whether every name matches.
-- The 2 GiB peak with the Temporal stack resident has not been measured.
+- **systemd on the box.** Every script and unit ran only in a local rehearsal: Exec lines verbatim
+  against local docker, `systemd-analyze verify` on Ubuntu 24.04, shellcheck. Never under systemd on
+  the box. Boot ordering, `StartLimit*`, `OnFailure`, the destroy provisioners and
+  `docker network prune` against live networks are all unexercised.
+- **`tailscale serve --bg --https=8233`.** Its syntax was read from the box's `tailscale serve --help`
+  (1.102.4), and the registry already uses the same mechanism on :5443. The command itself has not
+  been run.
+- **Postgres 18 under Temporal 1.32.0**, not the 16 in Temporal's samples. Rehearsed locally on
+  arm64; the box is amd64.
+- **The worker on the box.** It has never processed a workflow there. The Python container's `.env`
+  plus `worker.env` has not been checked against every setting the TypeScript render and broadcast
+  read.
+- **The 1280 MiB worker cap** rests on the 245 MiB-per-process figure. A four-way fan-out under that
+  cap has not been measured.
