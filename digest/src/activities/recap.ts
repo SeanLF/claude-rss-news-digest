@@ -48,7 +48,7 @@ export function recapActivity(deps: RecapDeps): (runId: number, force?: boolean)
       { today: store.runDate(runId), ...(deps.query ? { query: deps.query } : {}), ...(deps.heartbeat ? { heartbeat: deps.heartbeat } : {}), ...(deps.signal?.() ? { signal: deps.signal()! } : {}) },
     );
     deps.heartbeat?.();
-    deps.onUsage?.({ model: spec.model, thinking: spec.thinking, tokens: r.usage, stage: "recap", runId, costUsd: r.costUsd, durationMs: r.durationMs, numTurns: r.numTurns });
+    deps.onUsage?.({ model: spec.model, thinking: spec.thinking, effort: r.effort, tokens: r.usage, stage: "recap", runId, costUsd: r.costUsd, durationMs: r.durationMs, numTurns: r.numTurns });
     const text = r.text.trim();
     if (!validRecap(text)) throw new Error(`recap for run ${runId}: model returned an empty recap`);
     return force ? store.replace(runId, RECAP_OUTPUT, text) : store.put(runId, RECAP_OUTPUT, text);

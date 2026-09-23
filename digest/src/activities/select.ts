@@ -80,7 +80,7 @@ export function selectActivity(deps: SelectDeps) {
       deps.heartbeat?.();
       const r = await runStage(spec, { userMessage: message, inputDir: dir }, { today: store.runDate(runId), outputSchema: selectedJsonSchema(), ...(deps.query ? { query: deps.query } : {}), ...(deps.heartbeat ? { heartbeat: deps.heartbeat } : {}), ...(deps.signal?.() ? { signal: deps.signal()! } : {}) });
       deps.heartbeat?.();
-      deps.onUsage?.({ model: spec.model, thinking: spec.thinking, tokens: r.usage, stage: "select", runId, costUsd: r.costUsd, durationMs: r.durationMs, numTurns: r.numTurns, toolCalls: r.toolCalls.length });
+      deps.onUsage?.({ model: spec.model, thinking: spec.thinking, effort: r.effort, tokens: r.usage, stage: "select", runId, costUsd: r.costUsd, durationMs: r.durationMs, numTurns: r.numTurns, toolCalls: r.toolCalls.length });
       const parsed = SelectedSchema.safeParse(r.structured);
       if (!parsed.success) throw new Error(`select for run ${runId}: output does not match the schema`);
       const problems = checkSelected(parsed.data, known);

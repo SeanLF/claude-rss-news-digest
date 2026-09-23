@@ -13,6 +13,9 @@ export interface StageResult {
   usage: Record<string, number>;
   durationMs: number;
   numTurns: number;
+  // What run_usage.effort records: the effort the request carried, or "(sdk default)" (the Python's
+  // token) when it carried none. A default is still reached by settings the SDK loads (effortLevel).
+  effort: string;
 }
 export type SdkQuery = typeof query;
 
@@ -101,5 +104,6 @@ export async function runStage(
     usage,
     durationMs: result.duration_ms,
     numTurns: result.num_turns,
+    effort: options.effort ?? "(sdk default)",
   };
 }

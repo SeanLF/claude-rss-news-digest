@@ -269,7 +269,7 @@ export function threadsActivities(deps: ThreadsDeps) {
       ...(deps.heartbeat ? { heartbeat: deps.heartbeat } : {}),
     });
     deps.heartbeat?.();
-    deps.onUsage?.({ model: s.model, thinking: s.thinking, tokens: r.usage, stage, runId, costUsd: r.costUsd, durationMs: r.durationMs, numTurns: r.numTurns, ...detail });
+    deps.onUsage?.({ model: s.model, thinking: s.thinking, effort: r.effort, tokens: r.usage, stage, runId, costUsd: r.costUsd, durationMs: r.durationMs, numTurns: r.numTurns, ...detail });
     return r.text;
   };
 

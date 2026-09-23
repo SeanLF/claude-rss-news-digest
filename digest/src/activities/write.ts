@@ -166,7 +166,7 @@ export function writeActivities(deps: WriteDeps) {
           ...(deps.query ? { query: deps.query } : {}), ...(deps.heartbeat ? { heartbeat: deps.heartbeat } : {}), ...(deps.signal?.() ? { signal: deps.signal()! } : {}),
         });
         deps.heartbeat?.();
-        deps.onUsage?.({ model: spec.model, thinking: spec.thinking, tokens: r.usage, stage: "write", runId, story: plan.index, costUsd: r.costUsd, durationMs: r.durationMs, numTurns: r.numTurns, toolCalls: r.toolCalls.length });
+        deps.onUsage?.({ model: spec.model, thinking: spec.thinking, effort: r.effort, tokens: r.usage, stage: "write", runId, story: plan.index, costUsd: r.costUsd, durationMs: r.durationMs, numTurns: r.numTurns, toolCalls: r.toolCalls.length });
         const parsed = BranchDraftSchema.safeParse(r.structured);
         if (!parsed.success) throw new Error(`write s${plan.index}: output does not match the schema`);
         const { story, problems } = checkBranch(parsed.data, plan);

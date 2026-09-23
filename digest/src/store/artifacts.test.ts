@@ -64,10 +64,12 @@ describe("run_usage", () => {
     const path = freshDb([300]);
     const db = openDb(path);
     db.exec("CREATE TABLE run_usage (id INTEGER PRIMARY KEY AUTOINCREMENT, run_id INTEGER, subagent TEXT NOT NULL, model TEXT NOT NULL, input_tokens INTEGER NOT NULL DEFAULT 0, output_tokens INTEGER NOT NULL DEFAULT 0, cache_write_tokens INTEGER NOT NULL DEFAULT 0, cache_read_tokens INTEGER NOT NULL DEFAULT 0, api_cost_usd REAL NOT NULL DEFAULT 0.0, recorded_at DATETIME DEFAULT (datetime('now', 'utc')), duration_ms INTEGER, thinking TEXT, effort TEXT)");
-    recordUsage(db, { stage: "write", runId: 300, model: "claude-sonnet-5", thinking: "adaptive", costUsd: 0.25, durationMs: 9, tokens: { input_tokens: 10, output_tokens: 3, cache_read_input_tokens: 7 } });
-    recordUsage(db, { stage: "coherence", runId: 300, model: "claude-sonnet-5", thinking: "adaptive", costUsd: 0.5, durationMs: 9, tokens: {} });
+    recordUsage(db, { stage: "write", runId: 300, model: "claude-sonnet-5", thinking: "adaptive", effort: "(sdk default)", costUsd: 0.25, durationMs: 9, tokens: { input_tokens: 10, output_tokens: 3, cache_read_input_tokens: 7 } });
+    recordUsage(db, { stage: "coherence", runId: 300, model: "claude-sonnet-5", thinking: "adaptive", effort: "high", costUsd: 0.5, durationMs: 9, tokens: {} });
     expect(runCost(db, 300, "2000-01-01")).toEqual({ costUsd: 0.75, calls: 2 });
     expect(runCost(db, 300, "2999-01-01")).toEqual({ costUsd: 0, calls: 0 });
     expect(db.prepare("SELECT cache_read_tokens AS c FROM run_usage WHERE subagent='write'").get()).toEqual({ c: 7 });
+    // config-drift.sql reads NULL as "(not recorded)": each call records the effort it ran under.
+    expect(db.prepare("SELECT subagent, effort FROM run_usage ORDER BY id").all()).toEqual([{ subagent: "write", effort: "(sdk default)" }, { subagent: "coherence", effort: "high" }]);
   });
 });
