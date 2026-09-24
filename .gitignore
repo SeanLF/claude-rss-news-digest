@@ -26,6 +26,8 @@ __pycache__/
 .pytest_cache/
 .ruff_cache/
 uv.lock
+# The Python worker's image builds from its lock (uv sync --frozen).
+!digest/python/uv.lock
 digest-cloud.db
 scratch/
 

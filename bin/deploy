@@ -602,8 +602,8 @@ build_and_push() {
 
   # The Temporal workers only when the box runs them: in "python" mode they are not built, gated
   # or pushed, so a problem in digest/ cannot block a Python deploy. Image scans, like newsroom:
-  # the worker's graph is the pruned node_modules the image ships, and the Python worker's image installs
-  # from pyproject.toml pins with no lockfile a source scan could read.
+  # the worker's graph is the pruned node_modules the image ships, and the Python worker's is the venv
+  # its image builds from digest/python/uv.lock without the dev group.
   local worker_pid="" python_pid=""
   if temporal_on; then
     build_and_push_image "$SERVICE_WORKER" "." "digest/Dockerfile" "--build-arg GIT_SHA=${SHA:0:7}" image &
