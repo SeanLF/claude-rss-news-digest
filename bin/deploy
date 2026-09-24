@@ -667,15 +667,29 @@ verify_provenance() {
 # Loud-but-non-fatal: a failed snapshot must not block a deploy, and the
 # script raises its own macOS notification; the age of the newest verified
 # backup is printed so staleness is visible right here in the deploy output.
+# --fresh-digest-dump: by default the script copies the box's newest nightly
+# pg_dump, up to a day old; this runs the box's dump first, so the copy is from
+# just before the migration. The script skips it in python mode on its own.
 backup_data() {
   log_step "Snapshotting server volumes to this Mac (pre-migration)..."
-  dry_run_skip "$INFRA_DIR/bin/backup-volumes" && return 0
+  dry_run_skip "$INFRA_DIR/bin/backup-volumes --fresh-digest-dump" && return 0
 
   # A missing script is a different emergency than a failed run: it means no
   # backups are happening anywhere (the daily launchd job uses the same path).
   if [ ! -x "$INFRA_DIR/bin/backup-volumes" ]; then
     log_error "backup script missing at $INFRA_DIR/bin/backup-volumes -- volume backups are NOT running at all"
-  elif "$INFRA_DIR/bin/backup-volumes"; then
+    return 0
+  fi
+
+  local rc=0
+  "$INFRA_DIR/bin/backup-volumes" --fresh-digest-dump || rc=$?
+  # 64 is its usage error: an infra checkout older than the flag, which copies no Postgres dump at all.
+  if [[ $rc == 64 ]]; then
+    log_error "$INFRA_DIR/bin/backup-volumes predates --fresh-digest-dump -- snapshotting without it, so NO Postgres dump; update the infra checkout"
+    rc=0
+    "$INFRA_DIR/bin/backup-volumes" || rc=$?
+  fi
+  if [[ $rc == 0 ]]; then
     log_success "Volumes backed up and restore-verified"
   else
     log_error "Volume backup FAILED -- deploying WITHOUT a fresh pre-migration snapshot"
