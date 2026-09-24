@@ -11,7 +11,9 @@
 --   pipeline runs under a subscription the real marginal cost is zero. Cost is
 --   attributed to the run that recorded it; the thread-synthesis rows are recorded in
 --   a separate call and are fail-soft, so a run can under-report. Runs before 106
---   have no model_calls rows at all and are excluded rather than shown as $0.00.
+--   have no model_calls rows at all and are excluded rather than shown as $0.00. Runs
+--   mailed before Resend broadcasts have no send (their recipient counts live in Resend),
+--   so their per-subscriber columns are blank.
 -- PARAMS: runs (window size, default 30)
 
 WITH bounds AS (

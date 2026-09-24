@@ -5,8 +5,11 @@
 --   fail independently: the run record, the per-stage usage record, the archived
 --   artifacts, and the send. A run that completed but shipped zero stories, or
 --   sent to zero recipients, is a silent outage and is counted here as such.
---   `recipients` sums the run's sends Resend holds (queued, sending, sent), including those
---   mailed before Resend broadcasts; a failed or unclaimed send counts zero.
+--   `recipients` sums the run's sends Resend holds (queued, sending, sent); a failed or
+--   unclaimed send counts zero. A run with outcome 'sent' and no send of its own reads blank,
+--   not zero, and is not flagged ZERO_RECIPIENTS: a run mailed before Resend broadcasts (those
+--   counts live in Resend, not in this database), or a re-run of a day another run's send
+--   already delivered.
 -- CAVEAT: Missing stage/artifact rows are FAIL-SOFT writes -- absence means "not
 --   recorded", which conflates "stage did not run" with "the archive write failed".
 --   It is a smoke alarm, not a diagnosis. Runs before 204 have only the selections.json
@@ -27,7 +30,9 @@ r AS (
         (SELECT COUNT(DISTINCT headline) FROM story_sources ss WHERE ss.run_id = ru.id) AS shipped,
         (SELECT COUNT(DISTINCT stage) FROM model_calls mc WHERE mc.run_id = ru.id)      AS stages,
         (SELECT COUNT(*) FROM artifacts a WHERE a.run_id = ru.id)                       AS artifacts,
-        (SELECT COALESCE(SUM(recipients), 0) FROM sends s WHERE s.run_id = ru.id AND s.status IN ('queued', 'sending', 'sent'))       AS recipients,
+        CASE WHEN ru.outcome = 'sent' AND NOT EXISTS (SELECT 1 FROM sends s WHERE s.run_id = ru.id) THEN NULL
+             ELSE (SELECT COALESCE(SUM(recipients), 0) FROM sends s WHERE s.run_id = ru.id AND s.status IN ('queued', 'sending', 'sent'))
+        END AS recipients,
         (SELECT COUNT(*) FROM source_fetches sf WHERE sf.run_id = ru.id AND NOT sf.is_success) AS feed_failures,
         substr(COALESCE(ru.error, ''), 1, 50) AS error
     FROM runs ru, bounds b
