@@ -1,4 +1,4 @@
-import type { Sql } from "../store/db.js";
+import type { RowOf, Sql } from "../store/db.js";
 import { deltaFromFacts, whatsNew } from "./text.js";
 
 // threads.ThreadStore, over the thread tables. Every row belongs to the run that wrote it: a
@@ -35,7 +35,7 @@ export class ThreadStore {
   }
 
   private async recentLabels(ids: number[], beforeRunId: number): Promise<Map<number, string[]>> {
-    const rows = await this.db.all<{ thread_id: number; label: string }>(
+    const rows = await this.db.all<Pick<RowOf<"thread_updates">, "thread_id" | "label">>(
       `SELECT thread_id, label FROM (
          SELECT thread_id, run_id, label,
                 ROW_NUMBER() OVER (PARTITION BY thread_id ORDER BY run_id DESC) AS rn
@@ -51,7 +51,7 @@ export class ThreadStore {
 
   async openQuestions(threadId: number): Promise<string[]> {
     return (
-      await this.db.all<{ question: string }>(
+      await this.db.all<Pick<RowOf<"thread_questions">, "question">>(
         "SELECT question FROM thread_questions q WHERE thread_id = $1 AND NOT EXISTS (SELECT 1 FROM thread_question_resolutions r WHERE r.question_id = q.id) ORDER BY id",
         [threadId],
       )
@@ -65,7 +65,7 @@ export class ThreadStore {
   }
 
   async updateContent(threadId: number, runId: number): Promise<string | null | undefined> {
-    const row = await this.db.one<{ content: string | null }>("SELECT content FROM thread_updates WHERE thread_id = $1 AND run_id = $2", [threadId, runId]);
+    const row = await this.db.one<Pick<RowOf<"thread_updates">, "content">>("SELECT content FROM thread_updates WHERE thread_id = $1 AND run_id = $2", [threadId, runId]);
     return row ? row.content : undefined;
   }
 
@@ -77,7 +77,7 @@ export class ThreadStore {
 
   // The thread's label is its first update's story label, which the caller records next.
   async createThread(runId: number): Promise<number> {
-    return (await this.db.one<{ id: number }>("INSERT INTO threads (created_run_id) VALUES ($1) RETURNING id", [runId]))!.id;
+    return (await this.db.one<Pick<RowOf<"threads">, "id">>("INSERT INTO threads (created_run_id) VALUES ($1) RETURNING id", [runId]))!.id;
   }
 
   // is_continuation: the linker continued an existing thread (a binary decision), rather than starting one.

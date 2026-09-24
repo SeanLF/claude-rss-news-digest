@@ -1,5 +1,5 @@
 import { PGlite } from "@electric-sql/pglite";
-import { PARSERS, type Db, type Row, type Sql } from "./db.js";
+import { PARSERS, type Db, type Sql } from "./db.js";
 import { upSections } from "./schema.js";
 
 // Postgres in-process for tests: PGlite 0.5.8 is Postgres 18.3 (the box runs 18.6) and runs every
@@ -26,8 +26,8 @@ const LOCK = "SELECT pg_advisory_xact_lock(hashtext($1))";
 type Querier = Pick<PGlite, "query" | "exec">;
 function sqlOn(q: Querier): Sql {
   return {
-    all: async <T>(text: string, params?: unknown[]) => (await q.query<Row>(text, params)).rows as T[],
-    one: async <T>(text: string, params?: unknown[]) => (await q.query<Row>(text, params)).rows[0] as T | undefined,
+    all: async <T>(text: string, params?: unknown[]) => (await q.query<T>(text, params)).rows,
+    one: async <T>(text: string, params?: unknown[]) => (await q.query<T>(text, params)).rows[0],
     run: async (text: string, params?: unknown[]) => (await q.query(text, params)).affectedRows ?? 0,
     exec: async (text: string) => {
       await q.exec(text);

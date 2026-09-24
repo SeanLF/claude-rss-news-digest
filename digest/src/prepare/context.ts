@@ -1,10 +1,10 @@
-import type { Sql } from "../store/db.js";
+import type { RowOf, Sql } from "../store/db.js";
 
 // The recent-headline context, read for the run's OWN moment (runs.started_at) rather than now():
 // the run date is an input read once (spec §1), and a replayed day must see the history it saw then,
 // not rows written after it. Times are the UTC text the store returns ("YYYY-MM-DD HH:MM:SS").
 export async function runAt(db: Sql, runId: number): Promise<string> {
-  const r = await db.one<{ started_at: string }>("SELECT started_at FROM runs WHERE id=$1", [runId]);
+  const r = await db.one<Pick<RowOf<"runs">, "started_at">>("SELECT started_at FROM runs WHERE id=$1", [runId]);
   if (!r) throw new Error(`no run ${runId}`);
   return r.started_at;
 }

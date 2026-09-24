@@ -6,7 +6,7 @@ import { parse } from "csv-parse/sync";
 import { activeSources, newerThan, parseArticles, type CatalogueSource } from "../fetch/feeds.js";
 import { toCsv, type Fetched } from "../prepare/prepare.js";
 import type { ArtifactStore } from "../store/artifacts.js";
-import { openDb, type Sql } from "../store/db.js";
+import { openDb, type RowOf, type Sql } from "../store/db.js";
 import type { DigestInput, DigestOutput } from "./index.js";
 
 export const SOURCES_HEADER = ["id", "name", "bias", "factuality", "perspective"] as const;
@@ -75,7 +75,7 @@ export function runActivities(deps: RunDeps) {
       const execution = currentExecution();
       if (input.resumeRun !== undefined) {
         const resumed = input.resumeRun;
-        const row = await db().one<{ started_at: string }>("SELECT started_at FROM runs WHERE id=$1", [resumed]);
+        const row = await db().one<Pick<RowOf<"runs">, "started_at">>("SELECT started_at FROM runs WHERE id=$1", [resumed]);
         if (!row) throw ApplicationFailure.nonRetryable(`no run ${resumed} to resume`, "BadInput");
         const csv = await deps.store.find(resumed, "sources.csv");
         // Never today's catalogue: a resume refetches what the run was meant to fetch, or nothing.
@@ -109,7 +109,7 @@ export function runActivities(deps: RunDeps) {
           );
           if (clash) throw ApplicationFailure.nonRetryable(`${clash.day} already has run ${clash.id} (${clash.status}); start with force to run it again`, "AlreadyRan");
         }
-        const inserted = await t.one<{ id: number }>("INSERT INTO runs (git_sha) VALUES ($1) RETURNING id", [process.env["GIT_SHA"] ?? null]);
+        const inserted = await t.one<Pick<RowOf<"runs">, "id">>("INSERT INTO runs (git_sha) VALUES ($1) RETURNING id", [process.env["GIT_SHA"] ?? null]);
         if (execution !== undefined) await recordAttempt(t, inserted!.id, execution, input.force ?? false);
         return inserted!.id;
       }, "startRun");

@@ -55,7 +55,7 @@ async function setup(opts: { config?: Partial<ThreadsConfig>; answers?: Partial<
   const usage: UsageRow[] = [];
   const config: ThreadsConfig = { ...threadsConfigFrom({}), enabled: true, latebind: null, digestDomain: "news.example", ...opts.config };
   const acts = threadsActivities({ store, dbUrl: url, agentsDir: AGENTS, config, maxAttempts: 3, query: fakeQuery(opts.answers ?? {}, calls), onUsage: (r) => void usage.push(r), attempt: () => opts.attempt ?? 1, ...(opts.execution ? { execution: opts.execution } : {}) });
-  const rows = (sql: string) => db.all(sql);
+  const rows = (sql: string) => db.all<Record<string, unknown>>(sql);
   return { url, db, store, calls, usage, acts, rows };
 }
 

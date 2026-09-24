@@ -167,6 +167,9 @@ digest-reject: ## Stop a held run: nothing is published or sent (DATE defaults t
 digest-schedule: ## Create or update the daily 10:25Z schedule on the dev stack's Temporal
 	$(COMPOSE) run --rm --no-deps digest-worker node dist/cli/schedule.js
 
+schema-types: ## Regenerate digest/src/store/schema.gen.ts, the product schema's row types, from the migrations on a fresh database in ci-pg (CI fails while it is stale)
+	docker compose run --rm --build -T -v "$(CURDIR)/digest/src/store:/app/digest/src/store" ci-ts sh scripts/schema-types.sh
+
 check-injections: ## Render every stored issue in the dev stack's database and list each date whose site chrome failed to inject (exit 1 on any; read-only)
 	$(COMPOSE) run --rm --build --no-deps -e DIGEST_DATABASE_URL="postgres://digest_ro:digest_ro@digest-pg:5432/digest?sslmode=disable" digest-worker npm run --silent check-injections
 

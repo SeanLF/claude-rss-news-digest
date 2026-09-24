@@ -8,7 +8,7 @@ import { cutoverHold } from "../ops/cutover-hold.js";
 import { preSendFailures, readPreSend } from "../ops/pre-send.js";
 import { coherenceKindCounts, getRunHealth, threadsEnabled, violations } from "../ops/run-health.js";
 import { runDateIn } from "../store/artifacts.js";
-import { openDb } from "../store/db.js";
+import { openDb, type RowOf } from "../store/db.js";
 import { threadsConfigFrom } from "./threads.js";
 
 export interface OpsDeps {
@@ -53,7 +53,7 @@ export function opsActivities(deps: OpsDeps) {
     checkRunHealth: async (runId: number, broadcasting: boolean): Promise<AlertRequest | null> => {
       try {
         const db = openDb(deps.dbUrl);
-        const report = await db.one<{ content: string }>("SELECT content FROM artifacts WHERE run_id=$1 AND name='coherence_report.json' AND status='current'", [runId]);
+        const report = await db.one<Pick<RowOf<"artifacts">, "content">>("SELECT content FROM artifacts WHERE run_id=$1 AND name='coherence_report.json' AND status='current'", [runId]);
         const kinds = coherenceKindCounts(report?.content);
         if (kinds) console.log(JSON.stringify({ stage: "coherence", runId, failureKinds: kinds }));
         const health = await getRunHealth(db, runId, { broadcasting, threadsEnabled: threadsEnabled(deps.env), usageRowsDropped: 0, dormantAfter: threadsConfigFrom(deps.env).dormantAfter });

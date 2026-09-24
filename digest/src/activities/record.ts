@@ -2,7 +2,7 @@ import { ApplicationFailure } from "@temporalio/common";
 import { resolveArticleIds, type Selections } from "../render/render.js";
 import { webArchiveHtml } from "../render/web-archive.js";
 import type { ArtifactStore, Pointer } from "../store/artifacts.js";
-import { openDb } from "../store/db.js";
+import { openDb, type RowOf } from "../store/db.js";
 import { MARKDOWN_OUTPUT } from "./render.js";
 import { endAttempt } from "./run.js";
 
@@ -42,7 +42,7 @@ export function recordActivities(deps: RecordDeps) {
       const mdPtr = await store.find(runId, MARKDOWN_OUTPUT);
       const markdown = mdPtr ? await store.get(mdPtr) : null;
       await db().tx(async (t) => {
-        const latest = await t.one<{ revision: number; run_id: number | null; html: string; preheader: string }>("SELECT revision, run_id, html, preheader FROM issues WHERE issue_date=$1 ORDER BY revision DESC LIMIT 1", [date]);
+        const latest = await t.one<Pick<RowOf<"issues">, "revision" | "run_id" | "html" | "preheader">>("SELECT revision, run_id, html, preheader FROM issues WHERE issue_date=$1 ORDER BY revision DESC LIMIT 1", [date]);
         const keep = preheader === "" && latest ? latest.preheader : preheader;
         if (latest && latest.run_id === runId && latest.html === web && latest.preheader === keep) return;
         await t.run("INSERT INTO issues (issue_date, revision, run_id, html, preheader, markdown) VALUES ($1, $2, $3, $4, $5, $6)", [date, (latest?.revision ?? 0) + 1, runId, web, keep, markdown]);

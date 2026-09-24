@@ -55,6 +55,8 @@
     "defuddle": "0.19.4",
     "dom-smoothie-js": "0.16.0",
     "esbuild": "0.28.2",
+    "kysely": "0.29.6",
+    "kysely-codegen": "0.20.0",
     "linkedom": "0.18.13",
     "markdown-it": "15.0.2",
     "oxlint": "1.85.0",

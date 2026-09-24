@@ -1,4 +1,6 @@
+import type { Selectable } from "kysely";
 import pg from "pg";
+import type { DB } from "./schema.gen.js";
 
 // The product database is Postgres (data-model design, top). DIGEST_DATABASE_URL names it; tests
 // pass theirs, or register in-process PGlite databases under `pglite:` keys (store/test-db.ts). No
@@ -9,11 +11,14 @@ export function dbUrl(env: Record<string, string | undefined> = process.env): st
   return url;
 }
 
-export type Row = Record<string, unknown>;
+// A row of a product table or view as a query returns it through the parsers below: the types
+// schema.gen.ts generates from the migrations (`make schema-types`). A query that selects computed
+// columns names its own row type; one that names none gets `unknown`, not a record of anything.
+export type RowOf<T extends keyof DB> = Selectable<DB[T]>;
 // Statements with $n parameters. exec runs a script of several statements and takes none.
 export interface Sql {
-  all<T = Row>(text: string, params?: unknown[]): Promise<T[]>;
-  one<T = Row>(text: string, params?: unknown[]): Promise<T | undefined>;
+  all<T = unknown>(text: string, params?: unknown[]): Promise<T[]>;
+  one<T = unknown>(text: string, params?: unknown[]): Promise<T | undefined>;
   run(text: string, params?: unknown[]): Promise<number>;
   exec(text: string): Promise<void>;
 }
@@ -45,7 +50,7 @@ const pgTypes = {
 
 const LOCK = "SELECT pg_advisory_xact_lock(hashtext($1))";
 
-function sqlOn(q: (text: string, params?: unknown[]) => Promise<{ rows: Row[]; rowCount: number | null }>, exec: (text: string) => Promise<unknown>): Sql {
+function sqlOn(q: (text: string, params?: unknown[]) => Promise<{ rows: unknown[]; rowCount: number | null }>, exec: (text: string) => Promise<unknown>): Sql {
   return {
     all: async <T>(text: string, params?: unknown[]) => (await q(text, params)).rows as T[],
     one: async <T>(text: string, params?: unknown[]) => (await q(text, params)).rows[0] as T | undefined,

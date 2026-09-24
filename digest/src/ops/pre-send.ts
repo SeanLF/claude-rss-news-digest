@@ -1,6 +1,6 @@
 import { leakedIds } from "../contracts/leaks.js";
 import { SelectionsSchema, type Selections } from "../contracts/selections.js";
-import type { Sql } from "../store/db.js";
+import type { RowOf, Sql } from "../store/db.js";
 import { getRunHealth, violations } from "./run-health.js";
 
 // The checks a run must pass to send without a hold (spec §2.3, 2026-09-24). Each is an existing
@@ -72,7 +72,7 @@ export function preSendFailures(i: PreSendInput): string[] {
 }
 
 const artifact = async (db: Sql, runId: number, name: string): Promise<unknown> => {
-  const row = await db.one<{ content: string }>("SELECT content FROM artifacts WHERE run_id=$1 AND name=$2 AND status='current'", [runId, name]);
+  const row = await db.one<Pick<RowOf<"artifacts">, "content">>("SELECT content FROM artifacts WHERE run_id=$1 AND name=$2 AND status='current'", [runId, name]);
   return row ? (JSON.parse(row.content) as unknown) : null;
 };
 

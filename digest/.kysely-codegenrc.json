@@ -1,0 +1,8 @@
+{
+  "dialect": "postgres",
+  "outFile": "src/store/schema.gen.ts",
+  "excludePattern": "schema_migrations",
+  "dateParser": "string",
+  "numericParser": "number",
+  "typeMapping": { "int8": "number", "timestamp": "string", "timestamptz": "string" }
+}

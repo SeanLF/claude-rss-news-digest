@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { artifactKind } from "./artifact-kinds.js";
-import { openDb, type Db, type Sql } from "./db.js";
+import { openDb, type Db, type RowOf, type Sql } from "./db.js";
 
 export interface Pointer {
   runId: number;
@@ -16,7 +16,7 @@ export const sha256 = (s: string): string => createHash("sha256").update(s, "utf
 // (run_id, name) is 'current'; the partial unique index makes a second writer fail rather
 // than duplicate it.
 export async function artifactIn(db: Sql, runId: number, name: string): Promise<string | undefined> {
-  return (await db.one<{ content: string }>("SELECT content FROM artifacts WHERE run_id=$1 AND name=$2 AND status='current'", [runId, name]))?.content;
+  return (await db.one<Pick<RowOf<"artifacts">, "content">>("SELECT content FROM artifacts WHERE run_id=$1 AND name=$2 AND status='current'", [runId, name]))?.content;
 }
 
 // Attributed to the run's latest attempt: one attempt runs at a time.
@@ -88,7 +88,7 @@ export class ArtifactStore {
   }
   // Every row under the name, oldest first: 'current', 'quarantined' or 'replaced'.
   async statuses(runId: number, name: string): Promise<string[]> {
-    return (await this.db.all<{ status: string }>("SELECT status FROM artifacts WHERE run_id=$1 AND name=$2 ORDER BY id", [runId, name])).map((r) => r.status);
+    return (await this.db.all<Pick<RowOf<"artifacts">, "status">>("SELECT status FROM artifacts WHERE run_id=$1 AND name=$2 ORDER BY id", [runId, name])).map((r) => r.status);
   }
   async names(runId: number): Promise<string[]> {
     return (await this.db.all<{ n: string }>(`SELECT name AS n FROM artifacts WHERE run_id=$1 AND status='current' ORDER BY name COLLATE "C"`, [runId])).map((r) => r.n);

@@ -1,4 +1,4 @@
-import type { Sql } from "../store/db.js";
+import type { RowOf, Sql } from "../store/db.js";
 import type { AlertRequest } from "./alerts.js";
 
 // db.get_failing_sources and run.py's source-health alert: sources seen in the last seven days whose
@@ -10,7 +10,7 @@ export async function feedHealthAlert(db: Sql, runId: number, fetchSet: readonly
   const failing: [string, number][] = [];
   for (const { id } of recent) {
     if (!fetched.has(id)) continue;
-    const rows = await db.all<{ is_success: boolean }>("SELECT is_success FROM source_fetches WHERE source_id = $1 ORDER BY fetched_at DESC, id DESC LIMIT 10", [id]);
+    const rows = await db.all<Pick<RowOf<"source_fetches">, "is_success">>("SELECT is_success FROM source_fetches WHERE source_id = $1 ORDER BY fetched_at DESC, id DESC LIMIT 10", [id]);
     const streak = rows.findIndex((r) => r.is_success);
     const count = streak === -1 ? rows.length : streak;
     if (count >= threshold) failing.push([id, count]);
