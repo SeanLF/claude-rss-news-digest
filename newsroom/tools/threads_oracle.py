@@ -38,7 +38,13 @@ def rollback(conn: sqlite3.Connection, run: int) -> None:
 
     Rows created at or after N go; questions resolved at or after N reopen; a surviving thread's
     label and last_run_id return to its latest earlier installment; and its status is the decay
-    rule's verdict as of run N-1. A merge made after N cannot be undone and is left as it is.
+    rule's verdict at the start of run N, which run N's own decay would set before it links. A
+    merge made after N cannot be undone and is left as it is.
+
+    Runs after N go, every table's id sequence returns to its highest surviving id, and the
+    issues of runs before N stay: bin/import-legacy derives a thread's
+    status from the runs before the newest one and its label from its published updates, and
+    refuses a file whose stored columns disagree with that.
     """
     c = conn.execute
     c("DELETE FROM thread_installments WHERE run_id >= ?", (run,))
@@ -62,14 +68,21 @@ def rollback(conn: sqlite3.Connection, run: int) -> None:
              (SELECT COUNT(*) FROM digest_runs WHERE id > threads.last_run_id AND id < ? AND completed_at IS NOT NULL) > ?
              THEN 'dormant' ELSE 'active' END
            WHERE status IN ('active', 'dormant') AND last_run_id IS NOT NULL""",
-        (run - 1, DORMANT_AFTER),
+        (run, DORMANT_AFTER),
     )
     c(
         f"DELETE FROM run_artifacts WHERE run_id <> ? OR artifact_name IN ({','.join('?' * len(ARTIFACTS))})",
         (run, *ARTIFACTS),
     )
-    for table in ("fetched_articles", "digests", "selections", "dedup_log", "shown_narratives", "cluster_runs"):
+    for table in ("source_health", "run_usage", "digests"):
+        c(f"DELETE FROM {table} WHERE run_id >= ?", (run,))
+    c("DELETE FROM digest_runs WHERE id > ?", (run,))
+    for table in ("fetched_articles", "selections", "dedup_log", "shown_narratives", "cluster_runs"):
         c(f"DELETE FROM {table}")
+    # Else run N's new threads take ids after the deleted ones here but after the survivors in the
+    # import, whose identities restart after the highest id present.
+    for (table,) in c("SELECT name FROM sqlite_sequence").fetchall():
+        c(f"UPDATE sqlite_sequence SET seq = (SELECT COALESCE(MAX(id), 0) FROM {table}) WHERE name = ?", (table,))
     conn.commit()
     conn.execute("VACUUM")
 

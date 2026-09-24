@@ -13,8 +13,9 @@ import { openDb } from "../store/db.js";
 // before it (pre.db) and what the Python linker, synthesis, audit and late binding did from there with
 // the model calls answered from the run's archive (expected.json). The TypeScript starts from the same
 // state, imported into Postgres (bin/import-legacy pre.db into the database THREADS_PARITY_DB_PREFIX
-// followed by the case's directory name), with the same answers, and every prompt, artifact, context
-// and row must come out equal. Python's decay status and slug, and thread_runs, have no counterpart.
+// followed by the case's directory name; `make threads-parity` does it all, freshly, since a replay
+// writes the database), with the same answers, and every prompt, artifact, context and row must come
+// out equal. Python's decay status and slug, and thread_runs, have no counterpart.
 const REPO = new URL("../../../", import.meta.url).pathname;
 const ORACLE = process.env["THREADS_ORACLE"] ?? `${REPO}data/replay/threads-oracle`;
 const AGENTS = new URL("../../agents/", import.meta.url).pathname;
@@ -110,5 +111,11 @@ describe("threads parity with the Python on archived runs", () => {
     );
     const legacyThreads = (exp.tables.threads as Record<string, unknown>[]).map(({ slug: _slug, status: _status, ...t }) => t);
     expect({ threads, installments, questions }).toEqual({ threads: legacyThreads, installments: exp.tables.installments, questions: exp.tables.questions });
+
+    // What readers see once run N is on the web: the derived state must be the Python's stored columns,
+    // decay status included. The case's database is imported fresh for every replay, so publishing here is safe.
+    await db.run("INSERT INTO issues (issue_date, revision, run_id, html) SELECT (started_at AT TIME ZONE 'UTC')::date, 1, id, '' FROM runs WHERE id = $1", [run]);
+    const state = await db.all("SELECT id, label, status, last_run_id FROM thread_state ORDER BY id");
+    expect(state).toEqual((exp.tables.threads as Record<string, unknown>[]).map(({ id, label, status, last_run_id }) => ({ id, label, status, last_run_id })));
   });
 });
