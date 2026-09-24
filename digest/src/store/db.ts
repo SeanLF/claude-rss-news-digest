@@ -1,9 +1,13 @@
 import pg from "pg";
 
 // The product database is Postgres (data-model design, top). DIGEST_DATABASE_URL names it; tests
-// register in-process PGlite databases under `pglite:` keys (store/test-db.ts).
-export const DEFAULT_DB_URL = "postgres://digest@localhost:5432/digest";
-export const dbUrl = (): string => process.env["DIGEST_DATABASE_URL"] ?? DEFAULT_DB_URL;
+// pass theirs, or register in-process PGlite databases under `pglite:` keys (store/test-db.ts). No
+// default: a guessed localhost lets a misconfigured worker start clean and fail at the day's run.
+export function dbUrl(env: Record<string, string | undefined> = process.env): string {
+  const url = env["DIGEST_DATABASE_URL"]?.trim();
+  if (!url) throw new Error("DIGEST_DATABASE_URL is unset: it names the product Postgres database");
+  return url;
+}
 
 export type Row = Record<string, unknown>;
 // Statements with $n parameters. exec runs a script of several statements and takes none.

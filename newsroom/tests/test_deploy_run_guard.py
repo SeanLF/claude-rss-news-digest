@@ -214,6 +214,25 @@ def test_a_build_that_cannot_be_made_current_fails_the_deploy(tmp_path, force):
     assert "NOT the current version" in out
 
 
+def test_a_run_waiting_on_a_build_with_no_worker_is_named(tmp_path):
+    # set-current's failure output when the apply's bootstrap started a run that no worker has taken;
+    # digest/src/deployment.test.ts holds waitingLine to this exact text.
+    waiting = (
+        "not current: Error: no worker of digest:abc1234 polled digest within 120 s\n"
+        "waiting: digest-2026-10-05 -- no worker has taken these; they start once a polling build is current\n"
+    )
+    rc, out, _ = run_guard(tmp_path, fn="set_current_version", ssh_out=waiting, ssh_rc=1)
+    assert rc == 1
+    assert "no worker has taken digest run(s) digest-2026-10-05" in out
+
+
+def test_a_waiting_list_that_failed_claims_no_waiting_run(tmp_path):
+    out_ = "not current: Error: x\ncould not list the runs no worker has taken: Error: y\n"
+    rc, out, _ = run_guard(tmp_path, fn="set_current_version", ssh_out=out_, ssh_rc=1)
+    assert rc == 1
+    assert "no worker has taken digest run" not in out
+
+
 def test_a_stranded_run_fails_a_temporal_deploy_and_says_how_to_move_it(tmp_path):
     rc, out, _ = run_guard(tmp_path, fn="set_current_version", ssh_out=STRANDED, ssh_rc=2)
     assert rc == 1

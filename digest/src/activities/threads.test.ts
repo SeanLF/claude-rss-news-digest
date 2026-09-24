@@ -442,6 +442,15 @@ describe("an issue that is not sent", () => {
     expect(await s.acts.threadsRetract(RUN)).toMatchObject({ retracted: false });
     expect(await s.rows("SELECT * FROM thread_updates ORDER BY id")).toEqual(before);
   });
+  it("declines for a run whose issue is on the web though its send failed: readers can open it", async () => {
+    const s = await setup({ answers: { link: [link2] } });
+    await seedThread(s.db);
+    await s.acts.threadsLink(RUN);
+    await publish(s.db, RUN, RUN, "failed", null);
+    const before = await s.rows("SELECT * FROM thread_updates ORDER BY id");
+    expect(await quietly(() => s.acts.threadsRetract(RUN))).toMatchObject({ result: { retracted: false } });
+    expect(await s.rows("SELECT * FROM thread_updates ORDER BY id")).toEqual(before);
+  });
   it("declines, rather than fails, when a later run already builds on it", async () => {
     const s = await setup({ answers: { link: [link2] } });
     await seedThread(s.db);
@@ -501,11 +510,24 @@ describe("a failed run nobody resumed", () => {
     expect(await s.rows("SELECT COUNT(*) AS n FROM thread_updates WHERE run_id IN (298, 299)")).toEqual([{ n: 0 }]);
   });
 
-  it("takes back a failed run whose digest was saved but never sent", async () => {
+  // saveDigest puts the issue on the web before the send; a send that then fails marks the run failed.
+  // Readers can open that issue, so its thread updates are public: published by web is published.
+  it("keeps a failed run whose digest was saved to the web but never sent", async () => {
+    const s = await setup({ answers: { link: [link2] } });
+    await seedThread(s.db);
+    const before = await earlierRows(s);
+    await fail(s.db, EARLIER, "2026-09-17 10:25:40");
+    await publish(s.db, EARLIER, null, null);
+    const { logged } = await quietly(() => s.acts.threadsLink(RUN));
+    expect(before).toHaveLength(1);
+    expect(await earlierRows(s)).toEqual(before);
+    expect(logged).toContainEqual(expect.objectContaining({ runId: EARLIER, error: "unsent issue's thread writes kept" }));
+  });
+
+  it("takes back a failed run that never reached the web or a send", async () => {
     const s = await setup({ answers: { link: [link2] } });
     await seedThread(s.db);
     await fail(s.db, EARLIER, "2026-09-17 10:25:40");
-    await publish(s.db, EARLIER, null, null);
     await quietly(() => s.acts.threadsLink(RUN));
     expect(await earlierRows(s)).toEqual([]);
   });

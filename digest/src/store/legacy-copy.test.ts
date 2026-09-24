@@ -62,7 +62,11 @@ describe("copyLegacy: the SQLite file into the legacy schema", () => {
       { table_name: "digest_runs", column_name: "run_at", data_type: "text" },
       { table_name: "digest_runs", column_name: "articles_kept", data_type: "bigint" },
       { table_name: "digest_runs", column_name: "git_sha", data_type: "text" },
+      { table_name: "sqlite_sequence", column_name: "name", data_type: "text" },
+      { table_name: "sqlite_sequence", column_name: "seq", data_type: "bigint" },
     ]);
+    // AUTOINCREMENT's high-water marks, which the import continues identities after.
+    expect(await rows(pg, "SELECT name, seq::text AS seq FROM legacy.sqlite_sequence")).toEqual([{ name: "digest_runs", seq: "2" }]);
     expect(fingerprintDiff(copy.fingerprint, await copyFingerprint(pgliteDb(pg), copy.fingerprint))).toEqual([]);
   });
 

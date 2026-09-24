@@ -5,7 +5,7 @@ import { Worker } from "@temporalio/worker";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { stubActivities } from "./activities/stub.js";
 import { scheduleOptions, startOptions } from "./client.js";
-import { DEPLOYMENT_NAME, deploymentOptions, setCurrentVersion, strandedRuns } from "./deployment.js";
+import { DEPLOYMENT_NAME, deploymentOptions, setCurrentVersion, strandedRuns, waitingLine, waitingRuns } from "./deployment.js";
 import { TASK_QUEUE } from "./worker.js";
 import { approveSignal } from "./workflow/signals.js";
 import { PYTHON_TASK_QUEUE } from "./workflow/policy.js";
@@ -23,6 +23,12 @@ describe("deploymentOptions", () => {
   });
   it.each([undefined, "", "  "])("refuses a worker with no build id (GIT_SHA %j): it would share a version with every other such build", (sha) => {
     expect(() => deploymentOptions(sha === undefined ? {} : { GIT_SHA: sha })).toThrow(/GIT_SHA/);
+  });
+});
+
+describe("waitingLine", () => {
+  it("is the line bin/deploy matches: newsroom/tests/test_deploy_run_guard.py plays this exact text", () => {
+    expect(waitingLine(["digest-2026-10-05"])).toBe("waiting: digest-2026-10-05 -- no worker has taken these; they start once a polling build is current");
   });
 });
 
@@ -140,6 +146,51 @@ describe("worker versioning on a dev server", () => {
       await h.signal(approveSignal, { decision: "approve" });
       expect((await h.result()).broadcast).toBe("sent");
       expect(await versionOf(h)).toEqual({ behavior: PINNED, buildId: "build-e" });
+    });
+  }, 120_000);
+
+  // bin/deploy's exit trap after a deploy that died between pointing current at the new build and its
+  // worker polling: the bootstrap's run is waiting, unpinned, on the new build; the trap makes the
+  // running (old) build current again. The run must follow current to the old build and run there.
+  it("a run waiting, unpinned, on a build with no worker follows current back to the running build", async () => {
+    const f = await versioned("build-f");
+    await f.runUntil(async () => {
+      await setCurrentVersion(env.client, "build-f", TASK_QUEUE);
+      await env.client.workflowService.setWorkerDeploymentCurrentVersion({ namespace: env.client.options.namespace, deploymentName: DEPLOYMENT_NAME, buildId: "build-g", allowNoPollers: true, ignoreMissingTaskQueues: true });
+      const h = await env.client.workflow.start("DigestWorkflow", startOptions("2026-10-04", {}));
+      await pause(3000);
+      expect(await completedTasks(h)).toEqual([]); // control: it waits for build-g
+      await setCurrentVersion(env.client, "build-f", TASK_QUEUE); // the trap's set-current.js in the old container
+      expect(await strandedRuns(env.client, "build-f")).toEqual([]);
+      await untilInHold(h);
+      await h.signal(approveSignal, { decision: "approve" });
+      expect((await h.result()).broadcast).toBe("sent");
+      expect(await versionOf(h)).toEqual({ behavior: PINNED, buildId: "build-f" });
+    });
+  }, 120_000);
+
+  // The trap's other ending: no worker's build can be made current (the new worker never polls), so
+  // current stays on a build nobody runs. A run already waiting there is pinned to nothing, so
+  // strandedRuns cannot see it; set-current names it as waiting, or the deploy's error would not
+  // say that today's run is sitting.
+  it("a run waiting, unpinned, while current names a build with no worker, is named as waiting", async () => {
+    const f = await versioned("build-h");
+    await f.runUntil(async () => {
+      await setCurrentVersion(env.client, "build-h", TASK_QUEUE);
+      await env.client.workflowService.setWorkerDeploymentCurrentVersion({ namespace: env.client.options.namespace, deploymentName: DEPLOYMENT_NAME, buildId: "build-i", allowNoPollers: true, ignoreMissingTaskQueues: true });
+      const h = await env.client.workflow.start("DigestWorkflow", startOptions("2026-10-05", {}));
+      try {
+        await pause(3000);
+        expect(await completedTasks(h)).toEqual([]);
+        await expect(setCurrentVersion(env.client, "build-i", TASK_QUEUE, 3000)).rejects.toThrow(/no worker of digest:build-i/);
+        expect(await strandedRuns(env.client, "build-i")).toEqual([]); // what set-current listed before
+        expect(await waitingRuns(env.client)).toEqual([h.workflowId]);
+        await setCurrentVersion(env.client, "build-h", TASK_QUEUE);
+        await untilInHold(h);
+        expect(await waitingRuns(env.client)).toEqual([]);
+      } finally {
+        await h.terminate("checked").catch(() => undefined);
+      }
     });
   }, 120_000);
 

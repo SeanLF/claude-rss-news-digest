@@ -54,6 +54,21 @@ async function setup(row?: { id?: string; status?: string; recipients?: number }
   return { email, selections, state, make, url, db };
 }
 
+// An earlier run (120) with the given start and outcome and its issue, then this run (300) on
+// 2026-09-08 with that day's next revision, and no send recorded for either.
+async function earlierRun(earlier: { runAt: string; outcome: string }) {
+  const url = await migratedDb([{ id: 120, runAt: earlier.runAt }, { id: 300, runAt: "2026-09-08 15:00:00" }]);
+  const db = openDb(url);
+  await db.run("UPDATE runs SET status = 'completed', outcome = $1 WHERE id = 120", [earlier.outcome]);
+  await db.run("INSERT INTO issues (issue_date, revision, run_id, html) VALUES ((SELECT (started_at AT TIME ZONE 'UTC')::date FROM runs WHERE id = 120), 1, 120, '')");
+  await db.run("INSERT INTO issues (issue_date, revision, run_id, html) SELECT '2026-09-08', COALESCE(max(revision), 0) + 1, 300, '' FROM issues WHERE issue_date = '2026-09-08'");
+  const store = new ArtifactStore(url);
+  const email = await store.put(300, "email.html", "<mjml-rendered>issue</mjml-rendered>");
+  const fake = fakeMail({});
+  const acts = broadcastActivities({ store, dbUrl: url, mail: () => fake.mail, env: ENV, retryDelayMs: 0 });
+  return { db, fake, send: () => acts.broadcast(300, email) };
+}
+
 describe("broadcast: at most once per digest date (the 2026-06-16 rule)", () => {
   it("fresh: creates a draft for the audience, persists its id before the send, then records the send", async () => {
     const { email, state, make } = await setup({});
@@ -238,6 +253,24 @@ describe("broadcast: at most once per digest date (the 2026-06-16 rule)", () => 
     await expect(make(fake.mail, { signal: () => ac.signal }).broadcast(300, email)).rejects.toThrow();
     expect(fake.names()).not.toContain("send");
     expect(await state()).toMatchObject({ id: null, status: null });
+  });
+  // An imported day from before broadcasts: its run emailed readers (Resend transactional mail, counted
+  // in Resend) and the import gives it no sends row. A forced re-run publishes a new revision and must
+  // not email the day again.
+  it("refuses a day an earlier run already emailed, though the day has no send recorded", async () => {
+    const { db, fake, send } = await earlierRun({ runAt: "2026-09-08 00:00:00", outcome: "sent" });
+    await expect(send()).rejects.toThrow(/run 120 already emailed 2026-09-08/);
+    expect(fake.names().filter((n) => n !== "contacts")).toEqual([]);
+    expect(await db.all("SELECT * FROM sends")).toEqual([]);
+  });
+  // Controls: the refusal is the day's, and needs evidence of an email.
+  it.each([
+    ["the day before, a second before midnight UTC", { runAt: "2026-09-07 23:59:59", outcome: "sent" }],
+    ["the same day, unrecorded (Python completed it, nothing says it emailed)", { runAt: "2026-09-08 10:25:40", outcome: "unrecorded" }],
+  ])("sends past an earlier run %s", async (_name, earlier) => {
+    const { fake, send } = await earlierRun(earlier);
+    expect(await send()).toMatchObject({ status: "sent" });
+    expect(fake.names()).toEqual(["contacts", "create", "send"]);
   });
   it("refuses to send a digest that was never published: the send mails a published revision", async () => {
     const { email, make } = await setup();

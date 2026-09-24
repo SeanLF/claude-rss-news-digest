@@ -105,6 +105,12 @@ export function broadcastActivities(deps: BroadcastDeps) {
         const why = row.status === "claimed" ? `claimed by another attempt (${claimText(row)}); if Resend shows nothing sent for ${date}, clear it with: ${clearClaimCommand(date)}` : `claimed by another attempt (${row.id ?? row.status})`;
         throw ApplicationFailure.nonRetryable(`the send for ${date} is ${why}; not sending`, "SendClaimed");
       }
+      // A day mailed before broadcasts has no send (imported: its counts are in Resend), only a run
+      // whose outcome says it went out. A forced re-run publishes a new revision and never re-sends.
+      // 'sent' only, not all of sent_runs: an 'unrecorded' Python run has no evidence it emailed
+      // anyone, and refusing it would leave a day nobody can deliver.
+      const mailed = await t.one<{ id: number }>("SELECT id FROM runs WHERE outcome = 'sent' AND (started_at AT TIME ZONE 'UTC')::date = $1::date ORDER BY id LIMIT 1", [date]);
+      if (mailed) throw ApplicationFailure.nonRetryable(`run ${mailed.id} already emailed ${date}; a re-run of the day is published, never sent again`, "AlreadySent");
       const mine = randomUUID();
       const changes = await t.run(
         "INSERT INTO sends (issue_date, run_id, claim_token, claimed_at, revision, status) SELECT $1::date, $2::bigint, $3::uuid, now(), max(revision), 'claimed' FROM issues WHERE issue_date = $1::date HAVING count(*) > 0",

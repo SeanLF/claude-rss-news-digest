@@ -74,11 +74,11 @@ function sqliteFile(sql: string): string {
   db.close();
   return path;
 }
-async function imported(): Promise<PGlite> {
+async function imported(path?: string): Promise<PGlite> {
   const pg = (instance ??= new PGlite({ parsers: PARSERS }));
   await pg.exec("SET TIME ZONE 'UTC'; DROP SCHEMA IF EXISTS legacy CASCADE; DROP SCHEMA public CASCADE; CREATE SCHEMA public");
   const db = pgliteDb(pg);
-  await copyLegacy(db, (legacyPath ??= sqliteFile(LEGACY)));
+  await copyLegacy(db, path ?? (legacyPath ??= sqliteFile(LEGACY)));
   for (const up of upSections()) await pg.exec(up);
   await transform(db);
   return pg;
@@ -89,7 +89,9 @@ beforeAll(async () => {
 }, 60_000);
 const broken = async (pg: PGlite) => (await verify(pgliteDb(pg))).filter((c) => c.broken !== 0).map((c) => c.name);
 
-describe("the legacy import (transform and verify)", () => {
+// Each test runs a whole import on PGlite: ~0.2 s alone, past vitest's 5 s default under the full
+// suite's load (seen in pre-commit CI).
+describe("the legacy import (transform and verify)", { timeout: 30_000 }, () => {
   it("copies every case §5.1 names, and every check holds", async () => {
     const pg = await imported();
     const q = async (sql: string) => (await pg.query(sql)).rows;
@@ -115,10 +117,10 @@ describe("the legacy import (transform and verify)", () => {
       { issue_date: "2026-09-11", revision: 1, run_id: 3, preheader: "pre3" },
       { issue_date: "2026-09-14", revision: 1, run_id: 6, preheader: "" },
     ]);
-    // Run 3 emailed 12 readers before broadcasts existed: a send with no broadcast id.
+    // Run 3 emailed 12 readers before broadcasts existed, as Resend transactional emails whose counts
+    // live in Resend: its run is sent, and it has no send.
     expect(await q("SELECT issue_date, run_id, resend_id, status, recipients, claim_token FROM sends ORDER BY issue_date")).toEqual([
       { issue_date: "2026-09-10", run_id: 1, resend_id: "b1", status: "sent", recipients: 12, claim_token: null },
-      { issue_date: "2026-09-11", run_id: 3, resend_id: null, status: "sent", recipients: 12, claim_token: null },
       { issue_date: "2026-09-14", run_id: 6, resend_id: "b6", status: "sent", recipients: 11, claim_token: null },
     ]);
     expect(await q("SELECT is_success, error, run_id FROM source_fetches ORDER BY id")).toEqual([{ is_success: true, error: null, run_id: 1 }, { is_success: false, error: "x", run_id: null }]);
@@ -142,6 +144,23 @@ describe("the legacy import (transform and verify)", () => {
     expect(await q("SELECT count(*) AS n FROM pg_namespace WHERE nspname = 'legacy'")).toEqual([{ n: 0 }]);
   });
 
+  // SQLite's AUTOINCREMENT never hands out an id again, even a deleted row's; its high-water mark is
+  // sqlite_sequence. A thread id is a public URL (/threads/<id>), so a thread deleted before the import
+  // must not have its id reused after it.
+  it("continues each id past the highest SQLite ever handed out, deleted rows included", async () => {
+    const pg = await imported(sqliteFile(`${LEGACY}
+      CREATE TABLE autoincrement_probe (id INTEGER PRIMARY KEY AUTOINCREMENT);
+      INSERT INTO sqlite_sequence (name, seq) VALUES ('threads', 50), ('run_artifacts', 30), ('digest_runs', 1);`));
+    const next = async (table: string) => (await pg.query<{ n: number }>(`SELECT nextval(pg_get_serial_sequence('${table}', 'id')) AS n`)).rows[0]!.n;
+    expect(await broken(pg)).toEqual([]);
+    expect(await next("threads")).toBe(51);
+    // The retired table's selections are numbered after the high-water mark too.
+    expect((await pg.query("SELECT id FROM artifacts WHERE run_id = 1 ORDER BY id")).rows).toEqual([{ id: 31 }]);
+    expect(await next("artifacts")).toBe(32);
+    expect(await next("runs")).toBe(7); // a mark below the highest id changes nothing
+    expect(await next("model_calls")).toBe(3); // no mark: after the highest id
+  });
+
   // Negative controls: each check must see its own kind of loss.
   it.each([
     ["every issue, html byte for byte", "UPDATE issues SET html = html || ' ' WHERE issue_date = '2026-09-10'"],
@@ -150,7 +169,8 @@ describe("the legacy import (transform and verify)", () => {
     ["every artifact, content byte for byte", "UPDATE artifacts SET content = 'y' WHERE id = 2"],
     ["a sent outcome only where the legacy run emailed someone", "ALTER TABLE runs DISABLE TRIGGER runs_transition; UPDATE runs SET outcome = 'sent' WHERE id = 2"],
     ["every send, with its broadcast id and recipients", "UPDATE sends SET recipients = 13 WHERE issue_date = '2026-09-10'"],
-    ["every send, with its broadcast id and recipients", "DELETE FROM sends WHERE issue_date = '2026-09-11'"],
+    ["every send, with its broadcast id and recipients", "DELETE FROM sends WHERE issue_date = '2026-09-10'"],
+    ["every send, with its broadcast id and recipients", "INSERT INTO sends (issue_date, run_id, revision, status, recipients) VALUES ('2026-09-11', 3, 1, 'sent', 12)"],
     ["every send, with its broadcast id and recipients", "UPDATE sends SET status = 'failed' WHERE issue_date = '2026-09-14'"],
     ["every question, open or resolved as it was", "DELETE FROM thread_question_resolutions"],
     ["every question, open or resolved as it was", "UPDATE thread_question_resolutions SET answer = ''"],

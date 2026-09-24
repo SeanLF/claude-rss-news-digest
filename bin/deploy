@@ -769,6 +769,32 @@ check_box_matches_mode() {
   esac
 }
 
+# The worker refuses to start without DIGEST_DATABASE_URL (digest/src/worker.ts), which terraform
+# writes into its env. Infra that predates the product database writes none, and the apply would
+# succeed with a worker that never starts. (An empty password terraform's own preconditions refuse,
+# at plan; this says so before the builds.) Asked of terraform's rendering of that env, as a regex
+# over it, so the URL, which carries the password, is never printed. The answer is stdout's last
+# line: bin/tf warns on stderr (an unreadable optional secret) and still exits 0.
+check_database_url() {
+  temporal_on || return 0
+  log_step "Checking terraform gives the worker DIGEST_DATABASE_URL..."
+  local expr out err rc=0
+  expr='can(regex("(?m)^DIGEST_DATABASE_URL=postgres://[^:/@]+:[^@]+@", local.news_digest_worker_env_content))'
+  err=$(mktemp)
+  out=$(echo "$expr" | "$INFRA_DIR/bin/tf" console 2>"$err") || rc=$?
+  if [[ $rc == 0 && $(tail -n 1 <<<"$out" | tr -d '[:space:]') == true ]]; then
+    rm -f "$err"
+    log_success "the worker's env carries DIGEST_DATABASE_URL"
+    return 0
+  fi
+  # Terraform's errors come boxed in colour codes; the first plain "Error:" line says what it was.
+  local why
+  why=$(sed $'s/\x1b\\[[0-9;]*m//g' "$err" | grep -m1 -o 'Error: .*' || true)
+  rm -f "$err"
+  log_error "terraform does not give the worker a DIGEST_DATABASE_URL with a password (tf console exit $rc, answer '$(printf '%.40s' "$(tail -n 1 <<<"$out")")'${why:+, $why}) -- the worker would refuse to start. Apply infra that has the product database (seanfloyd.dev news-digest-temporal.tf, local.news_digest_worker_env_content) and check NEWS_DIGEST_DB_PASSWORD in op://Private/seanfloyd.dev"
+  return 1
+}
+
 # A paused schedule drops the slot it misses, and a deploy restarts the worker under a run, so with
 # Temporal live a deploy is refused from 10:00Z (before the 10:25Z start) to 11:45Z (past a normal
 # run's end). digest-schedule sync still starts a missed day once if a --force deploy spans 10:25Z.
@@ -941,6 +967,11 @@ set_current_version() {
       ;;
     *)
       log_error "the new worker's build is NOT the current version, so no run will start on it (exit $rc): ${out:0:300} -- once the worker polls: bin/ssh docker exec $WORKER_CONTAINER node dist/cli/set-current.js"
+      # A run started meanwhile (the apply's bootstrap) is pinned to nothing; it starts once a build
+      # whose worker polls is current (digest/src/deployment.ts, waitingRuns).
+      local waiting
+      waiting=$(sed -n 's/^waiting: \(.*\) -- no worker has taken.*/\1/p' <<<"$out")
+      [[ -n $waiting ]] && log_error "no worker has taken digest run(s) $waiting yet; each starts once a polling build is current (the set-current.js above)"
       return 1
       ;;
   esac
@@ -1002,8 +1033,13 @@ apply_terraform() {
   worker_digest=$(cat "$DIGEST_DIR/$SERVICE_WORKER.digest" 2>/dev/null || echo "")
   python_digest=$(cat "$DIGEST_DIR/$SERVICE_PYTHON.digest" 2>/dev/null || echo "")
 
-  local -a targets=("${TF_TARGETS[@]}")
+  local -a targets=("${TF_TARGETS[@]}") vars=()
   temporal_on && targets+=("${TF_TEMPORAL_TARGETS[@]}")
+  # The importer terraform ships to the box (staged refresh, cut-over import), from the checkout that
+  # built the worker image rather than terraform's default sibling checkout. Only where the Temporal
+  # stack is on: python-mode infra need not declare the variable, and terraform refuses a value for
+  # an undeclared one.
+  temporal_on && vars+=(-var="news_digest_import_legacy_path=$(cd "$SCRIPT_DIR/.." && pwd)/bin/import-legacy")
 
   local plan_output plan_exit
   set +e
@@ -1014,6 +1050,7 @@ apply_terraform() {
     -var="news_digest_circulation_digest=$circulation_digest" \
     -var="news_digest_worker_digest=$worker_digest" \
     -var="news_digest_python_digest=$python_digest" \
+    "${vars[@]}" \
     -detailed-exitcode \
     -out=/tmp/news-digest-tfplan \
     -compact-warnings \
@@ -1218,6 +1255,7 @@ main() {
   check_web || exit 1
   read_pipeline_mode || exit 1
   check_box_matches_mode || exit 1
+  check_database_url || exit 1
   check_run_window || exit 1
   check_no_run_in_flight || exit 1
 

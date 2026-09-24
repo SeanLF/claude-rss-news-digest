@@ -124,8 +124,8 @@ CREATE TABLE issues (
 CREATE INDEX issues_run ON issues (run_id);
 
 -- The day's email, one per date: inserting the row is taking the claim. claim_token and claimed_at
--- are NULL only on sends imported from before claims were recorded, and resend_id (Resend's
--- broadcast id) on those from before broadcasts.
+-- are NULL only on sends imported from before claims were recorded; resend_id (Resend's broadcast
+-- id) is NULL while a claim has no draft yet. Days mailed before broadcasts have no send.
 CREATE TABLE sends (
   issue_date  date PRIMARY KEY,
   run_id      bigint NOT NULL REFERENCES runs (id),

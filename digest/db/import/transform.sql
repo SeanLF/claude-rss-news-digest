@@ -34,9 +34,10 @@ SELECT id, run_id, run_id,
        CASE WHEN artifact_name ~ '\.corrupt\.\d+$' THEN 'quarantined' ELSE 'current' END,
        pg_temp.utc(created_at)
 FROM legacy.run_artifacts;
--- Runs whose selections exist only in the retired table, numbered after the legacy ids (an insert with
--- explicit ids does not move the identity).
-SELECT setval(pg_get_serial_sequence('artifacts', 'id'), (SELECT COALESCE(max(id), 0) + 1 FROM artifacts), false);
+-- Runs whose selections exist only in the retired table, numbered after the legacy ids and any id
+-- SQLite handed out and deleted (an insert with explicit ids does not move the identity).
+SELECT setval(pg_get_serial_sequence('artifacts', 'id'),
+              GREATEST((SELECT COALESCE(max(id), 0) FROM artifacts), (SELECT COALESCE(max(seq), 0) FROM legacy.sqlite_sequence WHERE name = 'run_artifacts')) + 1, false);
 INSERT INTO artifacts (run_id, attempt_id, name, content, sha256, created_at)
 SELECT s.run_id, s.run_id, 'selections.json', s.selections_json, encode(sha256(convert_to(s.selections_json, 'UTF8')), 'hex'), pg_temp.utc(s.created_at)
 FROM legacy.selections s
@@ -48,13 +49,14 @@ INSERT INTO issues (issue_date, revision, run_id, html, preheader, published_at)
 SELECT d.date::date, 1, d.run_id, d.html, COALESCE(d.preheader, ''), COALESCE(pg_temp.utc(r.completed_at), pg_temp.utc(d.created_at))
 FROM legacy.digests d LEFT JOIN legacy.digest_runs r ON r.id = d.run_id;
 
--- Every legacy send reached its readers ('sent'); no claim was recorded before this schema. A day
--- mailed before Resend broadcasts has no broadcast id: its recipient count is the run's
--- articles_emailed (which equals the broadcast's recipients on all 100 broadcast days).
+-- The Resend broadcasts, each as it was recorded; no claim was recorded before this schema. A day
+-- mailed before broadcasts went out as Resend transactional emails, whose counts live in Resend: it
+-- gets no send, and its run's outcome ('sent') is the record that it went out (sent_runs; the claim
+-- refuses such a day).
 INSERT INTO sends (issue_date, run_id, resend_id, revision, status, recipients)
-SELECT d.date::date, d.run_id, d.broadcast_id, 1, COALESCE(d.broadcast_status, 'sent'), COALESCE(d.broadcast_recipients, r.articles_emailed)
-FROM legacy.digests d LEFT JOIN legacy.digest_runs r ON r.id = d.run_id
-WHERE d.broadcast_status IS NOT NULL OR r.articles_emailed > 0;
+SELECT d.date::date, d.run_id, d.broadcast_id, 1, d.broadcast_status, d.broadcast_recipients
+FROM legacy.digests d
+WHERE d.broadcast_status IS NOT NULL;
 
 INSERT INTO story_sources (id, run_id, headline, tier, source_id, source_title, cluster_id, shown_at)
 SELECT id, run_id, headline, tier, source_id, original_title, cluster_id, pg_temp.utc(shown_at)

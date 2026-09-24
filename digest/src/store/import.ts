@@ -23,8 +23,21 @@ export async function transform(db: Db, sql = readFileSync(TRANSFORM, "utf8")): 
       if (k.stage !== null) await t.run("UPDATE artifacts SET stage = $2, kind = $3, branch = $4 WHERE name = $1", [n, k.stage, k.kind, k.branch]);
     }
     await t.exec(RESET_IDENTITIES);
+    await t.exec(PAST_SQLITE_SEQUENCES);
   });
 }
+
+// Each table that kept its legacy ids, with the legacy table whose AUTOINCREMENT mark it continues:
+// SQLite never handed out an id twice, and a thread's id is a public URL.
+const CONTINUES: [table: string, legacy: string][] = [
+  ["runs", "digest_runs"], ["run_attempts", "digest_runs"], ["model_calls", "run_usage"], ["artifacts", "run_artifacts"],
+  ["story_sources", "shown_narratives"], ["articles", "fetched_articles"], ["source_fetches", "source_health"],
+  ["dedup_matches", "dedup_log"], ["threads", "threads"], ["thread_updates", "thread_installments"], ["thread_questions", "thread_questions"],
+];
+// Raises, never lowers: RESET_IDENTITIES has already put each after its highest id.
+const PAST_SQLITE_SEQUENCES = CONTINUES.map(([table, legacy]) =>
+  `SELECT setval(pg_get_serial_sequence('${table}', 'id'), s.seq + 1, false) FROM legacy.sqlite_sequence s
+     WHERE s.name = '${legacy}' AND s.seq >= (SELECT COALESCE(max(id), 0) FROM ${table});`).join("\n");
 
 // Each check is a query over both schemas that returns the number of rows that break it; all must be 0.
 const utc = (col: string) => `to_char(${col} AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI:SS')`;
@@ -48,11 +61,11 @@ export const CHECKS: [name: string, sql: string][] = [
   ["every issue, html byte for byte", `SELECT count(*) FROM legacy.digests d LEFT JOIN issues i ON i.issue_date = d.date::date AND i.revision = 1
      WHERE i.issue_date IS NULL OR i.html IS DISTINCT FROM d.html OR i.run_id IS DISTINCT FROM d.run_id`],
   ["no issue the legacy file did not have", `SELECT (SELECT count(*) FROM issues) - (SELECT count(*) FROM legacy.digests)`],
-  // A send is a broadcast, or, before broadcasts, a run that emailed someone.
-  ["every send, with its broadcast id and recipients", `SELECT count(*) FROM (legacy.digests d LEFT JOIN legacy.digest_runs r ON r.id = d.run_id) FULL JOIN sends s ON s.issue_date = d.date::date
-     WHERE (d.broadcast_status IS NOT NULL OR COALESCE(r.articles_emailed, 0) > 0) IS DISTINCT FROM (s.issue_date IS NOT NULL)
+  // A send is a Resend broadcast; the days mailed before broadcasts have none (their counts are in Resend).
+  ["every send, with its broadcast id and recipients", `SELECT count(*) FROM legacy.digests d FULL JOIN sends s ON s.issue_date = d.date::date
+     WHERE (d.broadcast_status IS NOT NULL) IS DISTINCT FROM (s.issue_date IS NOT NULL)
         OR (s.issue_date IS NOT NULL AND (s.resend_id IS DISTINCT FROM d.broadcast_id OR s.run_id IS DISTINCT FROM d.run_id OR s.status <> 'sent' OR s.revision <> 1
-            OR s.recipients IS DISTINCT FROM COALESCE(d.broadcast_recipients, r.articles_emailed)))`],
+            OR s.recipients IS DISTINCT FROM d.broadcast_recipients))`],
   ["every shown story source, column for column", `SELECT count(*) FROM legacy.shown_narratives l FULL JOIN story_sources s ON s.id = l.id
      WHERE s.id IS NULL OR l.id IS NULL OR s.headline <> l.headline OR s.tier IS DISTINCT FROM l.tier OR ${utc("s.shown_at")} IS DISTINCT FROM l.shown_at
         OR s.source_id IS DISTINCT FROM l.source_id OR s.run_id IS DISTINCT FROM l.run_id OR s.source_title IS DISTINCT FROM l.original_title OR s.cluster_id IS DISTINCT FROM l.cluster_id`],

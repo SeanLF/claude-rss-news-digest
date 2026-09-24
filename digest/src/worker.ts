@@ -2,12 +2,14 @@ import { NativeConnection, Worker } from "@temporalio/worker";
 import { workerActivities } from "./activities/real.js";
 import { deploymentOptions } from "./deployment.js";
 import { operationsEnvWarning } from "./ops/env.js";
+import { dbUrl } from "./store/db.js";
 export const TASK_QUEUE = "digest";
 // Production sets the repo's own namespace (spec §5); the local dev server only has "default".
 export const temporalNamespace = (env: Record<string, string | undefined> = process.env): string => env["TEMPORAL_NAMESPACE"] ?? "default";
 export async function runWorker(address = process.env["TEMPORAL_ADDRESS"] ?? "localhost:7233"): Promise<void> {
   const warning = operationsEnvWarning(process.env);
   if (warning) console.warn(`WARN ${warning}`);
+  dbUrl(); // throws when unset, before the worker connects or polls
   const connection = await NativeConnection.connect({ address });
   const worker = await Worker.create({
     connection,
