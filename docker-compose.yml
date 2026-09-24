@@ -70,7 +70,8 @@ services:
       - POSTGRES_PASSWORD=digest
       - POSTGRES_DB=digest
     healthcheck:
-      test: ["CMD", "pg_isready", "-U", "postgres", "-d", "digest"]
+      # Over TCP: on first boot the init server listens only on the socket, then restarts.
+      test: ["CMD", "pg_isready", "-h", "127.0.0.1", "-U", "postgres", "-d", "digest"]
       interval: 1s
       retries: 30
 
@@ -120,7 +121,8 @@ services:
     # For host-side tools (make band's promptfoo); in-network clients use digest-pg:5432.
     ports: ["127.0.0.1:${DIGEST_PG_PORT:-5433}:5432"]
     healthcheck:
-      test: ["CMD", "pg_isready", "-U", "postgres", "-d", "digest"]
+      # Over TCP: on first boot the init server listens only on the socket, then restarts.
+      test: ["CMD", "pg_isready", "-h", "127.0.0.1", "-U", "postgres", "-d", "digest"]
       interval: 1s
       retries: 30
 
