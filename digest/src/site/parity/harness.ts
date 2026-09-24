@@ -99,7 +99,14 @@ export interface Verdict {
   diffs: string[];
   // search only: how far the two result sets agree
   overlap?: { golden: number; actual: number; shared: number };
+  // Equal only as Markdown documents: the bytes differ, the rendering does not.
+  asDocument?: boolean;
 }
+
+// Whether two Markdown texts are the same document (they render the same). The harness takes it from
+// its caller: the renderer is a test dependency, and the recorder in the production image has none.
+export type SameDocument = (a: string, b: string) => boolean;
+const bytesOnly: SameDocument = () => false;
 
 function firstDifference(a: string, b: string): string {
   const la = a.split("\n");
@@ -110,6 +117,31 @@ function firstDifference(a: string, b: string): string {
   return "equal line by line (a trailing difference)";
 }
 
+// The first path at which two JSON values differ, with both sides; strings are compared line by line.
+// A string leaf that differs only as Markdown spelling counts as equal and is recorded in `asDocument`.
+export function jsonDifference(a: unknown, b: unknown, path = "$", same: SameDocument = bytesOnly, asDocument: string[] = []): string | undefined {
+  if (isDeepStrictEqual(a, b)) return undefined;
+  if (typeof a === "string" && typeof b === "string") {
+    if (same(a, b)) {
+      asDocument.push(path);
+      return undefined;
+    }
+    return `${path}: ${firstDifference(a, b)}`;
+  }
+  if (a && b && typeof a === "object" && typeof b === "object" && Array.isArray(a) === Array.isArray(b)) {
+    const ao = a as Record<string, unknown>;
+    const bo = b as Record<string, unknown>;
+    for (const k of new Set([...Object.keys(ao), ...Object.keys(bo)])) {
+      if (!(k in ao) || !(k in bo)) return `${path}.${k}: ${k in ao ? "missing in ts" : "extra in ts"}`;
+      const d = jsonDifference(ao[k], bo[k], `${path}.${k}`, same, asDocument);
+      if (d) return d;
+    }
+    // Every member equal, some only as documents.
+    return undefined;
+  }
+  return `${path}: rust ${JSON.stringify(a)?.slice(0, 200)} | ts ${JSON.stringify(b)?.slice(0, 200)}`;
+}
+
 const parseOrKeep = (s: string): unknown => {
   try {
     return JSON.parse(s);
@@ -118,8 +150,9 @@ const parseOrKeep = (s: string): unknown => {
   }
 };
 
-export function compare(e: Entry, golden: Answer, actual: Answer): Verdict {
+export function compare(e: Entry, golden: Answer, actual: Answer, same: SameDocument = bytesOnly): Verdict {
   const diffs: string[] = [];
+  const asDocument: string[] = [];
   if (golden.status !== actual.status) diffs.push(`status ${golden.status} != ${actual.status}`);
   for (const h of COMPARED_HEADERS) {
     const g = golden.headers[h];
@@ -136,14 +169,17 @@ export function compare(e: Entry, golden: Answer, actual: Answer): Verdict {
     case "body":
     case "markdown":
       if (golden.encoding !== actual.encoding) diffs.push(`encoding ${golden.encoding} != ${actual.encoding}`);
-      else if (golden.body !== actual.body) diffs.push(`body: ${golden.encoding === "base64" ? `${golden.body.length} != ${actual.body.length} base64 chars or content` : firstDifference(golden.body, actual.body)}`);
+      else if (golden.body === actual.body) break;
+      else if (e.compare === "markdown" && same(golden.body, actual.body)) asDocument.push("$");
+      else diffs.push(`body: ${golden.encoding === "base64" ? `${golden.body.length} != ${actual.body.length} base64 chars or content` : firstDifference(golden.body, actual.body)}`);
       break;
     case "json": {
       // As values: a whole float that serde_json prints as 1.0 and JavaScript as 1 is the same value
       // (fork doc §5).
       const g = parseOrKeep(golden.body);
       const a = parseOrKeep(actual.body);
-      if (!isDeepStrictEqual(g, a)) diffs.push(`json: ${firstDifference(JSON.stringify(g, null, 1), JSON.stringify(a, null, 1))}`);
+      const d = jsonDifference(g, a, "$", same, asDocument);
+      if (d) diffs.push(`json ${d}`);
       break;
     }
     case "search": {
@@ -161,5 +197,5 @@ export function compare(e: Entry, golden: Answer, actual: Answer): Verdict {
       break;
     }
   }
-  return { name: e.name, ok: diffs.length === 0, diffs, ...(overlap ? { overlap } : {}), ...(e.known ? { known: e.known } : {}) };
+  return { name: e.name, ok: diffs.length === 0, diffs, ...(overlap ? { overlap } : {}), ...(e.known ? { known: e.known } : {}), ...(diffs.length === 0 && asDocument.length ? { asDocument: true } : {}) };
 }

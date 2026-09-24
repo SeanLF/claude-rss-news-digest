@@ -8,4 +8,6 @@ RUN npm ci
 COPY newsroom/templates/digest-template.html newsroom/templates/digest.css /app/newsroom/templates/
 COPY newsroom/tests/fixtures/kitchensink_selections.json /app/newsroom/tests/fixtures/
 COPY design/tokens.css /app/design/tokens.css
+# The site's tests read the source catalogue, as the site does in production (digest/Dockerfile).
+COPY newsroom/sources.json /app/sources.json
 COPY digest/ ./

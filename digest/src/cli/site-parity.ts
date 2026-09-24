@@ -32,6 +32,24 @@ for (const e of m.requests) {
     console.error(`site-parity: ${e.name}: ${String(err)}`);
   }
 }
+// Every issue's Markdown, for the converter's corpus-wide comparison (site/markdown.parity.test.ts):
+// the dates come from the year pages, which list every issue unpaginated.
+mkdirSync(join(out, "corpus"), { recursive: true });
+const dates = new Set<string>();
+for (let y = 2025; y <= new Date().getUTCFullYear(); y++) {
+  const page = await (await fetch(`${base}/?year=${y}`, { headers: m.headers })).text();
+  for (const d of page.matchAll(/data-date="(\d{4}-\d{2}-\d{2})"/g)) dates.add(d[1]!);
+}
+for (const d of dates) {
+  const res = await fetch(`${base}/issues/${d}.md`, { headers: m.headers });
+  if (res.status !== 200) {
+    failed++;
+    console.error(`site-parity: corpus ${d}: HTTP ${res.status}`);
+    continue;
+  }
+  writeFileSync(join(out, "corpus", `${d}.md`), await res.text());
+}
+console.log(`site-parity: ${dates.size} issues' Markdown into ${join(out, "corpus")}`);
 const provenance: unknown = JSON.parse(process.env["RECORD_PROVENANCE"] ?? "{}");
 writeFileSync(join(out, "manifest.json"), `${JSON.stringify({ capturedAt, finishedAt: new Date().toISOString(), base, fontPath, provenance, requests: m.requests.length, failed }, null, 1)}\n`);
 console.log(`site-parity: recorded ${m.requests.length - failed} of ${m.requests.length} into ${out}`);

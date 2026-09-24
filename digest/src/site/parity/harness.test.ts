@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { sameDocument } from "./document.js";
 import { type Answer, type Entry, capture, compare, manifest, toRequest } from "./harness.js";
 
 // The harness's negative control: a comparator that passes everything is indistinguishable from a
@@ -75,6 +76,32 @@ describe("the comparator fails a deliberately changed answer (negative control)"
   it("headers-only still fails on status, whatever the bodies", () => {
     expect(compare(entry("headers"), answer({ body: "a" }), answer({ body: "b" })).ok).toBe(true);
     expect(compare(entry("headers"), answer({ body: "a" }), answer({ status: 500, body: "a" })).ok).toBe(false);
+  });
+});
+
+describe("Markdown compared as a document", () => {
+  const spelled = ["# T\n\n* a\n* b\n\n**Why it matters** \n\nBody. \n", "# T\n\n- a\n- b\n\n**Why it matters**\n\nBody.\n"] as const;
+
+  it("passes a respelling that renders the same, and says so", () => {
+    const v = compare(entry("markdown"), answer({ body: spelled[0] }), answer({ body: spelled[1] }), sameDocument);
+    expect(v).toMatchObject({ ok: true, asDocument: true });
+    const inJson = (text: string) => answer({ body: JSON.stringify({ result: { content: [{ text }] } }) });
+    expect(compare(entry("json"), inJson(spelled[0]), inJson(spelled[1]), sameDocument)).toMatchObject({ ok: true, asDocument: true });
+  });
+
+  it("fails without the renderer: bytes are the default contract", () => {
+    expect(compare(entry("markdown"), answer({ body: spelled[0] }), answer({ body: spelled[1] })).ok).toBe(false);
+  });
+
+  it.each([
+    ["a word", "# T\n\nBody one.\n", "# T\n\nBody two.\n"],
+    ["a block's kind", "# T\n\nBody.\n", "## T\n\nBody.\n"],
+    ["a list item merged", "* a\n* b\n", "* a b\n"],
+    ["a link target", "[x](https://a.example)\n", "[x](https://b.example)\n"],
+    ["a table cell", "| a | b |\n| - | - |\n| 1 | 2 |\n", "| a | b |\n| - | - |\n| 1 | 3 |\n"],
+    ["a space between words", "one two\n", "onetwo\n"],
+  ])("still fails on %s", (_what, a, b) => {
+    expect(compare(entry("markdown"), answer({ body: a }), answer({ body: b }), sameDocument).ok).toBe(false);
   });
 });
 
