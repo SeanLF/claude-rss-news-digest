@@ -190,9 +190,9 @@ services:
       DIGEST_DOMAIN: *dev-site-domain
       ARCHIVE_URL: "https://${DEV_SITE_DOMAIN:-digest-site.${COMPOSE_PROJECT_NAME}.orb.local}"
       TEMPORAL_UI_URL: "http://127.0.0.1:${TEMPORAL_UI_PORT:-8233}"
-      # Off by default, as in config.py; production turns them on. Set them to rehearse a production run.
-      THREADS_ENABLED: "${THREADS_ENABLED:-false}"
-      THREAD_LATEBIND: "${THREAD_LATEBIND:-false}"
+      # On, as production runs them; a dev run without threads rehearses a digest no reader gets.
+      THREADS_ENABLED: "${THREADS_ENABLED:-true}"
+      THREAD_LATEBIND: "${THREAD_LATEBIND:-true}"
     volumes:
       - ./data:/app/data
       - claude-login:/home/appuser/.claude
