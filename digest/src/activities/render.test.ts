@@ -3,7 +3,7 @@ import { loadAssets } from "../render/render.js";
 import { ArtifactStore, type Pointer } from "../store/artifacts.js";
 import { openDb } from "../store/db.js";
 import { freshDb } from "../store/test-db.js";
-import { EMAIL_OUTPUT, RENDER_CONTEXT, renderActivity, WEB_OUTPUT } from "./render.js";
+import { EMAIL_OUTPUT, MARKDOWN_OUTPUT, RENDER_CONTEXT, renderActivity, WEB_OUTPUT } from "./render.js";
 
 const REPO = new URL("../../../", import.meta.url).pathname;
 const assets = loadAssets({ templates: `${REPO}newsroom/templates`, design: `${REPO}design` });
@@ -45,6 +45,12 @@ describe("render activity", () => {
     expect(web).toContain('<a href="https://news.example/thread/889"');
     expect(web).toContain("Polls opened.");
     expect(web).toContain('<a href="https://www.reuters.com/world/russia-votes">1</a>');
+    // The Markdown is written from the same resolved selections as the page.
+    const md = await store.get((await store.find(300, MARKDOWN_OUTPUT))!);
+    expect(md).toContain("### Russia votes");
+    expect(md).toContain("[Ongoing · day 2 ↗](https://news.example/thread/889)");
+    expect(md).toContain("Polls opened.");
+    expect(md).toContain("[1](https://www.reuters.com/world/russia-votes)");
   });
   it("is idempotent on its output: a retry renders at the first attempt's time and returns the same pointers", async () => {
     const { store, selections, activity, tick } = await setup();

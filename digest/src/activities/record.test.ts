@@ -54,6 +54,15 @@ describe("record activities", () => {
     expect(row!["html"]).toContain('<div class="paper">');
     expect(await db.all("SELECT run_id FROM published_runs")).toEqual([{ run_id: 300 }]);
   });
+  it("stores the run's Markdown with the issue, and none when the run rendered none", async () => {
+    const { acts, sel, html, db, store } = await setup();
+    await acts.saveDigest(300, html, sel);
+    expect(await db.one("SELECT markdown FROM issues")).toEqual({ markdown: null });
+    await db.exec("DELETE FROM issues");
+    await store.put(300, "digest.md", "## Must Know\n\n### Deal signed");
+    await acts.saveDigest(300, html, sel);
+    expect(await db.one("SELECT markdown FROM issues")).toEqual({ markdown: "## Must Know\n\n### Deal signed" });
+  });
   it("a retried save of the same page adds nothing, and an empty preheader keeps the previous one", async () => {
     const { acts, sel, html, db, store } = await setup();
     await acts.saveDigest(300, html, sel);

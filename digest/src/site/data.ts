@@ -70,7 +70,8 @@ export interface SiteData {
   // Newest first. `year` scopes to one calendar year, whole; otherwise dates before `before`, at most
   // `limit` rows.
   archive(q: { before?: string | undefined; year?: number | undefined; limit: number }): Promise<IssueRowData[]>;
-  issue(date: string): Promise<{ html: string; preheader: string } | undefined>;
+  // markdown is null for an issue with no Markdown: the backfill has not reached it, or its HTML yielded none.
+  issue(date: string): Promise<{ html: string; preheader: string; markdown: string | null } | undefined>;
   latestIssueDate(): Promise<string | undefined>;
   feed(limit: number): Promise<{ date: string; preheader: string }[]>;
   // A literal phrase, most relevant first, one row per story.

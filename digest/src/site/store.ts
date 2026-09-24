@@ -77,7 +77,7 @@ export function siteStore(db: Sql): SiteData {
     // By the date's text, so a lenient date the route accepts ("2026-1-24") finds nothing rather than
     // failing a cast.
     async issue(date) {
-      return db.one<{ html: string; preheader: string }>("SELECT html, preheader FROM issues WHERE issue_date::text = $1 ORDER BY revision DESC LIMIT 1", [date]);
+      return db.one<{ html: string; preheader: string; markdown: string | null }>("SELECT html, preheader, markdown FROM issues WHERE issue_date::text = $1 ORDER BY revision DESC LIMIT 1", [date]);
     },
 
     async latestIssueDate() {

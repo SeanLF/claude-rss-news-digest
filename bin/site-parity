@@ -21,6 +21,8 @@ if [ "${SKIP_IMPORT:-}" != "1" ]; then
   docker compose -p "$p" exec -T ci-pg psql -q -U postgres -c "DROP DATABASE IF EXISTS $db" -c "CREATE DATABASE $db"
   docker build -q -f digest/Dockerfile --build-arg GIT_SHA=parity -t digest-site-parity-digest:local . >/dev/null
   DIGEST_IMAGE=digest-site-parity-digest:local IMPORT_NETWORK="${p}_default" bin/import-legacy "$dir/legacy.db" "$url"
+  # The site serves the Markdown stored with each issue; the import brings the HTML only.
+  docker run --rm --network "${p}_default" -e DIGEST_DATABASE_URL="$url" digest-site-parity-digest:local node dist/cli/backfill-markdown.js
 fi
 docker compose -p "$p" run --rm --build -v "$PWD/$dir:/parity:ro" -e SITE_PARITY_DIR=/parity -e SITE_PARITY_DATABASE_URL="$url" \
   ci-ts npx vitest run src/site/parity.clone.test.ts src/site/markdown.parity.test.ts "$@"

@@ -1,6 +1,6 @@
 import { htmlEscape as esc } from "escape-goat";
 import { transform } from "lightningcss";
-import { AGENCY_LABELS, BUCKET_ORDER, BUCKET_WORD, bucketCounts, codePoints, collectOutlets, dates, isSafeUrl, readingTime, slugger, storyCounts, titleCase, type Outlet, type RenderInput, type Story } from "./common.js";
+import { BUCKET_ORDER, BUCKET_WORD, bucketCounts, codePoints, collectOutlets, dates, isSafeUrl, outletLabel, readingTime, slugger, storyCounts, type Outlet, type RenderInput, type Story } from "./common.js";
 
 // The web issue, ported from newsroom/src/render.py (render_digest, then replace_placeholders).
 
@@ -14,17 +14,8 @@ function sourcesBlock(outlets: Outlet[]): string {
   const rows = BUCKET_ORDER.flatMap((b) => outlets.filter((o) => o.bucket === b))
     .map((o) => {
       const links = o.urls.map((u, i) => `<a href="${esc(u)}">${i + 1}</a>`).join(" ");
-      let name = esc(o.name);
-      let leaning = esc(o.bias);
-      // Agency copy is credited to the agency, the outlet as its route; the outlet's leaning is
-      // not the agency's, and there is no rating for the agency to show instead.
-      if (o.wireAgency) {
-        const label = AGENCY_LABELS[o.wireAgency] ?? titleCase(o.wireAgency);
-        name = esc(label);
-        if (label.toLowerCase() !== o.name.toLowerCase()) name += `<span class="via"> · via ${esc(o.name)}</span>`;
-        leaning = "wire";
-      }
-      return `<tr><td class="nm">${name}</td><td class="ln">${leaning}</td><td class="ar">${links}</td></tr>`;
+      const { name, via, leaning } = outletLabel(o);
+      return `<tr><td class="nm">${esc(name)}${via === null ? "" : `<span class="via"> · via ${esc(via)}</span>`}</td><td class="ln">${esc(leaning)}</td><td class="ar">${links}</td></tr>`;
     })
     .join("");
   return (

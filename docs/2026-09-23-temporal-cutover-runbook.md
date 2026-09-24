@@ -172,14 +172,24 @@ Outside the run window. `bin/ssh systemctl is-active news-digest.service` must s
      paused schedule drops its missed slot rather than catching it up.
    - If Python already sent today, `startRun` refuses that run with `AlreadyRan`: a failed workflow,
      no email.
-2. Verify:
+2. **Backfill the issues' Markdown**, once, when the worker is up (so `migrate.js` has added
+   `issues.markdown`). The import brings each issue's HTML only, and the site serves `.md` and
+   `Accept: text/markdown` from that column, 404ing an issue without it. The pipeline writes it for
+   every issue from the first Temporal run; this fills the imported ones with the converter the site
+   ran per request until then, so agents get the Markdown they got from the Rust server. A rerun
+   fills nothing; exit 1 names any revision whose HTML yielded no Markdown (there were none in the
+   2026-09-23 clone's 283 issues):
+   ```
+   bin/ssh docker exec news-digest-worker node dist/cli/backfill-markdown.js   # "N issue revisions filled"
+   ```
+3. Verify:
    ```
    bin/ssh systemctl is-enabled news-digest.timer                    # disabled
    bin/ssh "$T schedule describe -s digest-daily -o json" | jq .schedule.state   # no "paused"
    bin/ssh 'grep -E "BROADCAST|DIGEST_DATABASE_URL|HOLD_ALWAYS" /opt/news-digest/worker.env | sed "s/:[^:@]*@/:***@/"'  # true, .../digest?sslmode=disable, the hold's date
    bin/ssh 'journalctl -u news-digest-worker --since -1h --no-pager | grep -E "import-|migrat|^ *ok "'   # "digest imported", every check "ok"
    ```
-3. The next day: the run completed and sent, the dead-man passed, and healthchecks.io got its ping.
+4. The next day: the run completed and sent, the dead-man passed, and healthchecks.io got its ping.
    Until `bin/lib/prod-store` says `postgres` (below):
    ```
    bin/ssh 'docker exec news-digest-temporal-postgres psql -U postgres -d digest -c "SELECT id, started_at, status, outcome FROM runs ORDER BY id DESC LIMIT 3"'

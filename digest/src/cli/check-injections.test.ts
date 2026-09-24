@@ -9,7 +9,7 @@ const TEMPLATE = readFileSync("/app/newsroom/templates/digest-template.html", "u
 const GOOD = TEMPLATE.replace("{{STYLES}}", "body{}").replaceAll(/\{\{[A-Z_]+\}\}/g, "");
 const cfg = testConfig();
 const ctx = { cfg, assets: loadAssets(cfg.designDir) };
-const stored = (html: string) => ({ html, preheader: "" });
+const stored = (html: string) => ({ html, preheader: "", markdown: null });
 
 describe("check-injections", () => {
   it("finds nothing to report in an issue rendered from the current template", async () => {

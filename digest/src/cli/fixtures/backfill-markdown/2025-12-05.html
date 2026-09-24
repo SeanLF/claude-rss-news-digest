@@ -1,0 +1,399 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>News Digest - December 5, 2025</title>
+  <style>
+    :root {
+      --bg: #1a1a2e;
+      --surface: #16213e;
+      --surface-2: #1f2940;
+      --text: #e8e8e8;
+      --text-muted: #a0a0a0;
+      --accent: #4fc3f7;
+      --accent-2: #81c784;
+      --warning: #ffb74d;
+      --border: #2d3a4f;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.6;
+      padding: 2rem;
+      max-width: 900px;
+      margin: 0 auto;
+    }
+
+    h1 {
+      font-size: 2rem;
+      margin-bottom: 0.5rem;
+      color: var(--accent);
+    }
+
+    .subtitle {
+      color: var(--text-muted);
+      margin-bottom: 2rem;
+      font-size: 0.9rem;
+    }
+
+    h2 {
+      font-size: 1.3rem;
+      color: var(--accent-2);
+      margin: 2rem 0 1rem;
+      padding-bottom: 0.5rem;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .narrative {
+      background: var(--surface);
+      border-radius: 12px;
+      padding: 1.5rem;
+      margin-bottom: 1.5rem;
+      border-left: 4px solid var(--accent);
+    }
+
+    .narrative.must-know { border-left-color: #ef5350; }
+    .narrative.should-know { border-left-color: var(--warning); }
+
+    .narrative h3 {
+      font-size: 1.1rem;
+      margin-bottom: 0.75rem;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      flex-wrap: wrap;
+    }
+
+    .tag {
+      font-size: 0.7rem;
+      padding: 0.2rem 0.5rem;
+      border-radius: 4px;
+      font-weight: 600;
+      text-transform: uppercase;
+    }
+
+    .tag.breaking { background: #ef5350; color: white; }
+    .tag.today { background: var(--accent); color: #1a1a2e; }
+    .tag.developing { background: var(--warning); color: #1a1a2e; }
+    .tag.update { background: #7e57c2; color: white; }
+    .tag.recent { background: var(--surface-2); color: var(--text-muted); }
+
+    .story, .matters, .coverage, .development, .trend, .relevant {
+      margin-bottom: 0.75rem;
+    }
+
+    .label {
+      font-weight: 600;
+      color: var(--accent);
+      font-size: 0.85rem;
+    }
+
+    .coverage ul {
+      list-style: none;
+      margin-top: 0.5rem;
+    }
+
+    .coverage li {
+      padding: 0.3rem 0;
+      padding-left: 1rem;
+      border-left: 2px solid var(--border);
+      margin-left: 0.5rem;
+      font-size: 0.9rem;
+    }
+
+    .coverage .source {
+      font-weight: 600;
+      color: var(--text);
+    }
+
+    .coverage .bias {
+      color: var(--text-muted);
+      font-size: 0.8rem;
+    }
+
+    .trend-indicator {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.3rem;
+      font-size: 0.85rem;
+      color: var(--text-muted);
+    }
+
+    .trend-indicator.rising { color: #ef5350; }
+    .trend-indicator.stable { color: var(--accent); }
+
+    .quick-signals {
+      background: var(--surface);
+      border-radius: 12px;
+      padding: 1.5rem;
+    }
+
+    .quick-signals ul {
+      list-style: none;
+    }
+
+    .quick-signals li {
+      padding: 0.5rem 0;
+      border-bottom: 1px solid var(--border);
+      font-size: 0.9rem;
+    }
+
+    .quick-signals li:last-child { border-bottom: none; }
+
+    .quick-signals .topic {
+      font-weight: 600;
+      color: var(--accent);
+    }
+
+    .divergence {
+      background: var(--surface-2);
+      border-radius: 12px;
+      padding: 1.5rem;
+      margin-top: 1.5rem;
+    }
+
+    .divergence h3 {
+      font-size: 1rem;
+      color: var(--warning);
+      margin-bottom: 0.75rem;
+    }
+
+    .divergence-item {
+      margin-bottom: 1rem;
+      font-size: 0.9rem;
+    }
+
+    .divergence-item:last-child { margin-bottom: 0; }
+
+    .vs {
+      color: var(--text-muted);
+      font-style: italic;
+    }
+
+    footer {
+      text-align: center;
+      margin-top: 3rem;
+      padding-top: 1.5rem;
+      border-top: 1px solid var(--border);
+      color: var(--text-muted);
+      font-size: 0.85rem;
+    }
+
+    footer .signoff {
+      color: var(--accent-2);
+      font-weight: 500;
+    }
+  </style>
+</head>
+<body>
+  <h1>News Digest</h1>
+  <p class="subtitle">December 5, 2025 &bull; 846 articles from 21 sources &rarr; 16 narratives</p>
+
+  <h2>Must Know</h2>
+
+  <article class="narrative must-know">
+    <h3>
+      <span>1. OpenAI Under Siege: Google's AI Leap Forces "Code Red" Response</span>
+      <span class="tag breaking">Breaking</span>
+    </h3>
+    <div class="story">
+      <span class="label">The story:</span> Sam Altman declared "code red" at OpenAI as Google's Gemini 3 and Anthropic's advances threaten ChatGPT's dominance. OpenAI is rushing to release GPT-5.2 next week to counter competitors who have surged ahead.
+    </div>
+    <div class="matters">
+      <span class="label">Why it matters:</span> First time since ChatGPT's launch that OpenAI is playing catch-up. Competitive pressure could accelerate AI capabilities faster than safety frameworks can keep up.
+    </div>
+    <div class="coverage">
+      <span class="label">Coverage:</span>
+      <ul>
+        <li><span class="source">The Verge</span> <span class="bias">(center-left)</span>: Details GPT-5.2 emergency release, internal "code red" atmosphere</li>
+        <li><span class="source">Ars Technica</span> <span class="bias">(center)</span>: Focus on technical competition dynamics</li>
+        <li><span class="source">Hacker News</span> <span class="bias">(center)</span>: Community emphasizes China's DeepSeek entering the fray</li>
+      </ul>
+    </div>
+    <div class="development">
+      <span class="label">Key development:</span> GPT-5.2 release scheduled for next week as emergency response
+    </div>
+    <div class="trend">
+      <span class="trend-indicator rising">&#9650; Rising &mdash; AI competition entering hyperdrive phase</span>
+    </div>
+  </article>
+
+  <article class="narrative must-know">
+    <h3>
+      <span>2. Trump's National Security Strategy Abandons Europe, Embraces Russia</span>
+      <span class="tag today">Today</span>
+    </h3>
+    <div class="story">
+      <span class="label">The story:</span> The Trump administration released its National Security Strategy calling for "cultivating resistance" in Europe, criticizing allies for "unrealistic expectations" on Ukraine, and seeking "stability" with Russia.
+    </div>
+    <div class="matters">
+      <span class="label">Why it matters:</span> Fundamental rupture in post-WWII transatlantic relations. European officials describe being excluded from Ukraine peace talks while Trump positions the US as an "independent arbiter" rather than NATO's leader.
+    </div>
+    <div class="coverage">
+      <span class="label">Coverage:</span>
+      <ul>
+        <li><span class="source">Washington Post</span> <span class="bias">(center-left)</span>: Europeans fear Trump "doing his own thing" without NATO consultation</li>
+        <li><span class="source">Financial Times</span> <span class="bias">(center-right)</span>: Document "fails to criticize Russia" while blasting traditional allies</li>
+        <li><span class="source">Der Spiegel</span> <span class="bias">(center-left)</span>: Leaked EU call notes show leaders fear being left alone with Russia</li>
+        <li><span class="source">NYT World</span> <span class="bias">(center-left)</span>: Strategy says Europe faces "civilizational erasure"</li>
+      </ul>
+    </div>
+    <div class="development">
+      <span class="label">Key development:</span> Germany's Merz rushing to secure frozen Russian assets before Trump blocks it
+    </div>
+    <div class="trend">
+      <span class="trend-indicator rising">&#9650; Rising &mdash; Transatlantic crisis deepening</span>
+    </div>
+  </article>
+
+  <article class="narrative must-know">
+    <h3>
+      <span>3. US Military Boat Strikes: Video Shows "Horrifying" Killing of Survivors</span>
+      <span class="tag developing">Developing</span>
+    </h3>
+    <div class="story">
+      <span class="label">The story:</span> Lawmakers who viewed classified video of US military strikes on alleged drug boats describe "one of the most troubling scenes" in public service. Footage shows a second attack hitting survivors before they could flip their boat.
+    </div>
+    <div class="matters">
+      <span class="label">Why it matters:</span> Potential war crimes by US military under direct civilian orders. The "double-tap" tactic killed 11 people total. Tests civilian control of the military and whether the drug war justifies extrajudicial killings.
+    </div>
+    <div class="coverage">
+      <span class="label">Coverage:</span>
+      <ul>
+        <li><span class="source">The Intercept</span> <span class="bias">(left)</span>: "Summary execution of men clinging to the remains of a boat"</li>
+        <li><span class="source">Washington Post</span> <span class="bias">(center-left)</span>: Video shows strike before survivors could right the boat</li>
+        <li><span class="source">ProPublica</span> <span class="bias">(center-left)</span>: Entire chain of command could face war crimes liability</li>
+      </ul>
+    </div>
+    <div class="development">
+      <span class="label">Key development:</span> Pentagon disputes "double-tap" but confirms second strike on survivors
+    </div>
+    <div class="trend">
+      <span class="trend-indicator rising">&#9650; Rising &mdash; Bipartisan congressional pressure mounting</span>
+    </div>
+  </article>
+
+  <h2>Should Know</h2>
+
+  <article class="narrative should-know">
+    <h3>
+      <span>4. Putin-Modi Summit Tests India's Balancing Act</span>
+      <span class="tag today">Today</span>
+    </h3>
+    <div class="story">
+      <span class="label">The story:</span> Putin arrived in India as Trump's oil sanctions devastate their energy partnership. Modi lavished praise on Putin while European officials watch nervously.
+    </div>
+    <div class="relevant">
+      <span class="label">Sources:</span> NYT, WaPo, Globe and Mail, Al Jazeera, SCMP
+    </div>
+    <div class="relevant">
+      <span class="label">Why relevant:</span> India's strategic autonomy becoming untenable under Trump's hardline approach&mdash;potentially pushing India toward deeper Russia-China cooperation.
+    </div>
+  </article>
+
+  <article class="narrative should-know">
+    <h3>
+      <span>5. Netflix Buys Warner Bros for $83 Billion</span>
+      <span class="tag breaking">Breaking</span>
+    </h3>
+    <div class="story">
+      <span class="label">The story:</span> Netflix acquiring Warner Bros Discovery's studios and streaming for $83B, gaining Harry Potter, Game of Thrones, DC Comics, HBO Max.
+    </div>
+    <div class="relevant">
+      <span class="label">Sources:</span> Financial Times, Globe and Mail, Hacker News
+    </div>
+    <div class="relevant">
+      <span class="label">Why relevant:</span> Biggest entertainment consolidation since Disney-Fox. Signals streaming wars entering consolidation phase.
+    </div>
+  </article>
+
+  <article class="narrative should-know">
+    <h3>
+      <span>6. X (Twitter) First EU Fine Under Digital Services Act</span>
+      <span class="tag today">Today</span>
+    </h3>
+    <div class="story">
+      <span class="label">The story:</span> Musk's X hit with $140M fine for changes since acquisition&mdash;first platform fined under DSA.
+    </div>
+    <div class="relevant">
+      <span class="label">Sources:</span> Ars Technica, The Verge
+    </div>
+    <div class="relevant">
+      <span class="label">Why relevant:</span> Tests EU's tech regulation regime; demonstrates European willingness to enforce despite Trump pressures.
+    </div>
+  </article>
+
+  <article class="narrative should-know">
+    <h3>
+      <span>7. Zelensky's Negotiator Resigns Amid Corruption Raid</span>
+      <span class="tag update">Update</span>
+    </h3>
+    <div class="story">
+      <span class="label">The story:</span> Andriy Yermak resigned after anti-corruption raid&mdash;deepens Ukraine's crisis during fraught Trump peace talks.
+    </div>
+    <div class="relevant">
+      <span class="label">Sources:</span> NYT, Globe and Mail, WSJ
+    </div>
+    <div class="relevant">
+      <span class="label">Why relevant:</span> Undermines Ukraine's negotiating credibility precisely when Trump pushes for rapid Russia deal.
+    </div>
+  </article>
+
+  <article class="narrative should-know">
+    <h3>
+      <span>8. China-India Border Thaw Tested by Dalai Lama Conference</span>
+      <span class="tag recent">Recent</span>
+    </h3>
+    <div class="story">
+      <span class="label">The story:</span> India hosting conference on 6th Dalai Lama in territory China claims as "southern Tibet."
+    </div>
+    <div class="relevant">
+      <span class="label">Sources:</span> SCMP China, NYT
+    </div>
+    <div class="relevant">
+      <span class="label">Why relevant:</span> Historical/religious issues can derail great-power diplomacy as India asserts itself.
+    </div>
+  </article>
+
+  <h2>Quick Signals</h2>
+
+  <div class="quick-signals">
+    <ul>
+      <li><span class="topic">Tech Antitrust:</span> NYT sues Perplexity AI for "verbatim copies" of journalism <span class="bias">(The Verge)</span></li>
+      <li><span class="topic">Space Militarization:</span> China deploys first unmanned strike helicopter for plateau combat <span class="bias">(SCMP)</span></li>
+      <li><span class="topic">AI Chips:</span> Bipartisan bill to block Trump from easing China AI chip export controls <span class="bias">(SCMP)</span></li>
+      <li><span class="topic">Surveillance Tech:</span> China's security tech exports surging to authoritarian regimes <span class="bias">(Economist)</span></li>
+      <li><span class="topic">Vaccine Policy:</span> RFK Jr's panel scrapped universal hepatitis B vaccination for newborns <span class="bias">(Ars Technica)</span></li>
+      <li><span class="topic">Climate:</span> COP30 "ended with a whimper"&mdash;need acknowledged, action failed <span class="bias">(Economist)</span></li>
+    </ul>
+  </div>
+
+  <h2>Perspective Divergence</h2>
+
+  <div class="divergence">
+    <div class="divergence-item">
+      <h3>Trump's Ukraine Strategy</h3>
+      <p><strong>Western</strong> (WaPo, FT, Spiegel): Betrayal of NATO, abandonment of democratic Ukraine</p>
+      <p class="vs">vs</p>
+      <p><strong>Asian</strong> (SCMP): Pragmatic shift toward great-power spheres of influence</p>
+    </div>
+
+    <div class="divergence-item">
+      <h3>Putin-Modi Summit</h3>
+      <p><strong>Western</strong> (NYT, WSJ): India defying US pressure, problematic Russia embrace</p>
+      <p class="vs">vs</p>
+      <p><strong>Asian</strong> (SCMP, Al Jazeera): India maintaining legitimate strategic autonomy</p>
+    </div>
+  </div>
+
+  <footer>
+    <p>Generated 5:50 PM IST &bull; 21 sources &bull; Balanced perspectives</p>
+    <p class="signoff">You're informed. Go build something.</p>
+  </footer>
+</body>
+</html>

@@ -1,10 +1,13 @@
-import { applyDecodedLinks, attachThreads, issueNumber, renderEmail, renderWeb, resolveArticleIds, type RenderAssets, type RenderEnv, type Selections, type ThreadContext } from "../render/render.js";
+import { applyDecodedLinks, attachThreads, issueNumber, renderEmail, renderMarkdown, renderWeb, resolveArticleIds, type RenderAssets, type RenderEnv, type Selections, type ThreadContext } from "../render/render.js";
 import type { ArtifactStore, Pointer } from "../store/artifacts.js";
 import { openDb } from "../store/db.js";
 import { DECODED_LINKS, THREAD_CONTEXT } from "./index.js";
 
 export const WEB_OUTPUT = "digest.html";
 export const EMAIL_OUTPUT = "email.html";
+// The issue as Markdown, which saveDigest stores beside the page. Not in the activity's result:
+// recorded workflow histories fix that shape, and saveDigest finds the artifact by the run.
+export const MARKDOWN_OUTPUT = "digest.md";
 // The render's clock and edition number, fixed by the first attempt so a retry renders the same bytes.
 export const RENDER_CONTEXT = "render_context.json";
 interface RenderContext { renderedAt: string; issueNo: number }
@@ -46,6 +49,7 @@ export function renderActivity(deps: RenderDeps) {
     const input = { selections, now: new Date(ctx.renderedAt), issueNo: ctx.issueNo, env: deps.env, assets: deps.assets };
     const html = await write(runId, WEB_OUTPUT, renderWeb(input));
     const email = await write(runId, EMAIL_OUTPUT, renderEmail(input));
+    await write(runId, MARKDOWN_OUTPUT, renderMarkdown(input));
     console.log(JSON.stringify({ stage: "render", runId, mustKnow: selections.must_know.length, shouldKnow: selections.should_know.length, threads: contexts !== undefined, decodedLinks: links !== undefined }));
     return { html, email };
   };

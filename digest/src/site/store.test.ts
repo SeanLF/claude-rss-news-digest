@@ -47,7 +47,9 @@ describe("the site's reads", () => {
 
   it("counts issues by date and serves each date's highest revision", async () => {
     expect(await store().indexMeta()).toEqual({ total: 4, firstDate: "2026-08-28", newestDate: "2026-09-01", totalStories: 4 });
-    expect(await store().issue("2026-08-31")).toEqual({ html: "<main>three, revised</main>", preheader: "Pre three revised" });
+    expect(await store().issue("2026-08-31")).toEqual({ html: "<main>three, revised</main>", preheader: "Pre three revised", markdown: null });
+    await db.exec("UPDATE issues SET markdown = 'three, as Markdown' WHERE issue_date = '2026-08-31' AND revision = 2");
+    expect((await store().issue("2026-08-31"))?.markdown).toBe("three, as Markdown");
     expect(await store().issue("2026-8-31")).toBeUndefined();
     expect(await store().latestIssueDate()).toBe("2026-09-01");
     expect((await store().feed(30)).map((r) => r.preheader)).toEqual(["", "Pre three revised", "Pre two", "Pre one"]);

@@ -187,9 +187,11 @@ describe("the site's boundary", () => {
     expect([...mods.keys()].some((f) => f.endsWith("/contracts/leaks.ts"))).toBe(true);
   });
 
-  it("is imported by nothing outside it but its CLIs", () => {
+  // Tests may: the backfill's is held to the page the site serves, the Markdown renderer's to the site's
+  // notion of the same document.
+  it("is imported by nothing outside it but its CLIs and tests", () => {
     const bad = files(src)
-      .filter((f) => !f.includes("/site/") && !/\/cli\/(site-parity|search-eval|check-injections(\.test)?)\.ts$/.test(f))
+      .filter((f) => !f.includes("/site/") && !/\/cli\/(site-parity|search-eval|check-injections(\.test)?|backfill-markdown\.test)\.ts$/.test(f) && !f.endsWith("/render/markdown.test.ts"))
       .flatMap((f) => imports(f).filter((i) => i.includes("/site/")).map((i) => `${f}: ${i}`));
     expect(bad).toEqual([]);
   });

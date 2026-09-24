@@ -108,6 +108,13 @@ export function collectOutlets(story: Story): Outlet[] {
   if (order.length && !result.length) console.warn(JSON.stringify({ stage: "render", warning: "every source outlet dropped (no article-path URLs); the story ships with no source block", outlets: order.length }));
   return result;
 }
+// An outlet as the sources table names it. Agency copy is credited to the agency, the outlet as its
+// route; the outlet's leaning is not the agency's, and there is no rating for the agency to show instead.
+export function outletLabel(o: Outlet): { name: string; via: string | null; leaning: string } {
+  if (!o.wireAgency) return { name: o.name, via: null, leaning: o.bias };
+  const label = AGENCY_LABELS[o.wireAgency] ?? titleCase(o.wireAgency);
+  return { name: label, via: label.toLowerCase() === o.name.toLowerCase() ? null : o.name, leaning: "wire" };
+}
 export function bucketCounts(outlets: Outlet[]): Record<Bucket, number> {
   const counts: Record<Bucket, number> = { l: 0, c: 0, r: 0 };
   for (const o of outlets) counts[o.bucket]++;

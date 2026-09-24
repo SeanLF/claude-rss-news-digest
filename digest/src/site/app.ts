@@ -198,8 +198,9 @@ export function siteApp(deps: SiteDeps): Hono {
     }
     if (!stored) return page404(c, "No issue for that date", `There's no issue dated ${date} in the archive — it may not have been published, or the date is off by a day.`);
     if (want === "markdown") {
-      const body = issueMarkdown(stored.html, cfg.digestName, date);
-      return body ? md(c, body, htmlLinkHeader(`/issues/${date}`)) : text(c, "Digest unavailable", 503);
+      // Vary: the same URL answers a browser with the page.
+      if (stored.markdown === null) return c.body(`No Markdown version of the issue dated ${date}; the web page is /issues/${date}.\n`, 404, { "content-type": "text/plain; charset=utf-8", vary: "accept" });
+      return md(c, issueMarkdown(cfg.digestName, date, stored.markdown), htmlLinkHeader(`/issues/${date}`));
     }
     return c.html(issuePage(ctx, date, stored, `${base}/issues/${date}.md`), 200, { vary: "accept", link: markdownLinkHeader(`/issues/${date}.md`) });
   });

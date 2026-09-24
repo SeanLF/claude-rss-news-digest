@@ -141,7 +141,11 @@ dev-import: ## Replace the dev stack's product database with a copy of a prod cl
 	$(COMPOSE) up -d --wait digest-pg && \
 	$(COMPOSE) exec -T digest-pg psql -q -U postgres -c "DROP DATABASE IF EXISTS digest WITH (FORCE)" -c "CREATE DATABASE digest" && \
 	IMPORT_NETWORK=$(PG_NETWORK) bin/import-legacy "$$copy" "postgres://postgres:digest@digest-pg:5432/digest?sslmode=disable" && \
-	$(MAKE) --no-print-directory dev-up COMPOSE='$(COMPOSE)' DEV_BUILD='$(filter-out resend-fake,$(DEV_BUILD))'; status=$$?; rm -f "$$copy"; exit $$status
+	$(MAKE) --no-print-directory dev-up COMPOSE='$(COMPOSE)' DEV_BUILD='$(filter-out resend-fake,$(DEV_BUILD))' && \
+	$(MAKE) --no-print-directory backfill-markdown COMPOSE='$(COMPOSE)'; status=$$?; rm -f "$$copy"; exit $$status
+
+backfill-markdown: ## Fill each stored issue's Markdown from its HTML where the pipeline wrote none (the imported issues; a rerun is a no-op)
+	$(COMPOSE) run --rm --no-deps digest-worker node dist/cli/backfill-markdown.js
 
 dev-mail-clear: ## Empty resend-fake: caught mail and the dev audience's contacts, which otherwise survive restarts
 	$(COMPOSE) exec -T resend-fake node -e "fetch('http://127.0.0.1:8025/api/reset', { method: 'POST', headers: { 'x-resend-fake-reset': 'yes' } }).then(async (r) => { console.log(await r.text()); process.exit(r.ok ? 0 : 1); }, (e) => { console.error(String(e)); process.exit(1); })"

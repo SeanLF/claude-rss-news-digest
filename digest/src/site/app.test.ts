@@ -11,9 +11,10 @@ const get = (app: ReturnType<typeof testApp>, path: string, headers: Record<stri
 const TEMPLATE = readFileSync("/app/newsroom/templates/digest-template.html", "utf8");
 const ISSUE_HTML = TEMPLATE.replace("{{STYLES}}", "body{}").replaceAll(/\{\{[A-Z_]+\}\}/g, "");
 
+const STORED_MD = "## Must Know\n\n### A headline\n\nA summary.";
 const withIssue = (over: Partial<SiteData> = {}) =>
   fakeData({
-    issue: async (d) => (d === "2026-09-01" ? { html: ISSUE_HTML, preheader: "A day's news" } : undefined),
+    issue: async (d) => (d === "2026-09-01" ? { html: ISSUE_HTML, preheader: "A day's news", markdown: STORED_MD } : undefined),
     latestIssueDate: async () => "2026-09-01",
     ...over,
   });
@@ -62,19 +63,19 @@ describe("security headers", () => {
 
   it("hashes the stored issue's own <style> blocks", async () => {
     const html = ISSUE_HTML.replace("</head>", "<style>.from-the-email{color:red}</style></head>");
-    const res = await get(testApp(withIssue({ issue: async () => ({ html, preheader: "" }) })), "/issues/2026-09-01");
+    const res = await get(testApp(withIssue({ issue: async () => ({ html, preheader: "", markdown: null }) })), "/issues/2026-09-01");
     expect(directive(res.headers.get("content-security-policy") ?? "", "style-src")).toContain(sha(".from-the-email{color:red}"));
   });
 
   it("hashes a CRLF stylesheet as the browser parses it, with LF", async () => {
     const html = ISSUE_HTML.replace("</head>", "<style>.a{}\r\n.b{}</style></head>");
-    const res = await get(testApp(withIssue({ issue: async () => ({ html, preheader: "" }) })), "/issues/2026-09-01");
+    const res = await get(testApp(withIssue({ issue: async () => ({ html, preheader: "", markdown: null }) })), "/issues/2026-09-01");
     expect(directive(res.headers.get("content-security-policy") ?? "", "style-src")).toContain(sha(".a{}\n.b{}"));
   });
 
   it("never blesses a script inside a stored issue: its hash is not in the header", async () => {
     const html = ISSUE_HTML.replace("</body>", "<script>alert(1)</script></body>");
-    const res = await get(testApp(withIssue({ issue: async () => ({ html, preheader: "" }) })), "/issues/2026-09-01");
+    const res = await get(testApp(withIssue({ issue: async () => ({ html, preheader: "", markdown: null }) })), "/issues/2026-09-01");
     expect(await res.text()).toContain("<script>alert(1)</script>");
     const scriptSrc = directive(res.headers.get("content-security-policy") ?? "", "script-src");
     expect(scriptSrc).toMatch(/^script-src( 'sha256-[A-Za-z0-9+/=]+')+$/);
@@ -98,7 +99,7 @@ const LEGACY = `<!DOCTYPE html>
 </html>`;
 const legacyPage = async (html: string) => {
   const error = vi.spyOn(console, "error").mockImplementation(() => undefined);
-  const res = await get(testApp(withIssue({ issue: async () => ({ html, preheader: "" }) }), { cfg: testConfig({ CONTACT_EMAIL: "hi@digest.example" }) }), "/issues/2026-09-01");
+  const res = await get(testApp(withIssue({ issue: async () => ({ html, preheader: "", markdown: null }) }), { cfg: testConfig({ CONTACT_EMAIL: "hi@digest.example" }) }), "/issues/2026-09-01");
   const errors = error.mock.calls.length;
   error.mockRestore();
   return { errors, page: await res.text() };
@@ -123,7 +124,7 @@ describe("the issue page", () => {
     const error = vi.spyOn(console, "error").mockImplementation(() => undefined);
     const html = ISSUE_HTML.replace('<p class="footer-meta">', "<p>").replace("</footer>", "</div>");
     const cfg = testConfig({ CONTACT_EMAIL: "hi@digest.example" });
-    const res = await get(testApp(withIssue({ issue: async () => ({ html, preheader: "" }) }), { cfg }), "/issues/2026-09-01");
+    const res = await get(testApp(withIssue({ issue: async () => ({ html, preheader: "", markdown: null }) }), { cfg }), "/issues/2026-09-01");
     expect(res.status).toBe(200);
     const lines = error.mock.calls.map((c) => JSON.parse(String(c[0])) as Record<string, unknown>);
     error.mockRestore();
@@ -171,6 +172,25 @@ describe("the issue page", () => {
     expect(html).toContain('<div class="paper"><div class="topbar">');
     expect(html).not.toContain("site-chrome");
     expect(html).toContain('id="themeBtn"');
+  });
+
+  it("serves the issue's stored Markdown under the site's title, by suffix and by Accept, varying on Accept", async () => {
+    const app = testApp(withIssue());
+    for (const res of [await get(app, "/issues/2026-09-01.md"), await get(app, "/issues/2026-09-01", { accept: "text/markdown" })]) {
+      expect(res.status).toBe(200);
+      expect(res.headers.get("vary")).toBe("accept");
+      expect(await res.text()).toBe(`# News Digest — 2026-09-01\n\n${STORED_MD}\n`);
+    }
+    expect((await get(app, "/issues/2026-09-01")).headers.get("vary")).toBe("accept");
+  });
+
+  it("404s the Markdown of an issue that has none, and still serves its page", async () => {
+    const app = testApp(withIssue({ issue: async () => ({ html: ISSUE_HTML, preheader: "", markdown: null }) }));
+    for (const res of [await get(app, "/issues/2026-09-01.md"), await get(app, "/issues/2026-09-01", { accept: "text/markdown" })]) {
+      expect(res.status).toBe(404);
+      expect(res.headers.get("vary")).toBe("accept");
+    }
+    expect((await get(app, "/issues/2026-09-01")).status).toBe(200);
   });
 
   it("negotiates Markdown, and an explicit .md never 406s", async () => {

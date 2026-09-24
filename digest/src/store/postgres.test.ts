@@ -1,4 +1,4 @@
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -8,7 +8,7 @@ import { runActivities } from "../activities/run.js";
 import { ArtifactStore } from "./artifacts.js";
 import { openDb } from "./db.js";
 import { copyFingerprint, copyLegacy, fingerprintDiff } from "./legacy-copy.js";
-import { migrate } from "./schema.js";
+import { MIGRATIONS_DIR, migrate } from "./schema.js";
 
 // What PGlite cannot show: it is one connection, so every transaction runs alone and a lock is never
 // contended. These run against the real Postgres CI starts beside the tests (docker-compose ci-pg,
@@ -31,9 +31,11 @@ function bits(x: number): string {
 }
 
 describe.skipIf(!ADMIN)("on real Postgres", () => {
-  it("the migration applies, and the schema's version is recorded", async () => {
+  it("every migration applies, and each version is recorded", async () => {
     const url = await freshDatabase();
-    expect(await openDb(url).all("SELECT version FROM schema_migrations")).toEqual([{ version: "20260923200000" }]);
+    const versions = readdirSync(MIGRATIONS_DIR).filter((f) => f.endsWith(".sql")).toSorted().map((f) => ({ version: f.slice(0, 14) }));
+    expect(versions[0]).toEqual({ version: "20260923200000" });
+    expect(await openDb(url).all("SELECT version FROM schema_migrations ORDER BY version")).toEqual(versions);
     expect((await openDb(url).one<{ v: string }>("SELECT current_setting('server_version') AS v"))!.v).toMatch(/^18\./);
   });
 

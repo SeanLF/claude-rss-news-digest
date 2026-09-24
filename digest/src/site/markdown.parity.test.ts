@@ -1,10 +1,11 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vitest";
+import { issueMarkdownBody } from "../store/html-markdown.js";
 import { issueMarkdown } from "./markdown.js";
 import { sameDocument } from "./parity/document.js";
 
-// Host-only (bin/site-parity): every issue in the recorded clone, converted by the TypeScript side and
+// Host-only (bin/site-parity): every issue in the recorded clone, converted by the backfill's converter and
 // compared with the Markdown the Rust server (htmd) served for it (bin/site-parity-record's corpus).
 // The contract is the document (parity/document.ts); byte equality is reported beside it.
 const DIR = process.env["SITE_PARITY_DIR"];
@@ -25,7 +26,8 @@ describe.skipIf(!DIR)("issue Markdown against htmd, every issue in the clone", (
     const differ: string[] = [];
     for (const r of rows) {
       const golden = readFileSync(`${DIR}/golden/corpus/${r.date}.md`, "utf8");
-      const ours = issueMarkdown(r.html, "News Digest", r.date) ?? "";
+      const body = issueMarkdownBody(r.html, r.date);
+      const ours = body === undefined ? "" : issueMarkdown("News Digest", r.date, body);
       if (process.env["SITE_PARITY_DUMP"]) writeFileSync(`${process.env["SITE_PARITY_DUMP"]}/${r.date}.md`, ours);
       if (ours === golden) bytes++;
       else if (!sameDocument(golden, ours)) differ.push(`${r.date}: ${firstDiff(golden, ours)}`);
