@@ -267,8 +267,8 @@ history. Rehearsed under systemd in a container: no unit files and no active uni
       apply's bootstrap starts then waits for the new worker instead of pinning to the old build.
       Skipped under `--skip-build`, where the shipped build is unknown before the apply.
     - after the apply, before the schedule is restored, it runs `digest/src/cli/set-current.ts`
-      inside the running worker container. That waits until the worker polls, makes its build
-      current, and lists stranded runs. If it fails, the deploy fails and says so.
+      inside the running worker container. That waits until the worker polls and the server
+      has registered its build on the workflow and activity queues, makes the build current, and lists stranded runs. If it fails, the deploy fails and says so.
 
     If the deploy dies after the first step, the exit trap points current at whichever worker is
     running. A run the apply's bootstrap started meanwhile is pinned to nothing yet, so it follows
