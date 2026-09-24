@@ -209,7 +209,7 @@ services:
   python-worker:
     build: { context: ., dockerfile: digest/python/Dockerfile }
     depends_on: [temporal]
-    mem_limit: 512m
+    mem_limit: 384m  # production's limit, so the dev stack runs out of memory where the box would
     restart: unless-stopped
     environment:
       TEMPORAL_ADDRESS: "temporal:7233"
