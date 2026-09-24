@@ -1,7 +1,7 @@
 """Tests for fulltext.py -- full-text fetch for SELECTED stories (trafilatura).
 
-No live network: every test replaces the module-level ``trafilatura`` binding (or its
-``fetch_url``/``extract`` attributes) with fakes. The invariant under test throughout is that
+No live network: every test replaces the download (``_download``) and the module-level
+``trafilatura`` binding with fakes. The invariant under test throughout is that
 ``fetch_for_selected`` NEVER raises and NEVER writes a URL into its output -- a network-dependent,
 best-effort step that must not be able to break the run.
 """
@@ -21,7 +21,7 @@ import fulltext
 
 
 class _FakeTrafilatura:
-    """A fake trafilatura module: fetch_url/extract keyed by URL, so a test can script
+    """A fake download and a fake trafilatura module, keyed by URL, so a test can script
     per-article outcomes (success text, None-download, None-extract, or a raise)."""
 
     def __init__(self, downloads: dict[str, str | None] | None = None, extracts: dict[str, str | None] | None = None):
@@ -29,12 +29,17 @@ class _FakeTrafilatura:
         self.extracts = extracts or {}
         self.fetch_calls: list[str] = []
 
-    def fetch_url(self, url, config=None):
+    def install(self, monkeypatch):
+        monkeypatch.setattr(fulltext, "trafilatura", self)
+        monkeypatch.setattr(fulltext, "_download", self.download)
+        return self
+
+    def download(self, url, allow=frozenset()):
         self.fetch_calls.append(url)
         result = self.downloads.get(url, "<html>default</html>")
         if isinstance(result, Exception):
             raise result
-        return result
+        return None if result is None else result.encode()
 
     def extract(self, downloaded, **_kwargs):
         result = self.extracts.get(downloaded, downloaded)
@@ -79,7 +84,8 @@ def _collect_in_process(monkeypatch):
     """
 
     def _inline(*args, **kwargs):
-        return fulltext._collect_inline(*args, **kwargs), "completed"
+        results, unfinished = fulltext._collect_inline(*args, **kwargs)
+        return results, "deadline" if unfinished else "completed"
 
     monkeypatch.setattr(fulltext, "_collect_isolated", _inline)
 
@@ -123,7 +129,7 @@ class TestHappyPath:
         fake = _FakeTrafilatura(
             extracts={"<html>default</html>": "This is the full extracted article body. It has real sentences."}
         )
-        monkeypatch.setattr(fulltext, "trafilatura", fake)
+        fake.install(monkeypatch)
 
         out_path = fulltext.fetch_for_selected(tmp_path)
 
@@ -139,7 +145,7 @@ class TestHappyPath:
         _write_selected(tmp_path, must_know=[{"cluster_index": 0, "article_ids": ["A1"]}])
         _write_index(tmp_path, {"A1": "https://example.com/a"})
         fake = _FakeTrafilatura()
-        monkeypatch.setattr(fulltext, "trafilatura", fake)
+        fake.install(monkeypatch)
 
         assert fulltext.fetch_for_selected(tmp_path) is None
         assert not (tmp_path / "article_fulltext.json").exists()
@@ -160,7 +166,7 @@ class TestPerArticleFailure:
             downloads={"https://bad.example.com/b": None},  # fetch "succeeds" but returns nothing
             extracts={"<html>default</html>": "A perfectly good article body with enough text."},
         )
-        monkeypatch.setattr(fulltext, "trafilatura", fake)
+        fake.install(monkeypatch)
 
         with caplog.at_level("INFO"):
             out_path = fulltext.fetch_for_selected(tmp_path)
@@ -175,7 +181,7 @@ class TestPerArticleFailure:
         _write_selected(tmp_path, must_know=[{"cluster_index": 0, "article_ids": ["A1"]}])
         _write_index(tmp_path, {"A1": "https://example.com/a"})
         fake = _FakeTrafilatura(downloads={"https://example.com/a": ConnectionError("boom")})
-        monkeypatch.setattr(fulltext, "trafilatura", fake)
+        fake.install(monkeypatch)
 
         # Must not raise, and (since it's the only article) must produce no file.
         assert fulltext.fetch_for_selected(tmp_path) is None
@@ -186,7 +192,7 @@ class TestAllFail:
         _write_selected(tmp_path, must_know=[{"cluster_index": 0, "article_ids": ["A1", "A2"]}])
         _write_index(tmp_path, {"A1": "https://example.com/a", "A2": "https://example.com/b"})
         fake = _FakeTrafilatura(downloads={"https://example.com/a": None, "https://example.com/b": None})
-        monkeypatch.setattr(fulltext, "trafilatura", fake)
+        fake.install(monkeypatch)
 
         with caplog.at_level("WARNING"):
             result = fulltext.fetch_for_selected(tmp_path)  # must not raise
@@ -198,7 +204,7 @@ class TestAllFail:
 
     def test_missing_selected_json_yields_none_no_raise(self, tmp_path, monkeypatch, caplog):
         _write_index(tmp_path, {"A1": "https://example.com/a"})
-        monkeypatch.setattr(fulltext, "trafilatura", _FakeTrafilatura())
+        _FakeTrafilatura().install(monkeypatch)
 
         with caplog.at_level("WARNING"):
             assert fulltext.fetch_for_selected(tmp_path) is None
@@ -208,7 +214,7 @@ class TestAllFail:
 
     def test_missing_article_index_yields_none_no_raise(self, tmp_path, monkeypatch, caplog):
         _write_selected(tmp_path, must_know=[{"cluster_index": 0, "article_ids": ["A1"]}])
-        monkeypatch.setattr(fulltext, "trafilatura", _FakeTrafilatura())
+        _FakeTrafilatura().install(monkeypatch)
 
         with caplog.at_level("WARNING"):
             assert fulltext.fetch_for_selected(tmp_path) is None
@@ -242,7 +248,7 @@ class TestInputReadErrorsIdentifyTheFile:
     def test_malformed_selected_json_names_that_file(self, tmp_path, monkeypatch, caplog):
         (tmp_path / "selected.json").write_text("{not valid json", encoding="utf-8")
         _write_index(tmp_path, {"A1": "https://example.com/a"})
-        monkeypatch.setattr(fulltext, "trafilatura", _FakeTrafilatura())
+        _FakeTrafilatura().install(monkeypatch)
 
         with caplog.at_level("WARNING"):
             assert fulltext.fetch_for_selected(tmp_path) is None
@@ -253,7 +259,7 @@ class TestInputReadErrorsIdentifyTheFile:
     def test_malformed_article_index_json_names_that_file(self, tmp_path, monkeypatch, caplog):
         _write_selected(tmp_path, must_know=[{"cluster_index": 0, "article_ids": ["A1"]}])
         (tmp_path / "article_index.json").write_text("{not valid json", encoding="utf-8")
-        monkeypatch.setattr(fulltext, "trafilatura", _FakeTrafilatura())
+        _FakeTrafilatura().install(monkeypatch)
 
         with caplog.at_level("WARNING"):
             assert fulltext.fetch_for_selected(tmp_path) is None
@@ -264,7 +270,7 @@ class TestInputReadErrorsIdentifyTheFile:
     def test_selected_json_wrong_shape_names_file_and_type(self, tmp_path, monkeypatch, caplog):
         (tmp_path / "selected.json").write_text(json.dumps(["not", "a", "dict"]), encoding="utf-8")
         _write_index(tmp_path, {"A1": "https://example.com/a"})
-        monkeypatch.setattr(fulltext, "trafilatura", _FakeTrafilatura())
+        _FakeTrafilatura().install(monkeypatch)
 
         with caplog.at_level("WARNING"):
             assert fulltext.fetch_for_selected(tmp_path) is None
@@ -282,7 +288,7 @@ class TestStaleFileHazard:
         stale = tmp_path / "article_fulltext.json"
         stale.write_text(json.dumps({"A99": {"text": "yesterday's leftovers"}}), encoding="utf-8")
         _write_index(tmp_path, {"A1": "https://example.com/a"})
-        monkeypatch.setattr(fulltext, "trafilatura", _FakeTrafilatura())
+        _FakeTrafilatura().install(monkeypatch)
 
         assert fulltext.fetch_for_selected(tmp_path) is None
         assert not stale.exists()
@@ -293,7 +299,7 @@ class TestStaleFileHazard:
         _write_selected(tmp_path, must_know=[{"cluster_index": 0, "article_ids": ["A1"]}])
         _write_index(tmp_path, {"A1": "https://example.com/a"})
         fake = _FakeTrafilatura(downloads={"https://example.com/a": None})
-        monkeypatch.setattr(fulltext, "trafilatura", fake)
+        fake.install(monkeypatch)
 
         assert fulltext.fetch_for_selected(tmp_path) is None
         assert not stale.exists()
@@ -302,7 +308,7 @@ class TestStaleFileHazard:
         monkeypatch.setattr(config, "FULLTEXT_ENABLED", False)
         stale = tmp_path / "article_fulltext.json"
         stale.write_text(json.dumps({"A99": {"text": "yesterday's leftovers"}}), encoding="utf-8")
-        monkeypatch.setattr(fulltext, "trafilatura", _FakeTrafilatura())
+        _FakeTrafilatura().install(monkeypatch)
 
         assert fulltext.fetch_for_selected(tmp_path) is None
         # Disabled is a true no-op: the stale file (an accepted hazard of a toggled-off-mid-day
@@ -316,7 +322,7 @@ class TestAtomicWrite:
         _write_selected(tmp_path, must_know=[{"cluster_index": 0, "article_ids": ["A1"]}])
         _write_index(tmp_path, {"A1": "https://example.com/a"})
         fake = _FakeTrafilatura(extracts={"<html>default</html>": "A perfectly good article body right here."})
-        monkeypatch.setattr(fulltext, "trafilatura", fake)
+        fake.install(monkeypatch)
 
         out_path = fulltext.fetch_for_selected(tmp_path)
 
@@ -353,7 +359,7 @@ class TestCapAndDedupe:
         _write_selected(tmp_path, must_know=[{"cluster_index": 0, "article_ids": ["A1", "A2", "A3", "A4"]}])
         _write_index(tmp_path, {f"A{i}": f"https://example.com/{i}" for i in range(1, 5)})
         fake = _FakeTrafilatura(extracts={"<html>default</html>": "Some article body text right here."})
-        monkeypatch.setattr(fulltext, "trafilatura", fake)
+        fake.install(monkeypatch)
 
         out_path = fulltext.fetch_for_selected(tmp_path)
 
@@ -369,7 +375,7 @@ class TestCapAndDedupe:
         )
         _write_index(tmp_path, {"A1": "https://example.com/1", "A2": "https://example.com/2"})
         fake = _FakeTrafilatura(extracts={"<html>default</html>": "Some article body text right here."})
-        monkeypatch.setattr(fulltext, "trafilatura", fake)
+        fake.install(monkeypatch)
 
         fulltext.fetch_for_selected(tmp_path)
 
@@ -399,6 +405,6 @@ class TestSelectedSchema:
     def test_ignores_stories_missing_article_ids(self, tmp_path, monkeypatch):
         _write_selected(tmp_path, must_know=[{"cluster_index": 0}])  # malformed: no article_ids
         _write_index(tmp_path, {})
-        monkeypatch.setattr(fulltext, "trafilatura", _FakeTrafilatura())
+        _FakeTrafilatura().install(monkeypatch)
 
         assert fulltext.fetch_for_selected(tmp_path) is None

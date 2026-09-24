@@ -18,6 +18,7 @@ import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from urllib.parse import urlsplit
 
 import pytest
 
@@ -114,6 +115,19 @@ def _tight_bounds(monkeypatch):
     # Off by default so the kill tests prove the PROCESS bound: with the cap on, the slow
     # document never reaches the parser and the test would prove nothing.
     monkeypatch.setattr(config, "FULLTEXT_MAX_DOC_CHARS", 0)
+
+
+@pytest.fixture(autouse=True)
+def _exempt_the_test_server(monkeypatch):
+    """The fetch refuses loopback (test_fulltext_fetch_guard.py), so each task's own address is
+    exempted exactly; production passes no exemption (test_fulltext_attacks.py)."""
+    real = fulltext._collect_isolated
+
+    def exempting(tasks, **kwargs):
+        allow = frozenset((urlsplit(u).hostname, urlsplit(u).port) for _aid, u in tasks)
+        return real(tasks, allow=allow, **kwargs)
+
+    monkeypatch.setattr(fulltext, "_collect_isolated", exempting)
 
 
 class TestTheWorkerCannotOutliveItsBound:
