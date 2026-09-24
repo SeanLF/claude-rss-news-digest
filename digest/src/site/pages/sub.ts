@@ -288,7 +288,7 @@ export function connectPage(ctx: PageCtx, origin: string, tools: { name: string;
         <dl>${tools.map((t) => `<dt>${escapeHtml(t.name)}</dt><dd>${escapeHtml(t.description)}</dd>`).join("")}</dl>
       </div>
     </main>`;
-  return pageHead(ctx, name(ctx), "Connect this briefing's archive to Claude, ChatGPT, or any MCP client.", connectCss) + pageBody(ctx, chrome, inner, [script(ctx, copyJs)]);
+  return pageHead(ctx, name(ctx), "Connect this briefing's archive to Claude, ChatGPT, or any MCP client.", connectCss) + pageBody(ctx, chrome, inner, [script(copyJs)]);
 }
 
 // ── ask ──
@@ -343,7 +343,7 @@ export function askPage(ctx: PageCtx, origin: string, view: AskView | undefined)
       was actually published. Nothing you type is stored. Prefer your own assistant? See
       <a href="/connect">connect your assistant</a>.</p>
     </main>`;
-  return head + pageBody(ctx, chrome, inner, [script(ctx, askJs)], attrs);
+  return head + pageBody(ctx, chrome, inner, [script(askJs)], attrs);
 }
 
 export const TAGLINE_ALL = TAG_ALL;

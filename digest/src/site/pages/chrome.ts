@@ -7,16 +7,15 @@ import { chromeCss, toggleJs } from "./blobs.js";
 // The frame every page but the issue shares (circulation's templates/chrome.rs): the head, the top
 // bar, the footer and the theme toggle.
 
-// What every page render needs: the configuration, the assets, and this response's CSP nonce, which
-// every inline <script> and <style> carries.
+// What every page render needs: the configuration and the assets.
 export interface PageCtx {
   cfg: SiteConfig;
   assets: Assets;
-  nonce: string;
 }
 
-export const script = (ctx: PageCtx, body: string): string => `<script nonce="${ctx.nonce}">${body}</script>`;
-export const style = (ctx: PageCtx, body: string): string => `<style nonce="${ctx.nonce}">${body}</style>`;
+// An inline script runs only if its body is one security.ts hashes.
+export const script = (body: string): string => `<script>${body}</script>`;
+export const style = (body: string): string => `<style>${body}</style>`;
 
 export const SKIP_HTML = '<a class="skip" href="#main">Skip to content</a>';
 const FAVICON =
@@ -25,7 +24,7 @@ const FAVICON =
 export const NO_FLASH_JS = "(function(){try{var t=localStorage.getItem('theme');if(t==='light'||t==='dark')document.documentElement.setAttribute('data-theme',t);}catch(e){}})();";
 export const TOGGLE_BTN =
   '<button class="toggle" id="themeBtn" type="button" aria-label="Theme"><span class="tglyphs" aria-hidden="true"><span class="tglyph tg-cur">◐</span><span class="tglyph tg-next">☀</span></span><span class="tword">System</span></button>';
-export const toggleScript = (ctx: PageCtx): string => script(ctx, toggleJs);
+export const toggleScript = script(toggleJs);
 
 const navRow = (items: [string, string][]): string =>
   items.map(([href, label], i) => `<a href="${href}">${label}</a>${i + 1 === items.length ? "" : '<span class="sep" aria-hidden="true">&middot;</span>'}`).join("");
@@ -58,7 +57,7 @@ export function pageHead(ctx: PageCtx, title: string, description: string, pageC
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${title}</title>
 ${FAVICON}
-${script(ctx, NO_FLASH_JS)}
+${script(NO_FLASH_JS)}
 <link rel="alternate" type="application/atom+xml" title="${title}" href="${canonical}/feed.xml">
 <meta property="og:title" content="${title}">
 <meta property="og:description" content="${description}">
@@ -67,7 +66,7 @@ ${script(ctx, NO_FLASH_JS)}
 <meta property="og:site_name" content="${title}">
 <meta name="description" content="${description}">
 ${ogImageTags(ogImageUrl(ctx.cfg))}
-${style(ctx, `${fontFace(ctx.assets.fontUrl)}${ctx.assets.tokensCss}${chromeCss}${pageCss}`)}${extraHead}
+${style(`${fontFace(ctx.assets.fontUrl)}${ctx.assets.tokensCss}${chromeCss}${pageCss}`)}${extraHead}
 </head>`;
 }
 
@@ -126,7 +125,7 @@ ${SKIP_HTML}
     ${inner}
     ${chrome.footer}
 </div></div>
-${[...scripts, toggleScript(ctx)].join("\n")}
+${[...scripts, toggleScript].join("\n")}
 </body>
 </html>`;
 }

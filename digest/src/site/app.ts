@@ -1,4 +1,3 @@
-import { randomBytes } from "node:crypto";
 import { type Context, Hono } from "hono";
 import { streamSSE } from "hono/streaming";
 import { ANSWER_TIMEOUT_MS, AskError, AskState, MAX_BODY_BYTES, MAX_QUESTION, admit, answer, replay } from "./ask.js";
@@ -15,8 +14,7 @@ import type { PageCtx } from "./pages/chrome.js";
 import { askPage, connectPage, feedbackPage, notFoundPage, searchPage, sourcesPage, statsPage } from "./pages/sub.js";
 import { threadPage, threadsFragment, threadsPage } from "./pages/threads.js";
 import { RateLimiter, clientKey } from "./ratelimit.js";
-import type { SecureHeadersVariables } from "hono/secure-headers";
-import { nonceOf, securityHeaders } from "./security.js";
+import { securityHeaders } from "./security.js";
 import { type CatalogueEntry, sourceRows } from "./sources.js";
 import { computeMetrics, statsFrom, statsJson, statsValue } from "./stats.js";
 import { type Mail, CONFIRM_TTL_S, addContact, isValidEmail, makeToken, sendConfirmation, verifyToken } from "./subscribe.js";
@@ -67,8 +65,6 @@ const METHODS: [RegExp, string][] = [
   [/^\/[^/]+(\/translate)?$/, "GET,HEAD"],
 ];
 
-type Env = { Variables: SecureHeadersVariables };
-
 // The largest request body any route reads: /ask's history cap, with room for the JSON around it.
 const MAX_REQUEST_BYTES = 128 * 1024;
 
@@ -114,7 +110,7 @@ async function readQuestion(c: Context): Promise<{ question: string; history: Re
   return { question, history: replay("history" in parsed ? parsed.history : undefined) };
 }
 
-export function siteApp(deps: SiteDeps): Hono<Env> {
+export function siteApp(deps: SiteDeps): Hono {
   const { cfg, assets, catalogue, data } = deps;
   const base = baseUrl(cfg);
   const bias = biasMap(catalogue);
@@ -123,17 +119,12 @@ export function siteApp(deps: SiteDeps): Hono<Env> {
   // Five attempts an hour from one address: far above a person, low enough to stop signup bombing.
   const subscribeLimiter = new RateLimiter(5, 3_600_000);
   const names = new Map(catalogue.map((s) => [s.id, s.name]));
-  const app = new Hono<Env>({ strict: false });
-  const ctx = (c: Context<Env>): PageCtx => ({ cfg, assets, nonce: nonceOf(c) });
-  const page404 = (c: Context<Env>, heading = "Page not found", message = "There's nothing at this address.") => c.html(notFoundPage(ctx(c), heading, message), 404);
+  const app = new Hono({ strict: false });
+  const ctx: PageCtx = { cfg, assets };
+  const page404 = (c: Context, heading = "Page not found", message = "There's nothing at this address.") => c.html(notFoundPage(ctx, heading, message), 404);
   const nowMs = () => deps.now().getTime();
 
-  // The nonce is minted before the headers middleware reads it, so every handler can stamp it.
-  app.use(async (c, next) => {
-    c.set("secureHeadersNonce", randomBytes(16).toString("base64"));
-    await next();
-  });
-  app.use(securityHeaders());
+  app.use(...securityHeaders());
   // Every body is bounded before anything reads it, chunked or not: axum's extractors capped at 2 MB,
   // and an unbounded read is a way to exhaust the container's memory with one request.
   // Read here, once, so a client that hangs up mid-body is a 400 before any handler runs (or any /ask
@@ -164,7 +155,7 @@ export function siteApp(deps: SiteDeps): Hono<Env> {
   });
 
   // ── the index and the archive ──
-  const indexMd = async (c: Context<Env>) => {
+  const indexMd = async (c: Context) => {
     const [meta, page] = await Promise.all([data.indexMeta(), fetchArchive(data, bias, { limit: 100 })]);
     return md(c, indexMarkdown(cfg.digestName, meta, page.issues, base), htmlLinkHeader("/"));
   };
@@ -183,7 +174,7 @@ export function siteApp(deps: SiteDeps): Hono<Env> {
       let page: ArchivePage | undefined;
       if (meta.total > 0) page = await fetchArchive(data, bias, scope.kind === "year" ? { year: scope.year, limit: 100 } : { before, limit: DEFAULT_LIMIT });
       const notice = ["subscribed", "pending", "subscribe_invalid", "subscribe_ratelimited", "subscribe_error"].find((k) => c.req.query(k) !== undefined);
-      const html = indexPage(ctx(c), meta, scope, page, notice ? NOTICES[notice]! : "", hiddenPointer(`${base}/index.md`));
+      const html = indexPage(ctx, meta, scope, page, notice ? NOTICES[notice]! : "", hiddenPointer(`${base}/index.md`));
       return c.html(html, 200, { vary: "accept", link: markdownLinkHeader("/index.md") });
     } catch (e) {
       return unavailable(c, "Service unavailable", e);
@@ -238,9 +229,9 @@ export function siteApp(deps: SiteDeps): Hono<Env> {
       const body = issueMarkdown(stored.html, cfg.digestName, date);
       return body ? md(c, body, htmlLinkHeader(`/issues/${date}`)) : text(c, "Digest unavailable", 503);
     }
-    return c.html(issuePage(ctx(c), date, stored, `${base}/issues/${date}.md`), 200, { vary: "accept", link: markdownLinkHeader(`/issues/${date}.md`) });
+    return c.html(issuePage(ctx, date, stored, `${base}/issues/${date}.md`), 200, { vary: "accept", link: markdownLinkHeader(`/issues/${date}.md`) });
   });
-  const latest = async (c: Context<Env>, then: (date: string) => Response) => {
+  const latest = async (c: Context, then: (date: string) => Response) => {
     let date;
     try {
       date = await data.latestIssueDate();
@@ -301,12 +292,12 @@ export function siteApp(deps: SiteDeps): Hono<Env> {
   app.get(assets.fontUrl, (c) => bytes(c, assets.font, "font/woff2", "public, max-age=31536000, immutable"));
 
   // ── pages ──
-  app.get("/sources", (c) => c.html(sourcesPage(ctx(c), sourceRows(catalogue))));
-  app.get("/feedback", (c) => c.html(feedbackPage(ctx(c))));
+  app.get("/sources", (c) => c.html(sourcesPage(ctx, sourceRows(catalogue))));
+  app.get("/feedback", (c) => c.html(feedbackPage(ctx)));
   app.get("/search", async (c) => {
     const q = sanitizeQuery(c.req.query("q") ?? "");
     try {
-      return c.html(searchPage(ctx(c), q, q === undefined ? [] : await data.search(q, SEARCH_LIMIT)));
+      return c.html(searchPage(ctx, q, q === undefined ? [] : await data.search(q, SEARCH_LIMIT)));
     } catch (e) {
       return unavailable(c, "Search unavailable", e);
     }
@@ -318,7 +309,7 @@ export function siteApp(deps: SiteDeps): Hono<Env> {
     const days = d === 7 || d === 90 ? d : 30;
     try {
       const s = await statsFor(days);
-      return c.html(statsPage(ctx(c), days, s, computeMetrics(s, catalogue), names));
+      return c.html(statsPage(ctx, days, s, computeMetrics(s, catalogue), names));
     } catch (e) {
       return unavailable(c, "Stats unavailable", e);
     }
@@ -334,14 +325,14 @@ export function siteApp(deps: SiteDeps): Hono<Env> {
   });
 
   // ── threads ──
-  const threadsRoute = (fragment: boolean) => async (c: Context<Env>) => {
+  const threadsRoute = (fragment: boolean) => async (c: Context) => {
     const cur = cursor(c);
     if (cur instanceof Response) return cur;
     const limit = intQuery(c, "limit", false);
     if (limit instanceof Response) return limit;
     try {
       const page = await threadIndex(data, cur, limit ?? OLDER_PAGE);
-      return c.html(fragment ? threadsFragment(page) : threadsPage(ctx(c), page, cur !== undefined));
+      return c.html(fragment ? threadsFragment(page) : threadsPage(ctx, page, cur !== undefined));
     } catch (e) {
       return unavailable(c, "Threads unavailable", e);
     }
@@ -360,7 +351,7 @@ export function siteApp(deps: SiteDeps): Hono<Env> {
     }
     if (!d) return text(c, "Thread not found", 404);
     if (d.mergedInto !== null) return redirect(c, `/thread/${d.mergedInto}`, 308);
-    return c.html(threadPage(ctx(c), id, d));
+    return c.html(threadPage(ctx, id, d));
   });
 
   // ── subscribe ──
@@ -409,7 +400,7 @@ export function siteApp(deps: SiteDeps): Hono<Env> {
     if (/^\s*\[/.test(body)) return noStore(c, 400, JSON.stringify({ jsonrpc: "2.0", id: null, error: { code: -32600, message: "batches are not supported" } }));
     return handleRpc(tools, new Request(c.req.raw, { method: "POST", body }));
   });
-  const card = (c: Context<Env>) => cachedJson(c, JSON.stringify(serverCard(cfg.digestName, base)));
+  const card = (c: Context) => cachedJson(c, JSON.stringify(serverCard(cfg.digestName, base)));
   app.get("/.well-known/mcp.json", card);
   app.get("/.well-known/mcp/server-card.json", card);
   app.get("/mcp/tools.json", (c) => cachedJson(c, JSON.stringify(toolsJson(base))));
@@ -431,11 +422,11 @@ export function siteApp(deps: SiteDeps): Hono<Env> {
     // Every command on the page is pasted into a terminal, so it must be absolute: the configured
     // domain, else the origin this request came in on (a clone running locally).
     const origin = base || requestOrigin(c.req.header("host"), c.req.header("x-forwarded-proto"));
-    return c.html(connectPage(ctx(c), origin, TOOLS));
+    return c.html(connectPage(ctx, origin, TOOLS));
   });
 
   // ── ask ──
-  app.get("/ask", (c) => c.html(askPage(ctx(c), base, deps.ask.config ? { model: deps.ask.config.models[0]!, provider: deps.ask.config.providerLabel, openrouter: deps.ask.config.openrouter } : undefined)));
+  app.get("/ask", (c) => c.html(askPage(ctx, base, deps.ask.config ? { model: deps.ask.config.models[0]!, provider: deps.ask.config.providerLabel, openrouter: deps.ask.config.openrouter } : undefined)));
   app.post("/ask", async (c) => {
     if (Number(c.req.header("content-length") ?? 0) > MAX_BODY_BYTES) return text(c, "That history is too long.", 413);
     // The question is read before a slot is taken: a client that hangs up mid-body must not hold one.

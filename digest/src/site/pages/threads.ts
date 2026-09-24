@@ -44,7 +44,7 @@ export function threadsPage(ctx: PageCtx, page: ThreadIndexPage, deep: boolean):
     <main id="main">
     ${body}
     </main>`;
-  return pageHead(ctx, escapeHtml(ctx.cfg.digestName), "Ongoing stories the digest is tracking across days.", threadsCss) + pageBody(ctx, chrome, inner, [script(ctx, threadsJs)]);
+  return pageHead(ctx, escapeHtml(ctx.cfg.digestName), "Ongoing stories the digest is tracking across days.", threadsCss) + pageBody(ctx, chrome, inner, [script(threadsJs)]);
 }
 
 function timelineEntry(e: ThreadEntry): string {

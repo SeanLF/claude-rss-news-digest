@@ -1,6 +1,6 @@
 // The pages' CSS and script bodies, carried over verbatim from circulation/src/templates (the design and
-// its a11y and Lighthouse tuning live in them). Scripts are bodies without their <script> tag, so every
-// page stamps its CSP nonce on the tag.
+// its a11y and Lighthouse tuning live in them). Scripts are bodies without their <script> tag; the CSP
+// allows each by its hash (security.ts).
 
 export const chromeCss = String.raw`
 *{box-sizing:border-box;}

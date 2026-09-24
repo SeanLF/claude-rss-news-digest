@@ -42,7 +42,7 @@ function inject(html: string, needle: string, replacement: string, date: string)
 }
 
 export function issuePage(ctx: PageCtx, date: string, stored: { html: string; preheader: string }, mdAbs: string): string {
-  const { cfg, nonce } = ctx;
+  const { cfg } = ctx;
   const title = escapeHtml(`${cfg.digestName} – ${date}`);
   const description = escapeHtml(stored.preheader);
   const canonical = cfg.digestDomain ? `https://${cfg.digestDomain}/issues/${date}` : "";
@@ -58,15 +58,14 @@ export function issuePage(ctx: PageCtx, date: string, stored: { html: string; pr
   ${FAVICON}
   ${og}
   ${markdownLinkTag(`/issues/${date}.md`)}
-  <script nonce="${nonce}">${proxyTranslateHideScript}</script>
-  <script nonce="${nonce}">${NO_FLASH_JS}</script>`;
-  // The pipeline's own stylesheet gets this response's nonce; nothing else in the stored HTML does, so
-  // a script that ever reached it unescaped would be refused by the CSP.
-  let html = stored.html.replaceAll(/<style(?=[\s>])/g, `<style nonce="${nonce}"`);
-  html = inject(
-    html,
+  <script>${proxyTranslateHideScript}</script>
+  <script>${NO_FLASH_JS}</script>`;
+  // The pipeline's own <style> blocks are hashed into the CSP with the site's; a <script> in the stored
+  // HTML is not one the site wrote, so the CSP refuses it.
+  let html = inject(
+    stored.html,
     NEEDLES.head,
-    `${headInject}\n<style nonce="${nonce}">${digestNavCss}</style>\n<style nonce="${nonce}">${fontFace(ctx.assets.fontUrl)}\n${skipLinkCss}\n${reducedMotionCss}</style></head>`,
+    `${headInject}\n<style>${digestNavCss}</style>\n<style>${fontFace(ctx.assets.fontUrl)}\n${skipLinkCss}\n${reducedMotionCss}</style></head>`,
     date,
   );
   html = inject(html, NEEDLES.body, `<body>${SKIP_LINK}${hiddenPointer(mdAbs)}`, date);
@@ -77,5 +76,5 @@ export function issuePage(ctx: PageCtx, date: string, stored: { html: string; pr
       ? inject(html, NEEDLES.footerMeta, `${feedback}\n    ${NEEDLES.footerMeta}`, date)
       : inject(html, NEEDLES.footer, `${feedback}\n  </footer>`, date);
   }
-  return inject(html, NEEDLES.bodyEnd, `<script nonce="${nonce}">${toggleJs}</script></body>`, date);
+  return inject(html, NEEDLES.bodyEnd, `<script>${toggleJs}</script></body>`, date);
 }

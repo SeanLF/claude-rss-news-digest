@@ -80,5 +80,5 @@ export function indexPage(ctx: PageCtx, meta: IndexMeta, scope: IndexScope, page
     ${more}
     ${subband}
     </main>`;
-  return head + pageBody(ctx, indexChrome(ctx.cfg), inner, [script(ctx, indexJs)]);
+  return head + pageBody(ctx, indexChrome(ctx.cfg), inner, [script(indexJs)]);
 }

@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { describe, expect, it, vi } from "vitest";
 import { AskState } from "./ask.js";
@@ -18,6 +19,11 @@ const withIssue = (over: Partial<SiteData> = {}) =>
     ...over,
   });
 
+// Tags and their bodies; a <style> element's CSS may name "<style>" in a comment (tokens.css does).
+const inlineBlocks = (html: string) => [...html.matchAll(/<(script|style)\b([^>]*)>([\s\S]*?)<\/\1\s*>/gi)].map((m) => ({ kind: m[1]!.toLowerCase(), attrs: m[2]!, body: m[3]! }));
+const sha = (body: string) => `'sha256-${createHash("sha256").update(body, "utf8").digest("base64")}'`;
+const directive = (csp: string, name: string) => csp.split(";").map((d) => d.trim()).find((d) => d.startsWith(`${name} `)) ?? "";
+
 describe("security headers", () => {
   const REQUIRED = {
     "strict-transport-security": "max-age=31536000; includeSubDomains; preload",
@@ -31,35 +37,54 @@ describe("security headers", () => {
     for (const [k, v] of Object.entries(REQUIRED)) expect(res.headers.get(k), k).toBe(v);
     expect(res.headers.get("permissions-policy")).toMatch(/camera=\(\).*geolocation=\(\).*microphone=\(\)/);
     const csp = res.headers.get("content-security-policy") ?? "";
-    expect(csp).toMatch(/script-src 'nonce-[A-Za-z0-9+/=]+'/);
+    expect(csp).not.toContain("nonce-");
     expect(csp).not.toMatch(/script-src[^;]*unsafe-inline/);
+    expect(csp).not.toMatch(/style-src [^;]*unsafe-inline/);
     expect(csp).toContain("frame-ancestors 'self'");
+    expect(csp).toContain("object-src 'none'");
+    expect(csp).toContain("base-uri 'none'");
   });
 
-  it.each(["/", "/sources", "/stats", "/threads", "/search?q=x", "/ask", "/connect", "/feedback", "/issues/2026-09-01", "/no/such/page"])(
-    "every inline <script> and <style> on %s carries this response's nonce, and it changes per response",
+  it.each(["/", "/sources", "/stats", "/threads", "/search?q=x", "/feedback", "/issues/2026-09-01", "/no/such/page"])(
+    "the CSP on %s allows every inline <script> and <style> by its hash, and is the same on every response",
     async (path) => {
       const app = testApp(withIssue());
-      const nonces = [];
-      for (let i = 0; i < 2; i++) {
-        const res = await get(app, path);
-        const nonce = /'nonce-([^']+)'/.exec(res.headers.get("content-security-policy") ?? "")?.[1];
-        expect(nonce).toBeTruthy();
-        // Tags, not text: a <style> element's CSS may name "<style>" in a comment (tokens.css does).
-        const html = (await res.text()).replaceAll(/(<(script|style)\b[^>]*>)[\s\S]*?<\/\2>/g, "$1");
-        const tags = html.match(/<(script|style)\b[^>]*>/g) ?? [];
-        expect(tags.length).toBeGreaterThan(0);
-        for (const t of tags) expect(t, t).toContain(`nonce="${nonce}"`);
-        nonces.push(nonce);
-      }
-      expect(nonces[0]).not.toBe(nonces[1]);
+      const [a, b] = [await get(app, path), await get(app, path)];
+      const csp = a.headers.get("content-security-policy") ?? "";
+      expect(b.headers.get("content-security-policy")).toBe(csp);
+      const html = await a.text();
+      expect(html).not.toMatch(/nonce=/);
+      const blocks = inlineBlocks(html);
+      expect(blocks.some((x) => x.kind === "script")).toBe(true);
+      expect(blocks.some((x) => x.kind === "style")).toBe(true);
+      for (const x of blocks) expect(directive(csp, `${x.kind}-src`), x.body.slice(0, 60)).toContain(sha(x.body));
     },
   );
 
-  it("never blesses a script inside a stored issue", async () => {
+  it("hashes the stored issue's own <style> blocks", async () => {
+    const html = ISSUE_HTML.replace("</head>", "<style>.from-the-email{color:red}</style></head>");
+    const res = await get(testApp(withIssue({ issue: async () => ({ html, preheader: "" }) })), "/issues/2026-09-01");
+    expect(directive(res.headers.get("content-security-policy") ?? "", "style-src")).toContain(sha(".from-the-email{color:red}"));
+  });
+
+  it("hashes a CRLF stylesheet as the browser parses it, with LF", async () => {
+    const html = ISSUE_HTML.replace("</head>", "<style>.a{}\r\n.b{}</style></head>");
+    const res = await get(testApp(withIssue({ issue: async () => ({ html, preheader: "" }) })), "/issues/2026-09-01");
+    expect(directive(res.headers.get("content-security-policy") ?? "", "style-src")).toContain(sha(".a{}\n.b{}"));
+  });
+
+  it("never blesses a script inside a stored issue: its hash is not in the header", async () => {
     const html = ISSUE_HTML.replace("</body>", "<script>alert(1)</script></body>");
     const res = await get(testApp(withIssue({ issue: async () => ({ html, preheader: "" }) })), "/issues/2026-09-01");
     expect(await res.text()).toContain("<script>alert(1)</script>");
+    const scriptSrc = directive(res.headers.get("content-security-policy") ?? "", "script-src");
+    expect(scriptSrc).toMatch(/^script-src( 'sha256-[A-Za-z0-9+/=]+')+$/);
+    expect(scriptSrc).not.toContain(sha("alert(1)"));
+  });
+
+  it("allows no inline script on a response with none", async () => {
+    const res = await get(testApp(withIssue()), "/feed.xml");
+    expect(directive(res.headers.get("content-security-policy") ?? "", "script-src")).toBe("script-src 'none'");
   });
 });
 
