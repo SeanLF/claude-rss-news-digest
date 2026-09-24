@@ -1,8 +1,8 @@
 """The activity that stays in Python, on the `python` task queue.
 
 fulltext: trafilatura stays in Python (docs/2026-09-23-fulltext-extractor-fork.md), so this worker
-runs the production fetch, fulltext._collect_isolated, unchanged: its child process and SIGKILL are
-the bound. The TypeScript workflow calls it by name and does the planning and storing.
+runs fulltext._collect_isolated (this package's fork of the newsroom's): its child process and
+SIGKILL are the bound. The TypeScript workflow calls it by name and does the planning and storing.
 """
 
 import asyncio
@@ -13,8 +13,8 @@ from temporalio import activity
 from temporalio.client import Client
 from temporalio.worker import Worker
 
-import config
 import fulltext
+import settings
 
 TASK_QUEUE = "python"
 
@@ -23,9 +23,9 @@ TASK_QUEUE = "python"
 def fetch_fulltext(tasks: list[list[str]]) -> dict:
     results, outcome = fulltext._collect_isolated(
         [(aid, url) for aid, url in tasks],
-        max_chars=config.FULLTEXT_MAX_CHARS,
-        deadline_s=config.FULLTEXT_DEADLINE_S,
-        max_doc_chars=config.FULLTEXT_MAX_DOC_CHARS,
+        max_chars=settings.FULLTEXT_MAX_CHARS,
+        deadline_s=settings.FULLTEXT_DEADLINE_S,
+        max_doc_chars=settings.FULLTEXT_MAX_DOC_CHARS,
     )
     return {"tasks": len(tasks), "results": results, "outcome": outcome}
 

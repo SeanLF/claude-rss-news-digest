@@ -75,11 +75,13 @@ services:
       interval: 1s
       retries: 30
 
-  # The Python worker's own image, so its tests run against what ships.
+  # The Python worker's image with its dev group and tests added (the `test` stage), so its tests run
+  # against the venv that ships.
   ci-python:
     build:
       context: .
       dockerfile: digest/python/Dockerfile
+      target: test
 
   ci-rust:
     build:
@@ -207,7 +209,7 @@ services:
   python-worker:
     build: { context: ., dockerfile: digest/python/Dockerfile }
     depends_on: [temporal]
-    mem_limit: 512m
+    mem_limit: 384m  # production's limit, so the dev stack runs out of memory where the box would
     restart: unless-stopped
     environment:
       TEMPORAL_ADDRESS: "temporal:7233"

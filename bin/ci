@@ -28,9 +28,6 @@ _SCOPE: tuple[tuple[str, frozenset[str]], ...] = (
     ("newsroom/templates/", ALL_SUITES),
     ("newsroom/tests/fixtures/", ALL_SUITES),
     ("newsroom/sources.json", ALL_SUITES),
-    # Baked into the Python worker's image (digest/python/Dockerfile) and tested in newsroom.
-    ("newsroom/src/fulltext.py", frozenset({PYTHON, WORKER})),
-    ("newsroom/src/config.py", frozenset({PYTHON, WORKER})),
     ("newsroom/Dockerfile.ci", ALL_SUITES),  # the ci image runs bin/ci itself
     ("newsroom/", frozenset({PYTHON})),
     # Read by newsroom tests: test_markdown_chrome_contract.py, and test_sbom_exceptions.py, which
@@ -104,7 +101,7 @@ def suite_commands(fix_mode: bool, full_mode: bool, ci_args: list[str]) -> dict[
         TS: ["docker", "compose", "run", "--rm", "--build", "ci-ts", "sh", "-c", TS_CMD],
         WORKER: [
             "docker", "compose", "run", "--rm", "--build", "ci-python",
-            "python", "-m", "pytest", "-q", "-p", "no:cacheprovider", "test_worker.py",
+            "python", "-m", "pytest", "-q", "-p", "no:cacheprovider", "/app/tests",
         ],
     }
 

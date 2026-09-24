@@ -7,8 +7,9 @@ import type { FulltextFetch, FulltextPlan, FulltextTask } from "./index.js";
 
 export const FULLTEXT_OUTPUT = "article_fulltext.json";
 export const FULLTEXT_HEALTH = "fulltext_health.json";
-// Outcomes that settle the step. Anything else (the fetcher unavailable, killed or crashed, or the
-// switch off at the time) is retried on a resume, as production refetches on every call.
+// Outcomes that settle the step. Anything else (the fetcher unavailable, killed, crashed or cut short
+// by its deadline, or the switch off at the time) is retried on a resume, as production refetches on
+// every call.
 const SETTLED = new Set(["completed", "no_candidates"]);
 
 // fulltext._candidate_article_ids: SELECT lists the representative articles first, so a prefix
