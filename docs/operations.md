@@ -23,6 +23,23 @@ docker run --rm -v news-digest-data:/app/data <image> python3 -c "..."
 - Session JSONL volume: `news-digest-claude` (`/home/appuser/.claude/`)
 - Systemd unit: `news-digest.service`
 
+## Rolling back a deploy
+
+Every deploy tag records the image digests it shipped, and each deploy leaves a stopped
+`news-digest.keep` container per image on the box, newest three per repository, so the weekly
+`docker image prune -af` cannot remove them.
+
+```bash
+git tag -n3 -l 'deploy/*'                              # pick the deploy to return to
+bin/deploy --rollback=deploy/2026-09-18-053727Z        # add --dry-run to preview
+bin/ssh "docker ps -a --filter label=news-digest.keep" # the images the box holds
+```
+
+`--rollback` runs every gate a deploy runs (run window, run in flight, schedule pause, backup),
+builds nothing and skips migrations: they are forward-only, so the old code runs against the
+current schema. A repository the tag records no digest for runs `:latest`, and the deploy says
+which ones.
+
 ## Database
 
 ```bash
