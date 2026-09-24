@@ -87,6 +87,23 @@ describe("security headers", () => {
   });
 });
 
+// Issues from before the 2026-07-05 redesign: no .paper, their own stylesheet (which defines its own
+// --accent and --bg), and on 2026-01-16..18 a <body> with attributes.
+const LEGACY = `<!DOCTYPE html>
+<html lang="en">
+<head><title>Old</title><style>:root{--accent:#00f;--bg:#000}body{max-width:600px;margin:0 auto}a{color:var(--accent)}</style></head>
+<body style="font-family:Georgia">
+<div class="container"><h1>Sean's Daily Digest</h1><footer><p>old footer</p></footer></div>
+</body>
+</html>`;
+const legacyPage = async (html: string) => {
+  const error = vi.spyOn(console, "error").mockImplementation(() => undefined);
+  const res = await get(testApp(withIssue({ issue: async () => ({ html, preheader: "" }) }), { cfg: testConfig({ CONTACT_EMAIL: "hi@digest.example" }) }), "/issues/2026-09-01");
+  const errors = error.mock.calls.length;
+  error.mockRestore();
+  return { errors, page: await res.text() };
+};
+
 describe("the issue page", () => {
   it("injects the site's chrome at every needle of the real template", async () => {
     const error = vi.spyOn(console, "error");
@@ -104,12 +121,56 @@ describe("the issue page", () => {
 
   it("logs a missed injection as an error naming the needle and the date, and still serves the page", async () => {
     const error = vi.spyOn(console, "error").mockImplementation(() => undefined);
-    const html = ISSUE_HTML.replace('<div class="paper">', '<div class="sheet">');
-    const res = await get(testApp(withIssue({ issue: async () => ({ html, preheader: "" }) })), "/issues/2026-09-01");
+    const html = ISSUE_HTML.replace('<p class="footer-meta">', "<p>").replace("</footer>", "</div>");
+    const cfg = testConfig({ CONTACT_EMAIL: "hi@digest.example" });
+    const res = await get(testApp(withIssue({ issue: async () => ({ html, preheader: "" }) }), { cfg }), "/issues/2026-09-01");
     expect(res.status).toBe(200);
     const lines = error.mock.calls.map((c) => JSON.parse(String(c[0])) as Record<string, unknown>);
     error.mockRestore();
-    expect(lines).toEqual([expect.objectContaining({ site: "issue", level: "error", date: "2026-09-01", needle: '<div class="paper">' })]);
+    expect(lines).toEqual([expect.objectContaining({ site: "issue", level: "error", date: "2026-09-01", needle: "</footer>" })]);
+  });
+
+  it("puts the nav right after <body ...> on a pre-redesign issue, with no error", async () => {
+    const { errors, page } = await legacyPage(LEGACY);
+    expect(errors).toBe(0);
+    const body = page.indexOf('<body style="font-family:Georgia">');
+    expect(body).toBeGreaterThan(0);
+    const after = page.slice(body);
+    expect(after.indexOf('class="skip-link"')).toBeLessThan(after.indexOf('class="topbar"'));
+    expect(after.indexOf('class="topbar"')).toBeLessThan(after.indexOf('<div class="container">'));
+    expect(page).toContain('href="/issues/2026-09-01/translate"');
+    expect(page).toContain("footer-feedback");
+    // The skip link lands past the nav, since an old issue has no #main of its own.
+    expect(after.indexOf('id="main"')).toBeGreaterThan(after.indexOf('class="topbar"'));
+    expect(after.indexOf('id="main"')).toBeLessThan(after.indexOf('<div class="container">'));
+  });
+
+  it("gives the fallback nav its own tokens, scoped to it, so the old body's --accent and --bg neither reach it nor change", async () => {
+    const { page } = await legacyPage(LEGACY);
+    expect(page).toMatch(/<div class="site-chrome">\s*<div class="topbar">/);
+    const css = inlineBlocks(page).find((b) => b.kind === "style" && b.body.includes(".site-chrome"))?.body ?? "";
+    const scoped = /\.site-chrome\s*\{([^}]*)\}/.exec(css)?.[1] ?? "";
+    for (const token of ["--sans", "--muted", "--hair", "--accent", "--accent-ink", "--bg"]) expect(scoped, token).toContain(`${token}:`);
+    // Every rule the fallback adds (the end of the nav's stylesheet) is under .site-chrome: nothing restyles the frozen body.
+    const legacyCss = css.slice(css.indexOf(".site-chrome"));
+    for (const [, selector] of legacyCss.matchAll(/(?:^|})\s*([^{}@]+)\{/g)) expect(selector!.trim(), selector).toMatch(/^\.site-chrome\b/);
+    // The toggle switches the site's theme; a frozen body cannot follow it, so it is not offered there.
+    expect(page).not.toContain('id="themeBtn"');
+  });
+
+  it("prepends the nav, after the head, to an issue with no <body> tag at all", async () => {
+    const { errors, page } = await legacyPage(LEGACY.replace('<body style="font-family:Georgia">', "").replace("</body>", ""));
+    expect(errors).toBe(0);
+    const head = page.indexOf("</head>");
+    expect(page.indexOf('class="skip-link"')).toBeGreaterThan(head);
+    expect(page.indexOf('class="topbar"')).toBeLessThan(page.indexOf('<div class="container">'));
+  });
+
+  it("keeps the redesign's nav inside .paper and its own tokens, with no fallback styles", async () => {
+    const html = await (await get(testApp(withIssue()), "/issues/2026-09-01")).text();
+    expect(html).toContain('<div class="paper"><div class="topbar">');
+    expect(html).not.toContain("site-chrome");
+    expect(html).toContain('id="themeBtn"');
   });
 
   it("negotiates Markdown, and an explicit .md never 406s", async () => {
