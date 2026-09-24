@@ -81,10 +81,10 @@ and harnesses use `ci-pg`, a scratch server with no volume; a band copies `diges
 ```bash
 make dev-import                   # a cp -c copy of data/prod-20260923b.db (SRC=...) becomes `digest`; starts the stack
 make dev-up                       # start or rebuild the stack; keeps its data
-make digest-start                 # today's run (UTC), through the hold
+make digest-start                 # today's run (UTC): sends at once if its pre-send checks pass, else holds 15 min
 make digest-start ARGS=--force    # today again: a new revision of the issue on the site, never a second send
 make digest-start DATE=2026-09-18 ARGS="--resume 300"   # resume a run; only a resume may name another day
-make digest-approve               # or digest-reject (DATE defaults to today; a resume's is its DATE); unsignalled, the hold ends after 2 h and it sends
+make digest-approve               # or digest-reject, while a flagged run holds (DATE defaults to today; a resume's is its DATE); unsignalled, it sends after 15 min
 make dev-mail-clear               # empty resend-fake: caught mail and the dev audience
 make dev-urls                     # where each part answers
 make dev-down                     # stop; keeps the volumes
@@ -113,8 +113,8 @@ and a dummy key, and the Resend client (worker and site) refuses real Resend unl
 `RESEND_LIVE=true`, and refuses `RESEND_LIVE=true` beside a `RESEND_BASE_URL`
 (`digest/src/resend/destination.ts`). The worker's startup line names a refused destination; the site
 refuses to start. Production sets `RESEND_LIVE=true` and no base URL. Broadcasting is on in dev
-(`BROADCAST_ENABLED`, default `true`), so a dev run goes through the hold, its notification, the
-approve or reject, and the broadcast, all into the fake; subscribe and confirm on the dev site land
+(`BROADCAST_ENABLED`, default `true`), so a dev run goes through the pre-send checks, the hold and its
+notification when one fails, the approve or reject, and the broadcast, all into the fake; subscribe and confirm on the dev site land
 there too, and a confirmed reader is a recipient of the next dev broadcast. No maintained Resend
 fake covers broadcasts and segments (resend-box fakes `POST /emails` only), so `resend-fake` is ours
 (`digest/src/devmail/fake.ts`), held to the SDK calls the code makes by its tests.

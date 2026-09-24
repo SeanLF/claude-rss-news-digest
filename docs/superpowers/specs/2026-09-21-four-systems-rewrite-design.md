@@ -128,8 +128,13 @@ is ~19 of the 20 minutes; RSS 12 s, fulltext 44 s.
 
 ### 2.3 Human in the loop (three signals)
 
-1. **Pre-broadcast hold**, 2 h then proceed (availability stance is non-urgent). Catches bad content sent
-   (the run-247 id leak class), not nothing-sent (that is the dead-man's switch plus explicit timeouts).
+1. **Pre-send hold, only on a failed check** (decided 2026-09-24, replacing an unconditional 2 h hold). A run
+   that passes its pre-send checks (`digest/src/ops/pre-send.ts`: the regression gate's internal-id check
+   extended to thread deltas, empty fields, L1 story-count ranges, COHERENCE drops, thread-audit fail-opens,
+   and the run-health rules that judge content) sends at once. A run that fails one emails the operator
+   what failed and holds 15 min for approve or reject, then **sends anyway**. The hold's target class
+   (the run-247 id leak) is now checked automatically, so a daily 2 h delay bought nothing. Not
+   nothing-sent: that is the dead-man's switch plus explicit timeouts.
 2. **Retries exhausted**: the workflow parks on a signal offering "retry more" or "abort".
 3. **Operator note**: a signal payload injected into the next attempt's prompt as an operator section, and
    persisted as an input artifact because it changes the run.
@@ -221,7 +226,7 @@ Inputs: archived input days from run 300 onward (four eligible today, one more p
    one closed day through the old orchestrator **with model calls** (the `bin/rerun-stage` path extended to a
    whole run; `bin/replay` makes no model calls and cannot give this number), n ≥ 3 reps, which is the band.
    Then the new system, n ≥ 3, must sit within that band. Wall clock is **workflow time minus time parked on
-   signals**, which Temporal history gives exactly, so the 2 h hold does not count. Cost is API-equivalent from
+   signals**, which Temporal history gives exactly, so a flagged run's hold does not count. Cost is API-equivalent from
    `run_usage`. A band test, not a point comparison.
 5. **Cut-over** when the gate passes on three days: schedule moves to Temporal; the Rust server retires when the
    web plan's own gate passes (§3); the Python pipeline tree is deleted only after every eval that imports it

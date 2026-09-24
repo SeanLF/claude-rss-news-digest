@@ -233,15 +233,16 @@ export function broadcastActivities(deps: BroadcastDeps) {
       return { broadcastId: id, status, recipients };
     },
 
-    // The pre-broadcast hold's notification (spec §2.3): the run's Temporal UI link and its
-    // headlines, to the operator's alert address. Best-effort: the hold proceeds without it.
-    notifyHold: async (runId: number, selections: Pointer, holdEndsAt: string | null): Promise<{ sent: boolean }> => {
+    // The pre-send hold's notification (spec §2.3): the checks that failed, when the hold ends, how
+    // to approve or reject, the run's Temporal UI link and its headlines, to the operator's alert
+    // address. Best-effort: the hold proceeds without it.
+    notifyHold: async (runId: number, selections: Pointer, holdEndsAt: string, failures: string[]): Promise<{ sent: boolean }> => {
       const date = await store.runDate(runId);
       const sel = JSON.parse(await store.get(selections)) as Selections;
       const to = env["HEALTH_ALERT_EMAIL"];
       const from = env["RESEND_FROM"];
-      const until = holdEndsAt?.slice(11, 16);
-      const dropped = until ? `digest ${date} (run ${runId}) is held for approval until ${holdEndsAt}` : `digest ${date} (run ${runId}) sends now, unheld: the run's budget had no time left for a hold`;
+      const until = holdEndsAt.slice(11, 16);
+      const dropped = `digest ${date} (run ${runId}) failed ${failures.length} pre-send check(s) and is held until ${holdEndsAt}, then sends: ${failures.join("; ")}`;
       if (!to || !from || !env["RESEND_API_KEY"]) {
         console.error(JSON.stringify({ stage: "hold", error: "ALERTING MISCONFIGURED (HEALTH_ALERT_EMAIL, RESEND_FROM or RESEND_API_KEY unset): hold notification dropped", dropped }));
         return { sent: false };
@@ -250,17 +251,14 @@ export function broadcastActivities(deps: BroadcastDeps) {
       const ui = (env["TEMPORAL_UI_URL"] || "http://127.0.0.1:8233").replace(/\/+$/, "");
       const link = `${ui}/namespaces/${encodeURIComponent(ex.namespace)}/workflows/${encodeURIComponent(ex.workflowId)}/${encodeURIComponent(ex.runId)}/history`;
       const signal = (decision: string) => `temporal workflow signal --workflow-id ${ex.workflowId} --name approve --input '{"decision":"${decision}"}'`;
-      const head = until
-        ? `<h2>Digest ${date} is waiting to send</h2>
-<p>Run ${runId} is held until <strong>${until} UTC</strong>, then it sends on its own. <a href="${htmlEscape(link)}">Open the run in the Temporal UI</a>.</p>
-<p>To stop it: <code>${htmlEscape(signal("reject"))}</code><br>To send now: <code>${htmlEscape(signal("approve"))}</code></p>`
-        : `<h2>Digest ${date} is sending now, without a hold</h2>
-<p>Run ${runId} used its time budget before the hold, so it was <strong>not held</strong> for approval. <a href="${htmlEscape(link)}">Open the run in the Temporal UI</a>.</p>`;
-      const html = `${head}
+      const html = `<h2>Digest ${date} failed ${failures.length} pre-send check(s) and is held</h2>
+<p>Run ${runId} is held until <strong>${until} UTC</strong>, then it <strong>sends anyway</strong>. <a href="${htmlEscape(link)}">Open the run in the Temporal UI</a>.</p>
+<h3>What failed</h3><ul>${failures.map((f) => `<li>${htmlEscape(f)}</li>`).join("")}</ul>
+<p>To stop it: <code>${htmlEscape(signal("reject"))}</code><br>To send now: <code>${htmlEscape(signal("approve"))}</code></p>
 <h3>Must know (${sel.must_know.length})</h3><ol>${headlineList(sel.must_know)}</ol>
 <h3>Should know (${sel.should_know.length})</h3><ol>${headlineList(sel.should_know)}</ol>`;
-      const n = sel.must_know.length + sel.should_know.length;
-      const subject = until ? `[Hold] Digest ${date}: ${n} stories send at ${until} UTC` : `[No hold] Digest ${date}: ${n} stories sending now, unheld`;
+      const codes = [...new Set(failures.map((f) => f.split(":")[0]))].join(", ");
+      const subject = `[Hold] Digest ${date}: ${codes}; sends at ${until} UTC unless rejected`;
       try {
         const r = await call(() => deps.mail().emails.send({ from: `News Digest Alerts <${from}>`, to: [to], subject, html }));
         if (r.error) throw new ResendFailure(r.error);

@@ -9,7 +9,7 @@ the Agent SDK for model stages, Temporal for sequencing, signals and the run bud
 - `src/contracts` — the frozen contracts (spec §1) as zod: article ids, selections, coherence verdicts.
 - `src/store` — the artifact store: a pointer is `(run, name, sha256)`; `put` conflicts, never replaces.
 - `src/runner` — one model stage over the Agent SDK: tools scoped to Read and Grep, result as the final message.
-- `src/workflow` — `DigestWorkflow`, the three signals, identity per day, one 4 h budget, the 2 h hold.
+- `src/workflow` — `DigestWorkflow`, the three signals, identity per day, one 4 h budget, the 15 min hold of a run that fails a pre-send check.
 - `src/activities` — the activity interface plan A2 fills; stubs today.
 - `src/cli` — `start` (one workflow, waits for the result), `schedule` (create or update the daily 10:25Z schedule).
 
@@ -18,8 +18,8 @@ the Agent SDK for model stages, Temporal for sequencing, signals and the run bud
 ```
 cd digest && npm install && npm test && npm run typecheck && npm run lint   # bin/ci runs these in the ci-ts container
 make dev-up                            # the dev stack: Temporal (UI :8233) + the worker, the site, resend-fake, digest-pg
-make digest-start                      # start today's DigestWorkflow (UTC); it holds before broadcast for 2 h or a signal
-make digest-approve                    # or digest-reject; the send lands in resend-fake, never Resend
+make digest-start                      # start today's DigestWorkflow (UTC); it sends at once, or holds 15 min if a pre-send check fails
+make digest-approve                    # or digest-reject, during a hold; the send lands in resend-fake, never Resend
 make digest-schedule                   # create or update the daily schedule
 make dev-down                          # stop; keeps the volumes (docs/operations.md, "The dev stack")
 bash scripts/check-api-names.sh        # every library name used is declared in the installed types

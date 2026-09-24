@@ -83,9 +83,11 @@ afterAll(async () => {
 });
 
 const workflowsPath = new URL("./workflow/digest.workflow.ts", import.meta.url).pathname;
+// Every run here fails a pre-send check, so it waits in the hold until approved, as the moves need.
+const held = () => ({ ...stubActivities(), checkPreSend: () => Promise.resolve(["TEST: held for the operator"]) });
 // The production worker's options on the production queue, with stub activities.
 const versioned = (buildId: string) =>
-  Worker.create({ connection: env.nativeConnection, taskQueue: TASK_QUEUE, workflowsPath, maxCachedWorkflows: 0, workerDeploymentOptions: deploymentOptions({ GIT_SHA: buildId }), activities: stubActivities() });
+  Worker.create({ connection: env.nativeConnection, taskQueue: TASK_QUEUE, workflowsPath, maxCachedWorkflows: 0, workerDeploymentOptions: deploymentOptions({ GIT_SHA: buildId }), activities: held() });
 const pause = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const completedTasks = async (h: WorkflowHandle) => ((await h.fetchHistory()).events ?? []).flatMap((e) => (e.workflowTaskCompletedEventAttributes ? [e.workflowTaskCompletedEventAttributes] : []));
 async function versionOf(h: WorkflowHandle) {
@@ -166,7 +168,7 @@ describe("worker versioning on a dev server", () => {
     const pDone = pWorkflows.run();
     const h = await env.client.workflow.start("DigestWorkflow", startOptions("2026-10-06", {}));
     const qWorkflows = await Worker.create({ ...opts("build-q"), workflowsPath });
-    const qActivities = await Worker.create({ ...opts("build-q"), activities: stubActivities() });
+    const qActivities = await Worker.create({ ...opts("build-q"), activities: held() });
     const qDone = qWorkflows.run();
     let actDone: Promise<void> | undefined;
     try {

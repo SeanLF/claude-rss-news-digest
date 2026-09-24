@@ -41,7 +41,8 @@ afterAll(async () => {
 });
 
 const currentCode = new URL("./digest.workflow.ts", import.meta.url).pathname;
-const stub = stubActivities();
+// Every run here fails a pre-send check, so it holds, as the restarts below need.
+const stub: Activities = { ...stubActivities(), checkPreSend: () => Promise.resolve(["TEST: held for the operator"]) };
 const nonce = Date.now().toString(36); // a dev server keeps its workflows between runs
 const deferred = () => {
   let resolve!: () => void;
@@ -243,9 +244,10 @@ describe("changed workflow code under a run waiting in the hold", () => {
   }, 180_000);
 
   // On the time-skipping server the clock stays put while a workflow task keeps failing, so the run
-  // timeout is seen only on a dev server, with a 71 min run timeout (the least that still holds).
+  // timeout is seen only on a dev server, with a 42 min run timeout (the least that still holds: 40
+  // minutes of deadline and tail margin, and a minute of slack).
   it("changed workflow code fails replay with a nondeterminism error: the run is stuck, with no alert", async () => {
-    const { h, calls, next } = await restartInHold("changed", "2026-12-06", changedWorkflowPath(), devServer ? "71 minutes" : undefined);
+    const { h, calls, next } = await restartInHold("changed", "2026-12-06", changedWorkflowPath(), devServer ? "42 minutes" : undefined);
     const seen = await next.runUntil(async () => {
       await h.signal(approveSignal, { decision: "approve" });
       let failure: string | undefined;
