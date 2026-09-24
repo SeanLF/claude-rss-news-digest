@@ -16,7 +16,7 @@ seanfloyd.dev. Spec: §2.1 and §5 of `docs/superpowers/specs/2026-09-21-four-sy
 | Temporal stack (server, Postgres, UI, workers, dumps) | not on the box | running | running |
 | `news-digest.timer` (12:25 Europe/Paris) | enabled | enabled | disabled; the service stays installed |
 | schedule `digest-daily` (10:25Z) | none | paused | unpaused |
-| worker's database (`DIGEST_DATABASE_URL`; was `DIGEST_DB_PATH`, a SQLite file, before the Postgres schema) | | `digest-staged.db`, a copy | `digest.db` |
+| worker's database (`DIGEST_DATABASE_URL`, Postgres) | | `digest_staged`, re-imported from a snapshot of `digest.db` at every worker start | `digest`, imported once at the cut-over |
 | worker broadcasts (`BROADCAST_ENABLED`) | | `false` | `true` |
 | healthchecks.io success ping | the Python run | the Python run | `news-digest-deadman`, after `--verify-today` |
 | what `bin/deploy` builds and applies | circulation, newsroom | + both workers, the stack, pause and restore; warns (never refuses) when a run is live or Temporal cannot say | same as staged, but refuses those without `--force`, and 10:00-11:45Z too |
@@ -28,9 +28,11 @@ seanfloyd.dev. Spec: §2.1 and §5 of `docs/superpowers/specs/2026-09-21-four-sy
 - **`temporal`** is the cut-over. It is Sean's call, after three passed gate days (spec §7.5).
 
 Two guards stop both pipelines from sending the same day:
-- **The TypeScript `startRun`** refuses a day whose `digest_runs` already has a completed run, or a run
-  still `running` that started within 4 h. The Python pipeline writes the same table, so this holds
-  whichever pipeline started first. `force` overrides it.
+- **The TypeScript `startRun`** refuses a day that already has a sent run (view `sent_runs`), or a run
+  still `running` that started within 4 h. `force` overrides it. The two pipelines no longer share a
+  database: Python writes `digest.db`, the worker Postgres. In `temporal` the guard sees Python's runs
+  only through the cut-over's import, so `import-digest-db` refuses while `news-digest.service` is
+  active. In `staged` nothing the worker writes reaches `digest.db`.
 - **Terraform ordering**: the bootstrap that unpauses the schedule depends on the timer resource, so
   going to `temporal` disables the timer first.
 
@@ -40,23 +42,41 @@ Two guards stop both pipelines from sending the same day:
 
 | unit | what | memory cap |
 |---|---|---|
-| `news-digest-temporal-postgres` | `postgres:18.6-alpine3.24`, volume `news-digest-temporal-pg` | 384 MiB |
+| `news-digest-temporal-postgres` | `postgres:18.6-alpine3.24`, volume `news-digest-temporal-pg`; `bin/pg-roles` after every start | 384 MiB |
 | `news-digest-temporal-schema` | one-shot: `temporal-sql-tool` create/setup/update-schema (admin-tools 1.32.0) | |
 | `news-digest-temporal` | `temporalio/server:1.32.0`, no published port | 512 MiB |
 | `news-digest-temporal-ui` | `temporalio/ui:2.54.1` on 127.0.0.1:8233, and on the tailnet via `tailscale serve` | 128 MiB |
 | `news-digest-temporal-bootstrap` | one-shot: namespace `news-digest` (30-day retention), `ensureSchedule`, pause state, missed-slot start | |
-| `news-digest-worker` | the TypeScript worker, queue `digest`; env `.env` then `worker.env` | 1280 MiB |
+| `news-digest-worker` | the TypeScript worker, queue `digest`; env `.env` then `worker.env`. Before it starts: the import (`refresh-staged-db` in staged, `import-digest-db` in temporal), then `node dist/cli/migrate.js` | 1280 MiB |
 | `news-digest-python` | the Python worker (fulltext), queue `python` | 448 MiB |
-| `news-digest-temporal-backup.timer` | nightly `pg_dump` at 03:15 UTC, kept 14 days | |
+| `news-digest-temporal-backup.timer` | nightly `pg_dump` of `temporal`, `temporal_visibility` and `digest` at 03:15 UTC, kept 14 days | |
 
 - Everything sits on the docker network `news-digest-temporal`. The workers also join `digest-v6`:
   they fetch the feeds, and france24 answers only over IPv6.
 - Long-running units restart on failure. Five failures in ten minutes stop the restarts and email
   through `news-digest-alert@`.
-- The Postgres password is generated on the box, in `/opt/news-digest/temporal-db.env` (0600). It is not
-  in tfvars, state or 1Password.
-- `worker.env` (0600) holds `BROADCAST_ENABLED`, `DIGEST_DB_PATH` (to become `DIGEST_DATABASE_URL`: see the data-model design, top), `TEMPORAL_UI_URL`
+- Postgres roles (`bin/pg-roles`, idempotent, run after every Postgres start):
+  - `postgres`: the superuser, used only over the container's local socket (pg-roles, the dumps, the
+    import's database swaps). Password in `pg-admin.env` (0600), generated on the box, read by
+    Postgres only when the volume is first initialised.
+  - `temporal`: owns `temporal` and `temporal_visibility`. Password in `temporal-db.env` (0600),
+    generated on the box; never in tfvars, state or 1Password.
+  - `digest`: owns `digest` and `digest_staged`. Password from 1Password
+    (`op://Private/seanfloyd.dev/NEWS_DIGEST_DB_PASSWORD`, through `bin/tf`) into `digest-db.env` (0600).
+  - Both are `NOSUPERUSER NOCREATEDB NOCREATEROLE`, and `PUBLIC` has no `CONNECT` on any of the
+    databases, so neither role can open the other's.
+  - A volume initialised when `temporal` was the superuser cannot be demoted: pg-roles fails and says
+    so. Dump `temporal` and `temporal_visibility`, remove the volume, start again, restore.
+- `worker.env` (0600) holds `BROADCAST_ENABLED`, `DIGEST_DATABASE_URL`
+  (`postgres://digest:<pw>@news-digest-temporal-postgres:5432/<digest or digest_staged>?sslmode=disable`:
+  the server has no TLS, and dbmate insists on it otherwise), `TEMPORAL_UI_URL`
   (`https://seanfloyd-hetzner.tail739266.ts.net:8233`) and `HEALTH_ALERT_EMAIL`.
+- The worker refuses to start without `DIGEST_DATABASE_URL`, and `bin/deploy` refuses a staged or
+  temporal deploy whose terraform does not write one with a password.
+- `bin/deploy` passes `-var news_digest_import_legacy_path=<checkout>/bin/import-legacy`, so the
+  importer terraform ships to the box comes from the checkout that built the worker image. An apply
+  run by hand from seanfloyd.dev reads the sibling `../news-digest` checkout instead, and reinstalls
+  the importer if that checkout's copy differs.
 
 ### Memory budget (temporal)
 
@@ -77,9 +97,13 @@ Python worker 67-79, UI 7.
 ## Staged verification
 
 1. `news_digest_pipeline = "staged"`, then `bin/deploy`.
-2. The worker unit copies `digest.db` to `digest-staged.db` before every start. It uses SQLite's
-   online backup API, run in the newsroom image. The TypeScript run writes only the copy, so Python's
-   fetch window (`get_last_run_time`) and its duplicate-run guard never see it. Broadcast is off.
+2. Before every start the worker unit runs `refresh-staged-db`: it drops and recreates `digest_staged`,
+   snapshots `digest.db` (SQLite's online backup API on the host, then `integrity_check`; never the
+   live file) and imports the snapshot with `bin/import-legacy` and the worker image. Then
+   `migrate.js`, then the worker. Every start rehearses the import itself (not `import-digest-db`'s
+   rename, its skip once imported, or its refusal while Python runs). The TypeScript run
+   writes only `digest_staged`, so Python's fetch window and its duplicate-run guard never see it.
+   Broadcast is off.
 3. Health, all read-only:
    ```
    bin/ssh 'systemctl is-active news-digest-temporal-postgres news-digest-temporal news-digest-temporal-ui news-digest-worker news-digest-python'
@@ -92,7 +116,7 @@ Python worker 67-79, UI 7.
 4. A prod run against the copy, after the Python run has finished for the day. Refresh the copy
    first. The run needs `force`, because the copy holds today's completed Python run:
    ```
-   bin/ssh systemctl restart news-digest-worker        # refreshes digest-staged.db, then starts
+   bin/ssh systemctl restart news-digest-worker        # re-imports digest_staged, migrates, then starts
    bin/ssh "$T workflow start -t digest --type DigestWorkflow -w digest-staged-$(date -u +%F) -i '{\"runDate\":\"$(date -u +%F)\",\"force\":true}'"
    ```
    Watch it in the UI. It holds before broadcast (2 h, or a signal), and with broadcast off it sends
@@ -105,7 +129,10 @@ Python worker 67-79, UI 7.
 3. A clean staged run on prod (above).
 4. healthchecks.io: the success ping will arrive at the dead-man time (15:00 Europe/Paris), not at run
    end. Widen the check's schedule or grace first, or the first Temporal day alerts falsely.
-5. The schedule is fixed at 10:25Z. The Python timer is 12:25 Europe/Paris, which is 10:25Z in summer
+5. **The TypeScript circulation site is live and reads Postgres `digest`.** The Rust circulation reads
+   `digest.db`, which stops changing at the cut-over: from the first Temporal day it would serve no
+   new issue, and the email's "View in browser" link would 404.
+6. The schedule is fixed at 10:25Z. The Python timer is 12:25 Europe/Paris, which is 10:25Z in summer
    and 11:25Z in winter (CET from 2026-10-25), so in winter the digest lands an hour earlier.
 
 ## Cut-over
@@ -113,7 +140,13 @@ Python worker 67-79, UI 7.
 Outside the run window. `bin/ssh systemctl is-active news-digest.service` must say `inactive`.
 
 1. `news_digest_pipeline = "temporal"`, then `bin/deploy`. The apply disables the timer, then the
-   bootstrap unpauses the schedule. The worker is re-pointed at `digest.db` with broadcast on.
+   bootstrap unpauses the schedule. The worker is re-pointed at `digest` with broadcast on.
+   - The worker's first start runs `import-digest-db`, once. It imports a snapshot of `digest.db`
+     (never the live file) into `digest_import`, and renames that over `digest` only when the import
+     has verified. Once `digest` has tables it is a no-op. It refuses while `news-digest.service` is
+     active. A failed import leaves `digest` empty and the worker down, with its `OnFailure` alert;
+     fix it, then `bin/ssh systemctl restart news-digest-worker`.
+   - Then `migrate.js`, then the worker.
    - If it is past 10:25Z and today has no `DigestWorkflow`, the bootstrap starts today's run once. A
      paused schedule drops its missed slot rather than catching it up.
    - If Python already sent today, `startRun` refuses that run with `AlreadyRan`: a failed workflow,
@@ -122,10 +155,14 @@ Outside the run window. `bin/ssh systemctl is-active news-digest.service` must s
    ```
    bin/ssh systemctl is-enabled news-digest.timer                    # disabled
    bin/ssh "$T schedule describe -s digest-daily -o json" | jq .schedule.state   # no "paused"
-   bin/ssh 'grep -E "BROADCAST|DIGEST_DB" /opt/news-digest/worker.env'  # true, digest.db
+   bin/ssh 'grep -E "BROADCAST|DIGEST_DATABASE_URL" /opt/news-digest/worker.env | sed "s/:[^:@]*@/:***@/"'  # true, .../digest?sslmode=disable
+   bin/ssh 'journalctl -u news-digest-worker --since -1h --no-pager | grep -E "import-|migrat|^ *ok "'   # "digest imported", every check "ok"
    ```
-3. The next day: `bin/ops run` shows the run completed, the dead-man passed, and healthchecks.io got
-   its ping.
+3. The next day: the run completed and sent, the dead-man passed, and healthchecks.io got its ping.
+   Until `bin/ops` reads Postgres:
+   ```
+   bin/ssh 'docker exec news-digest-temporal-postgres psql -U postgres -d digest -c "SELECT id, started_at, status, outcome FROM runs ORDER BY id DESC LIMIT 3"'
+   ```
 
 ## Rollback (temporal -> python or staged)
 
@@ -141,12 +178,29 @@ Paris has passed. The Temporal side must be quiet before the apply re-enables it
 2. Set `news_digest_pipeline = "staged"` (keeps the stack, for forensics) and run
    `bin/deploy --skip-build -y`. The timer comes back, the schedule stays paused, and the worker moves
    to the copy with broadcast off.
-3. If the day has no digest: `bin/ssh systemctl start --no-block news-digest.service`. Python's guard
-   refuses a day that already has a completed run.
+3. If the day has no digest: `bin/ssh systemctl start --no-block news-digest.service`.
 4. To remove the stack as well, set `"python"` and run the teardown below.
 
-Nothing on the Temporal side needs undoing in `digest.db`: its rows are covered by the pre-migration
-snapshot every deploy takes.
+**Python cannot see what Temporal sent.** Its duplicate-run guard reads `digest.db`, and Temporal's
+runs exist only in Postgres `digest`; nothing exports them back. So:
+- Check before step 2 whether Temporal sent today:
+  ```
+  bin/ssh "docker exec news-digest-temporal-postgres psql -U postgres -d digest -tAc \"SELECT id FROM runs WHERE outcome = 'sent' AND (started_at AT TIME ZONE 'UTC')::date = (now() AT TIME ZONE 'UTC')::date\""
+  ```
+- If it did, the timer re-enabled in step 2 can send the day again: with `Persistent=true` it fires
+  at once for the runs it missed while disabled, and at 12:25 Paris, which in winter is after
+  10:25Z. Roll back on a day Temporal has not sent, or run the apply only after 12:25 Paris and check
+  `bin/ssh systemctl list-timers news-digest.timer` shows the next run tomorrow before Python
+  starts (unverified: whether the catch-up fires on enable after days disabled has not been tested).
+- After a rollback, Python's fetch window, dedup and threads start from its own last run.
+
+**Cutting over again after a rollback** does not re-import: `import-digest-db` is a no-op once
+`digest` has tables, and `digest` then lacks every run Python made since. Before the second cut-over,
+with the worker stopped, move it aside so the import runs again (the Temporal-era rows stay in
+`digest_before_reimport`; nothing merges them back):
+```
+bin/ssh 'docker exec news-digest-temporal-postgres psql -U postgres -c "ALTER DATABASE digest RENAME TO digest_before_reimport"'
+```
 
 ## Teardown (staged -> python)
 
@@ -276,31 +330,37 @@ The cut-over retires the Python pipeline, not `newsroom/`. Deleting it breaks th
 | the Python worker image (`digest/python/Dockerfile`) | `newsroom/src/fulltext.py`, `newsroom/src/config.py` | copied into `/app/src/`; trafilatura keeps the worker in Python |
 | the TypeScript worker image (`digest/Dockerfile`) | `newsroom/sources.json`, `newsroom/templates/digest-template.html`, `newsroom/templates/digest.css` | copied; the feed catalogue and the render's template |
 | the ci-ts image (`digest/Dockerfile.ci`) | `migrations/`, the two templates above, `newsroom/tests/fixtures/kitchensink_selections.json` | copied for the store, render and parity tests |
-| migrations | the newsroom image | `bin/migrate` runs yoyo in `digest-newsroom`, locally and on the box; `bin/deploy` migrates through it |
-| staged mode's DB refresh | the newsroom image | the worker unit copies `digest.db` to `digest-staged.db` with SQLite's backup API inside it (Staged verification, step 2) |
+| SQLite migrations | the newsroom image | `bin/migrate` runs yoyo on `digest.db` in `digest-newsroom`; `bin/deploy` migrates through it. The Postgres schema is dbmate (`migrate.js`) and needs neither |
 
-A deleted file in the first three rows fails its image build. The last two rows are not Dockerfile
-copies, so nothing fails when they break: move yoyo and the staged refresh off the newsroom image
-before deleting it.
+A deleted file in the first three rows fails its image build. The last row is not a Dockerfile copy,
+so nothing fails when it breaks: take yoyo out of `bin/deploy` in the change that deletes it.
 
 ## Backups and the restore drill
 
 Dumps land in `/opt/news-digest/temporal-dumps/` as `<db>-<UTC stamp>.dump` (custom format), for
-`temporal` and `temporal_visibility`.
-- A dump counts only after `pg_restore --list` has read it back. A truncated archive fails that
-  check (tested).
-- They stay on the box. Temporal's history is for forensics; the record is `digest.db` (spec §2.1).
+`temporal`, `temporal_visibility` and `digest`. `digest_staged` is scratch and never dumped.
+- A dump counts only after the whole archive has been read back (`pg_restore -f /dev/null`).
+  `pg_restore --list` reads only the table of contents: dumps cut off at 100 KB and at 30 MB of 55
+  passed it, and the full read fails both (rehearsed 2026-09-23).
+- Temporal's stay on the box: its history is for forensics. `digest` is the record, so
+  `bin/backup-volumes` also streams a fresh dump of it to the Mac, daily and before every deploy.
+- Restoring `digest`: the steps are in the comment above `news_digest_temporal_backup_script` in
+  `news-digest-temporal.tf` (worker stopped, restore into `digest_restore`, rename over, `pg-roles`,
+  start).
 
-The drill (spec §5 asks for one) was rehearsed locally on 2026-09-23. It has not yet been run on the box.
+The drill (spec §5 asks for one) was rehearsed locally on 2026-09-23 with `temporal` as the superuser.
+The form below, with `postgres` as the superuser, has not been run, locally or on the box.
 It restores into a scratch Postgres and server beside the live ones and touches neither:
 ```
 bin/ssh
 cd /opt/news-digest
-docker run -d --name restore-pg --network news-digest-temporal --env-file temporal-db.env -v restore-pg:/var/lib/postgresql postgres:18.6-alpine3.24
-until docker exec restore-pg pg_isready -q -U temporal -d postgres; do sleep 1; done
-docker exec restore-pg createdb -U temporal temporal_visibility     # "temporal" exists: it is POSTGRES_USER's own
+docker run -d --name restore-pg --network news-digest-temporal --env-file pg-admin.env -v restore-pg:/var/lib/postgresql postgres:18.6-alpine3.24
+until docker exec restore-pg pg_isready -q -U postgres -d postgres; do sleep 1; done
+# The server logs in as temporal, with the live password
+{ printf '\\set tpw %s\n' "$(sed -n 's/^SQL_PASSWORD=//p' temporal-db.env)"; echo "CREATE ROLE temporal LOGIN PASSWORD :'tpw';"; } | docker exec -i restore-pg psql -U postgres -v ON_ERROR_STOP=1 -q
 for db in temporal temporal_visibility; do
-  docker exec -i restore-pg pg_restore -U temporal --exit-on-error -d $db < "$(ls -t temporal-dumps/$db-*.dump | head -1)"
+  docker exec restore-pg createdb -U postgres -O temporal $db
+  docker exec -i restore-pg pg_restore -U postgres --exit-on-error --no-owner --role=temporal -d $db < "$(ls -t temporal-dumps/$db-*.dump | head -1)"
 done
 docker run -d --name restore-temporal --network news-digest-temporal --env-file temporal-db.env \
   -e DB=postgres12 -e DB_PORT=5432 -e POSTGRES_SEEDS=restore-pg -e BIND_ON_IP=0.0.0.0 \
@@ -312,10 +372,12 @@ $R workflow list --limit 3
 docker rm -f restore-temporal restore-pg && docker volume rm restore-pg
 ```
 
-**Lost password file.** Postgres reads `POSTGRES_PASSWORD` only when the volume is first initialised,
-so a new `temporal-db.env` over an old volume locks Temporal out. Recover with
-`docker exec news-digest-temporal-postgres psql -U temporal -d postgres -c "ALTER ROLE temporal PASSWORD '<value from the new file>'"`.
-Local connections inside the container are trusted, so this works without the old password.
+**Lost password file.** pg-roles sets the `temporal` and `digest` passwords from `temporal-db.env` and
+`digest-db.env` on every Postgres start, so a replaced file takes effect with
+`bin/ssh systemctl restart news-digest-temporal-postgres` (which restarts everything that `Requires=`
+it). A lost `pg-admin.env` stops Postgres from starting (its unit reads it with `--env-file`); rerun the
+apply, which writes a new one. Its value does not matter: Postgres read it only when the volume was
+first initialised, nothing logs in with it, and local connections inside the container are trusted.
 
 ## Unverified until the first apply
 
@@ -337,6 +399,10 @@ Local connections inside the container are trusted, so this works without the ol
   read.
 - **The 1280 MiB worker cap** rests on the 245 MiB-per-process figure. A four-way fan-out under that
   cap has not been measured.
+- **The product database on the box.** `pg-roles`, `refresh-staged-db`, `import-digest-db` and the
+  `migrate.js` step have run only in local rehearsals (the import: 15 s, 283 MiB peak on the prod
+  clone, the `node:sqlite` importer, measured locally). The import inside the worker unit's
+  `TimeoutStartSec=900` on the box is unmeasured.
 - **Worker Versioning on the box.** Checked locally on 2026-09-23 against `temporalio/server:1.32.0` on
   Postgres with the empty dynamic config the box uses: the worker image registered `digest:<GIT_SHA>`,
   `set-current.js` made it current, and a run recorded `VERSIONING_BEHAVIOR_PINNED` on it. The
