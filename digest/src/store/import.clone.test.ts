@@ -23,7 +23,7 @@ describe.skipIf(!CLONE_URL)("the prod clone, imported (§5.1)", () => {
     ["artifacts: all current, 128 selections backfilled", "SELECT count(*), sum((status = 'current')::int), (SELECT count(*) FROM artifacts WHERE name = 'selections.json') FROM artifacts", [2109, 2109, 227]],
     ["artifacts carry their stage from the name", "SELECT sum((stage IS NULL)::int) FROM artifacts", [0]],
     ["issues: all revision 1, five without a run", "SELECT count(*), sum((revision = 1)::int), sum((run_id IS NULL)::int) FROM issues", [282, 282, 5]],
-    ["sends: all sent, no claim recorded, 165 from before broadcasts", "SELECT count(*), sum((status = 'sent')::int), sum((claim_token IS NULL AND claimed_at IS NULL)::int), sum((resend_id IS NULL)::int) FROM sends", [265, 265, 265, 165]],
+    ["sends: the 100 broadcasts, all sent, no claim recorded, each with its id", "SELECT count(*), sum((status = 'sent')::int), sum((claim_token IS NULL AND claimed_at IS NULL)::int), sum((resend_id IS NULL)::int) FROM sends", [100, 100, 100, 0]],
     ["story sources, runs, and every one searchable", "SELECT count(*), count(DISTINCT run_id), sum((search IS NOT NULL AND search <> ''::tsvector)::int) FROM story_sources", [30063, 277, 30063]],
     ["fetched articles, runs", "SELECT count(*), count(DISTINCT run_id) FROM articles", [136143, 229]],
     ["dedup matches", "SELECT count(*) FROM dedup_matches", [24856]],

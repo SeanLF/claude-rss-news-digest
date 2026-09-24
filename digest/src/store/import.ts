@@ -48,11 +48,11 @@ export const CHECKS: [name: string, sql: string][] = [
   ["every issue, html byte for byte", `SELECT count(*) FROM legacy.digests d LEFT JOIN issues i ON i.issue_date = d.date::date AND i.revision = 1
      WHERE i.issue_date IS NULL OR i.html IS DISTINCT FROM d.html OR i.run_id IS DISTINCT FROM d.run_id`],
   ["no issue the legacy file did not have", `SELECT (SELECT count(*) FROM issues) - (SELECT count(*) FROM legacy.digests)`],
-  // A send is a broadcast, or, before broadcasts, a run that emailed someone.
-  ["every send, with its broadcast id and recipients", `SELECT count(*) FROM (legacy.digests d LEFT JOIN legacy.digest_runs r ON r.id = d.run_id) FULL JOIN sends s ON s.issue_date = d.date::date
-     WHERE (d.broadcast_status IS NOT NULL OR COALESCE(r.articles_emailed, 0) > 0) IS DISTINCT FROM (s.issue_date IS NOT NULL)
+  // A send is a Resend broadcast; the days mailed before broadcasts have none (their counts are in Resend).
+  ["every send, with its broadcast id and recipients", `SELECT count(*) FROM legacy.digests d FULL JOIN sends s ON s.issue_date = d.date::date
+     WHERE (d.broadcast_status IS NOT NULL) IS DISTINCT FROM (s.issue_date IS NOT NULL)
         OR (s.issue_date IS NOT NULL AND (s.resend_id IS DISTINCT FROM d.broadcast_id OR s.run_id IS DISTINCT FROM d.run_id OR s.status <> 'sent' OR s.revision <> 1
-            OR s.recipients IS DISTINCT FROM COALESCE(d.broadcast_recipients, r.articles_emailed)))`],
+            OR s.recipients IS DISTINCT FROM d.broadcast_recipients))`],
   ["every shown story source, column for column", `SELECT count(*) FROM legacy.shown_narratives l FULL JOIN story_sources s ON s.id = l.id
      WHERE s.id IS NULL OR l.id IS NULL OR s.headline <> l.headline OR s.tier IS DISTINCT FROM l.tier OR ${utc("s.shown_at")} IS DISTINCT FROM l.shown_at
         OR s.source_id IS DISTINCT FROM l.source_id OR s.run_id IS DISTINCT FROM l.run_id OR s.source_title IS DISTINCT FROM l.original_title OR s.cluster_id IS DISTINCT FROM l.cluster_id`],

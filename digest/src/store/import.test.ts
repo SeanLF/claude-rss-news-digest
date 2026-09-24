@@ -115,10 +115,10 @@ describe("the legacy import (transform and verify)", () => {
       { issue_date: "2026-09-11", revision: 1, run_id: 3, preheader: "pre3" },
       { issue_date: "2026-09-14", revision: 1, run_id: 6, preheader: "" },
     ]);
-    // Run 3 emailed 12 readers before broadcasts existed: a send with no broadcast id.
+    // Run 3 emailed 12 readers before broadcasts existed, as Resend transactional emails whose counts
+    // live in Resend: its run is sent, and it has no send.
     expect(await q("SELECT issue_date, run_id, resend_id, status, recipients, claim_token FROM sends ORDER BY issue_date")).toEqual([
       { issue_date: "2026-09-10", run_id: 1, resend_id: "b1", status: "sent", recipients: 12, claim_token: null },
-      { issue_date: "2026-09-11", run_id: 3, resend_id: null, status: "sent", recipients: 12, claim_token: null },
       { issue_date: "2026-09-14", run_id: 6, resend_id: "b6", status: "sent", recipients: 11, claim_token: null },
     ]);
     expect(await q("SELECT is_success, error, run_id FROM source_fetches ORDER BY id")).toEqual([{ is_success: true, error: null, run_id: 1 }, { is_success: false, error: "x", run_id: null }]);
@@ -150,7 +150,8 @@ describe("the legacy import (transform and verify)", () => {
     ["every artifact, content byte for byte", "UPDATE artifacts SET content = 'y' WHERE id = 2"],
     ["a sent outcome only where the legacy run emailed someone", "ALTER TABLE runs DISABLE TRIGGER runs_transition; UPDATE runs SET outcome = 'sent' WHERE id = 2"],
     ["every send, with its broadcast id and recipients", "UPDATE sends SET recipients = 13 WHERE issue_date = '2026-09-10'"],
-    ["every send, with its broadcast id and recipients", "DELETE FROM sends WHERE issue_date = '2026-09-11'"],
+    ["every send, with its broadcast id and recipients", "DELETE FROM sends WHERE issue_date = '2026-09-10'"],
+    ["every send, with its broadcast id and recipients", "INSERT INTO sends (issue_date, run_id, revision, status, recipients) VALUES ('2026-09-11', 3, 1, 'sent', 12)"],
     ["every send, with its broadcast id and recipients", "UPDATE sends SET status = 'failed' WHERE issue_date = '2026-09-14'"],
     ["every question, open or resolved as it was", "DELETE FROM thread_question_resolutions"],
     ["every question, open or resolved as it was", "UPDATE thread_question_resolutions SET answer = ''"],

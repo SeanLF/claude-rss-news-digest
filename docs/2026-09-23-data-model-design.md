@@ -72,7 +72,7 @@ three input columns. The schema says so where the columns are defined.
 
 Renamed from the first draft: `digest_runs` → `runs` (`run_at` → `started_at`; `completed_at` and
 `articles_emailed` dropped: the attempt's `ended_at`, the send's `recipients` and `published_runs`
-replace them), `run_usage` → `model_calls`, `run_artifacts` → `artifacts`, `broadcasts` → `sends`,
+replace them; the 165 days mailed before broadcasts have no send, so their counts stay in the legacy file), `run_usage` → `model_calls`, `run_artifacts` → `artifacts`, `broadcasts` → `sends`,
 `fetched_articles` → `articles`, `source_health` → `source_fetches`, `dedup_log` → `dedup_matches`,
 `shown_narratives` → `story_sources`, `thread_installments` → `thread_updates`; the column renames are
 the glossary's. The attempt state `closed_by_temporal` (never written) is gone: an attempt the
@@ -389,9 +389,11 @@ CREATE VIEW digests AS  -- compatibility for circulation until the web rewrite
 
 - `published_runs` encodes the rule `retract()` already uses (`mayHaveGone`: accepted states or a claim), once.
 - `digest_runs.articles_emailed` duplicates `broadcasts.recipients`; it stays until the web rewrite
-  because /stats reads it.
+  because /stats reads it. (Superseded by the Postgres schema: dropped, and only the 100 broadcast days
+  keep a count, in `sends`; §5.1.)
 - A forced re-run of a sent day publishes a new revision to the web and never re-sends (Sean,
-  2026-09-23). The broadcast claim is per date, so the send step already refuses; the change is that the
+  2026-09-23). The broadcast claim is per date, so the send step already refuses (a day mailed
+  before broadcasts has no send; the claim refuses it by its run whose outcome is `sent`); the change is that the
   run then ends `published`, not `failed`. The page can show "updated since the email" when the served
   revision is newer than `broadcasts.revision`. An operator-approved notice to subscribers is a later
   option, not built.
@@ -473,7 +475,7 @@ column, except where a column is named.
 | `model_calls` | `run_usage` | 2,205 over 191 runs, $769.74 | = ; `effort` NULL on 1,744 rows stays NULL ("not recorded", never back-filled) |
 | `artifacts` | `run_artifacts` ∪ `selections` | 1,981 + 128 = 2,109, all `current` | = with `sha256` of `content`, and `stage`/`kind`/`branch` from the name (Appendix C, one function shared with the writer); the 128 are `selections.json` for runs that have no such artifact; the other 99 `selections` rows equal their artifact (99/99) |
 | `issues` | `digests` | 282, all revision 1 | `html` byte-equal 282/282; `published_at` = `digests.created_at` (never NULL); `run_id` NULL on 5 (2025-12-26, -30, -31, 2026-01-16, -17: saved before runs were linked), so `issues.run_id` is nullable, for those rows only |
-| `sends` | `digests` with a broadcast, or whose run emailed someone | 265, all `sent`: 100 broadcasts, 165 mailed before broadcasts (no `resend_id`; `recipients` = the run's `articles_emailed`) | `resend_id`, `recipients`, `run_id` = `digests.run_id`; `claim_token`, `claimed_at` unknown, so nullable, for imported rows only. `email_artifact` is dropped: no run has an `email.html` artifact (0 rows), and a TS send's email is its run's `email.html` by name |
+| `sends` | `digests` with a Resend broadcast | 100, all `sent`, each with its `resend_id` and `recipients`. The 165 days mailed before broadcasts went out as Resend transactional emails, whose counts live in Resend (Sean, 2026-09-23): no send is synthesised for them; their runs' `outcome='sent'` records that they went out, and the send claim refuses a day with a run whose outcome is `sent`. Their per-day recipient counts (`articles_emailed`, 1,330 deliveries over the 165 days) are not carried into Postgres; the legacy file keeps them | `resend_id`, `recipients`, `run_id` = `digests.run_id`; `claim_token`, `claimed_at` unknown, so nullable, for imported rows only. `email_artifact` is dropped: no run has an `email.html` artifact (0 rows), and a TS send's email is its run's `email.html` by name |
 | `story_sources` (+ search column) | `shown_narratives` | 30,063 over 277 runs; index 30,063 | = |
 | `articles` | `fetched_articles` | 136,143 over 229 runs | = |
 | `dedup_matches` | `dedup_log`, minus `action` | 24,856 | = (`action` is `filtered` on 24,856 of 24,856) |
