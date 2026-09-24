@@ -633,6 +633,18 @@ describe("a failed run nobody resumed", () => {
     expect(logged).toContainEqual(expect.objectContaining({ runId: EARLIER, error: "unsent issue's thread writes kept" }));
   });
 
+  it("keeps a failed run whose own send claim is dated the day after it started (a run started for tomorrow)", async () => {
+    const s = await setup({ answers: { link: [link2] } });
+    await seedThread(s.db);
+    const before = await earlierRows(s);
+    await fail(s.db, EARLIER, "2026-09-17 23:50:00");
+    await s.db.run("INSERT INTO issues (issue_date, revision, run_id, html) VALUES ('2026-09-18', 1, NULL, '')");
+    await s.db.run("INSERT INTO sends (issue_date, run_id, revision, status, resend_id, claim_token, claimed_at) VALUES ('2026-09-18', $1, 1, 'claimed', NULL, gen_random_uuid(), now())", [EARLIER]);
+    const { logged } = await quietly(() => s.acts.threadsLink(RUN));
+    expect(await earlierRows(s)).toEqual(before);
+    expect(logged).toContainEqual(expect.objectContaining({ runId: EARLIER, error: "unsent issue's thread writes kept" }));
+  });
+
   it("declines, and says so, when a later delivered run builds on the failed one", async () => {
     const s = await setup({ answers: { link: [link2] } });
     await seedThread(s.db);

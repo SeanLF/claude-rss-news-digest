@@ -163,7 +163,9 @@ async function retract(db: Db, runId: number): Promise<Retraction> {
   // A run readers got, on the web or by email, is public, and so are its thread updates: saveDigest
   // puts the issue on the web before the send, so a send that fails after it does not unpublish them.
   if (await db.one("SELECT 1 FROM published_runs WHERE run_id = $1", [runId])) return decline("its issue is published");
-  const run = await db.one<{ date: string }>("SELECT (started_at AT TIME ZONE 'UTC')::date AS date FROM runs WHERE id = $1", [runId]);
+  // The run's own send first, whatever day it is dated: a run started for tomorrow sends under tomorrow.
+  const own = await db.one<{ date: string }>("SELECT issue_date::text AS date FROM sends WHERE run_id = $1", [runId]);
+  const run = own ?? (await db.one<{ date: string }>("SELECT (started_at AT TIME ZONE 'UTC')::date AS date FROM runs WHERE id = $1", [runId]));
   const day = run ? await sendRow(db, run.date) : undefined;
   const mayHaveGone = day !== undefined && (day.id !== null || day.status === "claimed" || ACCEPTED_BROADCAST_STATES.has(day.status));
   // Delivery is judged by sender: the day's broadcast is another run's only when its claiming run is
