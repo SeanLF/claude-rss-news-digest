@@ -1,4 +1,4 @@
-import type { Client } from "@temporalio/client";
+import { isGrpcServiceError, type Client } from "@temporalio/client";
 import { decodeVersioningBehavior } from "@temporalio/common";
 import type { WorkerDeploymentOptions } from "@temporalio/worker";
 
@@ -17,20 +17,45 @@ export function deploymentOptions(env: Record<string, string | undefined> = proc
 export type Stranded = { workflowId: string; buildId: string };
 const RUNNING_DIGESTS = 'WorkflowType="DigestWorkflow" AND ExecutionStatus="Running"';
 
+// temporal.api.enums.v1.TaskQueueType; @temporalio/proto is only a dev dependency.
+const WORKFLOW_QUEUE = 1;
+const ACTIVITY_QUEUE = 2;
+
 // Makes `buildId` the version new runs (manual and scheduled) start on, once a worker of that build
-// polls `taskQueue`: waited for up to `waitMs`, because bin/deploy may already have made the build
-// current before its worker existed, and then the server alone would not say whether it polls.
+// polls `taskQueue` and the server has registered the build on its workflow and activity queues:
+// waited for up to `waitMs`. The poller alone is not enough. The server lists a poller before it
+// registers the poller's build, one queue type at a time, and until both are registered it refuses
+// the build: NOT_FOUND, or FAILED_PRECONDITION ("missing active task queues") while the current
+// build has work on a queue the new one has not registered yet. Nor is registration alone enough:
+// bin/deploy may already have made the build current before its worker existed.
 export async function setCurrentVersion(client: Client, buildId: string, taskQueue: string, waitMs = 120_000): Promise<void> {
   const namespace = client.options.namespace;
   const until = Date.now() + waitMs;
   for (;;) {
     const { pollers } = await client.workflowService.describeTaskQueue({ namespace, taskQueue: { name: taskQueue } }).catch(() => ({ pollers: [] }));
-    if (pollers?.some((p) => p.deploymentOptions?.deploymentName === DEPLOYMENT_NAME && p.deploymentOptions.buildId === buildId)) {
+    const polls = pollers?.some((p) => p.deploymentOptions?.deploymentName === DEPLOYMENT_NAME && p.deploymentOptions.buildId === buildId);
+    const { types, error } = polls ? await registeredQueueTypes(client, buildId, taskQueue) : { types: new Set<number>() };
+    if (types.has(WORKFLOW_QUEUE) && types.has(ACTIVITY_QUEUE)) {
       await client.workflowService.setWorkerDeploymentCurrentVersion({ namespace, deploymentName: DEPLOYMENT_NAME, buildId, identity: client.options.identity });
       return;
     }
-    if (Date.now() > until) throw new Error(`no worker of ${DEPLOYMENT_NAME}:${buildId} polled ${taskQueue} within ${waitMs / 1000} s`);
+    if (Date.now() > until) {
+      if (!polls) throw new Error(`no worker of ${DEPLOYMENT_NAME}:${buildId} polled ${taskQueue} within ${waitMs / 1000} s`);
+      throw new Error(`a worker of ${DEPLOYMENT_NAME}:${buildId} polls ${taskQueue}, but the server had not registered the build on its workflow and activity queues within ${waitMs / 1000} s${error ? `: ${error.message}` : ""}`);
+    }
     await new Promise((r) => setTimeout(r, 2000));
+  }
+}
+
+const NOT_FOUND = 5; // gRPC status: the build has no queue registered yet
+
+async function registeredQueueTypes(client: Client, buildId: string, taskQueue: string): Promise<{ types: Set<number>; error?: Error }> {
+  try {
+    const res = await client.workflowService.describeWorkerDeploymentVersion({ namespace: client.options.namespace, deploymentVersion: { deploymentName: DEPLOYMENT_NAME, buildId } });
+    return { types: new Set(res.versionTaskQueues.filter((q) => q.name === taskQueue).map((q) => Number(q.type))) };
+  } catch (e) {
+    if (isGrpcServiceError(e) && (e.code as number) === NOT_FOUND) return { types: new Set() };
+    return { types: new Set(), error: e instanceof Error ? e : new Error(String(e)) };
   }
 }
 

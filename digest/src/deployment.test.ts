@@ -1,4 +1,4 @@
-import type { WorkflowHandle } from "@temporalio/client";
+import type { Client, WorkflowHandle } from "@temporalio/client";
 import { temporal } from "@temporalio/proto";
 import { TestWorkflowEnvironment } from "@temporalio/testing";
 import { Worker } from "@temporalio/worker";
@@ -30,6 +30,34 @@ describe("waitingLine", () => {
   it("is the line bin/deploy matches: newsroom/tests/test_deploy_run_guard.py plays this exact text", () => {
     expect(waitingLine(["digest-2026-10-05"])).toBe("waiting: digest-2026-10-05 -- no worker has taken these; they start once a polling build is current");
   });
+});
+
+// The server lists a poller before it has registered the poller's build (Temporal 1.32: matching's
+// PollTask records the poller, then registers the build in the deployment). In that window the build
+// is not in the deployment, and setting it current fails NOT_FOUND. The window is one registration
+// call, too short to hold open on a real server; this fake server holds it for two describes.
+describe("setCurrentVersion", () => {
+  it("does not set a build that polls but is not yet registered in the deployment (NOT_FOUND)", async () => {
+    let describes = 0;
+    const registered = () => describes > 2;
+    const notFound = Object.assign(new Error("5 NOT_FOUND: build ID 'build-z' not found in Worker Deployment 'digest'"), { code: 5, details: "", metadata: {} });
+    const sets: string[] = [];
+    const workflowService = {
+      describeTaskQueue: () => Promise.resolve({ pollers: [{ deploymentOptions: { deploymentName: DEPLOYMENT_NAME, buildId: "build-z" } }] }),
+      describeWorkerDeploymentVersion: () => {
+        describes++;
+        return registered() ? Promise.resolve({ versionTaskQueues: [{ name: TASK_QUEUE, type: 1 }, { name: TASK_QUEUE, type: 2 }] }) : Promise.reject(notFound);
+      },
+      setWorkerDeploymentCurrentVersion: ({ buildId }: { buildId: string }) => {
+        if (!registered()) return Promise.reject(notFound);
+        sets.push(buildId);
+        return Promise.resolve({});
+      },
+    };
+    const client = { options: { namespace: "default", identity: "test" }, workflowService } as unknown as Client;
+    await setCurrentVersion(client, "build-z", TASK_QUEUE, 30_000);
+    expect(sets).toEqual(["build-z"]);
+  }, 30_000);
 });
 
 // Worker Deployments need a real server: the time-skipping test server has no deployment API. The
@@ -124,6 +152,37 @@ describe("worker versioning on a dev server", () => {
       await h.terminate("checked");
       await schedule.delete();
     });
+  }, 120_000);
+
+  // A worker shows as a poller before the server has registered its build, one queue type at a time.
+  // Here the gap is held open: build-q polls workflow tasks only until its activity worker starts,
+  // while the current build-p has an activity backlog. Setting build-q current inside that gap is
+  // refused (FAILED_PRECONDITION: "missing active task queues"); under CI load, NOT_FOUND.
+  it("a build is made current once the server has registered it on both queue types, not when its first poller shows", async () => {
+    const opts = (buildId: string) => ({ connection: env.nativeConnection, taskQueue: TASK_QUEUE, maxCachedWorkflows: 0, workerDeploymentOptions: deploymentOptions({ GIT_SHA: buildId }) });
+    const p = await versioned("build-p");
+    await p.runUntil(() => setCurrentVersion(env.client, "build-p", TASK_QUEUE));
+    const pWorkflows = await Worker.create({ ...opts("build-p"), workflowsPath });
+    const pDone = pWorkflows.run();
+    const h = await env.client.workflow.start("DigestWorkflow", startOptions("2026-10-06", {}));
+    const qWorkflows = await Worker.create({ ...opts("build-q"), workflowsPath });
+    const qActivities = await Worker.create({ ...opts("build-q"), activities: stubActivities() });
+    const qDone = qWorkflows.run();
+    let actDone: Promise<void> | undefined;
+    try {
+      for (let i = 0; i < 100 && (await completedTasks(h)).length === 0; i++) await pause(100); // its first activity is now build-p's backlog
+      const setting = setCurrentVersion(env.client, "build-q", TASK_QUEUE, 30_000);
+      setting.catch(() => undefined);
+      await pause(4000);
+      actDone = qActivities.run();
+      await setting;
+      const { routingConfig } = (await env.client.workflowService.describeWorkerDeployment({ namespace: env.client.options.namespace, deploymentName: DEPLOYMENT_NAME })).workerDeploymentInfo ?? {};
+      expect(routingConfig?.currentDeploymentVersion?.buildId).toBe("build-q");
+    } finally {
+      await h.terminate("checked").catch(() => undefined);
+      for (const w of [pWorkflows, qWorkflows, qActivities]) if (w.getState() === "RUNNING") w.shutdown();
+      await Promise.all([pDone, qDone, actDone]);
+    }
   }, 120_000);
 
   // bin/deploy points current at the build it ships before the apply, whose bootstrap may start a run
