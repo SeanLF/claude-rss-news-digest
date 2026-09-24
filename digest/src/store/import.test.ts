@@ -74,11 +74,11 @@ function sqliteFile(sql: string): string {
   db.close();
   return path;
 }
-async function imported(): Promise<PGlite> {
+async function imported(path?: string): Promise<PGlite> {
   const pg = (instance ??= new PGlite({ parsers: PARSERS }));
   await pg.exec("SET TIME ZONE 'UTC'; DROP SCHEMA IF EXISTS legacy CASCADE; DROP SCHEMA public CASCADE; CREATE SCHEMA public");
   const db = pgliteDb(pg);
-  await copyLegacy(db, (legacyPath ??= sqliteFile(LEGACY)));
+  await copyLegacy(db, path ?? (legacyPath ??= sqliteFile(LEGACY)));
   for (const up of upSections()) await pg.exec(up);
   await transform(db);
   return pg;
@@ -89,7 +89,9 @@ beforeAll(async () => {
 }, 60_000);
 const broken = async (pg: PGlite) => (await verify(pgliteDb(pg))).filter((c) => c.broken !== 0).map((c) => c.name);
 
-describe("the legacy import (transform and verify)", () => {
+// Each test runs a whole import on PGlite: ~0.2 s alone, past vitest's 5 s default under the full
+// suite's load (seen in pre-commit CI).
+describe("the legacy import (transform and verify)", { timeout: 30_000 }, () => {
   it("copies every case §5.1 names, and every check holds", async () => {
     const pg = await imported();
     const q = async (sql: string) => (await pg.query(sql)).rows;
@@ -140,6 +142,23 @@ describe("the legacy import (transform and verify)", () => {
     expect(await q("SELECT max(id) AS id FROM runs")).toEqual([{ id: 7 }]);
     await dropLegacy(pgliteDb(pg));
     expect(await q("SELECT count(*) AS n FROM pg_namespace WHERE nspname = 'legacy'")).toEqual([{ n: 0 }]);
+  });
+
+  // SQLite's AUTOINCREMENT never hands out an id again, even a deleted row's; its high-water mark is
+  // sqlite_sequence. A thread id is a public URL (/threads/<id>), so a thread deleted before the import
+  // must not have its id reused after it.
+  it("continues each id past the highest SQLite ever handed out, deleted rows included", async () => {
+    const pg = await imported(sqliteFile(`${LEGACY}
+      CREATE TABLE autoincrement_probe (id INTEGER PRIMARY KEY AUTOINCREMENT);
+      INSERT INTO sqlite_sequence (name, seq) VALUES ('threads', 50), ('run_artifacts', 30), ('digest_runs', 1);`));
+    const next = async (table: string) => (await pg.query<{ n: number }>(`SELECT nextval(pg_get_serial_sequence('${table}', 'id')) AS n`)).rows[0]!.n;
+    expect(await broken(pg)).toEqual([]);
+    expect(await next("threads")).toBe(51);
+    // The retired table's selections are numbered after the high-water mark too.
+    expect((await pg.query("SELECT id FROM artifacts WHERE run_id = 1 ORDER BY id")).rows).toEqual([{ id: 31 }]);
+    expect(await next("artifacts")).toBe(32);
+    expect(await next("runs")).toBe(7); // a mark below the highest id changes nothing
+    expect(await next("model_calls")).toBe(3); // no mark: after the highest id
   });
 
   // Negative controls: each check must see its own kind of loss.

@@ -34,9 +34,10 @@ SELECT id, run_id, run_id,
        CASE WHEN artifact_name ~ '\.corrupt\.\d+$' THEN 'quarantined' ELSE 'current' END,
        pg_temp.utc(created_at)
 FROM legacy.run_artifacts;
--- Runs whose selections exist only in the retired table, numbered after the legacy ids (an insert with
--- explicit ids does not move the identity).
-SELECT setval(pg_get_serial_sequence('artifacts', 'id'), (SELECT COALESCE(max(id), 0) + 1 FROM artifacts), false);
+-- Runs whose selections exist only in the retired table, numbered after the legacy ids and any id
+-- SQLite handed out and deleted (an insert with explicit ids does not move the identity).
+SELECT setval(pg_get_serial_sequence('artifacts', 'id'),
+              GREATEST((SELECT COALESCE(max(id), 0) FROM artifacts), (SELECT COALESCE(max(seq), 0) FROM legacy.sqlite_sequence WHERE name = 'run_artifacts')) + 1, false);
 INSERT INTO artifacts (run_id, attempt_id, name, content, sha256, created_at)
 SELECT s.run_id, s.run_id, 'selections.json', s.selections_json, encode(sha256(convert_to(s.selections_json, 'UTF8')), 'hex'), pg_temp.utc(s.created_at)
 FROM legacy.selections s

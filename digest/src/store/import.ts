@@ -23,8 +23,21 @@ export async function transform(db: Db, sql = readFileSync(TRANSFORM, "utf8")): 
       if (k.stage !== null) await t.run("UPDATE artifacts SET stage = $2, kind = $3, branch = $4 WHERE name = $1", [n, k.stage, k.kind, k.branch]);
     }
     await t.exec(RESET_IDENTITIES);
+    await t.exec(PAST_SQLITE_SEQUENCES);
   });
 }
+
+// Each table that kept its legacy ids, with the legacy table whose AUTOINCREMENT mark it continues:
+// SQLite never handed out an id twice, and a thread's id is a public URL.
+const CONTINUES: [table: string, legacy: string][] = [
+  ["runs", "digest_runs"], ["run_attempts", "digest_runs"], ["model_calls", "run_usage"], ["artifacts", "run_artifacts"],
+  ["story_sources", "shown_narratives"], ["articles", "fetched_articles"], ["source_fetches", "source_health"],
+  ["dedup_matches", "dedup_log"], ["threads", "threads"], ["thread_updates", "thread_installments"], ["thread_questions", "thread_questions"],
+];
+// Raises, never lowers: RESET_IDENTITIES has already put each after its highest id.
+const PAST_SQLITE_SEQUENCES = CONTINUES.map(([table, legacy]) =>
+  `SELECT setval(pg_get_serial_sequence('${table}', 'id'), s.seq + 1, false) FROM legacy.sqlite_sequence s
+     WHERE s.name = '${legacy}' AND s.seq >= (SELECT COALESCE(max(id), 0) FROM ${table});`).join("\n");
 
 // Each check is a query over both schemas that returns the number of rows that break it; all must be 0.
 const utc = (col: string) => `to_char(${col} AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI:SS')`;

@@ -213,9 +213,15 @@ export async function copyLegacy(pg: Db, path: string, opts: { batchRows?: numbe
     const fingerprint = fileFingerprint(file);
     const batch = { rows: opts.batchRows ?? 2000, chars: opts.batchChars ?? 2 * 1024 * 1024 };
     let rows = 0;
+    // AUTOINCREMENT's high-water marks, which max(id) understates once rows were deleted: the import
+    // continues each identity after them (import.ts), so no id SQLite handed out is handed out again.
+    const hasSequence = file.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'sqlite_sequence'").get() !== undefined;
+    const sequences = hasSequence ? (file.prepare("SELECT name, seq FROM sqlite_sequence").all() as { name: string; seq: number }[]) : [];
     await pg.tx(async (t) => {
       await t.exec("CREATE SCHEMA legacy");
       for (const table of tables) rows += await copyTable(file, t, table, batch);
+      await t.exec("CREATE TABLE legacy.sqlite_sequence (name text PRIMARY KEY, seq bigint NOT NULL)");
+      for (const s of sequences) await t.run("INSERT INTO legacy.sqlite_sequence (name, seq) VALUES ($1, $2)", [s.name, s.seq]);
     });
     return { tables, rows, fingerprint };
   } finally {
