@@ -1,0 +1,363 @@
+{
+  "_doc": "Rust circulation answers recorded by bin/site-parity-record (goldens 20260923T230128Z, Rust d17a32c) on data/prod-20260923b.db: the check that node:sqlite reproduces search.rs",
+  "recorded": [
+    {
+      "query": "ceasefire",
+      "hits": [
+        {
+          "date": "2026-04-08",
+          "headline": "Israel says ceasefire excludes Lebanon; Hezbollah pauses fire"
+        },
+        {
+          "date": "2026-04-08",
+          "headline": "China reportedly pressed Iran toward the ceasefire deal"
+        },
+        {
+          "date": "2026-04-10",
+          "headline": "Putin declares Easter ceasefire in Ukraine; Zelensky agrees"
+        },
+        {
+          "date": "2026-04-10",
+          "headline": "Putin declares Easter ceasefire in Ukraine; Zelensky agrees"
+        },
+        {
+          "date": "2026-04-10",
+          "headline": "Putin declares Easter ceasefire in Ukraine; Zelensky agrees"
+        },
+        {
+          "date": "2026-06-15",
+          "headline": "Lebanese remain sceptical despite US-Iran ceasefire announcement"
+        },
+        {
+          "date": "2026-04-08",
+          "headline": "Israel says ceasefire excludes Lebanon; Hezbollah pauses fire"
+        },
+        {
+          "date": "2026-04-22",
+          "headline": "Trump extends Iran ceasefire indefinitely as peace talks stall"
+        },
+        {
+          "date": "2026-04-22",
+          "headline": "Trump extends Iran ceasefire indefinitely as peace talks stall"
+        },
+        {
+          "date": "2026-04-08",
+          "headline": "World leaders welcome ceasefire but warn Iran's causes remain 'unresolved'"
+        },
+        {
+          "date": "2026-04-20",
+          "headline": "Turkey optimistic ceasefire can be extended past Wednesday"
+        },
+        {
+          "date": "2026-05-02",
+          "headline": "China says urgent need to maintain Iran war ceasefire"
+        },
+        {
+          "date": "2026-05-08",
+          "headline": "Russia-Ukraine ceasefire collapses hours after Moscow declared it"
+        },
+        {
+          "date": "2026-05-08",
+          "headline": "Russia-Ukraine ceasefire collapses hours after Moscow declared it"
+        },
+        {
+          "date": "2026-05-08",
+          "headline": "Russia-Ukraine ceasefire collapses hours after Moscow declared it"
+        },
+        {
+          "date": "2026-06-05",
+          "headline": "Hezbollah rejects US-brokered Lebanon ceasefire as Israel keeps up strikes"
+        },
+        {
+          "date": "2026-07-09",
+          "headline": "US and Iran trade strikes for second night as ceasefire collapses"
+        },
+        {
+          "date": "2026-04-08",
+          "headline": "US and Iran agree to two-week ceasefire; Hormuz to reopen"
+        },
+        {
+          "date": "2026-04-08",
+          "headline": "Oil drops 15%, global stocks surge on ceasefire news"
+        },
+        {
+          "date": "2026-04-10",
+          "headline": "Israel strikes Beirut as US-Iran ceasefire teeters"
+        },
+        {
+          "date": "2026-04-10",
+          "headline": "Putin declares Easter ceasefire in Ukraine; Zelensky agrees"
+        },
+        {
+          "date": "2026-04-22",
+          "headline": "Trump extends Iran ceasefire indefinitely as peace talks stall"
+        },
+        {
+          "date": "2026-04-22",
+          "headline": "Trump extends Iran ceasefire indefinitely as peace talks stall"
+        },
+        {
+          "date": "2026-04-24",
+          "headline": "Israel and Lebanon extend ceasefire three weeks, Trump eyes historic summit"
+        },
+        {
+          "date": "2026-04-24",
+          "headline": "Israel retaliates against Hezbollah rocket launch hours after ceasefire extension"
+        },
+        {
+          "date": "2026-05-08",
+          "headline": "US and Iran trade fire in Hormuz as ceasefire frays"
+        },
+        {
+          "date": "2026-05-09",
+          "headline": "Trump brokers three-day Russia-Ukraine ceasefire with prisoner exchange"
+        },
+        {
+          "date": "2026-05-09",
+          "headline": "Trump brokers three-day Russia-Ukraine ceasefire with prisoner exchange"
+        },
+        {
+          "date": "2026-05-09",
+          "headline": "Trump brokers three-day Russia-Ukraine ceasefire with prisoner exchange"
+        },
+        {
+          "date": "2026-06-05",
+          "headline": "Hezbollah rejects US-brokered Lebanon ceasefire as Israel keeps up strikes"
+        },
+        {
+          "date": "2026-06-27",
+          "headline": "US strikes Iran as drone attack on cargo ship tests ceasefire deal"
+        },
+        {
+          "date": "2026-06-27",
+          "headline": "US strikes Iran as drone attack on cargo ship tests ceasefire deal"
+        },
+        {
+          "date": "2026-03-15",
+          "headline": "Trump rejects ceasefire talks as Turkey says Iran feels 'betrayed'"
+        },
+        {
+          "date": "2026-03-15",
+          "headline": "Trump rejects ceasefire talks as Turkey says Iran feels 'betrayed'"
+        },
+        {
+          "date": "2026-03-22",
+          "headline": "Japan could consider Hormuz minesweeping once ceasefire reached, minister says"
+        },
+        {
+          "date": "2026-04-02",
+          "headline": "Iran denies requesting ceasefire as Trump and Tehran trade contradictory claims"
+        },
+        {
+          "date": "2026-04-08",
+          "headline": "US and Iran agree to two-week ceasefire; Hormuz to reopen"
+        },
+        {
+          "date": "2026-04-08",
+          "headline": "Oil drops 15%, global stocks surge on ceasefire news"
+        },
+        {
+          "date": "2026-04-08",
+          "headline": "Oil drops 15%, global stocks surge on ceasefire news"
+        },
+        {
+          "date": "2026-04-14",
+          "headline": "Israeli strikes kill three in Gaza as ceasefire talks continue"
+        },
+        {
+          "date": "2026-04-19",
+          "headline": "Hezbollah signals conditional cooperation with Lebanon-Israel ceasefire"
+        },
+        {
+          "date": "2026-04-22",
+          "headline": "Trump extends Iran ceasefire indefinitely as peace talks stall"
+        },
+        {
+          "date": "2026-04-22",
+          "headline": "Trump extends Iran ceasefire indefinitely as peace talks stall"
+        },
+        {
+          "date": "2026-04-22",
+          "headline": "Trump extends Iran ceasefire indefinitely as peace talks stall"
+        },
+        {
+          "date": "2026-04-22",
+          "headline": "Trump extends Iran ceasefire indefinitely as peace talks stall"
+        },
+        {
+          "date": "2026-04-27",
+          "headline": "Israeli ceasefire violations in Gaza exceed 2,400, Al Jazeera reports"
+        },
+        {
+          "date": "2026-05-02",
+          "headline": "Iran rebuilds military under cover of ceasefire, analysts say"
+        },
+        {
+          "date": "2026-05-08",
+          "headline": "US and Iran trade fire in Hormuz as ceasefire frays"
+        },
+        {
+          "date": "2026-05-09",
+          "headline": "Trump brokers three-day Russia-Ukraine ceasefire with prisoner exchange"
+        },
+        {
+          "date": "2026-05-09",
+          "headline": "Trump brokers three-day Russia-Ukraine ceasefire with prisoner exchange"
+        }
+      ]
+    },
+    {
+      "query": "Iran nuclear",
+      "hits": [
+        {
+          "date": "2026-03-30",
+          "headline": "Trump publicly splits with Gabbard over Iran nuclear stance"
+        },
+        {
+          "date": "2026-03-30",
+          "headline": "Trump publicly splits with Gabbard over Iran nuclear stance"
+        },
+        {
+          "date": "2026-03-30",
+          "headline": "Trump publicly splits with Gabbard over Iran nuclear stance"
+        },
+        {
+          "date": "2026-02-27",
+          "headline": "US-Iran nuclear talks end without deal as military buildup continues"
+        },
+        {
+          "date": "2025-12-23",
+          "headline": "Netanyahu to discuss Iran nuclear program and Gaza next phase with Trump"
+        },
+        {
+          "date": "2026-02-11",
+          "headline": "Trump hints at second aircraft carrier deployment as Iran nuclear talks stall"
+        },
+        {
+          "date": "2026-02-18",
+          "headline": "US-Iran nuclear talks in Geneva agree 'guiding principles' but key gaps remain"
+        },
+        {
+          "date": "2026-02-08",
+          "headline": "Israel's Netanyahu to meet Trump on February 11 to discuss Iran nuclear talks"
+        },
+        {
+          "date": "2026-02-20",
+          "headline": "Trump sets 10-day deadline for Iran nuclear deal as massive military buildup surrounds Tehran"
+        },
+        {
+          "date": "2026-04-17",
+          "headline": "Iran nuclear talks stall on enrichment as interim deal floated"
+        },
+        {
+          "date": "2026-03-18",
+          "headline": "Projectile hits near Iran's Bushehr nuclear plant; Russia condemns strike"
+        },
+        {
+          "date": "2026-03-19",
+          "headline": "Gabbard faces scrutiny over claim Iran was not rebuilding nuclear enrichment"
+        },
+        {
+          "date": "2026-04-12",
+          "headline": "Netanyahu says war crushed Iran's nuclear and missile programmes"
+        },
+        {
+          "date": "2026-04-17",
+          "headline": "Iran nuclear talks stall on enrichment as interim deal floated"
+        },
+        {
+          "date": "2026-06-20",
+          "headline": "Iran-US nuclear talks reach Switzerland after Lebanon ceasefire holds"
+        },
+        {
+          "date": "2026-05-19",
+          "headline": "Trump pauses Iran strike, signals nuclear deal possible"
+        },
+        {
+          "date": "2026-05-25",
+          "headline": "US and Iran near deal on Hormuz as nuclear question stays unresolved"
+        },
+        {
+          "date": "2026-07-11",
+          "headline": "Trump threatens Iran with 1,000 missiles as ceasefire collapses and talks limp on"
+        },
+        {
+          "date": "2026-06-02",
+          "headline": "Iran-U.S. nuclear talks stall as Tehran cites Israeli attacks on Lebanon"
+        },
+        {
+          "date": "2026-06-05",
+          "headline": "IAEA report shows Iran nuclear programme largely unchanged despite three months of war"
+        },
+        {
+          "date": "2026-04-26",
+          "headline": "US-Iran nuclear talks stall as Tehran rejects 'maximalist' demands and Trump cancels Pakistan trip"
+        },
+        {
+          "date": "2026-07-13",
+          "headline": "US and Iran trade fresh strikes as Strait of Hormuz ceasefire collapses"
+        },
+        {
+          "date": "2026-04-17",
+          "headline": "Iran nuclear talks stall on enrichment as interim deal floated"
+        },
+        {
+          "date": "2026-04-26",
+          "headline": "US-Iran nuclear talks stall as Tehran rejects 'maximalist' demands and Trump cancels Pakistan trip"
+        },
+        {
+          "date": "2026-06-10",
+          "headline": "US-Iran nuclear talks stall as both sides demand to be seen as winner"
+        },
+        {
+          "date": "2026-04-26",
+          "headline": "US-Iran nuclear talks stall as Tehran rejects 'maximalist' demands and Trump cancels Pakistan trip"
+        },
+        {
+          "date": "2026-04-26",
+          "headline": "US-Iran nuclear talks stall as Tehran rejects 'maximalist' demands and Trump cancels Pakistan trip"
+        },
+        {
+          "date": "2026-04-26",
+          "headline": "US-Iran nuclear talks stall as Tehran rejects 'maximalist' demands and Trump cancels Pakistan trip"
+        },
+        {
+          "date": "2026-06-30",
+          "headline": "US and Iran resume nuclear talks in Doha after weekend strikes"
+        },
+        {
+          "date": "2026-04-10",
+          "headline": "Iran's nuclear chief says uranium enrichment will not be on the table"
+        },
+        {
+          "date": "2026-04-26",
+          "headline": "US-Iran nuclear talks stall as Tehran rejects 'maximalist' demands and Trump cancels Pakistan trip"
+        },
+        {
+          "date": "2026-04-26",
+          "headline": "US-Iran nuclear talks stall as Tehran rejects 'maximalist' demands and Trump cancels Pakistan trip"
+        },
+        {
+          "date": "2026-06-05",
+          "headline": "IAEA report shows Iran nuclear programme largely unchanged despite three months of war"
+        },
+        {
+          "date": "2026-04-26",
+          "headline": "US-Iran nuclear talks stall as Tehran rejects 'maximalist' demands and Trump cancels Pakistan trip"
+        },
+        {
+          "date": "2026-06-05",
+          "headline": "IAEA report shows Iran nuclear programme largely unchanged despite three months of war"
+        },
+        {
+          "date": "2026-04-26",
+          "headline": "US-Iran nuclear talks stall as Tehran rejects 'maximalist' demands and Trump cancels Pakistan trip"
+        },
+        {
+          "date": "2026-04-26",
+          "headline": "US-Iran nuclear talks stall as Tehran rejects 'maximalist' demands and Trump cancels Pakistan trip"
+        }
+      ]
+    }
+  ]
+}

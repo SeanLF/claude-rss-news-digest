@@ -73,7 +73,7 @@ export interface SiteData {
   issue(date: string): Promise<{ html: string; preheader: string } | undefined>;
   latestIssueDate(): Promise<string | undefined>;
   feed(limit: number): Promise<{ date: string; preheader: string }[]>;
-  // A literal phrase, most relevant first.
+  // A literal phrase, most relevant first, one row per story.
   search(query: string, limit: number): Promise<SearchHit[]>;
   threadIndex(before: { updatedAt: string; id: number } | undefined, limit: number): Promise<ThreadIndexData>;
   // undefined: no such thread. A number: the thread it was merged into.

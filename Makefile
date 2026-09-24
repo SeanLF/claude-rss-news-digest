@@ -3,7 +3,7 @@
 
 .DEFAULT_GOAL := help
 .PHONY: ci ci-fix ci-full test eval eval-stages eval-coherence eval-repair eval-select-order replay digest a11y lighthouse web-check deploy deploy-dry migrate migrate-status \
-        ssh db-clone usage usage-daily analytics analytics-list analytics-q versions circulation preview anatomy prompt ask-eval help
+        ssh db-clone usage usage-daily analytics analytics-list analytics-q versions circulation preview anatomy prompt ask-eval search-eval help
 
 # Default window for the analytics queries; override with RUNS=N
 RUNS ?= 30
@@ -128,6 +128,9 @@ site-parity-record: ## Record the Rust circulation server's answers on a copy of
 
 site-parity: ## Hold the TypeScript site to the newest Rust goldens: import their clone into Postgres, run the parity tests (DIR=data/site-parity/<stamp>; host-only)
 	bin/site-parity $(DIR)
+
+search-eval: ## Score the site's headline search against the pre-registered queries, judgements and Rust's FTS5 answers, with its negative controls (SRC=data/prod-20260923b.db; no model calls; host-only)
+	bin/search-eval score
 
 site-local: ## Serve the TypeScript site at http://127.0.0.1:8080 over a copy of the prod clone (SRC=data/prod-20260923b.db)
 	@src=$${SRC:-data/prod-20260923b.db}; copy=data/site-local.db; \

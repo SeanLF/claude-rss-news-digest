@@ -70,12 +70,17 @@ describe("the site's reads", () => {
     expect((await store().archive({ before: "not a date", limit: 5 })).length).toBe(4);
   });
 
-  it("searches a literal phrase, operators and all, with the issue it ran in", async () => {
+  it("searches a literal phrase, operators and all, one row per story, with the issue it ran in", async () => {
+    // Run 1's story is cited by two sources: one row, not two (docs/proposed/2026-09-23-search-tuning).
     const hits = await store().search("ceasefire holds", 50);
-    expect(hits.map((h) => h.headline)).toEqual(["Ceasefire holds in the north", "Ceasefire holds in the north"]);
+    expect(hits.map((h) => h.headline)).toEqual(["Ceasefire holds in the north"]);
     expect(hits[0]!.date).toBe("2026-08-28");
     expect(await store().search('ceasefire" OR (x) headline:*', 50)).toEqual([]);
-    expect(await store().search("the", 50)).toEqual([]);
+  });
+
+  it("answers a query of English stop words only unstemmed, as the Rust site did, not with nothing", async () => {
+    expect((await store().search("the", 50)).map((h) => h.headline)).toEqual(["Ceasefire holds in the north"]);
+    expect(await store().search("zzqq", 50)).toEqual([]);
   });
 
   it("shows a thread only through published runs", async () => {

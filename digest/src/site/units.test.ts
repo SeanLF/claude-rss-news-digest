@@ -187,9 +187,9 @@ describe("the site's boundary", () => {
     expect([...mods.keys()].some((f) => f.endsWith("/contracts/leaks.ts"))).toBe(true);
   });
 
-  it("is imported by nothing outside it but its CLI", () => {
+  it("is imported by nothing outside it but its CLIs", () => {
     const bad = files(src)
-      .filter((f) => !f.includes("/site/") && !f.endsWith("/cli/site-parity.ts"))
+      .filter((f) => !f.includes("/site/") && !f.endsWith("/cli/site-parity.ts") && !f.endsWith("/cli/search-eval.ts"))
       .flatMap((f) => imports(f).filter((i) => i.includes("/site/")).map((i) => `${f}: ${i}`));
     expect(bad).toEqual([]);
   });
