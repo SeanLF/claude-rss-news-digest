@@ -5,11 +5,19 @@ Reviewing a run used to mean cloning a 176 MB database over Tailscale and greppi
 by hand. This runs the query on the box instead and prints JSON, so nothing is copied and
 nothing is stale.
 
-Two independent read-only guarantees, because production data is under this:
-  1. the data volume is mounted ``:ro``, so the container cannot write it (verified against the
-     live WAL database -- a read-only mount does open cleanly);
-  2. SQLite opens the file with ``mode=ro``, so it refuses a write even if the mount changed.
-A test asserts both, and that no payload carries a write verb.
+Two independent read-only guarantees, because production data is under this. Which two depends on
+the store production runs on, named in bin/lib/prod-store (the cut-over flips it; DIGEST_PROD_STORE
+overrides it for one command):
+  sqlite    1. the data volume is mounted ``:ro``, so the container cannot write it (verified against
+               the live WAL database -- a read-only mount does open cleanly);
+            2. SQLite opens the file with ``mode=ro``, so it refuses a write even if the mount changed.
+  postgres  1. psql logs in as digest_ro, which holds SELECT and nothing else (digest/db/ops/digest_ro.sql);
+            2. the session is read-only (PGOPTIONS default_transaction_read_only=on), so it refuses a
+               write even from a role that may write.
+Tests assert both, and that no payload carries a write verb (or, on Postgres, a SET that could
+turn the session writable); digest/src/ops/ops-payloads.test.ts runs the Postgres payloads against
+a real server and shows each guarantee refusing a write with the other absent. On Postgres the
+output is compact JSON; pipe it to jq.
 
 Deliberately NOT an HTTP surface. circulation sits behind kamal-proxy on an internal Docker
 network and never sees a client address, so "Tailscale-only routes" there could only mean
@@ -30,6 +38,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import os
 import re
 import shlex
 import subprocess
@@ -40,6 +49,25 @@ UNIT = "news-digest.service"
 VOLUME = "news-digest-data"
 IMAGE_MATCH = "digest-newsroom:latest"
 DB = "/d/digest.db"
+
+STORE_FILE = Path(__file__).resolve().parent / "lib" / "prod-store"
+STORES = ("sqlite", "postgres")
+# After the cut-over: the product database in the Postgres Temporal runs (seanfloyd.dev
+# news-digest-temporal.tf), reached over the container's local socket, and the worker's unit.
+PG_CONTAINER = "news-digest-temporal-postgres"
+PG_ROLE = "digest_ro"
+PG_DATABASE = "digest"
+PG_UNIT = "news-digest-worker.service"
+PG_READ_ONLY = "-c default_transaction_read_only=on"
+PAYLOAD_DIR = Path(__file__).resolve().parent.parent / "digest" / "db" / "ops"
+
+
+def prod_store() -> str:
+    store = os.environ.get("DIGEST_PROD_STORE") or STORE_FILE.read_text().strip()
+    if store not in STORES:
+        raise SystemExit(f"bin/ops: unknown store {store!r} (bin/lib/prod-store or DIGEST_PROD_STORE): {STORES}")
+    return store
+
 
 # Every query is a SELECT. The run id and the artifact name arrive as bound parameters from
 # the environment, never as SQL text, so a caller-supplied name cannot become SQL.
@@ -69,16 +97,18 @@ _QUERIES = {
 SQL_SUBCOMMANDS = tuple(_QUERIES)
 
 
-def build_payload(sub: str, db: str = DB) -> str:
-    """The Python program that runs on the box.
+def build_payload(sub: str, db: str = DB, store: str | None = None) -> str:
+    """What runs on the box: a psql script on Postgres, a Python program on SQLite.
 
-    The run id and the artifact name are NOT arguments here: they reach SQLite as bound
+    The run id and the artifact name are NOT arguments here: they reach the database as bound
     parameters read from the environment inside the container, so no caller-supplied string
-    ever enters SQL text. `db` exists so a test can run this payload against a scratch
+    ever enters SQL text. `db` exists so a test can run the SQLite payload against a scratch
     database and prove that end to end.
     """
     if sub not in _QUERIES:
         raise KeyError(sub)
+    if (store or prod_store()) == "postgres":
+        return (PAYLOAD_DIR / f"{sub}.sql").read_text()
     sql = " ".join(_QUERIES[sub].split())
     body = f'''
 import json, os, sqlite3, sys
@@ -100,12 +130,22 @@ else:
     return body.strip() + "\n"
 
 
-def remote_command(env: dict[str, str] | None = None) -> str:
+def remote_command(env: dict[str, str] | None = None, store: str | None = None) -> str:
     """The shell command sent over bin/ssh.
 
-    Resolves the image on the box rather than pinning a registry host, so this survives a
-    change of registry -- preferring the digest the systemd unit runs, falling back to the
+    On Postgres, psql in the database's own container reads the payload from stdin. Every
+    variable is passed even when empty: psql's \\getenv leaves an unset one unset, and \\bind then
+    sends the literal text ':rid'.
+
+    On SQLite, resolves the image on the box rather than pinning a registry host, so this survives
+    a change of registry -- preferring the digest the systemd unit runs, falling back to the
     `:latest` tag."""
+    if (store or prod_store()) == "postgres":
+        pg_flags = "".join(f" -e {k}={shlex.quote(v)}" for k, v in sorted((env or {}).items()))
+        return (
+            f"set -e; docker exec -i{pg_flags} -e PGOPTIONS={shlex.quote(PG_READ_ONLY)} {PG_CONTAINER} "
+            f"psql -X -q -v ON_ERROR_STOP=1 -U {PG_ROLE} -d {PG_DATABASE} -f -"
+        )
     flags = "".join(f" -e {k}={shlex.quote(v)}" for k, v in sorted((env or {}).items()) if v)
     return (
         "set -e; "
@@ -128,7 +168,7 @@ def _relative_time(since: str) -> str:
     return f"-{stripped}" if re.fullmatch(r"\d+[smhdw]", stripped) else since
 
 
-def journal_command(since: str, lines: int, grep: str | None) -> str:
+def journal_command(since: str, lines: int, grep: str | None, store: str | None = None) -> str:
     """Scoped to the digest unit and bounded by --lines on purpose.
 
     A free-form grep over the whole journal would be an unbounded read, and these logs carry
@@ -148,7 +188,8 @@ def journal_command(since: str, lines: int, grep: str | None) -> str:
     prefix a piped `grep` would have seen; not a concern for the ERROR/Traceback-style patterns
     this is for.
     """
-    cmd = f"journalctl -u {shlex.quote(UNIT)} --since {shlex.quote(_relative_time(since))} --no-pager"
+    unit = PG_UNIT if (store or prod_store()) == "postgres" else UNIT
+    cmd = f"journalctl -u {shlex.quote(unit)} --since {shlex.quote(_relative_time(since))} --no-pager"
     if grep:
         cmd += f" --grep {shlex.quote(grep)}"
     cmd += f" -n {int(lines)}"
@@ -182,15 +223,18 @@ def main(argv: list[str] | None = None) -> int:
     if len(ns.args) > expected:
         ap.error(f"{ns.subcommand} takes at most {expected} argument(s), got {len(ns.args)}")
 
+    store = prod_store()
     if ns.subcommand == "journal":
-        command, payload = journal_command(ns.since, ns.lines, ns.grep), None
+        command, payload = journal_command(ns.since, ns.lines, ns.grep, store=store), None
     else:
         run_id = ns.args[0] if ns.args else ""
         name = ns.args[1] if len(ns.args) > 1 else ""
+        if run_id and not run_id.isdigit():
+            ap.error(f"a run id is a number, got {run_id!r}")
         if ns.subcommand == "artifact" and not name:
             ap.error("artifact needs a run id and an artifact name")
-        payload = build_payload(ns.subcommand)
-        command = remote_command({"OPS_RUN": run_id, "OPS_NAME": name})
+        payload = build_payload(ns.subcommand, store=store)
+        command = remote_command({"OPS_RUN": run_id, "OPS_NAME": name}, store=store)
 
     if ns.print_command:
         print(command)

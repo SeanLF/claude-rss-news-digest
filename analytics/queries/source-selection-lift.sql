@@ -11,20 +11,20 @@
 --   clustering collapses them into one story that cites a subset. High-volume feeds
 --   are therefore structurally penalised and a lift near 1.0 is not a target. A
 --   source with a tiny pool (avail < 30) has a lift dominated by noise; the
---   `enough_data` column marks those. shown_narratives rows count one per
+--   `enough_data` column marks those. story_sources rows count one per
 --   (story x source), so a story citing 12 sources contributes 12 rows.
 -- PARAMS: runs (window size, default 30)
 
 WITH bounds AS (
-    SELECT MAX(id) - :runs + 1 AS lo FROM digest_runs
+    SELECT MAX(id) - :runs + 1 AS lo FROM runs
 ),
 avail AS (
     SELECT source_id, COUNT(*) AS n
-    FROM fetched_articles, bounds WHERE run_id >= bounds.lo GROUP BY source_id
+    FROM articles, bounds WHERE run_id >= bounds.lo GROUP BY source_id
 ),
 cited AS (
     SELECT source_id, COUNT(*) AS n, COUNT(DISTINCT headline) AS stories
-    FROM shown_narratives, bounds
+    FROM story_sources, bounds
     WHERE run_id >= bounds.lo AND source_id IS NOT NULL GROUP BY source_id
 ),
 tot AS (
@@ -44,4 +44,4 @@ SELECT
 FROM avail a
 LEFT JOIN cited c ON c.source_id = a.source_id
 CROSS JOIN tot
-ORDER BY lift DESC;
+ORDER BY lift DESC NULLS LAST, a.source_id COLLATE "C";

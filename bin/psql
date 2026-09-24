@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+# psql against the local clone of the product database, with no Postgres client on the host: the
+# client runs in the server's own image, on the server's Docker network.
+#
+# Usage: bin/psql [psql options...]      e.g. bin/psql -c 'SELECT count(*) FROM runs'
+#
+# Environment:
+#   DIGEST_CLONE_URL      the database (default: digest_clone in the local Temporal stack's digest-db,
+#                         which bin/db-clone fills)
+#   DIGEST_CLONE_NETWORK  the Docker network its host resolves on (default: that stack's network)
+#   PGOPTIONS             passed through; bin/analytics, bin/usage and bin/trace set
+#                         default_transaction_read_only=on with it
+set -euo pipefail
+url=${DIGEST_CLONE_URL:-postgres://postgres:digest@digest-db:5432/digest_clone?sslmode=disable}
+net=${DIGEST_CLONE_NETWORK:-digest_default}
+tty=()
+if [ -t 0 ] && [ -t 1 ]; then tty=(-t); fi
+# PGTZ: dates in output are UTC whatever the server's TimeZone.
+exec docker run --rm -i ${tty[@]+"${tty[@]}"} --network "$net" -e PGOPTIONS -e PGTZ=UTC \
+  postgres:18.6-alpine3.24 psql -X "$url" "$@"

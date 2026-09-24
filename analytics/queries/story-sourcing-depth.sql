@@ -15,14 +15,16 @@
 -- PARAMS: runs (window size, default 30)
 
 WITH bounds AS (
-    SELECT MAX(id) - :runs + 1 AS lo FROM digest_runs
+    SELECT MAX(id) - :runs + 1 AS lo FROM runs
 ),
 story AS (
-    SELECT sn.run_id, sn.headline, sn.tier,
-           COUNT(DISTINCT sn.source_id) AS sources
-    FROM shown_narratives sn, bounds b
-    WHERE sn.run_id >= b.lo
-    GROUP BY sn.run_id, sn.headline
+    -- A headline carries one tier within a run, but nothing enforces it: MIN picks one where it
+    -- does not.
+    SELECT ss.run_id, ss.headline, MIN(ss.tier) AS tier,
+           COUNT(DISTINCT ss.source_id) AS sources
+    FROM story_sources ss, bounds b
+    WHERE ss.run_id >= b.lo
+    GROUP BY ss.run_id, ss.headline
 ),
 rolled AS (
     SELECT 0 AS sort_key, COALESCE(tier, '(none)') AS tier, sources FROM story
@@ -31,13 +33,13 @@ rolled AS (
 )
 SELECT
     tier,
-    COUNT(*)                                          AS stories,
-    ROUND(AVG(sources), 2)                            AS mean_sources,
-    MIN(sources)                                      AS min_sources,
-    MAX(sources)                                      AS max_sources,
-    SUM(sources = 1)                                  AS single_source,
-    ROUND(100.0 * SUM(sources = 1) / COUNT(*), 1)     AS pct_single_source,
-    ROUND(100.0 * SUM(sources >= 3) / COUNT(*), 1)    AS pct_3plus_sources
+    COUNT(*)                                              AS stories,
+    ROUND(AVG(sources), 2)                                AS mean_sources,
+    MIN(sources)                                          AS min_sources,
+    MAX(sources)                                          AS max_sources,
+    SUM((sources = 1)::int)                               AS single_source,
+    ROUND(100.0 * SUM((sources = 1)::int) / COUNT(*), 1)  AS pct_single_source,
+    ROUND(100.0 * SUM((sources >= 3)::int) / COUNT(*), 1) AS pct_3plus_sources
 FROM rolled
 GROUP BY sort_key, tier
-ORDER BY sort_key, tier;
+ORDER BY sort_key, tier COLLATE "C";

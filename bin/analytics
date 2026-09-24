@@ -1,19 +1,17 @@
 #!/usr/bin/env python3
-"""Run the stored analytics queries in analytics/queries/ against the digest DB.
+"""Run the stored analytics queries in analytics/queries/ against the product database.
 
 The queries answer "how is the pipeline actually behaving" questions that are
-too slow to re-derive by hand every time someone asks. They are plain .sql so
-they can be read, diffed and run without this script (`sqlite3 data/digest.db
-< analytics/queries/funnel-per-run.sql` works if you substitute the params).
+too slow to re-derive by hand every time someone asks. They are plain .sql for
+psql, so they can be read, diffed and run without this script:
+`bin/psql -v runs=30 -f - < analytics/queries/funnel-per-run.sql`.
 
-Why Python stdlib and not the bare `sqlite3` shell (cf. bin/usage, which is
-shell): this needs named-parameter binding for the windows, a read-only
-connection, header parsing for `list`, and json/csv output. The shell can do
-output formats but not parameters, and every alternative to stdlib sqlite3
-would add a dependency. No uv/Docker either -- unlike bin/trace this imports
-nothing from newsroom/, so the host interpreter is enough.
+psql does the parameters (`:runs`, `:days`, `:limit` are psql variables) and the
+CSV; this script adds `list`/`show` from each file's header and the table and
+JSON renderings. It runs psql through bin/psql, so the host needs no client.
 
-The DB is opened read-only. This tool cannot modify a digest database.
+Every session is read-only (default_transaction_read_only=on). The target is
+the local clone bin/db-clone fills, never production.
 
 Usage:
   bin/analytics list                 List queries with their QUESTION
@@ -22,7 +20,7 @@ Usage:
   bin/analytics run --all            Run every query
 
 Options:
-  --db PATH          Database (default $DIGEST_DB or data/digest.db)
+  --url URL          Database (default $DIGEST_CLONE_URL, else bin/psql's default clone)
   --format FMT       table | json | csv   (default table)
   --runs N           Window in runs, for queries that take :runs (default 30)
   --days N           Window in days, for queries that take :days (default 30)
@@ -34,14 +32,17 @@ from __future__ import annotations
 
 import argparse
 import csv
+import io
 import json
 import os
-import sqlite3
+import subprocess
 import sys
 import time
 from pathlib import Path
 
 PROJECT_DIR = Path(__file__).resolve().parent.parent
+PSQL = PROJECT_DIR / "bin" / "psql"
+READ_ONLY = "-c default_transaction_read_only=on"
 QUERY_DIR = PROJECT_DIR / "analytics" / "queries"
 HEADER_FIELDS = ("QUESTION", "WHY", "CAVEAT", "PARAMS")
 
@@ -88,10 +89,40 @@ def load_queries() -> list[Query]:
     return [Query(p) for p in sorted(QUERY_DIR.glob("*.sql"))]
 
 
-def connect(db_path: Path) -> sqlite3.Connection:
-    if not db_path.is_file():
-        sys.exit(f"No database at {db_path}. Run: bin/db-clone")
-    return sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+class QueryError(Exception):
+    pass
+
+
+def psql_argv(params: dict, *extra: str) -> list[str]:
+    argv = [str(PSQL), "-q", "-v", "ON_ERROR_STOP=1"]
+    for key, value in params.items():
+        argv += ["-v", f"{key}={int(value)}"]
+    return [*argv, *extra, "-f", "-"]
+
+
+def execute(sql: str, params: dict, url: str | None, fmt: str) -> tuple[list[str], list]:
+    """Columns and rows as psql returns them: CSV cells as text (NULL is ""), or for json the
+    rows with their SQL types, from json_agg over the query."""
+    env = {**os.environ, "PGOPTIONS": READ_ONLY}
+    if url:
+        env["DIGEST_CLONE_URL"] = url
+    if fmt == "json":
+        # The newline before ")" ends any trailing -- comment in the query.
+        body = sql.strip().rstrip(";")
+        wrapped = f"SELECT coalesce(json_agg(q), '[]'::json) FROM (\n{body}\n) q;\n"
+        argv = psql_argv(params, "-A", "-t")
+        proc = subprocess.run(argv, input=wrapped, text=True, capture_output=True, env=env)
+        if proc.returncode != 0:
+            raise QueryError(proc.stderr.strip())
+        return [], json.loads(proc.stdout)
+    argv = psql_argv(params, "--csv")
+    proc = subprocess.run(argv, input=sql, text=True, capture_output=True, env=env)
+    if proc.returncode != 0:
+        raise QueryError(proc.stderr.strip())
+    reader = list(csv.reader(io.StringIO(proc.stdout)))
+    if not reader:
+        return [], []
+    return reader[0], [tuple(r) for r in reader[1:]]
 
 
 def render_table(cols: list[str], rows: list[tuple], out) -> None:
@@ -117,24 +148,14 @@ def _fmt(value) -> str:
     return str(value)
 
 
-def run_query(conn: sqlite3.Connection, query: Query, params: dict, args) -> float:
-    # Time execute() too: sqlite3 prepares and steps the first row there, so
-    # timing only fetchall() understates a slow query.
+def run_query(query: Query, params: dict, args) -> float:
+    # The wall time includes starting the psql container, so it is an upper bound on the query.
     started = time.perf_counter()
     try:
-        cur = conn.execute(query.sql, params)
-        rows = cur.fetchall()
-    except sqlite3.OperationalError as exc:
-        # Almost always an older DB clone: columns and tables were added by
-        # migration over time (articles_fetched -> articles_kept at run 206,
-        # run_artifacts at 204, duration_ms at 220). Say so instead of a traceback.
-        raise SystemExit(
-            f"{query.name}: {exc}\n"
-            f"The database at this path may predate a migration this query needs.\n"
-            f"Check with: bin/migrate --status, or pull a current clone: bin/db-clone"
-        ) from exc
+        cols, rows = execute(query.sql, params, args.url, args.format)
+    except QueryError as exc:
+        raise SystemExit(f"{query.name}: {exc}\nIs the clone current? Refresh it with: bin/db-clone") from exc
     elapsed = time.perf_counter() - started
-    cols = [d[0] for d in cur.description] if cur.description else []
 
     if args.format == "table":
         print(f"\n### {query.name}")
@@ -150,7 +171,7 @@ def run_query(conn: sqlite3.Connection, query: Query, params: dict, args) -> flo
                 "question": query["QUESTION"],
                 "caveat": query["CAVEAT"],
                 "params": params,
-                "rows": [dict(zip(cols, row)) for row in rows],
+                "rows": rows,
             },
             sys.stdout,
             indent=2,
@@ -199,7 +220,7 @@ def main() -> int:
     )
     parser.add_argument("command", choices=["list", "show", "run"])
     parser.add_argument("names", nargs="*", help="query names (or --all for run)")
-    parser.add_argument("--db", default=None, help="database path")
+    parser.add_argument("--url", default=None, help="database URL (default $DIGEST_CLONE_URL)")
     parser.add_argument("--all", action="store_true", help="run every query")
     parser.add_argument(
         "--format", choices=["table", "json", "csv"], default="table", dest="format"
@@ -229,15 +250,11 @@ def main() -> int:
     else:
         sys.exit("Nothing to run. Give a query name or --all (see: bin/analytics list)")
 
-    db_path = Path(
-        args.db or os.environ.get("DIGEST_DB") or PROJECT_DIR / "data" / "digest.db"
-    )
     params = {"runs": args.runs, "days": args.days, "limit": args.limit}
 
     total = 0.0
-    with connect(db_path) as conn:
-        for query in selected:
-            total += run_query(conn, query, params, args)
+    for query in selected:
+        total += run_query(query, params, args)
     if args.timing and len(selected) > 1:
         print(
             f"[total: {total * 1000:.0f} ms across {len(selected)} queries]",

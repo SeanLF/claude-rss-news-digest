@@ -24,40 +24,43 @@
 -- PARAMS: runs (window size, default 30)
 
 WITH bounds AS (
-    SELECT MAX(id) - :runs + 1 AS lo FROM digest_runs
+    SELECT MAX(id) - :runs + 1 AS lo FROM runs
 ),
 coh AS (
-    SELECT ra.run_id,
+    SELECT a.run_id,
            COUNT(*) AS checked,
-           SUM(json_extract(j.value, '$.pass') IN (0, 'false')) AS failed
-    FROM run_artifacts ra, json_each(ra.content, '$.results') j, bounds b
-    WHERE ra.artifact_name = 'coherence_report.json' AND ra.run_id >= b.lo
-    GROUP BY ra.run_id
+           SUM((j.value -> 'pass' IN ('false'::jsonb, '0'::jsonb, '"false"'::jsonb))::int) AS failed
+    FROM artifacts a
+    CROSS JOIN bounds b
+    CROSS JOIN LATERAL jsonb_array_elements(a.content::jsonb -> 'results') AS j
+    WHERE a.name = 'coherence_report.json' AND a.status = 'current' AND a.run_id >= b.lo
+    GROUP BY a.run_id
 ),
 ship AS (
     SELECT run_id, COUNT(DISTINCT headline) AS shipped
-    FROM shown_narratives, bounds WHERE run_id >= bounds.lo GROUP BY run_id
+    FROM story_sources, bounds WHERE run_id >= bounds.lo GROUP BY run_id
 ),
 rep AS (
     SELECT run_id, COUNT(*) AS repair_calls
-    FROM run_usage, bounds
-    WHERE run_id >= bounds.lo AND subagent LIKE 'repair%' GROUP BY run_id
+    FROM model_calls, bounds
+    WHERE run_id >= bounds.lo AND stage LIKE 'repair%' GROUP BY run_id
 )
 SELECT
     c.run_id,
-    date(dr.run_at)                                        AS run_date,
+    (r.started_at AT TIME ZONE 'UTC')::date                AS run_date,
     CASE WHEN c.run_id >= 241 THEN 'repair-on' ELSE 'repair-off' END AS regime,
     c.checked,
     c.failed,
     ROUND(100.0 * c.failed / NULLIF(c.checked, 0), 1)      AS fail_pct,
     s.shipped,
     c.checked - s.shipped                                  AS lost,
-    MAX(0, c.failed - (c.checked - s.shipped))             AS failed_but_shipped,
+    -- GREATEST ignores a NULL argument; an unknown input must stay unknown, not read as 0
+    CASE WHEN s.shipped IS NOT NULL AND c.failed IS NOT NULL THEN GREATEST(0, c.failed - (c.checked - s.shipped)) END AS failed_but_shipped,
     -- stories lost beyond what coherence flagged: something else dropped them
-    MAX(0, (c.checked - s.shipped) - c.failed)             AS unexplained_loss,
-    COALESCE(r.repair_calls, 0)                            AS repair_calls
+    CASE WHEN s.shipped IS NOT NULL AND c.failed IS NOT NULL THEN GREATEST(0, (c.checked - s.shipped) - c.failed) END AS unexplained_loss,
+    COALESCE(rp.repair_calls, 0)                           AS repair_calls
 FROM coh c
-JOIN digest_runs dr ON dr.id = c.run_id
+JOIN runs r ON r.id = c.run_id
 LEFT JOIN ship s ON s.run_id = c.run_id
-LEFT JOIN rep  r ON r.run_id = c.run_id
+LEFT JOIN rep rp ON rp.run_id = c.run_id
 ORDER BY c.run_id DESC;

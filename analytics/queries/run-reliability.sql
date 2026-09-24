@@ -3,31 +3,35 @@
 -- WHY: A daily unattended pipeline's real reliability is not "did the process exit 0"
 --   but "did a correct digest reach subscribers". This checks the four ways that can
 --   fail independently: the run record, the per-stage usage record, the archived
---   artifacts, and the broadcast. A run that completed but shipped zero stories, or
+--   artifacts, and the send. A run that completed but shipped zero stories, or
 --   sent to zero recipients, is a silent outage and is counted here as such.
+--   `recipients` sums the run's sends Resend holds (queued, sending, sent), including those
+--   mailed before Resend broadcasts; a failed or unclaimed send counts zero.
 -- CAVEAT: Missing stage/artifact rows are FAIL-SOFT writes -- absence means "not
 --   recorded", which conflates "stage did not run" with "the archive write failed".
---   It is a smoke alarm, not a diagnosis. Runs before 204 legitimately have no
---   artifacts and before 106 no usage rows, so restrict the window or expect
---   false positives. Duration is run_at -> completed_at wall clock, which includes
---   feed fetch and email send, not just model time.
+--   It is a smoke alarm, not a diagnosis. Runs before 204 have only the selections.json
+--   the import carried (67-200), and before 106 no usage rows, so restrict the window or
+--   expect false positives. Duration is started_at -> the last attempt's ended_at, wall
+--   clock, which includes feed fetch and email send, not just model time. Imported runs
+--   still `running` were crashes and read `failed`.
 -- PARAMS: runs (window size, default 30)
 
 WITH bounds AS (
-    SELECT MAX(id) - :runs + 1 AS lo FROM digest_runs
+    SELECT MAX(id) - :runs + 1 AS lo FROM runs
 ),
 r AS (
     SELECT
-        dr.id, date(dr.run_at) AS run_date, dr.status,
-        (julianday(dr.completed_at) - julianday(dr.run_at)) * 1440.0 AS minutes,
-        (SELECT COUNT(DISTINCT headline) FROM shown_narratives sn WHERE sn.run_id = dr.id) AS shipped,
-        (SELECT COUNT(DISTINCT subagent) FROM run_usage ru WHERE ru.run_id = dr.id)        AS stages,
-        (SELECT COUNT(*) FROM run_artifacts ra WHERE ra.run_id = dr.id)                    AS artifacts,
-        (SELECT COALESCE(SUM(broadcast_recipients), 0) FROM digests d WHERE d.run_id = dr.id) AS recipients,
-        (SELECT COUNT(*) FROM source_health sh WHERE sh.run_id = dr.id AND sh.success = 0)  AS feed_failures,
-        substr(COALESCE(dr.error, ''), 1, 50) AS error
-    FROM digest_runs dr, bounds b
-    WHERE dr.id >= b.lo
+        ru.id, (ru.started_at AT TIME ZONE 'UTC')::date AS run_date, ru.status,
+        EXTRACT(EPOCH FROM (SELECT MAX(ended_at) FROM run_attempts a WHERE a.run_id = ru.id)
+                           - ru.started_at) / 60.0 AS minutes,
+        (SELECT COUNT(DISTINCT headline) FROM story_sources ss WHERE ss.run_id = ru.id) AS shipped,
+        (SELECT COUNT(DISTINCT stage) FROM model_calls mc WHERE mc.run_id = ru.id)      AS stages,
+        (SELECT COUNT(*) FROM artifacts a WHERE a.run_id = ru.id)                       AS artifacts,
+        (SELECT COALESCE(SUM(recipients), 0) FROM sends s WHERE s.run_id = ru.id AND s.status IN ('queued', 'sending', 'sent'))       AS recipients,
+        (SELECT COUNT(*) FROM source_fetches sf WHERE sf.run_id = ru.id AND NOT sf.is_success) AS feed_failures,
+        substr(COALESCE(ru.error, ''), 1, 50) AS error
+    FROM runs ru, bounds b
+    WHERE ru.id >= b.lo
 )
 SELECT
     id AS run_id, run_date, status,

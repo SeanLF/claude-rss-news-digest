@@ -10,43 +10,48 @@
 --   because it no longer exists. `duration_ms` is NULL before run 220, so avg_ms is
 --   blank for older stages rather than zero. Cost is API-equivalent, see
 --   cost-per-shipped-story.sql.
+-- CAVEAT: the cut-over to Temporal changes what a row is, not only its values.
+--   From the Temporal pipeline on, `write` records one call per story (and cluster-extract one per
+--   batch), and the thread stages are renamed (thread-link/thread_synthesis/thread_audit become
+--   threads-link/threads): a window spanning the cut-over shows per-call averages shifting and
+--   stages appearing and vanishing with no configuration change.
 -- PARAMS: runs (size of EACH window, default 30)
 
 WITH bounds AS (
     SELECT MAX(id) - :runs + 1 AS recent_lo,
            MAX(id) - 2 * :runs + 1 AS prior_lo,
            MAX(id) - :runs AS prior_hi
-    FROM digest_runs
+    FROM runs
 ),
 tagged AS (
-    SELECT ru.subagent, ru.model, ru.api_cost_usd, ru.duration_ms, ru.run_id,
-           CASE WHEN ru.run_id >= b.recent_lo THEN 'recent'
-                WHEN ru.run_id BETWEEN b.prior_lo AND b.prior_hi THEN 'prior' END AS bucket
-    FROM run_usage ru, bounds b
-    WHERE ru.run_id >= b.prior_lo
+    SELECT mc.stage, mc.request_model, mc.api_cost_usd, mc.duration_ms, mc.run_id,
+           CASE WHEN mc.run_id >= b.recent_lo THEN 'recent'
+                WHEN mc.run_id BETWEEN b.prior_lo AND b.prior_hi THEN 'prior' END AS bucket
+    FROM model_calls mc, bounds b
+    WHERE mc.run_id >= b.prior_lo
 ),
 totals AS (
     SELECT bucket, SUM(api_cost_usd) AS total FROM tagged
     WHERE bucket IS NOT NULL GROUP BY bucket
 ),
 agg AS (
-    SELECT t.subagent, t.bucket,
+    SELECT t.stage, t.bucket,
            SUM(t.api_cost_usd) AS cost,
            COUNT(DISTINCT t.run_id) AS runs,
            AVG(t.duration_ms) AS avg_ms,
            100.0 * SUM(t.api_cost_usd) / NULLIF((SELECT total FROM totals WHERE bucket = t.bucket), 0) AS share
-    FROM tagged t WHERE t.bucket IS NOT NULL GROUP BY t.subagent, t.bucket
+    FROM tagged t WHERE t.bucket IS NOT NULL GROUP BY t.stage, t.bucket
 )
 SELECT
-    subagent                                                         AS stage,
-    MAX(CASE WHEN bucket = 'recent' THEN runs END)                   AS recent_runs,
-    ROUND(MAX(CASE WHEN bucket = 'recent' THEN cost END), 3)         AS recent_usd,
-    ROUND(MAX(CASE WHEN bucket = 'recent' THEN cost / runs END), 4)  AS usd_per_run,
-    ROUND(MAX(CASE WHEN bucket = 'prior'  THEN share END), 1)        AS prior_share_pct,
-    ROUND(MAX(CASE WHEN bucket = 'recent' THEN share END), 1)        AS recent_share_pct,
-    ROUND(MAX(CASE WHEN bucket = 'recent' THEN share END)
-        - MAX(CASE WHEN bucket = 'prior'  THEN share END), 1)        AS share_delta_pp,
-    CAST(ROUND(MAX(CASE WHEN bucket = 'recent' THEN avg_ms END)) AS INTEGER) AS recent_avg_ms
+    stage,
+    MAX(CASE WHEN bucket = 'recent' THEN runs END)                            AS recent_runs,
+    ROUND(MAX(CASE WHEN bucket = 'recent' THEN cost END)::numeric, 3)         AS recent_usd,
+    ROUND(MAX(CASE WHEN bucket = 'recent' THEN cost / runs END)::numeric, 4)  AS usd_per_run,
+    ROUND(MAX(CASE WHEN bucket = 'prior'  THEN share END)::numeric, 1)        AS prior_share_pct,
+    ROUND(MAX(CASE WHEN bucket = 'recent' THEN share END)::numeric, 1)        AS recent_share_pct,
+    ROUND((MAX(CASE WHEN bucket = 'recent' THEN share END)
+         - MAX(CASE WHEN bucket = 'prior'  THEN share END))::numeric, 1)      AS share_delta_pp,
+    ROUND(MAX(CASE WHEN bucket = 'recent' THEN avg_ms END))::integer          AS recent_avg_ms
 FROM agg
-GROUP BY subagent
+GROUP BY stage
 ORDER BY COALESCE(MAX(CASE WHEN bucket = 'recent' THEN share END), -1) DESC;

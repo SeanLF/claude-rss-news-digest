@@ -10,7 +10,7 @@
 --   same run; roughly 15% of shipped rows do not match (title rewritten upstream,
 --   or the source article was fetched in an earlier run), so `matched_pct` is
 --   reported -- read the freshness numbers as describing the matched subset only.
---   Age is publisher-declared `published` minus our `fetched_at`; feeds that lie
+--   Age is publisher-declared `published_raw` minus our `fetched_at`; feeds that lie
 --   about or round their timestamps (some emit the fetch date) will compress ages
 --   toward zero. Negative ages are clamped out, not investigated. Note the observed
 --   max_h: the fetch recency window truncates the pool at roughly 28 hours, so this
@@ -20,35 +20,42 @@
 -- PARAMS: runs (window size, default 30)
 
 WITH bounds AS (
-    SELECT MAX(id) - :runs + 1 AS lo FROM digest_runs
+    SELECT MAX(id) - :runs + 1 AS lo FROM runs
 ),
 pool AS (
-    SELECT fa.run_id,
-           fa.title,
-           fa.source_id,
-           (julianday(fa.fetched_at) - julianday(REPLACE(SUBSTR(fa.published, 1, 19), 'T', ' ')))
-               * 24.0 AS age_hours
-    FROM fetched_articles fa, bounds b
-    WHERE fa.run_id >= b.lo AND fa.published <> ''
+    -- The first 19 characters as a UTC wall time: the fetcher writes UTC ISO 8601, so the offset
+    -- cut off here is +00:00. A value that is not a valid timestamp (hour 25 passes a shape check;
+    -- the fetcher keeps text Date.parse rejects) is NULL rather than failing the query: CASE, not a
+    -- WHERE, because only CASE fixes the order, so the cast never sees such a value.
+    SELECT a.run_id,
+           a.title,
+           a.source_id,
+           CASE WHEN a.published_raw ~ '^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}'
+                 AND pg_input_is_valid(REPLACE(SUBSTR(a.published_raw, 1, 19), 'T', ' '), 'timestamp') THEN
+             EXTRACT(EPOCH FROM a.fetched_at
+                     - (REPLACE(SUBSTR(a.published_raw, 1, 19), 'T', ' ')::timestamp AT TIME ZONE 'UTC'))
+                 / 3600.0
+           END AS age_hours
+    FROM articles a, bounds b
+    WHERE a.run_id >= b.lo AND a.published_raw <> ''
 ),
 -- Single pass over the pool, tagging each article as shipped or not, rather than
 -- joining a materialised pool CTE to the shipped set on `title`. There is no index
--- on fetched_articles(title), so that join was a repeated scan and cost ~540 ms at
--- runs=30 and ~3.8 s over full history; this form uses idx_shown_narratives_run and
--- runs in a few ms. `pool_available` intentionally includes the shipped articles --
+-- on articles(title); this form uses story_sources_run.
+-- `pool_available` intentionally includes the shipped articles --
 -- it is the full choice set, which is what makes it a baseline.
 clean AS (
     SELECT p.age_hours,
-           EXISTS (SELECT 1 FROM shown_narratives sn
-                    WHERE sn.run_id = p.run_id
-                      AND sn.original_title = p.title) AS was_shipped
+           EXISTS (SELECT 1 FROM story_sources ss
+                    WHERE ss.run_id = p.run_id
+                      AND ss.source_title = p.title) AS was_shipped
     FROM pool p
     WHERE p.age_hours IS NOT NULL AND p.age_hours BETWEEN 0 AND 720
 ),
 shipped AS (
-    SELECT DISTINCT sn.run_id, sn.original_title
-    FROM shown_narratives sn, bounds b
-    WHERE sn.run_id >= b.lo AND sn.original_title IS NOT NULL
+    SELECT DISTINCT ss.run_id, ss.source_title
+    FROM story_sources ss, bounds b
+    WHERE ss.run_id >= b.lo AND ss.source_title IS NOT NULL
 ),
 shipped_aged AS (
     SELECT age_hours FROM clean WHERE was_shipped
@@ -60,15 +67,15 @@ q AS (
 )
 SELECT
     cohort,
-    COUNT(*)                                          AS n,
-    ROUND(MIN(age_hours), 1)                          AS min_h,
-    ROUND(AVG(age_hours), 1)                          AS mean_h,
-    ROUND(MAX(age_hours), 1)                          AS max_h,
-    ROUND(100.0 * SUM(age_hours <=  3) / COUNT(*), 1) AS pct_under_3h,
-    ROUND(100.0 * SUM(age_hours <=  6) / COUNT(*), 1) AS pct_under_6h,
-    ROUND(100.0 * SUM(age_hours >  12) / COUNT(*), 1) AS pct_over_12h,
+    COUNT(*)                                                 AS n,
+    ROUND(MIN(age_hours), 1)                                 AS min_h,
+    ROUND(AVG(age_hours), 1)                                 AS mean_h,
+    ROUND(MAX(age_hours), 1)                                 AS max_h,
+    ROUND(100.0 * SUM((age_hours <=  3)::int) / COUNT(*), 1) AS pct_under_3h,
+    ROUND(100.0 * SUM((age_hours <=  6)::int) / COUNT(*), 1) AS pct_under_6h,
+    ROUND(100.0 * SUM((age_hours >  12)::int) / COUNT(*), 1) AS pct_over_12h,
     (SELECT ROUND(100.0 * (SELECT COUNT(*) FROM shipped_aged)
                         / NULLIF((SELECT COUNT(*) FROM shipped), 0), 1)) AS matched_pct
 FROM q
 GROUP BY cohort
-ORDER BY cohort DESC;
+ORDER BY cohort COLLATE "C" DESC;
