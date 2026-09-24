@@ -3,9 +3,17 @@ import { ConfigError, siteConfig } from "./config.js";
 
 // The opt-in misconfiguration the Rust server warned about and then worked around by adding every
 // signup unconfirmed is a refusal to start (spec §3).
-const SUBS = { RESEND_API_KEY: "re_x", RESEND_AUDIENCE_ID: "aud", RESEND_FROM: "d@send.example", DIGEST_DOMAIN: "digest.example", SUBSCRIBE_TOKEN_SECRET: "sixteen-chars-ok" };
+const SUBS = { RESEND_API_KEY: "re_x", RESEND_AUDIENCE_ID: "aud", RESEND_FROM: "d@send.example", DIGEST_DOMAIN: "digest.example", SUBSCRIBE_TOKEN_SECRET: "sixteen-chars-ok", RESEND_BASE_URL: "http://resend-fake:8025" };
 
 describe("siteConfig", () => {
+  it("refuses to start with subscriptions on and real Resend reachable outside production", () => {
+    const { RESEND_BASE_URL: _, ...dev } = SUBS;
+    expect(() => siteConfig(dev)).toThrow(ConfigError);
+    expect(() => siteConfig(dev)).toThrow(/RESEND_LIVE/);
+    expect(siteConfig({ ...dev, RESEND_LIVE: "true" }).resendBaseUrl).toBe("https://api.resend.com");
+    expect(siteConfig(SUBS).resendBaseUrl).toBe("http://resend-fake:8025");
+  });
+
   it("starts with subscriptions and double opt-in fully configured", () => {
     expect(siteConfig(SUBS)).toMatchObject({ doubleOptIn: true, subscribeTokenSecret: "sixteen-chars-ok", contactEmail: "d@send.example" });
   });

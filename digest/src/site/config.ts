@@ -1,3 +1,5 @@
+import { MailDestinationError, resendBaseUrl } from "../resend/destination.js";
+
 // The site's configuration from its environment. Empty means unset: compose and terraform forward
 // optional variables as "".
 
@@ -9,6 +11,8 @@ export interface SiteConfig {
   // Subscriptions are on when both are set; the index then shows the subscribe band.
   resendApiKey: string | undefined;
   resendAudienceId: string | undefined;
+  // Where Resend requests go (mail/resend.ts resendBaseUrl); set whenever subscriptions are on.
+  resendBaseUrl: string | undefined;
   // The From on confirmation mail; may be a send-only address, so never the reply target.
   fromEmail: string | undefined;
   // Where readers' replies and the web mailto go: CONTACT_EMAIL, else RESEND_FROM.
@@ -36,6 +40,7 @@ export function siteConfig(env: NodeJS.ProcessEnv): SiteConfig {
     sourceUrl: set(env["SOURCE_URL"]),
     resendApiKey: set(env["RESEND_API_KEY"]),
     resendAudienceId: set(env["RESEND_AUDIENCE_ID"]),
+    resendBaseUrl: undefined,
     fromEmail,
     contactEmail: set(env["CONTACT_EMAIL"]) ?? fromEmail,
     subscribeTokenSecret: set(env["SUBSCRIBE_TOKEN_SECRET"]),
@@ -43,6 +48,14 @@ export function siteConfig(env: NodeJS.ProcessEnv): SiteConfig {
     sourcesFile: set(env["SOURCES_FILE"]) ?? "/app/sources.json",
     designDir: set(env["DESIGN_DIR"]) ?? "/app/design",
   };
+  if (subscriptionsEnabled(cfg)) {
+    try {
+      cfg.resendBaseUrl = resendBaseUrl(env);
+    } catch (e) {
+      if (e instanceof MailDestinationError) throw new ConfigError(`subscriptions are on, but ${e.message}`);
+      throw e;
+    }
+  }
   // The Rust server warned once and then added every signup to the audience unconfirmed. A
   // subscription path that silently skips its consent step is worse than none, so it refuses to start.
   if (subscriptionsEnabled(cfg) && cfg.doubleOptIn) {

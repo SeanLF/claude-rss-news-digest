@@ -60,8 +60,8 @@ command).
 Clone only when you need the whole database offline -- a replay harness, or
 analysis across many runs. `bin/db-clone` prefers the newest verified backup (so
 it is **stale** until the next deploy or nightly dump; `--live` forces a wire
-copy) and fills the local Postgres clone (`digest_clone` in the local Temporal
-stack's `digest-db`; `DIGEST_CLONE_URL` and `DIGEST_CLONE_NETWORK` point it
+copy) and fills the local Postgres clone (`digest_clone` in the dev stack's
+`digest-pg`; `DIGEST_CLONE_URL` and `DIGEST_CLONE_NETWORK` point it
 elsewhere), building it as `digest_clone_new` and renaming it over the old one
 only once it verifies. Before the cut-over it also lands the SQLite file at
 `data/digest.db` (checked with `integrity_check` and
@@ -70,7 +70,53 @@ after it, it restores the `digest.pg.dump` backup, or a live `pg_dump` as
 `digest_ro`. `bin/usage`, `bin/trace` and `bin/analytics` read the clone through
 `bin/psql`, read-only; `bin/psql` alone opens it.
 
-## Local development
+## The dev stack (TypeScript pipeline, site, mail)
+
+One compose project, `docker-compose.yml`, driven by `make`: Temporal and the worker, the TypeScript
+site, and `resend-fake`, over one product database (`digest` in `digest-pg`, on a volume). The worker
+writes it as `postgres`; the site reads it as `digest_ro` and runs no migrations, as on the box. Tests
+and harnesses use `ci-pg`, a scratch server with no volume; a band copies `digest` with
+`CREATE DATABASE ... TEMPLATE`.
+
+```bash
+make dev-import                   # a cp -c copy of data/prod-20260923b.db (SRC=...) becomes `digest`; starts the stack
+make dev-up                       # start or rebuild the stack; keeps its data
+make digest-start DATE=2026-09-24 # a fresh day, through the hold
+make digest-approve DATE=2026-09-24   # or digest-reject; unsignalled, the hold ends after 2 h and it sends
+make dev-urls                     # where each part answers
+make dev-down                     # stop; keeps the volumes
+```
+
+Where it answers (OrbStack domains, `<project>` being the compose project, `news-digest` in the main
+checkout):
+
+- site: `http://digest-site.<project>.orb.local:8080`, and `https://digest-site.<project>.orb.local`,
+  which is how mailed links (confirm, view in browser) spell it: `DIGEST_DOMAIN` is that host
+  (`DEV_SITE_DOMAIN` overrides it). Also `http://127.0.0.1:8080`.
+- resend-fake: `http://resend-fake.<project>.orb.local:8025`, every email and broadcast caught, with
+  `/api/messages` as JSON. In memory: a restart of the container empties it.
+- Temporal UI: `http://temporal.<project>.orb.local:8233`, also `127.0.0.1:8233`.
+
+**Mail never leaves the machine.** Every dev service gets `RESEND_BASE_URL=http://resend-fake:8025`
+and a dummy key, and the Resend client (worker and site) refuses real Resend unless
+`RESEND_LIVE=true`, and refuses `RESEND_LIVE=true` beside a `RESEND_BASE_URL`
+(`digest/src/resend/destination.ts`). The worker's startup line names a refused destination; the site
+refuses to start. Production sets `RESEND_LIVE=true` and no base URL. Broadcasting is on in dev
+(`BROADCAST_ENABLED`, default `true`), so a dev run goes through the hold, its notification, the
+approve or reject, and the broadcast, all into the fake; subscribe and confirm on the dev site land
+there too, and a confirmed reader is a recipient of the next dev broadcast. No maintained Resend
+fake covers broadcasts and segments (resend-box fakes `POST /emails` only), so `resend-fake` is ours
+(`digest/src/devmail/fake.ts`), held to the SDK calls the code makes by its tests.
+
+Several projects at once (worktrees): give each its own name and host ports, e.g.
+`COMPOSE="docker compose -p mine"` with `DIGEST_SITE_PORT`, `TEMPORAL_PORT`, `TEMPORAL_UI_PORT`,
+`DIGEST_PG_PORT` and `RESEND_FAKE_PORT` exported in the shell (`make band` reads the ports from the
+shell, not `.env`). The OrbStack names follow the project. `make band` recreates the worker on the
+band's copy with broadcasting off, so do not run it while a dev run is in flight. The legacy
+`digest-newsroom` and `digest-circulation` services in the same file still take `.env`'s real
+Resend key.
+
+## Local development (the Python pipeline)
 
 ```bash
 CLAUDE_CODE_OAUTH_TOKEN=$(op item get "seanfloyd.dev" \

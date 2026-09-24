@@ -13,7 +13,7 @@ const firstOf = (...paths: string[]): string => paths.find((p) => existsSync(p))
 export const DESIGN_DIR = firstOf("/app/design", new URL("../../../design", import.meta.url).pathname);
 export const SOURCES_FILE = firstOf("/app/sources.json", new URL("../../../newsroom/sources.json", import.meta.url).pathname);
 
-export const testConfig = (env: Record<string, string> = {}): SiteConfig => siteConfig({ DIGEST_NAME: "News Digest", DIGEST_DOMAIN: "digest.example", DESIGN_DIR, SOURCES_FILE, ...env });
+export const testConfig = (env: Record<string, string> = {}): SiteConfig => siteConfig({ DIGEST_NAME: "News Digest", DIGEST_DOMAIN: "digest.example", DESIGN_DIR, SOURCES_FILE, RESEND_BASE_URL: "http://resend-fake.test", ...env });
 
 export function testApp(data: SiteData, over: Partial<SiteDeps> = {}) {
   const cfg = over.cfg ?? testConfig();

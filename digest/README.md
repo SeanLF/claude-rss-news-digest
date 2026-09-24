@@ -17,12 +17,11 @@ the Agent SDK for model stages, Temporal for sequencing, signals and the run bud
 
 ```
 cd digest && npm install && npm test && npm run typecheck && npm run lint   # bin/ci runs these in the ci-ts container
-make temporal-up                       # Temporal dev server (Server 1.32.0) + UI (http://127.0.0.1:8233) + the worker
-make digest-start DATE=2026-09-21      # start one DigestWorkflow; it holds before broadcast for 2 h or a signal
-docker compose -f digest/compose.temporal.yml exec temporal \
-  temporal workflow signal -w digest-2026-09-21 --name approve --input '{"decision":"approve"}'
+make dev-up                            # the dev stack: Temporal (UI :8233) + the worker, the site, resend-fake, digest-pg
+make digest-start DATE=2026-09-24      # start one DigestWorkflow; it holds before broadcast for 2 h or a signal
+make digest-approve DATE=2026-09-24    # or digest-reject; the send lands in resend-fake, never Resend
 make digest-schedule                   # create or update the daily schedule
-make temporal-down                     # stop; keeps the SQLite volume
+make dev-down                          # stop; keeps the volumes (docs/operations.md, "The dev stack")
 bash scripts/check-api-names.sh        # every library name used is declared in the installed types
 npm run sbom && still_active --sbom=sbom.cdx.json --fail-if-critical   # the library gate
 ```
@@ -41,7 +40,7 @@ First end-to-end run on stubs: `{"runId":1,"stories":3,"broadcast":"sent"}`, 122
 ## Live smoke of the runner (one Haiku call, ~$0.002)
 
 ```
-docker compose --env-file .env -f digest/compose.temporal.yml run --rm --build --no-deps digest-worker node dist/cli/smoke-stage.js
+docker compose run --rm --build --no-deps digest-worker node dist/cli/smoke-stage.js
 ```
 
 2026-09-22: `{"structured":{"ok":true},"costUsd":0.0017,"numTurns":2}`. The worker authenticates like the newsroom

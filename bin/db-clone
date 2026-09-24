@@ -8,8 +8,8 @@
 #   sqlite    bin/deploy's SQLite snapshot (or a live `cat` of the volume) lands at --output
 #             (default data/digest.db), then bin/import-legacy builds the Postgres clone from it.
 #   postgres  bin/backup-volumes' digest.pg.dump (or a live pg_dump as digest_ro) is restored.
-# The clone is $DIGEST_CLONE_URL (default digest_clone in the local Temporal stack's digest-db,
-# started here if it is not running). It is built as <name>_new and renamed over <name> only after
+# The clone is $DIGEST_CLONE_URL (default digest_clone in the dev stack's digest-pg, docker-compose.yml,
+# project ${COMPOSE_PROJECT_NAME:-news-digest}, started here if it is not running). It is built as <name>_new and renamed over <name> only after
 # it verifies, as the SQLite file is replaced only after its candidate verifies: a shell redirect
 # truncates before the command runs, so writing straight into the target once destroyed the local
 # database on a failed copy (a stopped Tailscale, 2026-08-30) and left nothing to fall back to.
@@ -56,8 +56,9 @@ esac
 
 # --- the local Postgres clone -------------------------------------------------------------------
 
-CLONE_URL="${DIGEST_CLONE_URL:-postgres://postgres:digest@digest-db:5432/digest_clone?sslmode=disable}"
-CLONE_NET="${DIGEST_CLONE_NETWORK:-digest_default}"
+DEV_PROJECT="${COMPOSE_PROJECT_NAME:-news-digest}"
+CLONE_URL="${DIGEST_CLONE_URL:-postgres://postgres:digest@digest-pg:5432/digest_clone?sslmode=disable}"
+CLONE_NET="${DIGEST_CLONE_NETWORK:-${DEV_PROJECT}_default}"
 clone_query="" ; [[ "$CLONE_URL" == *\?* ]] && clone_query="?${CLONE_URL#*\?}"
 clone_path="${CLONE_URL%%\?*}"
 CLONE_DB="${clone_path##*/}"
@@ -71,8 +72,8 @@ admin_sql() { pg_tool psql -X -q -v ON_ERROR_STOP=1 "$(url_for postgres)" -c "SE
 
 ensure_local_server() {
   [[ -z ${DIGEST_CLONE_URL:-} ]] || return 0
-  log_step "Starting the local digest-db (digest/compose.temporal.yml)..."
-  docker compose -f "$PROJECT_DIR/digest/compose.temporal.yml" up -d --wait digest-db >/dev/null
+  log_step "Starting the dev stack's digest-pg (project $DEV_PROJECT)..."
+  docker compose -f "$PROJECT_DIR/docker-compose.yml" -p "$DEV_PROJECT" up -d --wait digest-pg >/dev/null
 }
 
 new_candidate() {

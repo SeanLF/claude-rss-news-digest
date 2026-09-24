@@ -30,7 +30,7 @@ const activityInfo = (): { attempt: number; key?: string } => {
 // best-effort; none can fail a run that delivered.
 export function opsActivities(deps: OpsDeps) {
   const hc = healthcheck(deps.env, deps.fetch);
-  const send: SendEmail = deps.send ?? ((email, opts) => emailSender(resendClient(deps.env["RESEND_API_KEY"] ?? "").emails)(email, opts));
+  const send: SendEmail = deps.send ?? ((email, opts) => emailSender(resendClient(deps.env["RESEND_API_KEY"] ?? "", {}, deps.env).emails)(email, opts));
   return {
     healthcheck: (event: "start" | "success" | "fail", note?: string): Promise<void> => hc.ping(event === "success" ? undefined : event, note),
     healthcheckLog: (message: string): Promise<void> => hc.log(message),

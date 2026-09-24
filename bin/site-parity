@@ -5,7 +5,7 @@
 # data/site-parity/<stamp>, recorded by bin/site-parity-record): imports DIR/legacy.db into a fresh
 # Postgres database with bin/import-legacy, then runs the parity tests in the ci-ts image against it
 # (site/parity.clone.test.ts, and the Markdown corpus in site/markdown.parity.test.ts). The database
-# is kept (site_parity in the digest-site project's digest-pg) so a rerun with SKIP_IMPORT=1 is fast.
+# is kept (site_parity in the digest-site project's ci-pg) so a rerun with SKIP_IMPORT=1 is fast.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 dir=${1:-$(ls -d data/site-parity/*/ 2>/dev/null | sort | tail -1)}
@@ -15,10 +15,10 @@ shift || true
 [ "${1:-}" = "--" ] && shift
 p=digest-site
 db=site_parity
-url="postgres://postgres:digest@digest-pg:5432/$db?sslmode=disable"
-docker compose -p "$p" up -d --wait digest-pg >/dev/null
+url="postgres://postgres:digest@ci-pg:5432/$db?sslmode=disable"
+docker compose -p "$p" up -d --wait ci-pg >/dev/null
 if [ "${SKIP_IMPORT:-}" != "1" ]; then
-  docker compose -p "$p" exec -T digest-pg psql -q -U postgres -c "DROP DATABASE IF EXISTS $db" -c "CREATE DATABASE $db"
+  docker compose -p "$p" exec -T ci-pg psql -q -U postgres -c "DROP DATABASE IF EXISTS $db" -c "CREATE DATABASE $db"
   docker build -q -f digest/Dockerfile --build-arg GIT_SHA=parity -t digest-site-parity-digest:local . >/dev/null
   DIGEST_IMAGE=digest-site-parity-digest:local IMPORT_NETWORK="${p}_default" bin/import-legacy "$dir/legacy.db" "$url"
 fi

@@ -1,4 +1,5 @@
 import { Resend, type Response as ResendReply } from "resend";
+import { resendBaseUrl } from "../resend/destination.js";
 
 // The one place the worker talks to Resend. Alerts use `emailSender`; the broadcast path takes the
 // client from `resendClient` for the audience API. Both read RESEND_API_KEY, as the Python does.
@@ -10,9 +11,10 @@ export const RESEND_TIMEOUT_MS = 30_000;
 class BoundedResend extends Resend {
   constructor(
     key: string,
+    baseUrl: string,
     private readonly bounds: { timeoutMs: number; signal?: () => AbortSignal | undefined },
   ) {
-    super(key);
+    super(key, { baseUrl });
   }
   override fetchRequest<T>(path: string, options: RequestInit = {}): Promise<ResendReply<T>> {
     const outer = this.bounds.signal?.();
@@ -20,8 +22,9 @@ class BoundedResend extends Resend {
     return super.fetchRequest<T>(path, { ...options, signal });
   }
 }
-export const resendClient = (apiKey: string, bounds: { timeoutMs?: number; signal?: () => AbortSignal | undefined } = {}): Resend =>
-  new BoundedResend(apiKey, { timeoutMs: bounds.timeoutMs ?? RESEND_TIMEOUT_MS, ...(bounds.signal ? { signal: bounds.signal } : {}) });
+// Throws MailDestinationError when the environment does not allow the destination (resendBaseUrl).
+export const resendClient = (apiKey: string, bounds: { timeoutMs?: number; signal?: () => AbortSignal | undefined } = {}, env: Record<string, string | undefined> = process.env): Resend =>
+  new BoundedResend(apiKey, resendBaseUrl(env), { timeoutMs: bounds.timeoutMs ?? RESEND_TIMEOUT_MS, ...(bounds.signal ? { signal: bounds.signal } : {}) });
 
 export interface Email {
   from: string;
