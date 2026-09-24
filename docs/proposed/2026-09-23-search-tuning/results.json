@@ -1,0 +1,188 @@
+{
+ "now": "2026-09-23",
+ "queries": 39,
+ "judgements": 1482,
+ "shipped": "dedup",
+ "winner": "B0'",
+ "chosen": "dedup",
+ "p95Ms": 3.9,
+ "rows": [
+  {
+   "name": "rust",
+   "rel": 0.9948717948717948,
+   "overlap": 1,
+   "medianAgeDays": 151.21794871794873,
+   "dupSlots": 88,
+   "unjudged": 0,
+   "zero": 0,
+   "relA": 0.9948717948717948,
+   "relB": 0.9923076923076922
+  },
+  {
+   "name": "random",
+   "rel": 0.04871794871794872,
+   "overlap": 0.002564102564102564,
+   "medianAgeDays": 122.55128205128206,
+   "dupSlots": 0,
+   "unjudged": 0,
+   "zero": 0,
+   "relA": 0.08461538461538463,
+   "relB": 0.05128205128205128
+  },
+  {
+   "name": "shipped",
+   "rel": 0.9948717948717948,
+   "overlap": 0.39999999999999997,
+   "medianAgeDays": 97.61538461538461,
+   "dupSlots": 0,
+   "unjudged": 0,
+   "zero": 0,
+   "relA": 0.9923076923076922,
+   "relB": 0.9974358974358974
+  },
+  {
+   "name": "B0",
+   "rel": 0.9846153846153846,
+   "overlap": 0.39999999999999997,
+   "medianAgeDays": 97.52564102564102,
+   "dupSlots": 159,
+   "unjudged": 0,
+   "zero": 0,
+   "relA": 0.982051282051282,
+   "relB": 0.9871794871794872
+  },
+  {
+   "name": "B0'",
+   "rel": 0.9846153846153846,
+   "overlap": 0.39999999999999997,
+   "medianAgeDays": 97.52564102564102,
+   "dupSlots": 159,
+   "unjudged": 0,
+   "zero": 0,
+   "relA": 0.982051282051282,
+   "relB": 0.9871794871794872
+  },
+  {
+   "name": "rank_cd",
+   "rel": 0.982051282051282,
+   "overlap": 0.3923076923076923,
+   "medianAgeDays": 91.52564102564102,
+   "dupSlots": 181,
+   "unjudged": 0,
+   "zero": 0,
+   "relA": 0.976923076923077,
+   "relB": 0.9846153846153846
+  },
+  {
+   "name": "norm1",
+   "rel": 0.987179487179487,
+   "overlap": 0.29743589743589743,
+   "medianAgeDays": 222.06410256410257,
+   "dupSlots": 31,
+   "unjudged": 0,
+   "zero": 0,
+   "relA": 0.9846153846153844,
+   "relB": 0.9897435897435896
+  },
+  {
+   "name": "norm2",
+   "rel": 0.9846153846153844,
+   "overlap": 0.2641025641025641,
+   "medianAgeDays": 222.43589743589743,
+   "dupSlots": 27,
+   "unjudged": 0,
+   "zero": 0,
+   "relA": 0.9820512820512818,
+   "relB": 0.987179487179487
+  },
+  {
+   "name": "weights_b01",
+   "rel": 0.9846153846153846,
+   "overlap": 0.39999999999999997,
+   "medianAgeDays": 98.73076923076923,
+   "dupSlots": 159,
+   "unjudged": 0,
+   "zero": 0,
+   "relA": 0.982051282051282,
+   "relB": 0.9871794871794872
+  },
+  {
+   "name": "plain",
+   "rel": 0.9846153846153846,
+   "overlap": 0.3974358974358974,
+   "medianAgeDays": 97.43589743589743,
+   "dupSlots": 158,
+   "unjudged": 0,
+   "zero": 0,
+   "relA": 0.982051282051282,
+   "relB": 0.9871794871794872
+  },
+  {
+   "name": "websearch",
+   "rel": 0.9846153846153846,
+   "overlap": 0.3974358974358974,
+   "medianAgeDays": 97.43589743589743,
+   "dupSlots": 158,
+   "unjudged": 0,
+   "zero": 0,
+   "relA": 0.982051282051282,
+   "relB": 0.9871794871794872
+  },
+  {
+   "name": "prefix",
+   "rel": 0.9794871794871796,
+   "overlap": 0.341025641025641,
+   "medianAgeDays": 105.01282051282051,
+   "dupSlots": 127,
+   "unjudged": 0,
+   "zero": 0,
+   "relA": 0.9769230769230768,
+   "relB": 0.982051282051282
+  },
+  {
+   "name": "recency_tie",
+   "rel": 0.9846153846153846,
+   "overlap": 0.39999999999999997,
+   "medianAgeDays": 97.52564102564102,
+   "dupSlots": 159,
+   "unjudged": 0,
+   "zero": 0,
+   "relA": 0.982051282051282,
+   "relB": 0.9871794871794872
+  },
+  {
+   "name": "recency_decay",
+   "rel": 0.9564102564102563,
+   "overlap": 0.26410256410256416,
+   "medianAgeDays": 69.41025641025641,
+   "dupSlots": 234,
+   "unjudged": 0,
+   "zero": 0,
+   "relA": 0.9538461538461538,
+   "relB": 0.9589743589743589
+  },
+  {
+   "name": "dedup",
+   "rel": 0.9948717948717948,
+   "overlap": 0.39999999999999997,
+   "medianAgeDays": 97.61538461538461,
+   "dupSlots": 0,
+   "unjudged": 0,
+   "zero": 0,
+   "relA": 0.9923076923076922,
+   "relB": 0.9974358974358974
+  },
+  {
+   "name": "simple",
+   "rel": 0.9846153846153846,
+   "overlap": 0.4410256410256411,
+   "medianAgeDays": 96.1923076923077,
+   "dupSlots": 174,
+   "unjudged": 0,
+   "zero": 0,
+   "relA": 0.982051282051282,
+   "relB": 0.9846153846153846
+  }
+ ],
+ "failures": []
+}

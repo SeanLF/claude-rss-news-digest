@@ -1,0 +1,34 @@
+#!/usr/bin/env bash
+# usage: bin/search-eval [score | pool OUT | labels POOL A B HAND ADJ]   (default: score)
+#
+# The headline-search evaluation of docs/proposed/2026-09-23-search-tuning: imports a copy of the prod
+# clone into a fresh Postgres database (compose project digest-search), then runs
+# digest/src/cli/search-eval.ts in the ci-ts image against it and against the same SQLite copy, where
+# the Rust site's FTS5 query is replayed. `score` re-scores from the committed judgements.json with no
+# model call and exits 1 if a negative control fails. Work files (pools, judge runs) go under
+# data/search-eval/, mounted at /work.
+#
+# Environment:
+#   SRC          the clone (default: data/prod-20260923b.db, the one the judgements were made on)
+#   SKIP_IMPORT  1: reuse the database and copy from the last run
+set -euo pipefail
+cd "$(dirname "$0")/.."
+src=${SRC:-data/prod-20260923b.db}
+p=digest-search
+db=search_eval
+copy=data/search-eval.db
+url="postgres://postgres:digest@digest-pg:5432/$db?sslmode=disable"
+mkdir -p data/search-eval
+docker compose -p "$p" up -d --wait digest-pg >/dev/null
+if [ "${SKIP_IMPORT:-}" != "1" ]; then
+  [ -r "$src" ] || { echo "search-eval: no $src (make db-clone)" >&2; exit 2; }
+  rm -f "$copy"
+  cp -c "$src" "$copy"
+  docker compose -p "$p" exec -T digest-pg psql -q -U postgres -c "DROP DATABASE IF EXISTS $db" -c "CREATE DATABASE $db"
+  IMPORT_NETWORK="${p}_default" bin/import-legacy "$copy" "$url"
+fi
+[ $# -gt 0 ] || set -- score
+docker compose -p "$p" run --rm --build \
+  -v "$PWD/docs/proposed/2026-09-23-search-tuning:/eval" -v "$PWD/data/search-eval:/work" -v "$PWD/$copy:/src/legacy.db:ro" \
+  -e SEARCH_EVAL_DIR=/eval -e SEARCH_EVAL_SQLITE=/src/legacy.db -e SEARCH_EVAL_DATABASE_URL="$url" \
+  ci-ts sh -c 'npx tsc -p tsconfig.json && node dist/cli/search-eval.js "$@"' search-eval "$@"

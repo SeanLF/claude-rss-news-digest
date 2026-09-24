@@ -88,14 +88,23 @@ export function siteStore(db: Sql): SiteData {
       return db.all<{ date: string; preheader: string }>(`WITH ${LATEST} SELECT issue_date::text AS date, preheader FROM latest ORDER BY issue_date DESC LIMIT $1`, [limit]);
     },
 
-    // A literal phrase, stemmed English (the column's own configuration), ranked by ts_rank: the order
-    // and the match set differ from the FTS5 search it replaces (fork doc §5).
+    // A literal phrase, stemmed English, ranked by ts_rank; unstemmed (`simple`) only when English
+    // leaves no lexeme. One row per story, its best-ranked source's. Chosen by the pre-registered
+    // evaluation in docs/proposed/2026-09-23-search-tuning, which `make search-eval` re-runs and which
+    // holds this query row for row to its candidate `dedup`. The two branches keep each index usable.
     async search(query, limit): Promise<SearchHit[]> {
       const rows = await db.all<Record<string, unknown>>(
-        `SELECT s.headline, COALESCE(s.tier, '') AS tier, (SELECT max(i.issue_date)::text FROM issues i WHERE i.run_id = s.run_id) AS date
-         FROM story_sources s, phraseto_tsquery('english', $1) q
-         WHERE s.search @@ q
-         ORDER BY ts_rank(s.search, q) DESC, s.id DESC
+        `WITH q AS (SELECT phraseto_tsquery('english', $1) AS e, phraseto_tsquery('simple', $1) AS s),
+         m AS (
+           SELECT s.id, s.run_id, s.headline, s.tier, ts_rank(s.search, q.e) AS rank
+           FROM story_sources s, q WHERE numnode(q.e) > 0 AND s.search @@ q.e
+           UNION ALL
+           SELECT s.id, s.run_id, s.headline, s.tier, ts_rank(s.search_simple, q.s)
+           FROM story_sources s, q WHERE numnode(q.e) = 0 AND s.search_simple @@ q.s),
+         story AS (SELECT DISTINCT ON (run_id, headline) * FROM m ORDER BY run_id, headline, rank DESC, id DESC)
+         SELECT x.headline, COALESCE(x.tier, '') AS tier, (SELECT max(i.issue_date)::text FROM issues i WHERE i.run_id = x.run_id) AS date
+         FROM story x
+         ORDER BY x.rank DESC, x.id DESC
          LIMIT $2`,
         [query, limit],
       );

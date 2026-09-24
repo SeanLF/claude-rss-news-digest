@@ -187,7 +187,7 @@ answers `/stats/` with 404, so the app is built non-strict and answers wrong met
   "ceasefire" matches 1,469 rows against FTS5's 1,468 (counted outside the harness: `SELECT count(*) FROM
   shown_narratives_fts WHERE shown_narratives_fts MATCH '"ceasefire"'` on the clone, and `... WHERE search
   @@ phraseto_tsquery('english','ceasefire')` on the import), but both answers are capped at 50 and the
-  rankings pick different fifties: they share 3 of Rust's 26 distinct headlines. Passes only by the capped
+  rankings pick different fifties: they share 3 of Rust's 26 distinct headlines (6 after the tuning in `docs/proposed/2026-09-23-search-tuning`, which also shows one row per story). Passes only by the capped
   rule; a reader will see different "ceasefire" results. The recording is kept in the main checkout's
   `data/site-parity/20260923T230128Z` (gitignored); `make site-parity-record` makes a fresh one.
 - **a11y and Lighthouse** (`bin/web-check --base` against the local site over the clone): the structural
