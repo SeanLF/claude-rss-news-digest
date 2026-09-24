@@ -110,6 +110,40 @@ Roughly a few dollars a day in API-equivalent cost (Sonnet for the reasoning sta
 | Email not sending | Verify `RESEND_API_KEY` and `RESEND_FROM` in `.env`; test with `docker compose run --rm digest-newsroom --test-email you@example.com` |
 | Container issues | `docker compose build --no-cache` |
 
+## The Temporal pipeline: what we know, and what we don't yet
+
+The pipeline is being rewritten in TypeScript on Temporal, in `digest/` ([spec](docs/superpowers/specs/2026-09-21-four-systems-rewrite-design.md)). Python still sends every issue. Staging, cut-over, rollback and day to day: the [runbook](docs/2026-09-23-temporal-cutover-runbook.md).
+
+**Verified, locally:**
+
+- **End to end, up to the hold** on Postgres through Temporal, real model calls, one fresh day: 16 stories. The worker was killed mid-WRITE; the resume re-ran only the 11 missing branches and duplicated nothing. No send: the worker had no Resend. [`docs/proposed/2026-09-23-e2e-postgres`](docs/proposed/2026-09-23-e2e-postgres/README.md)
+- **Import** of the prod clone into Postgres: 15 tables match the file, all 16 row checks pass, each negative-controlled. [Data model §5](docs/2026-09-23-data-model-design.md), `make import-check`
+- **Threads** against the Python oracle: 5 of 5 runs (300-304) equal, once the intended schema changes are mapped. Merges and retraction are covered by unit tests only. [`docs/proposed/2026-09-23-threads-parity-postgres`](docs/proposed/2026-09-23-threads-parity-postgres/README.md)
+- **Site** against the Rust server: 138 of 144 requests equal; the other 6 are known divergences, 0 unexplained. Search tuned separately. [Fork doc §7](docs/2026-09-23-web-tier-typescript-fork.md), [`docs/proposed/2026-09-23-search-tuning`](docs/proposed/2026-09-23-search-tuning/README.md)
+- **Day 305, side by side with production** on the same archived fetch: $5.09 against $5.77 (12% lower, inside the old system's own same-day band of $4.36-6.08, [`docs/proposed/2026-09-22-same-day-band`](docs/proposed/2026-09-22-same-day-band/README.md)), 15 stories against 17, no quality difference two judge families could detect. One day of the three the gate needs, with no planted defects (spec §7). [`docs/proposed/gate-fixtures/day-305`](docs/proposed/gate-fixtures/day-305/README.md)
+- **Deploy race** (a build made current before the server had registered it; 1 in 8 CI runs): fixed in 57a647d, held by `digest/src/deployment.test.ts`. The 20 of 20 clean runs under load after it are from the session, not recorded in the repo.
+
+**Not run anywhere real:**
+
+- **Nothing has run on the box.** Every unit, script and the worker itself ran in local rehearsals only. [Runbook, "Unverified until the first apply"](docs/2026-09-23-temporal-cutover-runbook.md#unverified-until-the-first-apply)
+- **The terraform apply** for `staged` or `temporal` (branch `digest-temporal` of seanfloyd.dev) has never run.
+- **Memory on the 4 GB box.** The temporal-mode caps sum to 2752 of 2825 MiB free. The worker's 1280 MiB cap rests on a per-process estimate; a four-way WRITE under it is unmeasured. `staged` puts about 560 MiB beside Python's run, which is capped at 2 GiB. The Node site's 256 MiB cap (fork doc §8) is not in that sum and exceeds the 73 MiB left; it fits only if the Rust server it replaces frees at least as much, which nobody has measured. [Runbook, "Memory budget"](docs/2026-09-23-temporal-cutover-runbook.md#memory-budget-temporal)
+- **A real send from the TypeScript side**, and `RESEND_LIVE=true` on the box. Without it the worker refuses real Resend (no send, no alert, no hold notice), and the web container refuses to start with subscriptions on. [Runbook, "What is on the box"](docs/2026-09-23-temporal-cutover-runbook.md#what-is-on-the-box-staged-and-temporal), fork doc §8
+- **healthchecks.io timing.** The success ping moves to the send, 15 minutes later on a held day, and an hour earlier from 2026-10-25 (the schedule is fixed at 10:25Z; Python's timer follows Paris). The check's schedule and grace are unchecked. [Runbook, "Before the cut-over"](docs/2026-09-23-temporal-cutover-runbook.md#before-the-cut-over)
+- **Rollback double-sends.** Python cannot see what Temporal sent, and the re-enabled timer may catch up at once; a rollback on a day Temporal sent can send twice. The catch-up after days disabled is untested. [Runbook, "Rollback"](docs/2026-09-23-temporal-cutover-runbook.md#rollback-temporal---python-or-staged)
+- **Rollback of the site.** The runbook's rollback does not cover it. The Rust server reads `digest.db`, which has no Temporal-era issue, and a rollback is clean only until the first TypeScript run writes. [Data model §5, step 4](docs/2026-09-23-data-model-design.md)
+- **Planted defects** (spec §7, item 1) on any gate day. Day 305 rests on judges alone.
+- **Content quality the checks miss.** The pre-send checks catch leaked ids, empty fields, story counts, fact-check drops and unaudited thread facts ([`digest/src/ops/pre-send.ts`](digest/src/ops/pre-send.ts)). A poor selection, a weak summary or a claim COHERENCE passed goes out.
+
+**Rollout order.** Steps 2 and 4 are not in the runbook yet.
+
+1. `staged`: the stack on the box, the worker on a scratch copy with broadcast off. Python still sends.
+2. The TypeScript site on a preview host. Which database it reads is open: `digest` is empty until the cut-over's import, and staged writes `digest_staged`.
+3. Three gate days, each TypeScript issue compared with Python's for the same day (spec §7).
+4. A dress rehearsal of the cut-over and the rollback on `staged`, broadcast off. How to rehearse the switch without making it is not written down.
+5. Cut-over with `HOLD_ALWAYS_THROUGH` set: every issue holds 15 minutes for approve or reject for the first days, then the setting lapses on its own.
+6. Keep `digest.db` and the last Python deploy tag until a quiet week on Temporal. After the first TypeScript run they are a fallback, not a lossless rollback.
+
 ## More
 
 - **Production deployment** -- [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)
