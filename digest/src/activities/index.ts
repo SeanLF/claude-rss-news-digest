@@ -4,6 +4,7 @@ export type { AlertRequest };
 
 // failStage is a test hook the stub honours; real activities ignore it.
 export interface DigestInput {
+  // Not the issue's date: a run is dated the UTC day it starts (runs.started_at). Empty from the schedule.
   runDate: string;
   resumeRun?: number;
   force?: boolean;

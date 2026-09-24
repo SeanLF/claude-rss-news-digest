@@ -23,6 +23,31 @@ export function startOptions(runDate: string, opts: StartOpts): WorkflowStartOpt
   };
 }
 
+// `start [YYYY-MM-DD] [--force] [--resume N]`. A new run's issue is dated the day it starts (UTC,
+// runs.started_at), so a new run may name only today; the date is otherwise just the workflow id
+// (digest-<date>, which approve and reject signal). A resume may name the day of the run it resumes.
+export function parseStartArgs(argv: string[], today = new Date().toISOString().slice(0, 10)): { date: string; opts: StartOpts & { force: boolean } } {
+  let date: string | undefined;
+  let force = false;
+  let resumeRun: number | undefined;
+  for (let i = 0; i < argv.length; i++) {
+    const a = argv[i]!;
+    if (a === "--force") force = true;
+    else if (a === "--resume") {
+      const n = Number(argv[++i]);
+      if (!Number.isInteger(n) || n <= 0) throw new Error("--resume takes a run number, e.g. --resume 300");
+      resumeRun = n;
+    } else if (!a.startsWith("--") && date === undefined) date = a;
+    else throw new Error(`unknown argument ${a}; usage: start [YYYY-MM-DD] [--force] [--resume N]`);
+  }
+  // A resume names its day: under today's id it would take the id today's own run needs.
+  if (resumeRun !== undefined && date === undefined) throw new Error("--resume needs the day of the run it resumes, e.g. start 2026-09-18 --resume 300");
+  if (date !== undefined && !/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new Error(`${date} is not a YYYY-MM-DD date`);
+  if (date !== undefined && date !== today && resumeRun === undefined)
+    throw new Error(`a new run's issue is dated the day it starts, ${today} (UTC), not ${date}; start it today (with --force to run today again), or name a past day only with --resume N`);
+  return { date: date ?? today, opts: { force, ...(resumeRun !== undefined ? { resumeRun } : {}) } };
+}
+
 // 10:25Z daily; overlap: skip; catch-up: one day. Replaces the systemd timer and reboot catch-up.
 // The scheduled action's workflowId is fixed; plan A2's startRun derives the run date from the
 // start time when runDate is empty, and the overlap policy covers scheduled starts.

@@ -81,11 +81,20 @@ and harnesses use `ci-pg`, a scratch server with no volume; a band copies `diges
 ```bash
 make dev-import                   # a cp -c copy of data/prod-20260923b.db (SRC=...) becomes `digest`; starts the stack
 make dev-up                       # start or rebuild the stack; keeps its data
-make digest-start DATE=2026-09-24 # a fresh day, through the hold
-make digest-approve DATE=2026-09-24   # or digest-reject; unsignalled, the hold ends after 2 h and it sends
+make digest-start                 # today's run (UTC), through the hold
+make digest-start ARGS=--force    # today again: a new revision of the issue on the site, never a second send
+make digest-start DATE=2026-09-18 ARGS="--resume 300"   # resume a run; only a resume may name another day
+make digest-approve               # or digest-reject (DATE defaults to today; a resume's is its DATE); unsignalled, the hold ends after 2 h and it sends
+make dev-mail-clear               # empty resend-fake: caught mail and the dev audience
 make dev-urls                     # where each part answers
 make dev-down                     # stop; keeps the volumes
 ```
+
+A run's issue is dated the UTC day it starts (`runs.started_at`), whatever `DATE` says: `DATE` only
+names the workflow (`digest-DATE`, which approve and reject signal). So `digest-start` refuses a day
+other than today unless it is a `--resume`, and the one-run-per-day guard asks about the day the run
+will be dated. A resume must name its day, so it never takes today's workflow id. To rehearse another day's news, import a clone taken that day; to run today again, use
+`--force`. The production schedule passes no date and is unchanged.
 
 Where it answers (OrbStack domains, `<project>` being the compose project, `news-digest` in the main
 checkout):
@@ -94,7 +103,9 @@ checkout):
   which is how mailed links (confirm, view in browser) spell it: `DIGEST_DOMAIN` is that host
   (`DEV_SITE_DOMAIN` overrides it). Also `http://127.0.0.1:8080`.
 - resend-fake: `http://resend-fake.<project>.orb.local:8025`, every email and broadcast caught, with
-  `/api/messages` as JSON. In memory: a restart of the container empties it.
+  `/api/messages` as JSON. Its contacts (the dev audience) and caught mail are kept on the
+  `resend-fake-data` volume, so a restart, `make dev-up` or `make dev-import` keeps them (`dev-import`
+  does not restart it at all); `make dev-mail-clear` empties them.
 - Temporal UI: `http://temporal.<project>.orb.local:8233`, also `127.0.0.1:8233`.
 
 **Mail never leaves the machine.** Every dev service gets `RESEND_BASE_URL=http://resend-fake:8025`

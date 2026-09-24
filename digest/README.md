@@ -18,8 +18,8 @@ the Agent SDK for model stages, Temporal for sequencing, signals and the run bud
 ```
 cd digest && npm install && npm test && npm run typecheck && npm run lint   # bin/ci runs these in the ci-ts container
 make dev-up                            # the dev stack: Temporal (UI :8233) + the worker, the site, resend-fake, digest-pg
-make digest-start DATE=2026-09-24      # start one DigestWorkflow; it holds before broadcast for 2 h or a signal
-make digest-approve DATE=2026-09-24    # or digest-reject; the send lands in resend-fake, never Resend
+make digest-start                      # start today's DigestWorkflow (UTC); it holds before broadcast for 2 h or a signal
+make digest-approve                    # or digest-reject; the send lands in resend-fake, never Resend
 make digest-schedule                   # create or update the daily schedule
 make dev-down                          # stop; keeps the volumes (docs/operations.md, "The dev stack")
 bash scripts/check-api-names.sh        # every library name used is declared in the installed types

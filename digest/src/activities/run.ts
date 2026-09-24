@@ -97,18 +97,17 @@ export function runActivities(deps: RunDeps) {
       if (own) return { runId: own.id, sourceIds: await sourceIds(own.id), lastRun };
       // A day already sent, or one still running (under the 4 h run budget, so a crashed run's stale
       // "running" row does not block the day), is refused. The check and the insert hold one lock,
-      // so two starts of the same day cannot both pass it.
-      const day = input.runDate || new Date().toISOString().slice(0, 10);
+      // so two starts of the same day cannot both pass it. The day is the one the new row is dated
+      // (its started_at), never runDate, which names only the workflow.
       const runId = await db().tx(async (t) => {
         // Again under the lock: an earlier attempt of this execution may have committed while this one waited.
         const mine = execution === undefined ? undefined : await t.one<{ id: number }>("SELECT run_id AS id FROM run_attempts WHERE workflow_run_id = $1", [execution.runId]);
         if (mine) return mine.id;
         if (!input.force) {
-          const clash = await t.one<{ id: number; status: string }>(
-            `SELECT id, status FROM runs WHERE (started_at AT TIME ZONE 'UTC')::date = $1::date AND (${SENT} OR (status = 'running' AND started_at >= now() - interval '4 hours')) ORDER BY id DESC LIMIT 1`,
-            [day],
+          const clash = await t.one<{ id: number; status: string; day: string }>(
+            `SELECT id, status, to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD') AS day FROM runs WHERE (started_at AT TIME ZONE 'UTC')::date = (now() AT TIME ZONE 'UTC')::date AND (${SENT} OR (status = 'running' AND started_at >= now() - interval '4 hours')) ORDER BY id DESC LIMIT 1`,
           );
-          if (clash) throw ApplicationFailure.nonRetryable(`${day} already has run ${clash.id} (${clash.status}); start with force to run it again`, "AlreadyRan");
+          if (clash) throw ApplicationFailure.nonRetryable(`${clash.day} already has run ${clash.id} (${clash.status}); start with force to run it again`, "AlreadyRan");
         }
         const inserted = await t.one<{ id: number }>("INSERT INTO runs (git_sha) VALUES ($1) RETURNING id", [process.env["GIT_SHA"] ?? null]);
         if (execution !== undefined) await recordAttempt(t, inserted!.id, execution, input.force ?? false);
