@@ -24,21 +24,30 @@ See docs/lessons/a-deadline-on-the-waiter-does-not-bound-the-worker.md.
 
 from __future__ import annotations
 
+import contextlib
+import importlib.metadata
+import ipaddress
 import json
 import logging
 import os
 import re
+import socket
 import subprocess
 import sys
+import threading
 import time
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
-from urllib.parse import urlparse
+from urllib.parse import urljoin, urlparse, urlsplit
 
+import certifi
 import config
 import trafilatura
-from trafilatura.settings import use_config
+import urllib3
+from trafilatura.utils import detect_encoding
+from urllib3.connection import HTTPConnection, HTTPSConnection
+from urllib3.connectionpool import HTTPConnectionPool, HTTPSConnectionPool
 
 logger = logging.getLogger(__name__)
 
@@ -52,7 +61,12 @@ logger = logging.getLogger(__name__)
 logging.getLogger("trafilatura").propagate = False
 
 _MAX_WORKERS = 6
+# Per connect and per read, as trafilatura's DOWNLOAD_TIMEOUT was set here.
 _PER_FETCH_TIMEOUT_S = 10
+# The whole fetch, redirects included. The per-read timeout never fires on a host that sends a byte
+# every few seconds, which then held a thread for the step's whole budget. Six threads share a
+# 120 s step, about 57 fetches, so a fetch gets ~12 s on average; 20 s leaves slow hosts room.
+_PER_FETCH_WALL_S = 20
 
 # Puts this module into worker mode (see _worker_main). The task list goes over stdin, never
 # argv: argv is world-readable in `ps` and the task list contains URLs.
@@ -62,8 +76,6 @@ _WORKER_FLAG = "--worker"
 _MAX_RELAYED_LOG_LINES = 200
 _LOG_LEVELS = {"DEBUG": logging.DEBUG, "INFO": logging.INFO, "WARNING": logging.WARNING, "ERROR": logging.ERROR}
 
-_config_lock_value = None  # lazily-built trafilatura Config, module-cached (see _trafilatura_config)
-
 # A truncated extract may end mid-sentence or mid-number ("...nearly 50"). WRITE has a
 # no-completing-cut-off-text rule; without an explicit marker it can't tell a true cut from a
 # source that just ends there, and risks "completing" the fact. Matches sentence-ending
@@ -72,32 +84,250 @@ _SENTENCE_END_RE = re.compile(r"[.!?](?=\s|$)")
 _TRUNCATION_MARKER = "\n[truncated]"
 
 
-def _trafilatura_config():
-    """A trafilatura Config with an explicit, shorter-than-default download timeout.
-
-    trafilatura's own default (settings.cfg: DOWNLOAD_TIMEOUT=30) is too generous for a
-    concurrent batch bounded by an overall step deadline -- one slow/hanging host could eat a
-    large share of the deadline on its own. Built once and cached at module scope (a ConfigParser
-    build is cheap but there's no reason to redo it per article).
-
-    MAX_FILE_SIZE stays at trafilatura's 20 MB default: it is enforced by aborting the stream
-    mid-response, which is indistinguishable from "fetch returned nothing". FULLTEXT_MAX_DOC_CHARS
-    is applied after the download in `_fetch_one` instead, so an oversized document says so.
-    """
-    global _config_lock_value
-    if _config_lock_value is None:
-        cfg = use_config()
-        cfg.set("DEFAULT", "DOWNLOAD_TIMEOUT", str(_PER_FETCH_TIMEOUT_S))
-        _config_lock_value = cfg
-    return _config_lock_value
-
-
 def _domain(url: str) -> str:
     """The domain only, for logging -- never the full URL (see module docstring)."""
     try:
         return urlparse(url).netloc or "unknown"
     except ValueError:
         return "unknown"
+
+
+class FetchRefused(Exception):
+    """The fetch would leave the public internet, or break a limit. Never carries the URL."""
+
+
+# trafilatura.fetch_url followed redirects into internal addresses, so the fetch is ours: every hop is
+# resolved, checked and connected to by address, which leaves no second lookup for DNS to answer
+# differently. trafilatura still does the extraction.
+_MAX_REDIRECTS = 2  # trafilatura's MAX_REDIRECTS
+_MAX_FILE_SIZE = 20_000_000  # trafilatura's MAX_FILE_SIZE, on the decoded body, so it caps a bomb too
+_MIN_FILE_SIZE = 10  # trafilatura's MIN_FILE_SIZE
+_REDIRECTS = frozenset({301, 302, 303, 307, 308})
+_HEADERS = {
+    **urllib3.util.make_headers(accept_encoding=True),
+    "User-Agent": f"trafilatura/{importlib.metadata.version('trafilatura')} (+https://github.com/adbar/trafilatura)",
+}
+_getaddrinfo = socket.getaddrinfo
+
+
+def _connect(family: int, sockaddr: tuple, timeout: float | None) -> socket.socket:
+    sock = socket.socket(family, socket.SOCK_STREAM)
+    try:
+        sock.settimeout(timeout)
+        sock.connect(sockaddr)
+    except BaseException:
+        sock.close()
+        raise
+    return sock
+
+
+def _is_public(ip: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
+    """Globally routable unicast. is_global alone admits multicast, and an IPv6 address can carry
+    an IPv4 one (mapped, 6to4, Teredo) that has to pass on its own."""
+    if isinstance(ip, ipaddress.IPv6Address):
+        embedded = [ip.ipv4_mapped, ip.sixtofour, ip.teredo[1] if ip.teredo else None]
+        if any(v4 is not None and not _is_public(v4) for v4 in embedded):
+            return False
+    return ip.is_global and not ip.is_multicast
+
+
+def _resolve(host: str, port: int, allow: frozenset[tuple[str, int]]) -> list[tuple]:
+    """Every address `host` resolves to, or FetchRefused if any one is not public: a name with one
+    private answer among public ones is treated as private, not tried until something connects.
+
+    `allow` names exact (ip, port) pairs exempt from the check. Only tests pass it, to reach a
+    loopback server; the pipeline never does.
+    """
+    infos = _getaddrinfo(host, port, type=socket.SOCK_STREAM)
+    if not infos:
+        raise FetchRefused(f"{host} resolves to nothing")
+    for _family, _type, _proto, _name, sockaddr in infos:
+        ip = ipaddress.ip_address(str(sockaddr[0]).split("%", 1)[0])
+        if not _is_public(ip) and (str(ip), port) not in allow:
+            raise FetchRefused(f"{host} resolves to a non-public address")
+    return infos
+
+
+class _Guard:
+    """One fetch's connection policy and wall clock, handed to each connection urllib3 opens for it.
+
+    At the limit a timer shuts down every socket the fetch opened, which unblocks a read in progress
+    whatever the per-read timeout says. Sockets, not connections: http.client drops the connection's
+    socket when the response says `Connection: close`, while the response goes on reading it. A TLS
+    handshake in progress has no socket to shut down (the raw one is detached, the wrapped one not yet
+    registered), so connect() gives the socket a timeout no longer than the time left, and CPython
+    bounds a whole handshake by it.
+    """
+
+    def __init__(self, allow: frozenset[tuple[str, int]], wall_s: float):
+        self.allow = allow
+        self.deadline = time.monotonic() + wall_s
+        self.expired = False
+        self._socks: list[socket.socket] = []
+        self._lock = threading.Lock()
+        self._timer = threading.Timer(wall_s, self._expire)
+        self._timer.daemon = True
+        self._timer.start()
+
+    def remaining(self) -> float:
+        left = self.deadline - time.monotonic()
+        if left <= 0 or self.expired:
+            raise FetchRefused("over the wall-clock limit")
+        return left
+
+    def _expire(self) -> None:
+        with self._lock:
+            self.expired = True
+            socks = list(self._socks)
+        for sock in socks:
+            _shutdown(sock)
+
+    def register(self, sock: socket.socket) -> None:
+        with self._lock:
+            self._socks.append(sock)
+            expired = self.expired
+        if expired:
+            _shutdown(sock)
+
+    def cancel(self) -> None:
+        self._timer.cancel()
+
+    def connect(self, conn: HTTPConnection) -> socket.socket:
+        infos = _resolve(conn.host, conn.port, self.allow)
+        timeout = conn.timeout if isinstance(conn.timeout, (int, float)) else _PER_FETCH_TIMEOUT_S
+        last: OSError | None = None
+        for family, _type, _proto, _name, sockaddr in infos:
+            try:
+                sock = _connect(family, sockaddr, min(timeout, self.remaining()))
+            except OSError as e:
+                last = e
+                continue
+            self.register(sock)
+            return sock
+        raise last or OSError("no address to connect to")
+
+
+def _shutdown(sock: socket.socket) -> None:
+    # socket.socket's, not SSLSocket's: that one unwraps TLS under a reading thread. A closed or
+    # detached socket has no descriptor left, so this cannot reach one the OS has since reused.
+    with contextlib.suppress(OSError):
+        socket.socket.shutdown(sock, socket.SHUT_RDWR)
+
+
+class _GuardedHTTPConnection(HTTPConnection):
+    def __init__(self, *args, guard: _Guard, **kwargs):
+        self._guard = guard
+        super().__init__(*args, **kwargs)
+
+    def _new_conn(self) -> socket.socket:
+        return self._guard.connect(self)
+
+
+class _GuardedHTTPSConnection(HTTPSConnection):
+    def __init__(self, *args, guard: _Guard, **kwargs):
+        self._guard = guard
+        super().__init__(*args, **kwargs)
+
+    def _new_conn(self) -> socket.socket:
+        return self._guard.connect(self)
+
+    def connect(self) -> None:
+        super().connect()
+        self._guard.register(self.sock)  # the TLS socket the response will read
+
+
+class _GuardedHTTPPool(HTTPConnectionPool):
+    ConnectionCls = _GuardedHTTPConnection
+
+
+class _GuardedHTTPSPool(HTTPSConnectionPool):
+    ConnectionCls = _GuardedHTTPSConnection
+
+
+def _download(url: str, *, allow: frozenset[tuple[str, int]] = frozenset()) -> bytes | None:
+    """GET `url`, following at most _MAX_REDIRECTS redirects, each hop checked as the first was.
+
+    Returns the decoded body of a 200, None for any other status or a body under the minimum size,
+    and raises FetchRefused for a hop off the public internet or over a limit.
+    """
+    guard = _Guard(allow, _PER_FETCH_WALL_S)
+    try:
+        return _follow(url, guard)
+    except FetchRefused:
+        raise
+    except Exception as e:
+        if guard.expired:  # the timer cut the socket; the read error is its symptom
+            raise FetchRefused("over the wall-clock limit") from e
+        raise
+    finally:
+        guard.cancel()
+
+
+def _follow(url: str, guard: _Guard) -> bytes | None:
+    timeout = urllib3.Timeout(connect=_PER_FETCH_TIMEOUT_S, read=_PER_FETCH_TIMEOUT_S)
+    for hop in range(_MAX_REDIRECTS + 1):
+        guard.remaining()
+        parts = urlsplit(url)
+        if parts.scheme not in ("http", "https") or not parts.hostname:
+            raise FetchRefused(f"not an http(s) URL on hop {hop}")
+        try:
+            port = parts.port or (443 if parts.scheme == "https" else 80)
+        except ValueError as e:
+            raise FetchRefused("unreadable port") from e
+        pool: HTTPConnectionPool
+        if parts.scheme == "https":
+            pool = _GuardedHTTPSPool(
+                parts.hostname, port, timeout=timeout, maxsize=1, retries=False, guard=guard,
+                cert_reqs="CERT_REQUIRED", ca_certs=certifi.where(),
+            )  # fmt: skip
+        else:
+            pool = _GuardedHTTPPool(parts.hostname, port, timeout=timeout, maxsize=1, retries=False, guard=guard)
+        path = parts.path or "/"
+        if parts.query:
+            path += "?" + parts.query
+        try:
+            response = pool.urlopen(
+                "GET",
+                path,
+                headers=_HEADERS,
+                redirect=False,
+                retries=False,
+                preload_content=False,
+                assert_same_host=False,
+            )
+            try:
+                if response.status in _REDIRECTS:
+                    location = response.headers.get("Location")
+                    if not location:
+                        return None
+                    url = urljoin(url, location)
+                    continue
+                if response.status != 200:
+                    return None
+                data = bytearray()
+                for chunk in response.stream(2**17, decode_content=True):
+                    data.extend(chunk)
+                    if len(data) > _MAX_FILE_SIZE:
+                        raise FetchRefused(f"body over {_MAX_FILE_SIZE} bytes")
+            finally:
+                response.release_conn()
+        finally:
+            pool.close()
+        # A cut socket can end a close-delimited body cleanly; what was read is not the article.
+        guard.remaining()
+        return bytes(data) if len(data) >= _MIN_FILE_SIZE else None
+    raise FetchRefused(f"more than {_MAX_REDIRECTS} redirects")
+
+
+def _decode(data: bytes) -> str:
+    """trafilatura's decode_file without its gunzip, which has no size cap: a body that is still
+    compressed after the transfer decoding is not an article."""
+    for encoding in detect_encoding(data):
+        try:
+            return data.decode(encoding)
+        except LookupError, UnicodeDecodeError:
+            continue
+    return data.decode("utf-8", errors="replace")
 
 
 def truncate_at_sentence(text: str, max_chars: int) -> str:
@@ -135,17 +365,24 @@ def _candidate_article_ids(selected: dict, per_story: int) -> list[str]:
     return ordered
 
 
-def _fetch_one(article_id: str, url: str, max_chars: int, max_doc_chars: int = 0) -> tuple[str, str | None]:
+def _fetch_one(
+    article_id: str, url: str, max_chars: int, max_doc_chars: int = 0, allow: frozenset[tuple[str, int]] = frozenset()
+) -> tuple[str, str | None]:
     """Fetch + extract one article. Returns (article_id, text) on success, (article_id, None) on
     any failure -- never raises, so one bad article can't take down the batch."""
     try:
-        downloaded = trafilatura.fetch_url(url, config=_trafilatura_config())
-    except Exception as e:  # network/parsing errors from trafilatura's stack are not enumerable
-        logger.info("fulltext: fetch failed for %s (%s): %s: %s", article_id, _domain(url), type(e).__name__, e)
+        body = _download(url, allow=allow)
+    except FetchRefused as e:
+        logger.info("fulltext: fetch refused for %s (%s): %s", article_id, _domain(url), e)
         return article_id, None
-    if not downloaded:
+    except Exception as e:  # urllib3, ssl and socket errors are not enumerable
+        # The type only: urllib3's messages name the request path.
+        logger.info("fulltext: fetch failed for %s (%s): %s", article_id, _domain(url), type(e).__name__)
+        return article_id, None
+    if not body:
         logger.info("fulltext: fetch returned nothing for %s (%s)", article_id, _domain(url))
         return article_id, None
+    downloaded = _decode(body)
 
     # Cheap pre-parse cap: extraction cost is superlinear in node count. A heuristic, NOT the
     # bound -- a small document can still be pathological, which is what _collect_isolated is for.
@@ -178,8 +415,10 @@ def _collect_inline(
     deadline_s: float,
     max_doc_chars: int,
     on_result: Callable[[str, str], None] | None = None,
-) -> dict[str, str]:
+    allow: frozenset[tuple[str, int]] = frozenset(),
+) -> tuple[dict[str, str], int]:
     """Fetch + extract every task on a thread pool, taking whatever finished by ``deadline_s``.
+    Returns the results and how many fetches the deadline left unfinished.
 
     The body of the worker process, and the ONLY place the network is touched. ``deadline_s`` is
     a SOFT budget -- a thread inside a C extension cannot be cancelled, so work still running when
@@ -189,28 +428,33 @@ def _collect_inline(
     been handed over survives.
     """
     results: dict[str, str] = {}
+    unfinished = 0
+    collected = 0
     executor = ThreadPoolExecutor(max_workers=_MAX_WORKERS)
     try:
-        futures = {executor.submit(_fetch_one, aid, url, max_chars, max_doc_chars): aid for aid, url in tasks}
+        futures = {executor.submit(_fetch_one, aid, url, max_chars, max_doc_chars, allow): aid for aid, url in tasks}
         try:
             for future in as_completed(futures, timeout=deadline_s):
+                collected += 1
                 aid, text = future.result()
                 if text:
                     results[aid] = text
                     if on_result is not None:
                         on_result(aid, text)
         except TimeoutError:
+            # Not `not f.done()`: a fetch that finished after the timeout was never collected either.
+            unfinished = len(futures) - collected
             logger.warning(
                 "fulltext: deadline (%ss) hit, %d/%d fetches still in flight, taking what finished",
                 deadline_s,
-                sum(1 for f in futures if not f.done()),
+                unfinished,
                 len(futures),
             )
     finally:
         # Cancels only what has not STARTED, and declines to join the rest. Sound only because
         # this process is itself bounded from outside.
         executor.shutdown(wait=False, cancel_futures=True)
-    return results
+    return results, unfinished
 
 
 def _worker_command() -> list[str]:
@@ -235,8 +479,9 @@ def _relay_worker_logs(stderr: bytes) -> None:
         logger.warning("fulltext: worker emitted %d more log lines, suppressed", len(lines) - _MAX_RELAYED_LOG_LINES)
 
 
-def _parse_worker_results(stdout: bytes) -> tuple[dict[str, str], int]:
-    """Read the worker's JSONL results, and the count of lines that could not be read.
+def _parse_worker_results(stdout: bytes) -> tuple[dict[str, str], int, str | None]:
+    """Read the worker's JSONL results, the count of lines that could not be read, and the
+    worker's own status line (`{"outcome": ...}`), if it wrote one.
 
     A killed worker's last line can be a partial write, so an unparseable line is skipped rather
     than discarding the batch with it. The count is returned because a silent skip and an empty
@@ -244,11 +489,15 @@ def _parse_worker_results(stdout: bytes) -> tuple[dict[str, str], int]:
     """
     results: dict[str, str] = {}
     skipped = 0
+    status: str | None = None
     for line in stdout.decode("utf-8", "replace").splitlines():
         if not line.strip():
             continue
         try:
             row = json.loads(line)
+            if isinstance(row, dict) and set(row) == {"outcome"} and isinstance(row["outcome"], str):
+                status = row["outcome"]
+                continue
             aid, text = row["id"], row["text"]
         except ValueError, KeyError, TypeError:
             skipped += 1
@@ -257,11 +506,16 @@ def _parse_worker_results(stdout: bytes) -> tuple[dict[str, str], int]:
             results[aid] = text
         else:
             skipped += 1
-    return results, skipped
+    return results, skipped, status
 
 
 def _collect_isolated(
-    tasks: list[tuple[str, str]], *, max_chars: int, deadline_s: float, max_doc_chars: int
+    tasks: list[tuple[str, str]],
+    *,
+    max_chars: int,
+    deadline_s: float,
+    max_doc_chars: int,
+    allow: frozenset[tuple[str, int]] = frozenset(),
 ) -> tuple[dict[str, str], str]:
     """Run `_collect_inline` in a child process the parent can kill, and return what it produced.
 
@@ -284,6 +538,7 @@ def _collect_isolated(
             "max_chars": max_chars,
             "deadline_s": deadline_s,
             "max_doc_chars": max_doc_chars,
+            "allow": sorted(allow),
         }
     ).encode()
     # The worker is `python -m fulltext`, so this module's directory has to be importable in the
@@ -305,7 +560,7 @@ def _collect_isolated(
         stdout, stderr, returncode = completed.stdout, completed.stderr, completed.returncode
     except subprocess.TimeoutExpired as e:
         stdout, stderr, returncode = e.output or b"", e.stderr or b"", None
-        results, skipped = _parse_worker_results(stdout)
+        results, skipped, _status = _parse_worker_results(stdout)
         _relay_worker_logs(stderr)
         if skipped:
             logger.warning("fulltext: %d unreadable result line(s) from the killed worker", skipped)
@@ -323,13 +578,16 @@ def _collect_isolated(
         return {}, "spawn_failed"
 
     _relay_worker_logs(stderr)
-    results, skipped = _parse_worker_results(stdout)
+    results, skipped, status = _parse_worker_results(stdout)
     if skipped:
         logger.warning("fulltext: %d unreadable result line(s) from the worker", skipped)
     if returncode != 0:
         # A crashed worker is a failed batch, not a failed run.
         logger.warning("fulltext: worker exited %s, keeping whatever it emitted first", returncode)
         return results, f"crashed:{returncode}"
+    # Fetches the deadline cut short were never tried to the end, so the step is not clean.
+    if status == "deadline":
+        return results, "deadline"
     return results, "completed"
 
 
@@ -502,17 +760,20 @@ def _worker_main(argv: list[str]) -> int:
         sys.stdout.flush()
 
     try:
-        _collect_inline(
+        _results, unfinished = _collect_inline(
             tasks,
             max_chars=int(request["max_chars"]),
             deadline_s=float(request["deadline_s"]),
             max_doc_chars=int(request["max_doc_chars"]),
             on_result=_emit,
+            allow=frozenset((str(ip), int(port)) for ip, port in request.get("allow", [])),
         )
     except Exception as e:  # a bug in here is a failed batch, never a failed run
         # Our own record, not a bare traceback: the relay would re-emit that line by line.
         logger.warning("fulltext: worker failed: %s: %s", type(e).__name__, e, exc_info=True)
         return 1
+    if unfinished:
+        sys.stdout.write(json.dumps({"outcome": "deadline"}) + "\n")
     return 0
 
 

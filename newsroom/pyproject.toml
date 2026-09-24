@@ -13,6 +13,10 @@ dependencies = [
     "claude-agent-sdk",
     "scikit-learn",
     "trafilatura",
+    # fulltext.py's own fetch (_download), which replaced trafilatura.fetch_url; both were only
+    # transitive through trafilatura until then.
+    "urllib3",
+    "certifi",
     # Google-News redirect decoding. Replaces a hand-rolled batchexecute RPC that broke within a
     # day of shipping and resolved 0 links for 25 digests.
     #

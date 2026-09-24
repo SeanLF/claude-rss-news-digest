@@ -29,3 +29,8 @@ scikit-learn==1.9.1
 # building newsroom/Dockerfile on this exact pin (cp314 manylinux wheels, no source build).
 trafilatura==2.2.0
 lxml==6.1.3
+
+# fulltext.py fetches with urllib3 directly (not trafilatura.fetch_url, which followed redirects
+# into private addresses), verifying TLS against certifi. Pure Python, pinned with trafilatura.
+urllib3==2.8.0
+certifi==2026.7.22
