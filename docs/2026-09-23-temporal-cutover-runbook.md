@@ -70,7 +70,10 @@ Two guards stop both pipelines from sending the same day:
 - `worker.env` (0600) holds `BROADCAST_ENABLED`, `DIGEST_DATABASE_URL`
   (`postgres://digest:<pw>@news-digest-temporal-postgres:5432/<digest or digest_staged>?sslmode=disable`:
   the server has no TLS, and dbmate insists on it otherwise), `TEMPORAL_UI_URL`
-  (`https://seanfloyd-hetzner.tail739266.ts.net:8233`) and `HEALTH_ALERT_EMAIL`.
+  (`https://seanfloyd-hetzner.tail739266.ts.net:8233`) and `HEALTH_ALERT_EMAIL`. It must also hold
+  `RESEND_LIVE=true` in both staged and temporal, and no `RESEND_BASE_URL`: without it the worker's Resend
+  client refuses real Resend (`digest/src/resend/destination.ts`), so alerts, the hold notification and
+  the send all fail, and the worker's startup line says so. The web container needs the same.
 - The worker refuses to start without `DIGEST_DATABASE_URL`, and `bin/deploy` refuses a staged or
   temporal deploy whose terraform does not write one with a password.
 - `bin/deploy` passes `-var news_digest_import_legacy_path=<checkout>/bin/import-legacy`, so the

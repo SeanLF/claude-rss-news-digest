@@ -1,6 +1,6 @@
 FROM node:26-slim
 # Temporal's test server is a cached download at test time; slim images ship no CA bundle. psql runs
-# bin/ops's payloads against digest-pg (src/ops/ops-payloads.test.ts); they need 16+ for \bind.
+# bin/ops's payloads against ci-pg (src/ops/ops-payloads.test.ts); they need 16+ for \bind.
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates postgresql-client && rm -rf /var/lib/apt/lists/*
 WORKDIR /app/digest
 COPY digest/package.json digest/package-lock.json ./

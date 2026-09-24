@@ -208,10 +208,11 @@ Infrastructure, in seanfloyd.dev:
 - Its environment: `DIGEST_DATABASE_URL` to the `digest` database with a **read-only role** (the site issues
   no writes; the pipeline's role migrates, and must `ALTER DEFAULT PRIVILEGES ... GRANT SELECT` to the site's
   role so tables and views later migrations add stay readable; the site's container must not run
-  `migrate.js` as local compose does), `DIGEST_NAME`, `DIGEST_DOMAIN`, `HOMEPAGE_URL`, `SOURCE_URL`,
-  `CONTACT_EMAIL`, the Resend and subscribe variables, the `ASK_*` variables. With subscriptions on and
-  double opt-in on, a missing `SUBSCRIBE_TOKEN_SECRET`, `DIGEST_DOMAIN` or `RESEND_FROM` now stops the
-  container at start; check the secrets exist before the apply.
+  `migrate.js`; the dev stack's site does not either, it reads as `digest_ro`), `DIGEST_NAME`, `DIGEST_DOMAIN`,
+  `HOMEPAGE_URL`, `SOURCE_URL`, `CONTACT_EMAIL`, the Resend and subscribe variables, `RESEND_LIVE=true`, the
+  `ASK_*` variables. With subscriptions on and double opt-in on, a missing `SUBSCRIBE_TOKEN_SECRET`,
+  `DIGEST_DOMAIN` or `RESEND_FROM` now stops the container at start, and so does subscriptions on without
+  `RESEND_LIVE=true` (or with a `RESEND_BASE_URL` beside it); check the secrets exist before the apply.
 - Network access from the web container to the Postgres that Temporal runs; no volume mount (the SQLite
   file mount goes).
 - The UptimeRobot monitor for the site (spec §3) in terraform, which the plan B gate's seven green days need.
@@ -225,7 +226,7 @@ Deleting `circulation/`, after the cut-over deploy has served from the TypeScrip
   `test_sbom_exceptions.py`, repointed at `digest/src/site/markdown.ts` and digest's lockfile;
 - `bin/deploy` (`SERVICE_CIRCULATION`, the Rust image build and its provenance check), `bin/check-versions`,
   `bin/cssdiff` and `newsroom/tools/web_check.py` (`SERVICE` becomes `digest-site`, which needs data:
-  `make site-local` first), `bin/ops` where it names the container;
+  `make dev-import` first), `bin/ops` where it names the container;
 - `bin/site-parity-record` builds the Rust image: re-record once before deleting and keep that recording
   with the commit that deletes the tree, or retire the harness with it;
 - `newsroom/tests/test_pipeline_contract.py` and `test_sources_catalogue.py` (they read circulation's

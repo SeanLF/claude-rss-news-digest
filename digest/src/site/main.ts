@@ -26,7 +26,8 @@ const app = siteApp({
   assets: loadAssets(cfg.designDir),
   catalogue: loadCatalogue(cfg.sourcesFile),
   data: siteStore(openDb(dbUrl())),
-  mail: subscriptionsEnabled(cfg) ? new Resend(cfg.resendApiKey) : undefined,
+  // The destination siteConfig checked, passed explicitly: the SDK's own default is real Resend.
+  mail: subscriptionsEnabled(cfg) ? new Resend(cfg.resendApiKey, { baseUrl: cfg.resendBaseUrl! }) : undefined,
   ask: new AskState(askConfig(process.env)),
   now: () => new Date(),
 });

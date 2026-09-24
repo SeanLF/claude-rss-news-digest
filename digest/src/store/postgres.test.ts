@@ -11,7 +11,7 @@ import { copyFingerprint, copyLegacy, fingerprintDiff } from "./legacy-copy.js";
 import { migrate } from "./schema.js";
 
 // What PGlite cannot show: it is one connection, so every transaction runs alone and a lock is never
-// contended. These run against the real Postgres CI starts beside the tests (docker-compose digest-pg,
+// contended. These run against the real Postgres CI starts beside the tests (docker-compose ci-pg,
 // the box's image and major), each in a database of its own.
 const ADMIN = process.env["DIGEST_TEST_DATABASE_URL"];
 

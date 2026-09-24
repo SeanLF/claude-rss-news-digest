@@ -5,14 +5,15 @@
 # Usage: bin/psql [psql options...]      e.g. bin/psql -c 'SELECT count(*) FROM runs'
 #
 # Environment:
-#   DIGEST_CLONE_URL      the database (default: digest_clone in the local Temporal stack's digest-db,
+#   DIGEST_CLONE_URL      the database (default: digest_clone in the dev stack's digest-pg,
 #                         which bin/db-clone fills)
-#   DIGEST_CLONE_NETWORK  the Docker network its host resolves on (default: that stack's network)
+#   DIGEST_CLONE_NETWORK  the Docker network its host resolves on (default: the dev stack's,
+#                         ${COMPOSE_PROJECT_NAME:-news-digest}_default)
 #   PGOPTIONS             passed through; bin/analytics, bin/usage and bin/trace set
 #                         default_transaction_read_only=on with it
 set -euo pipefail
-url=${DIGEST_CLONE_URL:-postgres://postgres:digest@digest-db:5432/digest_clone?sslmode=disable}
-net=${DIGEST_CLONE_NETWORK:-digest_default}
+url=${DIGEST_CLONE_URL:-postgres://postgres:digest@digest-pg:5432/digest_clone?sslmode=disable}
+net=${DIGEST_CLONE_NETWORK:-${COMPOSE_PROJECT_NAME:-news-digest}_default}
 tty=()
 if [ -t 0 ] && [ -t 1 ]; then tty=(-t); fi
 # PGTZ: dates in output are UTC whatever the server's TimeZone.

@@ -1,3 +1,11 @@
+# The dev stack's mail: resend-fake, a key that is not one, and addresses that cannot be delivered to.
+x-dev-mail: &dev-mail
+  RESEND_BASE_URL: http://resend-fake:8025
+  RESEND_API_KEY: re_dev_resend_fake_not_a_key
+  RESEND_FROM: news@dev.invalid
+  RESEND_AUDIENCE_ID: dev-audience
+x-dev-site-domain: &dev-site-domain "${DEV_SITE_DOMAIN:-digest-site.${COMPOSE_PROJECT_NAME}.orb.local}"
+
 services:
   digest-newsroom:
     build:
@@ -48,13 +56,15 @@ services:
     # PGlite runs the suite in-process; the store's real-Postgres tests (store/postgres.test.ts) need
     # contended connections, which only a server has.
     depends_on:
-      digest-pg: { condition: service_healthy }
+      ci-pg: { condition: service_healthy }
     environment:
-      - DIGEST_TEST_DATABASE_URL=postgres://postgres:digest@digest-pg:5432/postgres?sslmode=disable
+      - DIGEST_TEST_DATABASE_URL=postgres://postgres:digest@ci-pg:5432/postgres?sslmode=disable
 
-  # The product database locally: the Postgres image and major the box runs for Temporal
-  # (seanfloyd.dev news-digest-temporal.tf), with no volume, so every `up` starts empty.
-  digest-pg:
+  # Scratch Postgres for tests and one-off harnesses (import-check, threads-parity, bin/site-parity,
+  # bin/ask-eval), each in a database of its own. The box's image and major, with no volume: every
+  # `up` starts empty, and the databases tests create and never drop leave nothing on disk. Not the
+  # dev stack's product database, which is digest-pg below.
+  ci-pg:
     image: postgres:18.6-alpine3.24
     environment:
       - POSTGRES_PASSWORD=digest
@@ -95,42 +105,150 @@ services:
     entrypoint: ["sh", "-c"]
     command: ["cargo fmt --check && cargo clippy -- -D warnings && cargo test"]
 
+  # ---- The dev stack (make dev-up): the pipeline on Temporal, the site and resend-fake over ONE product
+  # database, `digest` in digest-pg, as on the box: the worker writes it, the site reads it as digest_ro.
+  # A band gets its own copy (CREATE DATABASE ... TEMPLATE digest, make band); tests use ci-pg. Mail
+  # goes to resend-fake and nowhere else: every dev-stack service names it as RESEND_BASE_URL with a dummy
+  # key, and the client refuses real Resend without RESEND_LIVE=true (digest/src/resend/destination.ts).
+  # Not so the legacy digest-newsroom and digest-circulation below: they take .env's real key.
+  digest-pg:
+    image: postgres:18.6-alpine3.24
+    environment:
+      - POSTGRES_PASSWORD=digest
+      - POSTGRES_DB=digest
+    volumes: [digest-pg:/var/lib/postgresql]
+    # For host-side tools (make band's promptfoo); in-network clients use digest-pg:5432.
+    ports: ["127.0.0.1:${DIGEST_PG_PORT:-5433}:5432"]
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "postgres", "-d", "digest"]
+      interval: 1s
+      retries: 30
+
+  # One-shot: the product schema, applied before the worker starts, as the pipeline's role does on the box.
+  digest-migrate:
+    build: { context: ., dockerfile: digest/Dockerfile }
+    command: ["node", "dist/cli/migrate.js"]
+    depends_on: { digest-pg: { condition: service_healthy } }
+    environment:
+      - DIGEST_DATABASE_URL=postgres://postgres:digest@digest-pg:5432/digest?sslmode=disable
+    restart: "no"
+
+  # One-shot: the read-only role the site logs in as, from the file the box applies. The box's role has
+  # no password (socket only); here the site connects over the network, so it gets a dev one.
+  digest-roles:
+    image: postgres:18.6-alpine3.24
+    depends_on: { digest-migrate: { condition: service_completed_successfully } }
+    environment: [PGPASSWORD=digest]
+    volumes: ["./digest/db/ops/digest_ro.sql:/roles/digest_ro.sql:ro"]
+    command: ["psql", "-X", "-q", "-v", "ON_ERROR_STOP=1", "-h", "digest-pg", "-U", "postgres", "-d", "digest", "-f", "/roles/digest_ro.sql", "-c", "ALTER ROLE digest_ro PASSWORD 'digest_ro'"]
+    restart: "no"
+
+  # The Resend API's stand-in: captures every email and broadcast, delivers nothing, shows them at
+  # http://resend-fake.<project>.orb.local:8025 (digest/src/devmail/fake.ts). In memory: a restart empties it.
+  resend-fake:
+    build: { context: ., dockerfile: digest/Dockerfile }
+    command: ["node", "dist/devmail/main.js"]
+    ports: ["127.0.0.1:${RESEND_FAKE_PORT:-8025}:8025"]
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8025/health').then((r) => process.exit(r.ok ? 0 : 1), () => process.exit(1))"]
+      interval: 2s
+      retries: 30
+
+  # The Temporal CLI's dev server (Server 1.32.0 + UI, SQLite on a volume). Production's is plan C's.
+  temporal:
+    image: temporalio/temporal:1.9.1
+    command: ["server", "start-dev", "--ip", "0.0.0.0", "--db-filename", "/data/temporal.db"]
+    volumes: [temporal-data:/data]
+    user: "0:0" # the image's own user cannot write a fresh root-owned volume; local dev only
+    ports: ["127.0.0.1:${TEMPORAL_PORT:-7233}:7233", "127.0.0.1:${TEMPORAL_UI_PORT:-8233}:8233"]
+
+  digest-worker:
+    # GIT_SHA is the worker's build id (Worker Versioning). Every local build is "dev" unless set, so a
+    # rebuilt local worker takes over the previous one's runs, as an unversioned worker would.
+    build: { context: ., dockerfile: digest/Dockerfile, args: { GIT_SHA: "${GIT_SHA:-dev}" } }
+    depends_on:
+      temporal: { condition: service_started }
+      digest-migrate: { condition: service_completed_successfully }
+      resend-fake: { condition: service_healthy }
+    # Each model call is its own Claude Code CLI process and four run at once in a fan-out; 512 MiB
+    # was OOM-killed on the first band. A worker that dies comes back and Temporal resumes the run.
+    mem_limit: 2g
+    restart: unless-stopped
+    environment:
+      <<: *dev-mail
+      TEMPORAL_ADDRESS: "temporal:7233"
+      CLAUDE_CODE_OAUTH_TOKEN: "${CLAUDE_CODE_OAUTH_TOKEN:-}" # from the repo-root .env
+      DIGEST_DATABASE_URL: "postgres://postgres:digest@digest-pg:5432/${DIGEST_DB_NAME:-digest}" # make band points it at its copy
+      # On: a dev run goes through the hold, its notification, approve or reject, and the send, all into
+      # resend-fake. make band turns it off: a curation band has no send.
+      BROADCAST_ENABLED: "${BROADCAST_ENABLED:-true}"
+      HEALTH_ALERT_EMAIL: operator@dev.invalid
+      DIGEST_NAME: "${DIGEST_NAME:-News Digest}"
+      # The email's "view in browser" and archive links go to the dev site.
+      DIGEST_DOMAIN: *dev-site-domain
+      ARCHIVE_URL: "https://${DEV_SITE_DOMAIN:-digest-site.${COMPOSE_PROJECT_NAME}.orb.local}"
+      TEMPORAL_UI_URL: "http://127.0.0.1:${TEMPORAL_UI_PORT:-8233}"
+      # Off by default, as in config.py; production turns them on. Set them to rehearse a production run.
+      THREADS_ENABLED: "${THREADS_ENABLED:-false}"
+      THREAD_LATEBIND: "${THREAD_LATEBIND:-false}"
+    volumes:
+      - ./data:/app/data
+      - claude-login:/home/appuser/.claude
+
+  # The activities that stay in Python, on the `python` task queue. If it is down, a run goes on
+  # without full text after 5 minutes.
+  python-worker:
+    build: { context: ., dockerfile: digest/python/Dockerfile }
+    depends_on: [temporal]
+    mem_limit: 512m
+    restart: unless-stopped
+    environment:
+      TEMPORAL_ADDRESS: "temporal:7233"
+
+  # The gate's judges (make judges). Codex needs its own sandbox (bubblewrap) to read the fixture
+  # read-only, and Docker's default seccomp profile blocks it; unconfined here keeps Codex's sandbox
+  # on instead of running it with full access over untrusted publisher text. Local evals only.
+  digest-judge:
+    extends: { service: digest-worker }
+    security_opt: ["seccomp=unconfined"]
+    restart: "no"
+    profiles: ["judge"]
+
   # The web tier in TypeScript (digest/src/site), which replaces digest-circulation at the cut-over. It
-  # reads the product database in digest-pg, which starts empty: `make site-local` imports a copy of the
-  # prod clone into it first. Locally it migrates on start (as the superuser), so a bare `up` serves an
-  # empty archive rather than failing; in production the pipeline's role owns migrations and the site's
-  # role only reads (docs/2026-09-23-web-tier-typescript-fork.md §8). The site itself issues no writes.
+  # reads the dev stack's product database as digest_ro and runs no migrations, as in production
+  # (docs/2026-09-23-web-tier-typescript-fork.md §8): an empty `digest` serves an empty archive, and
+  # `make dev-import` loads a copy of the prod clone. Answers at http://digest-site.<project>.orb.local:8080.
   digest-site:
     build:
       context: .
       dockerfile: digest/Dockerfile
-    command: ["sh", "-c", "node dist/cli/migrate.js && exec node dist/site/main.js"]
+    command: ["node", "dist/site/main.js"]
     restart: unless-stopped
     depends_on:
-      digest-pg: { condition: service_healthy }
+      digest-roles: { condition: service_completed_successfully }
+      resend-fake: { condition: service_healthy }
     ports:
-      - "8080:8080"
+      - "${DIGEST_SITE_PORT:-8080}:8080"
     environment:
-      - DIGEST_DATABASE_URL=postgres://postgres:digest@digest-pg:5432/digest?sslmode=disable
-      - DIGEST_NAME=${DIGEST_NAME:-News Digest}
-      - DIGEST_DOMAIN
-      - HOMEPAGE_URL
-      - SOURCE_URL
-      - CONTACT_EMAIL
-      - RESEND_API_KEY
-      - RESEND_AUDIENCE_ID
-      - RESEND_FROM
-      - SUBSCRIBE_TOKEN_SECRET
-      - SUBSCRIBE_DOUBLE_OPT_IN
+      <<: *dev-mail
+      DIGEST_DATABASE_URL: postgres://digest_ro:digest_ro@digest-pg:5432/digest?sslmode=disable
+      DIGEST_NAME: "${DIGEST_NAME:-News Digest}"
+      # The confirmation link is https://<DIGEST_DOMAIN>/confirm: OrbStack serves the dev site there.
+      DIGEST_DOMAIN: *dev-site-domain
+      HOMEPAGE_URL: "${HOMEPAGE_URL:-}"
+      SOURCE_URL: "${SOURCE_URL:-}"
+      CONTACT_EMAIL: reader-replies@dev.invalid
+      SUBSCRIBE_TOKEN_SECRET: dev-only-subscribe-token-secret
+      SUBSCRIBE_DOUBLE_OPT_IN: "${SUBSCRIBE_DOUBLE_OPT_IN:-true}"
       # /ask: both are required; the key alone does not arm an endpoint that spends money per request.
-      - ASK_ENABLED
-      - ASK_API_KEY
-      - ASK_MODEL
-      - ASK_OPENROUTER_MODELS
-      - ASK_API_BASE
-      - ASK_PROVIDER_LABEL
-      - ASK_REFERER
-      - ASK_TITLE
+      ASK_ENABLED: "${ASK_ENABLED:-}"
+      ASK_API_KEY: "${ASK_API_KEY:-}"
+      ASK_MODEL: "${ASK_MODEL:-}"
+      ASK_OPENROUTER_MODELS: "${ASK_OPENROUTER_MODELS:-}"
+      ASK_API_BASE: "${ASK_API_BASE:-}"
+      ASK_PROVIDER_LABEL: "${ASK_PROVIDER_LABEL:-}"
+      ASK_REFERER: "${ASK_REFERER:-}"
+      ASK_TITLE: "${ASK_TITLE:-}"
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8080/health').then((r) => process.exit(r.ok ? 0 : 1), () => process.exit(1))"]
       interval: 2s
@@ -206,6 +324,12 @@ services:
       - dev.orbstack.domains=${ORBSTACK_DOMAIN:-}
 
 volumes:
+  digest-pg:
+  temporal-data:
+  # The Claude Code login the worker runs as: the newsroom project's volume, shared by every project.
+  claude-login:
+    external: true
+    name: news-digest_claude-sessions
   claude-sessions:
   bash-history:
   cargo-cache:
