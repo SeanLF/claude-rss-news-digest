@@ -1,7 +1,7 @@
 import { ScheduleAlreadyRunning, ScheduleOverlapPolicy, type Client } from "@temporalio/client";
 import { WorkflowIdConflictPolicy, WorkflowIdReusePolicy } from "@temporalio/common";
 import { describe, expect, it } from "vitest";
-import { ensureSchedule, SCHEDULE_ID, scheduleOptions, startOptions } from "./client.js";
+import { ensureSchedule, parseStartArgs, SCHEDULE_ID, scheduleOptions, startOptions } from "./client.js";
 import { temporalNamespace } from "./worker.js";
 import { WORKFLOW_RUN_TIMEOUT } from "./workflow/digest.workflow.js";
 
@@ -22,6 +22,33 @@ describe("startOptions", () => {
     expect(o.workflowIdReusePolicy).toBe(WorkflowIdReusePolicy.ALLOW_DUPLICATE);
     expect(o.workflowIdConflictPolicy).toBe(WorkflowIdConflictPolicy.FAIL);
     expect(o.args).toEqual([{ runDate: "2026-09-21", force: true, resumeRun: 303 }]);
+  });
+});
+
+// A new run's issue is dated the day it starts (runs.started_at, UTC): the date a start names only
+// names the workflow. Naming another day would file today's issue under a workflow id that says otherwise.
+describe("make digest-start's arguments", () => {
+  const today = "2026-09-24";
+  it("with no date, starts today (UTC)", () => {
+    expect(parseStartArgs([], today)).toEqual({ date: today, opts: { force: false } });
+  });
+  it("accepts today, and --force for a second run of it", () => {
+    expect(parseStartArgs([today, "--force"], today)).toEqual({ date: today, opts: { force: true } });
+    expect(parseStartArgs(["--force"], today)).toEqual({ date: today, opts: { force: true } });
+  });
+  it("refuses a new run for any other day, past or future, force or not", () => {
+    expect(() => parseStartArgs(["2026-09-26"], today)).toThrow(/2026-09-24 .*not 2026-09-26/);
+    expect(() => parseStartArgs(["2026-09-23", "--force"], today)).toThrow(/not 2026-09-23/);
+  });
+  it("a resume may name the day of the run it resumes", () => {
+    expect(parseStartArgs(["2026-09-18", "--resume", "300"], today)).toEqual({ date: "2026-09-18", opts: { force: false, resumeRun: 300 } });
+  });
+  it("refuses what is not a date or not a run number", () => {
+    expect(() => parseStartArgs(["24-09-2026"], today)).toThrow(/YYYY-MM-DD/);
+    expect(() => parseStartArgs([today, "--resume"], today)).toThrow(/--resume/);
+    expect(() => parseStartArgs([today, "--resume", "x"], today)).toThrow(/--resume/);
+    expect(() => parseStartArgs([today, "--frce"], today)).toThrow(/--frce/);
+    expect(() => parseStartArgs(["--resume", "300"], today)).toThrow(/--resume needs the day/);
   });
 });
 

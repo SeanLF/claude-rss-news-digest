@@ -148,13 +148,18 @@ dev-import: ## Replace the dev stack's product database with a copy of a prod cl
 dev-mail-clear: ## Empty resend-fake: caught mail and the dev audience's contacts, which otherwise survive restarts
 	$(COMPOSE) exec -T resend-fake node -e "fetch('http://127.0.0.1:8025/api/reset', { method: 'POST', headers: { 'x-resend-fake-reset': 'yes' } }).then(async (r) => { console.log(await r.text()); process.exit(r.ok ? 0 : 1); }, (e) => { console.error(String(e)); process.exit(1); })"
 
-digest-start: ## Start one DigestWorkflow on the dev stack and wait for it (usage: make digest-start DATE=2026-09-24 [ARGS="--resume 300 --force"])
+# The issue is dated the UTC day a run starts, so a new run is today's: DATE defaults to it, and another
+# day is refused unless it names the run to resume. ARGS=--force runs today again: a new revision of the
+# issue on the site, never a second send.
+digest-approve digest-reject: DATE ?= $(shell date -u +%Y-%m-%d)
+
+digest-start: ## Start today's (UTC) DigestWorkflow on the dev stack and wait for it (ARGS=--force: run today again, published, never re-sent; DATE=2026-09-18 ARGS="--resume 300")
 	$(COMPOSE) run --rm --no-deps digest-worker node dist/cli/start.js $(DATE) $(ARGS)
 
-digest-approve: ## Send a held run now instead of at the hold's end (usage: make digest-approve DATE=2026-09-24)
+digest-approve: ## Send a held run now instead of at the hold's end (DATE defaults to today, UTC; a resumed run's is the DATE it was started with)
 	$(COMPOSE) exec -T temporal temporal workflow signal --workflow-id digest-$(DATE) --name approve --input '{"decision":"approve"}'
 
-digest-reject: ## Stop a held run: nothing is published or sent (usage: make digest-reject DATE=2026-09-24)
+digest-reject: ## Stop a held run: nothing is published or sent (DATE defaults to today, UTC)
 	$(COMPOSE) exec -T temporal temporal workflow signal --workflow-id digest-$(DATE) --name approve --input '{"decision":"reject"}'
 
 digest-schedule: ## Create or update the daily 10:25Z schedule on the dev stack's Temporal

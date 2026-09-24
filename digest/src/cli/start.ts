@@ -1,10 +1,12 @@
-// usage: start <YYYY-MM-DD> [--force] [--resume N]   starts one DigestWorkflow and waits for its result
-import { connect, startDigest } from "../client.js";
-const date = process.argv[2];
-if (!date) throw new Error("usage: start <YYYY-MM-DD> [--force] [--resume N]");
-const force = process.argv.includes("--force");
-const r = process.argv.indexOf("--resume");
-const resumeRun = r > 0 ? Number(process.argv[r + 1]) : undefined;
-const handle = await startDigest(await connect(), date, { force, ...(resumeRun !== undefined ? { resumeRun } : {}) });
+// usage: start [YYYY-MM-DD] [--force] [--resume N]   starts one DigestWorkflow and waits for its result
+import { connect, parseStartArgs, startDigest } from "../client.js";
+let args: ReturnType<typeof parseStartArgs>;
+try {
+  args = parseStartArgs(process.argv.slice(2));
+} catch (e) {
+  console.error(e instanceof Error ? e.message : String(e));
+  process.exit(2);
+}
+const handle = await startDigest(await connect(), args.date, args.opts);
 console.log(`started ${handle.workflowId}`);
 console.log(JSON.stringify(await handle.result()));

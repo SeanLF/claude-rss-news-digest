@@ -113,6 +113,14 @@ describe("run lifecycle", () => {
       await db.exec(`INSERT INTO runs (started_at, status, outcome) VALUES ('${today} 10:25:40', 'completed', 'sent')`);
       await expect(acts.startRun({ runDate: today })).rejects.toMatchObject({ type: "AlreadyRan", nonRetryable: true });
     });
+    // The run is dated the day it starts whatever runDate says, so the guard asks about that day.
+    it("guards the day the run will be dated, not the day runDate names", async () => {
+      const { db, acts } = await setup();
+      await db.exec(`INSERT INTO runs (started_at, status, outcome) VALUES ('${today} 10:25:40', 'completed', 'sent')`);
+      const started = acts.startRun({ runDate: "2099-01-01" });
+      await expect(started).rejects.toMatchObject({ type: "AlreadyRan" });
+      await expect(started).rejects.toThrow(today);
+    });
     it("refuses while another run of the day started within the last 4 h and is still running", async () => {
       const { db, acts } = await setup();
       // Clamped to today (UTC): between 00:00 and 00:30Z, 30 minutes ago is yesterday and the guard rightly ignores it.
