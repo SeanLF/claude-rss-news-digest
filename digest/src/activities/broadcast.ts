@@ -8,6 +8,7 @@ import type { Selections } from "../render/render.js";
 import type { ArtifactStore, Pointer } from "../store/artifacts.js";
 import { openDb } from "../store/db.js";
 import { ACCEPTED_BROADCAST_STATES, sendRow, claimText, clearClaimCommand } from "../ops/broadcast-state.js";
+import { CUTOVER_HOLD, isCutoverHold } from "../ops/cutover-hold.js";
 
 // The slice of the Resend client the send uses; tests pass a fake with the same shape.
 export interface Mail {
@@ -242,7 +243,11 @@ export function broadcastActivities(deps: BroadcastDeps) {
       const to = env["HEALTH_ALERT_EMAIL"];
       const from = env["RESEND_FROM"];
       const until = holdEndsAt.slice(11, 16);
-      const dropped = `digest ${date} (run ${runId}) failed ${failures.length} pre-send check(s) and is held until ${holdEndsAt}, then sends: ${failures.join("; ")}`;
+      // The cut-over hold (ops/pre-send.ts) arrives as a line but is not a failed check.
+      const checks = failures.filter((f) => !isCutoverHold(f));
+      const cutover = failures.filter(isCutoverHold).map((f) => f.slice(CUTOVER_HOLD.length + 1).trim());
+      const what = checks.length ? `failed ${checks.length} pre-send check(s) and is held` : "is held for the cut-over; no pre-send check failed";
+      const dropped = `digest ${date} (run ${runId}) ${what} until ${holdEndsAt}, then sends: ${failures.join("; ")}`;
       if (!to || !from || !env["RESEND_API_KEY"]) {
         console.error(JSON.stringify({ stage: "hold", error: "ALERTING MISCONFIGURED (HEALTH_ALERT_EMAIL, RESEND_FROM or RESEND_API_KEY unset): hold notification dropped", dropped }));
         return { sent: false };
@@ -251,13 +256,13 @@ export function broadcastActivities(deps: BroadcastDeps) {
       const ui = (env["TEMPORAL_UI_URL"] || "http://127.0.0.1:8233").replace(/\/+$/, "");
       const link = `${ui}/namespaces/${encodeURIComponent(ex.namespace)}/workflows/${encodeURIComponent(ex.workflowId)}/${encodeURIComponent(ex.runId)}/history`;
       const signal = (decision: string) => `temporal workflow signal --workflow-id ${ex.workflowId} --name approve --input '{"decision":"${decision}"}'`;
-      const html = `<h2>Digest ${date} failed ${failures.length} pre-send check(s) and is held</h2>
+      const html = `<h2>Digest ${date} ${what}</h2>
 <p>Run ${runId} is held until <strong>${until} UTC</strong>, then it <strong>sends anyway</strong>. <a href="${htmlEscape(link)}">Open the run in the Temporal UI</a>.</p>
-<h3>What failed</h3><ul>${failures.map((f) => `<li>${htmlEscape(f)}</li>`).join("")}</ul>
+${cutover.map((c) => `<p>Cut-over hold: ${htmlEscape(c)}.</p>`).join("")}${checks.length ? `<h3>What failed</h3><ul>${checks.map((f) => `<li>${htmlEscape(f)}</li>`).join("")}</ul>` : ""}
 <p>To stop it: <code>${htmlEscape(signal("reject"))}</code><br>To send now: <code>${htmlEscape(signal("approve"))}</code></p>
 <h3>Must know (${sel.must_know.length})</h3><ol>${headlineList(sel.must_know)}</ol>
 <h3>Should know (${sel.should_know.length})</h3><ol>${headlineList(sel.should_know)}</ol>`;
-      const codes = [...new Set(failures.map((f) => f.split(":")[0]))].join(", ");
+      const codes = checks.length ? [...new Set(checks.map((f) => f.split(":")[0]))].join(", ") : "cut-over hold, no check failed";
       const subject = `[Hold] Digest ${date}: ${codes}; sends at ${until} UTC unless rejected`;
       try {
         const r = await call(() => deps.mail().emails.send({ from: `News Digest Alerts <${from}>`, to: [to], subject, html }));

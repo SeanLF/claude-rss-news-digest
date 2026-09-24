@@ -114,7 +114,9 @@ and a dummy key, and the Resend client (worker and site) refuses real Resend unl
 (`digest/src/resend/destination.ts`). The worker's startup line names a refused destination; the site
 refuses to start. Production sets `RESEND_LIVE=true` and no base URL. Broadcasting is on in dev
 (`BROADCAST_ENABLED`, default `true`), so a dev run goes through the pre-send checks, the hold and its
-notification when one fails, the approve or reject, and the broadcast, all into the fake; subscribe and confirm on the dev site land
+notification when one fails, the approve or reject, and the broadcast, all into the fake. To hold a
+clean run too, as the first days after the cut-over do, start the worker with
+`HOLD_ALWAYS_THROUGH=$(date -u +%F) make dev-up`; unset, it is off. Subscribe and confirm on the dev site land
 there too, and a confirmed reader is a recipient of the next dev broadcast. No maintained Resend
 fake covers broadcasts and segments (resend-box fakes `POST /emails` only), so `resend-fake` is ours
 (`digest/src/devmail/fake.ts`), held to the SDK calls the code makes by its tests.

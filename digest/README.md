@@ -9,7 +9,7 @@ the Agent SDK for model stages, Temporal for sequencing, signals and the run bud
 - `src/contracts` — the frozen contracts (spec §1) as zod: article ids, selections, coherence verdicts.
 - `src/store` — the artifact store: a pointer is `(run, name, sha256)`; `put` conflicts, never replaces.
 - `src/runner` — one model stage over the Agent SDK: tools scoped to Read and Grep, result as the final message.
-- `src/workflow` — `DigestWorkflow`, the three signals, identity per day, one 4 h budget, the 15 min hold of a run that fails a pre-send check.
+- `src/workflow` — `DigestWorkflow`, the three signals, identity per day, one 4 h budget, the 15 min hold of a run that fails a pre-send check (every run, through `HOLD_ALWAYS_THROUGH`, the cut-over hold).
 - `src/activities` — the activity interface plan A2 fills; stubs today.
 - `src/cli` — `start` (one workflow, waits for the result), `schedule` (create or update the daily 10:25Z schedule).
 

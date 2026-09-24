@@ -132,7 +132,8 @@ Python worker 67-79, UI 7.
 2. `broadcast` is a real activity. Run 305 still had broadcast, gnews and threads stubbed.
 3. A clean staged run on prod (above).
 4. healthchecks.io: the success ping arrives at the send, 10:25Z plus the run (about 15-20 minutes),
-   plus 15 minutes when a pre-send check holds it. Check the check's schedule and grace fit that
+   plus 15 minutes when a pre-send check or the cut-over hold holds it (every day while
+   `HOLD_ALWAYS_THROUGH` is on). Check the check's schedule and grace fit that
    before the first Temporal day (unverified against the check's current settings).
 5. **The TypeScript circulation site is live and reads Postgres `digest`.** The Rust circulation reads
    `digest.db`, which stops changing at the cut-over: from the first Temporal day it would serve no
@@ -146,6 +147,19 @@ Python worker 67-79, UI 7.
 
 Outside the run window. `bin/ssh systemctl is-active news-digest.service` must say `inactive`.
 
+0. **The cut-over hold**, prepared in seanfloyd.dev before the cut-over, in the same change as the
+   mode. `worker.env` and the box's `.env` are both written by terraform, so a hand edit on the box
+   does not survive the next apply. Add to `news_digest_worker_env_content` in
+   `news-digest-temporal.tf`, unquoted (`--env-file` keeps quotes, and a quoted date is not a date):
+   ```
+   "HOLD_ALWAYS_THROUGH=<YYYY-MM-DD>",   # about a week out: the last UTC day that holds
+   ```
+   Every run dated on or before it holds 15 minutes like a flagged run: the `[Hold]` notice says
+   "held for the cut-over; no pre-send check failed" and lists any check that did fail beside it.
+   Approve, reject, or let it send. The day after, it lapses by itself; a boolean would have to be
+   remembered and turned off, and one left on would hold every issue. A value that is not a date
+   holds every run, and the worker's startup line and every notice name it. Take the line out of the
+   terraform at the next deploy after it has lapsed.
 1. `news_digest_pipeline = "temporal"`, then `bin/deploy`. The apply disables the timer, then the
    bootstrap unpauses the schedule. The worker is re-pointed at `digest` with broadcast on.
    - The worker's first start runs `import-digest-db`, once. It imports a snapshot of `digest.db`
@@ -162,7 +176,7 @@ Outside the run window. `bin/ssh systemctl is-active news-digest.service` must s
    ```
    bin/ssh systemctl is-enabled news-digest.timer                    # disabled
    bin/ssh "$T schedule describe -s digest-daily -o json" | jq .schedule.state   # no "paused"
-   bin/ssh 'grep -E "BROADCAST|DIGEST_DATABASE_URL" /opt/news-digest/worker.env | sed "s/:[^:@]*@/:***@/"'  # true, .../digest?sslmode=disable
+   bin/ssh 'grep -E "BROADCAST|DIGEST_DATABASE_URL|HOLD_ALWAYS" /opt/news-digest/worker.env | sed "s/:[^:@]*@/:***@/"'  # true, .../digest?sslmode=disable, the hold's date
    bin/ssh 'journalctl -u news-digest-worker --since -1h --no-pager | grep -E "import-|migrat|^ *ok "'   # "digest imported", every check "ok"
    ```
 3. The next day: the run completed and sent, the dead-man passed, and healthchecks.io got its ping.
@@ -244,7 +258,8 @@ history. Rehearsed under systemd in a container: no unit files and no active uni
 - **The pre-send hold** (spec §2.3, from 2026-09-24). A run that passes its pre-send checks
   (`digest/src/ops/pre-send.ts`) sends at once, unheld. A run that fails one emails
   `HEALTH_ALERT_EMAIL` a `[Hold]` notice naming each failed check and holds 15 minutes: `approve`
-  sends now, `reject` stops it (nothing published or sent), and no answer sends it anyway. A run that
+  sends now, `reject` stops it (nothing published or sent), and no answer sends it anyway. Through
+  `HOLD_ALWAYS_THROUGH` (the cut-over hold, above) every run holds, clean or not. A run that
   reaches the send with less than the tail's 30-minute margin left before its deadline is not sent
   (`held-out`), flagged or not.
 - **Pause by hand:** `bin/ssh /opt/news-digest/bin/digest-schedule pause "reason"`. Restore with

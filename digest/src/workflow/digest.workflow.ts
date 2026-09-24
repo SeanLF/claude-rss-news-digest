@@ -8,6 +8,7 @@
 // not by timeout or retry policy.
 import { ActivityFailure, ApplicationFailure, CancellationScope, CancelledFailure, condition, isCancellation, log, proxyActivities, setHandler, workflowInfo } from "@temporalio/workflow";
 import type { Activities, AlertRequest, DigestInput, DigestOutput, FulltextFetch, FulltextFetcher, GnewsDecode, LinkDecoder } from "../activities/index.js";
+import { isCutoverHold } from "../ops/cutover-hold.js";
 import { mapBounded, MODEL_FANOUT_LIMIT } from "./bounded.js";
 import { MODEL_MAX_ATTEMPTS, NETWORK_MAX_ATTEMPTS, OPS_MAX_ATTEMPTS, PYTHON_TASK_QUEUE, RUN_TIMEOUT_HOURS, WEEKLY_RECAP_MAX_ATTEMPTS } from "./policy.js";
 import { approveSignal, operatorNoteSignal, retrySignal } from "./signals.js";
@@ -20,7 +21,8 @@ export const WORKFLOW_RUN_TIMEOUT = `${RUN_TIMEOUT_HOURS} hours` as const;
 export const RUN_DEADLINE_MS = 230 * 60 * 1000;
 export const DEADLINE_MARGIN_MS = 10 * 60 * 1000;
 // A run that fails a pre-send check (ops/pre-send.ts) holds this long for the operator, then sends
-// anyway (spec §2.3, 2026-09-24); a clean run does not hold. In ms: the notification names its end.
+// anyway (spec §2.3, 2026-09-24); a clean run does not hold, unless the cut-over hold is on
+// (HOLD_ALWAYS_THROUGH), which checkPreSend reports as one more line. In ms: the notification names its end.
 export const HOLD_TIMEOUT = 15 * 60 * 1000;
 // What the tail after the hold is given of the budget; a test holds TAIL_WORST_CASE_MS under it.
 export const TAIL_MARGIN_MS = 30 * 60 * 1000;
@@ -253,13 +255,15 @@ async function runDigest(input: DigestInput, state: RunState): Promise<DigestOut
       if (isCancellation(e)) throw e;
       return [`PRE_SEND_CHECK_ERROR: the checks could not run: ${causes(e)}`];
     });
-    if (failures.length) log.warn("pre-send checks failed", { runId, failures });
+    const failedChecks = failures.filter((f) => !isCutoverHold(f));
+    if (failedChecks.length) log.warn("pre-send checks failed", { runId, failures: failedChecks });
+    if (failures.length > failedChecks.length) log.info("the cut-over hold is on", { runId });
 
     // Only a real send publishes: with the send disabled the run ends like a rejected one, with no
     // web copy, no story sources and no sent outcome, and the operator is told.
     if (!(await record.sendEnabled())) {
       log.warn("BROADCAST_ENABLED is not true: nothing published, sent or recorded as shown", { runId });
-      await notSent("disabled", `broadcasting disabled on this worker${failures.length ? `; the pre-send checks failed: ${failures.join("; ")}` : ""}`);
+      await notSent("disabled", `broadcasting disabled on this worker${failedChecks.length ? `; the pre-send checks failed: ${failedChecks.join("; ")}` : ""}`);
       return await finish({ stories: storyCount, broadcast: "disabled" });
     }
     // An operator's reject stops the send whenever it lands before it, held or not.
