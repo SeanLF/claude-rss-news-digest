@@ -116,7 +116,8 @@ The pipeline is being rewritten in TypeScript on Temporal, in `digest/` ([spec](
 
 **Verified, locally:**
 
-- **End to end, up to the hold** on Postgres through Temporal, real model calls, one fresh day: 16 stories. The worker was killed mid-WRITE; the resume re-ran only the 11 missing branches and duplicated nothing. No send: the worker had no Resend. [`docs/proposed/2026-09-23-e2e-postgres`](docs/proposed/2026-09-23-e2e-postgres/README.md)
+- **End to end, up to the hold** on Postgres through Temporal, real model calls, one fresh day: 16 stories. The worker was killed mid-WRITE; the resume re-ran only the 11 missing branches and duplicated nothing. [`docs/proposed/2026-09-23-e2e-postgres`](docs/proposed/2026-09-23-e2e-postgres/README.md)
+- **Through the send on the dev stack**: hold, approve, a broadcast caught by resend-fake, and the issue served by the TypeScript site from the same Postgres, with thread badges. Nothing delivered for real. [`docs/proposed/2026-09-24-dev-stack-send`](docs/proposed/2026-09-24-dev-stack-send/README.md)
 - **Import** of the prod clone into Postgres: 15 tables match the file, all 16 row checks pass, each negative-controlled. [Data model §5](docs/2026-09-23-data-model-design.md), `make import-check`
 - **Threads** against the Python oracle: 5 of 5 runs (300-304) equal, once the intended schema changes are mapped. Merges and retraction are covered by unit tests only. [`docs/proposed/2026-09-23-threads-parity-postgres`](docs/proposed/2026-09-23-threads-parity-postgres/README.md)
 - **Site** against the Rust server: 138 of 144 requests equal; the other 6 are known divergences, 0 unexplained. Search tuned separately. [Fork doc §7](docs/2026-09-23-web-tier-typescript-fork.md), [`docs/proposed/2026-09-23-search-tuning`](docs/proposed/2026-09-23-search-tuning/README.md)
