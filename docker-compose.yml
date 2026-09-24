@@ -146,10 +146,14 @@ services:
     restart: "no"
 
   # The Resend API's stand-in: captures every email and broadcast, delivers nothing, shows them at
-  # http://resend-fake.<project>.orb.local:8025 (digest/src/devmail/fake.ts). In memory: a restart empties it.
+  # http://resend-fake.<project>.orb.local:8025 (digest/src/devmail/fake.ts). Its contacts (the dev audience)
+  # and caught mail are kept on a volume across restarts; make dev-mail-clear empties them.
   resend-fake:
     build: { context: ., dockerfile: digest/Dockerfile }
     command: ["node", "dist/devmail/main.js"]
+    environment: [RESEND_FAKE_STATE=/data/state.json]
+    volumes: [resend-fake-data:/data]
+    user: "0:0" # the image's own user cannot write a fresh root-owned volume; local dev only
     ports: ["127.0.0.1:${RESEND_FAKE_PORT:-8025}:8025"]
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8025/health').then((r) => process.exit(r.ok ? 0 : 1), () => process.exit(1))"]
@@ -328,6 +332,7 @@ services:
 volumes:
   digest-pg:
   temporal-data:
+  resend-fake-data:
   # The Claude Code login the worker runs as: the newsroom project's volume, shared by every project.
   claude-login:
     external: true

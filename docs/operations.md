@@ -83,6 +83,7 @@ make dev-import                   # a cp -c copy of data/prod-20260923b.db (SRC=
 make dev-up                       # start or rebuild the stack; keeps its data
 make digest-start DATE=2026-09-24 # a fresh day, through the hold
 make digest-approve DATE=2026-09-24   # or digest-reject; unsignalled, the hold ends after 2 h and it sends
+make dev-mail-clear               # empty resend-fake: caught mail and the dev audience
 make dev-urls                     # where each part answers
 make dev-down                     # stop; keeps the volumes
 ```
@@ -94,7 +95,9 @@ checkout):
   which is how mailed links (confirm, view in browser) spell it: `DIGEST_DOMAIN` is that host
   (`DEV_SITE_DOMAIN` overrides it). Also `http://127.0.0.1:8080`.
 - resend-fake: `http://resend-fake.<project>.orb.local:8025`, every email and broadcast caught, with
-  `/api/messages` as JSON. In memory: a restart of the container empties it.
+  `/api/messages` as JSON. Its contacts (the dev audience) and caught mail are kept on the
+  `resend-fake-data` volume, so a restart, `make dev-up` or `make dev-import` keeps them (`dev-import`
+  does not restart it at all); `make dev-mail-clear` empties them.
 - Temporal UI: `http://temporal.<project>.orb.local:8233`, also `127.0.0.1:8233`.
 
 **Mail never leaves the machine.** Every dev service gets `RESEND_BASE_URL=http://resend-fake:8025`

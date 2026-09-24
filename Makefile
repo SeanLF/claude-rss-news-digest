@@ -114,11 +114,15 @@ help: ## Show this help
 # database (`digest` in digest-pg). COMPOSE picks the project, e.g. COMPOSE="docker compose -p mine".
 COMPOSE ?= docker compose
 DEV_SERVICES = digest-worker python-worker digest-site resend-fake temporal
+# What dev-up rebuilds: the services built from the tree, digest-migrate included (up --build would rebuild it
+# as a dependency). dev-import leaves resend-fake out: loading a database is no reason to restart the mail.
+DEV_BUILD = digest-migrate digest-worker python-worker digest-site resend-fake
 PG_NETWORK = $$(docker inspect -f '{{range $$k, $$v := .NetworkSettings.Networks}}{{$$k}}{{end}}' $$($(COMPOSE) ps -q digest-pg))
 
 dev-up: ## Start the dev stack: pipeline on Temporal, site, resend-fake, one product database (keeps its data)
 	docker volume create news-digest_claude-sessions >/dev/null  # the login volume the newsroom stack owns; a no-op once it exists
-	$(COMPOSE) up -d --build --wait $(DEV_SERVICES)
+	$(COMPOSE) build $(DEV_BUILD)
+	$(COMPOSE) up -d --wait $(DEV_SERVICES)
 	$(COMPOSE) exec -T digest-worker node dist/cli/set-current.js  # a versioned worker gets no runs until its build is current
 	@$(MAKE) --no-print-directory dev-urls COMPOSE='$(COMPOSE)'
 
@@ -128,10 +132,10 @@ dev-urls: ## Where the dev stack answers (OrbStack domains)
 	echo "resend-fake   http://resend-fake.$$p.orb.local:8025  (every email and broadcast; nothing is delivered)"; \
 	echo "temporal UI   http://temporal.$$p.orb.local:8233"
 
-dev-down: ## Stop the dev stack; keeps its volumes (the product database, Temporal's history)
+dev-down: ## Stop the dev stack; keeps its volumes (the product database, Temporal's history, resend-fake's mail and contacts)
 	$(COMPOSE) stop $(DEV_SERVICES) digest-pg
 
-dev-import: ## Replace the dev stack's product database with a copy of a prod clone, then start the stack (SRC=data/prod-20260923b.db)
+dev-import: ## Replace the dev stack's product database with a copy of a prod clone, then start the stack; resend-fake is left running (SRC=data/prod-20260923b.db)
 	@src=$${SRC:-data/prod-20260923b.db}; copy=data/dev-import.db; \
 	test -r "$$src" || { echo "no $$src (make db-clone)"; exit 2; }; \
 	rm -f "$$copy" && cp -c "$$src" "$$copy" || exit 1; \
@@ -139,7 +143,10 @@ dev-import: ## Replace the dev stack's product database with a copy of a prod cl
 	$(COMPOSE) up -d --wait digest-pg && \
 	$(COMPOSE) exec -T digest-pg psql -q -U postgres -c "DROP DATABASE IF EXISTS digest WITH (FORCE)" -c "CREATE DATABASE digest" && \
 	IMPORT_NETWORK=$(PG_NETWORK) bin/import-legacy "$$copy" "postgres://postgres:digest@digest-pg:5432/digest?sslmode=disable" && \
-	$(MAKE) --no-print-directory dev-up COMPOSE='$(COMPOSE)'; status=$$?; rm -f "$$copy"; exit $$status
+	$(MAKE) --no-print-directory dev-up COMPOSE='$(COMPOSE)' DEV_BUILD='$(filter-out resend-fake,$(DEV_BUILD))'; status=$$?; rm -f "$$copy"; exit $$status
+
+dev-mail-clear: ## Empty resend-fake: caught mail and the dev audience's contacts, which otherwise survive restarts
+	$(COMPOSE) exec -T resend-fake node -e "fetch('http://127.0.0.1:8025/api/reset', { method: 'POST', headers: { 'x-resend-fake-reset': 'yes' } }).then(async (r) => { console.log(await r.text()); process.exit(r.ok ? 0 : 1); }, (e) => { console.error(String(e)); process.exit(1); })"
 
 digest-start: ## Start one DigestWorkflow on the dev stack and wait for it (usage: make digest-start DATE=2026-09-24 [ARGS="--resume 300 --force"])
 	$(COMPOSE) run --rm --no-deps digest-worker node dist/cli/start.js $(DATE) $(ARGS)
