@@ -60,8 +60,8 @@ services:
     environment:
       - DIGEST_TEST_DATABASE_URL=postgres://postgres:digest@ci-pg:5432/postgres?sslmode=disable
 
-  # Scratch Postgres for tests and one-off harnesses (import-check, threads-parity, bin/site-parity,
-  # bin/ask-eval), each in a database of its own. The box's image and major, with no volume: every
+  # Scratch Postgres for tests and one-off harnesses (import-check, threads-parity, bin/site-parity),
+  # each in a database of its own. The box's image and major, with no volume: every
   # `up` starts empty, and the databases tests create and never drop leave nothing on disk. Not the
   # dev stack's product database, which is digest-pg below.
   ci-pg:
@@ -247,15 +247,6 @@ services:
       CONTACT_EMAIL: reader-replies@dev.invalid
       SUBSCRIBE_TOKEN_SECRET: dev-only-subscribe-token-secret
       SUBSCRIBE_DOUBLE_OPT_IN: "${SUBSCRIBE_DOUBLE_OPT_IN:-true}"
-      # /ask: both are required; the key alone does not arm an endpoint that spends money per request.
-      ASK_ENABLED: "${ASK_ENABLED:-}"
-      ASK_API_KEY: "${ASK_API_KEY:-}"
-      ASK_MODEL: "${ASK_MODEL:-}"
-      ASK_OPENROUTER_MODELS: "${ASK_OPENROUTER_MODELS:-}"
-      ASK_API_BASE: "${ASK_API_BASE:-}"
-      ASK_PROVIDER_LABEL: "${ASK_PROVIDER_LABEL:-}"
-      ASK_REFERER: "${ASK_REFERER:-}"
-      ASK_TITLE: "${ASK_TITLE:-}"
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8080/health').then((r) => process.exit(r.ok ? 0 : 1), () => process.exit(1))"]
       interval: 2s

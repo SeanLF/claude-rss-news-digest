@@ -12,8 +12,6 @@ const answer = (over: Partial<Answer> = {}): Answer => ({
   ...over,
 });
 const entry = (contract: Entry["compare"]): Entry => ({ name: "t", path: "/", compare: contract });
-const toolAnswer = (lines: string[]): Answer =>
-  answer({ headers: { "content-type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, result: { content: [{ type: "text", text: `# Headline search\n\n${lines.length} results, most relevant first.\n\n${lines.join("\n")}\n` }] } }) });
 
 describe("the comparator passes what is equal", () => {
   it.each(["body", "json", "markdown", "headers"] as const)("%s", (c) => {
@@ -31,20 +29,8 @@ describe("the comparator passes what is equal", () => {
     expect(compare(entry("json"), answer({ body: '{"a":1,"b":2}' }), answer({ body: '{"b":2,"a":1}' })).ok).toBe(true);
   });
 
-  it("compares a capped search by its count: two rankings choose different fifties", () => {
-    const v = compare(entry("search"), toolAnswer(Array.from({ length: 50 }, (_, i) => `- a${i}`)), toolAnswer(Array.from({ length: 50 }, (_, i) => `- b${i}`)));
-    expect(v.ok).toBe(true);
-    expect(v.overlap).toEqual({ golden: 50, actual: 50, shared: 0 });
-  });
-
   it("carries a known divergence's reason on the verdict", () => {
     expect(compare({ ...entry("body"), known: "ts_rank" }, answer(), answer({ body: "x" }))).toMatchObject({ ok: false, known: "ts_rank" });
-  });
-
-  it("compares search answers as result sets, not order", () => {
-    const v = compare(entry("search"), toolAnswer(["- 2026-09-01 · must know · A", "- 2026-08-01 · should know · B"]), toolAnswer(["- 2026-08-01 · should know · B", "- 2026-09-01 · must know · A"]));
-    expect(v.ok).toBe(true);
-    expect(v.overlap).toEqual({ golden: 2, actual: 2, shared: 2 });
   });
 });
 
@@ -61,11 +47,6 @@ describe("the comparator fails a deliberately changed answer (negative control)"
     ["a JSON value", entry("json"), answer({ body: '{"a":1}' }), answer({ body: '{"a":2}' })],
     ["a JSON key added", entry("json"), answer({ body: '{"a":1}' }), answer({ body: '{"a":1,"b":null}' })],
     ["unparseable JSON against JSON", entry("json"), answer({ body: '{"a":1}' }), answer({ body: "{a:1}" })],
-    ["a search result missing", entry("search"), toolAnswer(["- x", "- y"]), toolAnswer(["- x"])],
-    ["an empty search on one side", entry("search"), toolAnswer(["- x"]), toolAnswer([])],
-    // Found by review: counting the golden's duplicates let two extra results through.
-    ["extra search results hidden behind the golden's duplicates", entry("search"), toolAnswer(["- x", "- x", "- x", "- y"]), toolAnswer(["- x", "- y", "- z", "- w"])],
-    ["a capped search against an uncapped one", entry("search"), toolAnswer(Array.from({ length: 50 }, (_, i) => `- r${i}`)), toolAnswer(Array.from({ length: 49 }, (_, i) => `- r${i}`))],
     ["a 405 without its allow header", entry("headers"), answer({ status: 405, headers: { allow: "GET,HEAD" } }), answer({ status: 405, headers: {} })],
   ] as [string, Entry, Answer, Answer][])("%s", (_what, e, g, a) => {
     const v = compare(e, g, a);
@@ -113,30 +94,9 @@ describe("the manifest", () => {
     expect(new Set(names).size).toBe(names.length);
   });
 
-  it("covers every tool over JSON-RPC and over the GET bridge", () => {
-    const tools = ["get_latest_issue", "get_issue", "list_issues", "search_headlines", "list_threads", "get_thread", "get_sources", "get_stats"];
-    const called = new Set(m.requests.flatMap((r) => (r.rpc?.method === "tools/call" ? [(r.rpc.params as { name: string }).name] : [])));
-    const bridged = new Set(m.requests.flatMap((r) => (r.path?.startsWith("/mcp/tools/") ? [r.path.slice("/mcp/tools/".length).split(".json")[0]!] : [])));
-    for (const t of tools) {
-      expect(called).toContain(t);
-      expect(bridged).toContain(t);
-    }
-  });
-
-  it("builds an rpc entry as the POST an MCP client sends", async () => {
-    const e = m.requests.find((r) => r.name === "rpc-tools-list")!;
-    const req = toRequest("http://site", m, e, "/f.woff2");
-    expect(req.method).toBe("POST");
-    expect(new URL(req.url).pathname).toBe("/mcp");
-    expect(req.headers.get("accept")).toBe("application/json, text/event-stream");
-    expect(JSON.parse(await req.text())).toEqual({ jsonrpc: "2.0", id: 1, method: "tools/list" });
-  });
-
   it("fills the placeholders only the server can know", () => {
     const font = toRequest("http://site", m, m.requests.find((r) => r.name === "font")!, "/assets/fonts/x.woff2");
     expect(new URL(font.url).pathname).toBe("/assets/fonts/x.woff2");
-    const long = toRequest("http://site", m, m.requests.find((r) => r.name === "bridge-issue-too-long")!, "");
-    expect(new URL(long.url).searchParams.get("date")).toHaveLength(201);
   });
 });
 

@@ -1,4 +1,12 @@
-// Formatting shared by the pages, the feed and the MCP tools (circulation's util.rs).
+// Formatting shared by the pages and the feed (circulation's util.rs).
+
+// The /search page's result cap, and its query: trimmed, NUL-free, at most 200 characters.
+export const SEARCH_LIMIT = 50;
+export function sanitizeQuery(raw: string): string | undefined {
+  const t = raw.trim();
+  if (!t) return undefined;
+  return Array.from(t.replaceAll("\0", "")).slice(0, 200).join("");
+}
 
 const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
 const DAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];

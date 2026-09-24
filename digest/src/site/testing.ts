@@ -1,6 +1,5 @@
 import { existsSync } from "node:fs";
 import { siteApp, type SiteDeps } from "./app.js";
-import { AskState } from "./ask.js";
 import { loadAssets } from "./assets.js";
 import { type SiteConfig, siteConfig } from "./config.js";
 import type { SiteData } from "./data.js";
@@ -23,7 +22,6 @@ export function testApp(data: SiteData, over: Partial<SiteDeps> = {}) {
     catalogue: loadCatalogue(cfg.sourcesFile),
     data,
     mail: undefined,
-    ask: new AskState(undefined),
     now: () => new Date("2026-09-23T12:00:00Z"),
     ...over,
   });

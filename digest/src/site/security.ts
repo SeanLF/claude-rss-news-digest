@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import type { MiddlewareHandler } from "hono";
 import { secureHeaders } from "hono/secure-headers";
 import { NO_FLASH_JS } from "./pages/chrome.js";
-import { askJs, copyJs, indexJs, proxyTranslateHideScript, threadsJs, toggleJs } from "./pages/blobs.js";
+import { indexJs, proxyTranslateHideScript, threadsJs, toggleJs } from "./pages/blobs.js";
 
 // The security headers seanfloyd.dev sends from the same box (spec §3), on every response. Inline
 // <script> and <style> run only by their sha256 hash, so the policy is a function of the body alone;
@@ -10,7 +10,7 @@ import { askJs, copyJs, indexJs, proxyTranslateHideScript, threadsJs, toggleJs }
 
 // The only inline scripts the site writes. A script is hashed only when it is one of these: a stored
 // issue is the pipeline's HTML, and a <script> that ever reached it must stay refused.
-const SITE_SCRIPTS: ReadonlySet<string> = new Set([NO_FLASH_JS, toggleJs, proxyTranslateHideScript, indexJs, threadsJs, askJs, copyJs]);
+const SITE_SCRIPTS: ReadonlySet<string> = new Set([NO_FLASH_JS, toggleJs, proxyTranslateHideScript, indexJs, threadsJs]);
 
 const INLINE = /<(script|style)\b([^>]*)>([\s\S]*?)<\/\1\s*>/gi;
 // A browser hashes the element's text after its input stream turned CR and CRLF into LF.

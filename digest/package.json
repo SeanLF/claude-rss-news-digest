@@ -16,7 +16,6 @@
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "0.3.280",
     "@hono/node-server": "2.1.1",
-    "@modelcontextprotocol/server": "2.1.0",
     "@temporalio/activity": "1.24.0",
     "@temporalio/client": "1.24.0",
     "@temporalio/common": "1.24.0",
@@ -34,7 +33,6 @@
     "mailchecker": "6.0.21",
     "ml-hclust": "4.0.0",
     "mrml": "1.6.1",
-    "openai": "7.23.0",
     "p-retry": "8.0.1",
     "parse5": "8.0.1",
     "pg": "8.23.0",

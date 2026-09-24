@@ -5,14 +5,13 @@ import { MANIFEST } from "./requests.js";
 // server and to the TypeScript app, and each answer is held to its contract. Rust answers are recorded
 // once (cli/site-parity.ts) as goldens; the TypeScript side is compared against them in-process.
 
-export type Contract = "body" | "json" | "markdown" | "search" | "headers";
+export type Contract = "body" | "json" | "markdown" | "headers";
 export interface Entry {
   name: string;
   method?: "GET" | "POST" | "DELETE" | "HEAD";
   path?: string;
   headers?: Record<string, string>;
   body?: string;
-  rpc?: { method: string; params?: unknown };
   compare: Contract;
   // Sent this many times, the last answer recorded: a rate limit's refusal is the answer after the quota.
   repeat?: number;
@@ -40,19 +39,10 @@ export const manifest = (): Manifest => MANIFEST;
 // headers) is outside the comparison.
 export const COMPARED_HEADERS = ["content-type", "location", "cache-control", "link", "vary", "allow"] as const;
 
-const MCP_ACCEPT = "application/json, text/event-stream";
-
-// The request an entry describes. `{font}` is the hashed font path, which only the server knows;
-// `{x201}` is an argument one character over the bridge's 200-character cap.
+// The request an entry describes. `{font}` is the hashed font path, which only the server knows.
 export function toRequest(base: string, m: Manifest, e: Entry, fontPath: string): Request {
   const headers = new Headers({ ...m.headers, ...e.headers });
-  if (e.rpc) {
-    if (!headers.has("accept")) headers.set("accept", MCP_ACCEPT);
-    if (!headers.has("content-type")) headers.set("content-type", "application/json");
-    const body = e.body ?? JSON.stringify({ jsonrpc: "2.0", id: 1, method: e.rpc.method, ...(e.rpc.params === undefined ? {} : { params: e.rpc.params }) });
-    return new Request(`${base}/mcp`, { method: "POST", headers, body });
-  }
-  const path = (e.path ?? "/").replace("{font}", fontPath).replace("{x201}", "x".repeat(201));
+  const path = (e.path ?? "/").replace("{font}", fontPath);
   const method = e.method ?? "GET";
   return new Request(`${base}${path}`, { method, headers, redirect: "manual", ...(e.body === undefined ? {} : { body: e.body }) });
 }
@@ -77,28 +67,11 @@ function normaliseHeader(name: string, v: string): string {
   return v;
 }
 
-// Search results as a set: the result lines of a search_headlines answer, without the count line
-// (FTS5's BM25 and Postgres's ts_rank order and count differently; §5 item 1).
-export function searchLines(text: string): string[] {
-  return [...new Set(text.split("\n").filter((l) => l.startsWith("- ")))].toSorted();
-}
-// search_headlines stops at 50: two engines that match the same rows but rank them differently return
-// different fifties, so a capped answer says nothing about membership.
-export const SEARCH_CAP = 50;
-const resultCount = (text: string): number => Number(/^(\d+) results?, most relevant first\./m.exec(text)?.[1] ?? 0);
-const toolText = (body: string): string => {
-  const parsed = JSON.parse(body) as { result?: { content?: { text?: string }[] }; content?: { text?: string }[] };
-  const content = parsed.result?.content ?? parsed.content ?? [];
-  return content.map((c) => c.text ?? "").join("\n");
-};
-
 export interface Verdict {
   name: string;
   ok: boolean;
   known?: string;
   diffs: string[];
-  // search only: how far the two result sets agree
-  overlap?: { golden: number; actual: number; shared: number };
   // Equal only as Markdown documents: the bytes differ, the rendering does not.
   asDocument?: boolean;
 }
@@ -161,7 +134,6 @@ export function compare(e: Entry, golden: Answer, actual: Answer, same: SameDocu
       diffs.push(`${h}: ${JSON.stringify(g ?? null)} != ${JSON.stringify(a ?? null)}`);
     }
   }
-  let overlap: Verdict["overlap"];
   switch (e.compare) {
     case "headers":
       // The body is judged on its requirement plus a11y and Lighthouse (fork doc §1), not here.
@@ -182,20 +154,6 @@ export function compare(e: Entry, golden: Answer, actual: Answer, same: SameDocu
       if (d) diffs.push(`json ${d}`);
       break;
     }
-    case "search": {
-      const gt = toolText(golden.body);
-      const at = toolText(actual.body);
-      const g = searchLines(gt);
-      const a = new Set(searchLines(at));
-      const shared = g.filter((l) => a.has(l)).length;
-      overlap = { golden: g.length, actual: a.size, shared };
-      const [gn, an] = [resultCount(gt), resultCount(at)];
-      if (g.length === 0 || a.size === 0) diffs.push(`search: an empty result set (${g.length} rust, ${a.size} ts)`);
-      else if (gn === SEARCH_CAP || an === SEARCH_CAP) {
-        if (gn !== an) diffs.push(`search: ${gn} results against ${an}, one of them capped at ${SEARCH_CAP}`);
-      } else if (shared !== g.length || shared !== a.size) diffs.push(`search: ${shared} shared of ${g.length} rust and ${a.size} ts`);
-      break;
-    }
   }
-  return { name: e.name, ok: diffs.length === 0, diffs, ...(overlap ? { overlap } : {}), ...(e.known ? { known: e.known } : {}), ...(diffs.length === 0 && asDocument.length ? { asDocument: true } : {}) };
+  return { name: e.name, ok: diffs.length === 0, diffs, ...(e.known ? { known: e.known } : {}), ...(diffs.length === 0 && asDocument.length ? { asDocument: true } : {}) };
 }

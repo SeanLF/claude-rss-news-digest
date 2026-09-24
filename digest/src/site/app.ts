@@ -1,17 +1,14 @@
 import { type Context, Hono } from "hono";
-import { streamSSE } from "hono/streaming";
-import { ANSWER_TIMEOUT_MS, AskError, AskState, MAX_BODY_BYTES, MAX_QUESTION, admit, answer, replay } from "./ask.js";
 import { type ArchivePage, biasMap, fetchArchive, fragmentHtml, DEFAULT_LIMIT } from "./archive.js";
 import { type Assets, FAVICON_SVG } from "./assets.js";
 import { type SiteConfig, baseUrl, subscriptionsEnabled } from "./config.js";
 import type { SiteData } from "./data.js";
 import { FEED_ENTRY_LIMIT, atomFeed } from "./feed.js";
 import { htmlLinkHeader, indexMarkdown, issueMarkdown, markdownLinkHeader, negotiate, hiddenPointer } from "./markdown.js";
-import { CACHE_MAX_AGE_S, MAX_ARGUMENT_LENGTH, INSTRUCTIONS, TOOLS, type ToolDeps, allow, callTool, coerceArguments, handleRpc, listing, llmsSection, mcpLimits, sanitizeQuery, serverCard, toolsJson, SEARCH_LIMIT } from "./mcp.js";
 import { NOTICES, type IndexScope, indexPage } from "./pages/index.js";
 import { issuePage } from "./pages/issue.js";
 import type { PageCtx } from "./pages/chrome.js";
-import { askPage, connectPage, feedbackPage, notFoundPage, searchPage, sourcesPage, statsPage } from "./pages/sub.js";
+import { feedbackPage, notFoundPage, searchPage, sourcesPage, statsPage } from "./pages/sub.js";
 import { threadPage, threadsFragment, threadsPage } from "./pages/threads.js";
 import { RateLimiter, clientKey } from "./ratelimit.js";
 import { securityHeaders } from "./security.js";
@@ -19,7 +16,7 @@ import { type CatalogueEntry, sourceRows } from "./sources.js";
 import { computeMetrics, statsFrom, statsJson, statsValue } from "./stats.js";
 import { type Mail, CONFIRM_TTL_S, addContact, isValidEmail, makeToken, sendConfirmation, verifyToken } from "./subscribe.js";
 import { OLDER_PAGE, threadDetail, threadIndex } from "./threads.js";
-import { isValidDate } from "./text.js";
+import { SEARCH_LIMIT, isValidDate, sanitizeQuery } from "./text.js";
 import { proxyTarget, validQueryLang, validTranslatePath } from "./translate.js";
 
 // The web tier (docs/2026-09-23-web-tier-typescript-fork.md): every route circulation served, from the
@@ -32,7 +29,6 @@ export interface SiteDeps {
   data: SiteData;
   // The Resend client, when subscriptions are configured.
   mail: Mail | undefined;
-  ask: AskState;
   now: () => Date;
 }
 
@@ -40,8 +36,6 @@ const md = (c: Context, body: string, link: string, status = 200) =>
   c.body(body, status as 200, { "content-type": "text/markdown; charset=utf-8", vary: "accept", link });
 const text = (c: Context, body: string, status: number) => c.body(body, status as 200, { "content-type": "text/plain; charset=utf-8" });
 const notAcceptable = (c: Context) => c.body("Not Acceptable — this URL is available as text/html or text/markdown.\n", 406, { "content-type": "text/plain; charset=utf-8", vary: "accept" });
-const cachedJson = (c: Context, body: string) => c.body(body, 200, { "content-type": "application/json", "cache-control": `public, max-age=${CACHE_MAX_AGE_S}` });
-const noStore = (c: Context, status: number, body: string) => c.body(body, status as 200, { "content-type": "application/json", "cache-control": "no-store" });
 // A redirect the Rust server sent: 303 after a form, 307 temporary, 308 permanent.
 const redirect = (c: Context, to: string, status: 303 | 307 | 308) => c.body(null, status, { location: to });
 
@@ -56,16 +50,15 @@ function intQuery(c: Context, name: string, unsigned: boolean): number | undefin
 // The paths the site answers and their methods, for a 405 (with Allow) where a path exists and the
 // method does not, as axum answered.
 const METHODS: [RegExp, string][] = [
-  [/^\/(subscribe|ask\.json)$/, "POST"],
-  [/^\/(mcp|ask)$/, "GET,HEAD,POST"],
-  [/^\/(|confirm|privacy|health|favicon\.ico|robots\.txt|llms\.txt|llms-full\.txt|index\.md|apple-touch-icon(-precomposed)?\.png|og-image\.png|sources|feed\.xml|stats|stats\.json|archive|threads|threads\/more|search|feedback|connect|today|translate|today\/translate|\.well-known\/mcp\.json|\.well-known\/mcp\/server-card\.json|mcp\/tools\.json)$/, "GET,HEAD"],
-  [/^\/(thread|issues|mcp\/tools)\/[^/]+$/, "GET,HEAD"],
+  [/^\/subscribe$/, "POST"],
+  [/^\/(|confirm|privacy|health|favicon\.ico|robots\.txt|llms\.txt|llms-full\.txt|index\.md|apple-touch-icon(-precomposed)?\.png|og-image\.png|sources|feed\.xml|stats|stats\.json|archive|threads|threads\/more|search|feedback|today|translate|today\/translate)$/, "GET,HEAD"],
+  [/^\/(thread|issues)\/[^/]+$/, "GET,HEAD"],
   [/^\/issues\/[^/]+\/translate$/, "GET,HEAD"],
   [/^\/assets\/fonts\/[^/]+$/, "GET,HEAD"],
   [/^\/[^/]+(\/translate)?$/, "GET,HEAD"],
 ];
 
-// The largest request body any route reads: /ask's history cap, with room for the JSON around it.
+// The largest request body any route reads: the subscribe form is one address, far below this.
 const MAX_REQUEST_BYTES = 128 * 1024;
 
 // A database failure is a 503 with a generic sentence, logged; never a page that hides the outage.
@@ -90,32 +83,11 @@ function cursor(c: Context): { updatedAt: string; id: number } | undefined | Res
   return text(c, "before and before_id must be supplied together, and before must not be empty", 400);
 }
 
-async function readQuestion(c: Context): Promise<{ question: string; history: ReturnType<typeof replay> } | AskError> {
-  let body: string;
-  try {
-    body = await c.req.text();
-  } catch {
-    return new AskError(400, "Could not read that question.");
-  }
-  if (Buffer.byteLength(body) > MAX_BODY_BYTES) return new AskError(413, "That history is too long.");
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(body);
-  } catch {
-    return new AskError(400, "Could not read that question.");
-  }
-  if (!parsed || typeof parsed !== "object" || !("question" in parsed) || typeof parsed.question !== "string") return new AskError(400, "Could not read that question.");
-  const question = Array.from(parsed.question.trim()).slice(0, MAX_QUESTION).join("");
-  if (!question) return new AskError(400, "Ask a question first.");
-  return { question, history: replay("history" in parsed ? parsed.history : undefined) };
-}
-
 export function siteApp(deps: SiteDeps): Hono {
   const { cfg, assets, catalogue, data } = deps;
   const base = baseUrl(cfg);
+  const link = (p: string) => `${base.replace(/\/+$/, "")}${p}`;
   const bias = biasMap(catalogue);
-  const tools: ToolDeps = { data, catalogue, bias, digestName: cfg.digestName, base, now: deps.now };
-  const limits = mcpLimits();
   // Five attempts an hour from one address: far above a person, low enough to stop signup bombing.
   const subscribeLimiter = new RateLimiter(5, 3_600_000);
   const names = new Map(catalogue.map((s) => [s.id, s.name]));
@@ -127,8 +99,8 @@ export function siteApp(deps: SiteDeps): Hono {
   app.use(...securityHeaders());
   // Every body is bounded before anything reads it, chunked or not: axum's extractors capped at 2 MB,
   // and an unbounded read is a way to exhaust the container's memory with one request.
-  // Read here, once, so a client that hangs up mid-body is a 400 before any handler runs (or any /ask
-  // slot is taken), not a 500 out of a handler.
+  // Read here, once, so a client that hangs up mid-body is a 400 before any handler runs, not a 500
+  // out of a handler.
   app.use(async (c, next) => {
     if (!c.req.raw.body) return next();
     const reader = c.req.raw.body.getReader();
@@ -256,7 +228,6 @@ export function siteApp(deps: SiteDeps): Hono {
     }
   });
   app.get("/llms.txt", (c) => {
-    const link = (p: string) => `${base.replace(/\/+$/, "")}${p}`;
     let body = `# ${cfg.digestName}\n\n> An automated daily news briefing on geopolitics, tech, and privacy. It reads feeds across five continents, clusters the day's stories, writes a bias-labelled digest, fact-checks itself against the sources, and sends. Curated and written by Claude; no human edits any issue.\n\n## Read the briefing\n\n`;
     body += `- [Latest issue](${link("/today")}): redirects to the newest dated issue; append \`.md\` or send \`Accept: text/markdown\` for Markdown.\n`;
     body += `- [Archive index](${link("/index.md")}): every issue as Markdown, newest first, each linking to its \`.md\`.\n`;
@@ -265,7 +236,6 @@ export function siteApp(deps: SiteDeps): Hono {
     body += `- [Transparency stats](${link("/stats")}) ([JSON](${link("/stats.json")})): subscriber count, source-spectrum balance, and AI cost per issue.\n`;
     if (cfg.sourceUrl) body += `- [Source code](${cfg.sourceUrl})\n`;
     body += "\nEvery dated issue at `/issues/YYYY-MM-DD` also serves Markdown at `/issues/YYYY-MM-DD.md`.\n";
-    body += llmsSection(base);
     return c.body(body, 200, { "content-type": "text/markdown; charset=utf-8" });
   });
   // Redirects to the index rather than concatenating every issue: that grows without bound and is mostly stale.
@@ -356,7 +326,7 @@ export function siteApp(deps: SiteDeps): Hono {
 
   // ── subscribe ──
   // POST-only paths a GET would otherwise reach through the legacy /:date route.
-  for (const path of ["/subscribe", "/ask.json"]) app.get(path, (c) => c.body(null, 405, { allow: "POST" }));
+  app.get("/subscribe", (c) => c.body(null, 405, { allow: "POST" }));
   app.post("/subscribe", async (c) => {
     const form: Record<string, unknown> = await c.req.parseBody().catch(() => ({}));
     const email = typeof form["email"] === "string" ? form["email"].trim().toLowerCase() : "";
@@ -390,108 +360,6 @@ export function siteApp(deps: SiteDeps): Hono {
     return redirect(c, ok ? "/?subscribed=1" : "/?subscribe_error=1", 303);
   });
 
-  // ── MCP ──
-  app.get("/mcp", (c) => c.body(listing(cfg.digestName, base), 200, { "content-type": "text/markdown; charset=utf-8", "cache-control": `public, max-age=${CACHE_MAX_AGE_S}` }));
-  app.post("/mcp", async (c) => {
-    if (!allow(limits, c.req.header("x-forwarded-for"), nowMs())) return noStore(c, 429, '{"error":"rate limited"}');
-    // A JSON-RPC batch is refused: the limit counts requests, and a batch of a hundred calls in one
-    // request would pass it a hundred times over. rmcp served no batches either.
-    const body = await c.req.text();
-    if (/^\s*\[/.test(body)) return noStore(c, 400, JSON.stringify({ jsonrpc: "2.0", id: null, error: { code: -32600, message: "batches are not supported" } }));
-    return handleRpc(tools, new Request(c.req.raw, { method: "POST", body }));
-  });
-  const card = (c: Context) => cachedJson(c, JSON.stringify(serverCard(cfg.digestName, base)));
-  app.get("/.well-known/mcp.json", card);
-  app.get("/.well-known/mcp/server-card.json", card);
-  app.get("/mcp/tools.json", (c) => cachedJson(c, JSON.stringify(toolsJson(base))));
-  app.get("/mcp/tools/:name", async (c) => {
-    // Metered before the lookup: an enumerable URL must not be a free way to churn the cache with 404s.
-    if (!allow(limits, c.req.header("x-forwarded-for"), nowMs())) return noStore(c, 429, '{"error":"rate limited"}');
-    const raw = c.req.param("name");
-    const tool = raw.endsWith(".json") ? TOOLS.find((t) => t.name === raw.slice(0, -5)) : undefined;
-    if (!tool) return noStore(c, 404, '{"error":"no such tool"}');
-    const params = c.req.query();
-    if (Object.values(params).some((v) => v.length > MAX_ARGUMENT_LENGTH)) return noStore(c, 400, JSON.stringify({ error: "argument too long", max_length: MAX_ARGUMENT_LENGTH }));
-    const coerced = coerceArguments(tool, params);
-    if ("missing" in coerced) return noStore(c, 400, JSON.stringify({ error: "missing required argument(s)", missing: coerced.missing, schema: tool.inputSchema }));
-    const r = await callTool(tools, tool.name, coerced.args);
-    // The grounding stance rides on every bridge answer: this door's clients never see initialize.
-    return cachedJson(c, JSON.stringify({ tool: tool.name, instructions: INSTRUCTIONS, content: [{ type: "text", text: r.text }], ...(r.isError ? { is_error: true } : {}) }));
-  });
-  app.get("/connect", (c) => {
-    // Every command on the page is pasted into a terminal, so it must be absolute: the configured
-    // domain, else the origin this request came in on (a clone running locally).
-    const origin = base || requestOrigin(c.req.header("host"), c.req.header("x-forwarded-proto"));
-    return c.html(connectPage(ctx, origin, TOOLS));
-  });
-
-  // ── ask ──
-  app.get("/ask", (c) => c.html(askPage(ctx, base, deps.ask.config ? { model: deps.ask.config.models[0]!, provider: deps.ask.config.providerLabel, openrouter: deps.ask.config.openrouter } : undefined)));
-  app.post("/ask", async (c) => {
-    if (Number(c.req.header("content-length") ?? 0) > MAX_BODY_BYTES) return text(c, "That history is too long.", 413);
-    // The question is read before a slot is taken: a client that hangs up mid-body must not hold one.
-    const q = await readQuestion(c);
-    if (q instanceof AskError) return text(c, q.message, q.status);
-    const admitted = admit(deps.ask, c.req.header("x-forwarded-for"), nowMs());
-    if (admitted instanceof AskError) return text(c, admitted.message, admitted.status);
-    return streamSSE(c, async (stream) => {
-      const abort = new AbortController();
-      const deadline = setTimeout(() => abort.abort(), ANSWER_TIMEOUT_MS);
-      c.req.raw.signal.addEventListener("abort", () => abort.abort(), { once: true });
-      // A comment every 15 s so an idle intermediary does not cut a stream that is mid-tool-call.
-      const keepAlive = setInterval(() => void stream.write(": keep-alive\n\n"), 15_000);
-      stream.onAbort(() => abort.abort());
-      const send = (event: string, line: string) => void stream.writeSSE({ event, data: line });
-      try {
-        await answer(admitted.cfg, tools, q.question, q.history, (p) => {
-          if (abort.signal.aborted) return false;
-          if (p.kind === "tool") send("tool", p.label);
-          else if (p.kind === "model") send("model", p.name);
-          else send("answer", p.text);
-          return true;
-        }, abort.signal);
-      } catch (e) {
-        if (!stream.aborted) send("failed", e instanceof AskError ? e.message : abort.signal.aborted ? "That took too long to answer. Try a narrower question." : "That did not work.");
-        if (!(e instanceof AskError)) console.error(JSON.stringify({ site: "ask", error: String(e) }));
-      } finally {
-        clearTimeout(deadline);
-        clearInterval(keepAlive);
-        admitted.release();
-        if (!stream.aborted) await stream.writeSSE({ event: "done", data: "1" });
-      }
-    });
-  });
-  app.post("/ask.json", async (c) => {
-    if (Number(c.req.header("content-length") ?? 0) > MAX_BODY_BYTES) return c.json({ error: "history too long" }, 413);
-    const q = await readQuestion(c);
-    if (q instanceof AskError) return c.json({ error: q.status === 413 ? "history too long" : q.status === 400 && q.message.startsWith("Ask") ? "empty question" : "could not read that question" }, q.status as 400);
-    const admitted = admit(deps.ask, c.req.header("x-forwarded-for"), nowMs());
-    if (admitted instanceof AskError) return c.json({ error: admitted.message }, admitted.status as 429);
-    const abort = new AbortController();
-    const deadline = setTimeout(() => abort.abort(), ANSWER_TIMEOUT_MS);
-    // A client that hangs up stops the answer: nobody is left to read it, and it spends a paid provider.
-    c.req.raw.signal.addEventListener("abort", () => abort.abort(), { once: true });
-    try {
-      const steps: string[] = [];
-      let model: string | null = null;
-      let result = "";
-      await answer(admitted.cfg, tools, q.question, q.history, (p) => {
-        if (p.kind === "tool") steps.push(p.label);
-        else if (p.kind === "model") model = p.name;
-        else result = p.text;
-        return true;
-      }, abort.signal);
-      return c.json({ answer: result, model, steps });
-    } catch (e) {
-      if (e instanceof AskError) return c.json({ error: e.message }, e.status as 502);
-      if (abort.signal.aborted) return c.json({ error: "timed out" }, 504);
-      throw e;
-    } finally {
-      clearTimeout(deadline);
-      admitted.release();
-    }
-  });
-
   // ── legacy permalinks: registered last, so every named route above wins ──
   app.get("/:date/translate", (c) => {
     const date = c.req.param("date");
@@ -514,14 +382,4 @@ export function siteApp(deps: SiteDeps): Hono {
     return page404(c);
   });
   return app;
-}
-
-// Scheme and authority this request came in on, for an absolute URL when no domain is configured. An
-// allow-list of authority characters: the value lands in an href. Empty without a usable Host.
-export function requestOrigin(host: string | undefined, forwardedProto: string | undefined): string {
-  const h = host?.trim();
-  if (!h || h.length > 255 || !/^[A-Za-z0-9.\-:[\]_]+$/.test(h)) return "";
-  const local = h.startsWith("localhost") || h.startsWith("127.") || h.startsWith("[::1]") || h.endsWith(".local") || h.includes(".local:");
-  const scheme = forwardedProto?.split(",")[0]?.trim() || (local ? "http" : "https");
-  return `${scheme}://${h}`;
 }

@@ -3,7 +3,7 @@
 
 .DEFAULT_GOAL := help
 .PHONY: ci ci-fix ci-full test eval eval-stages eval-coherence eval-repair eval-select-order replay digest a11y lighthouse web-check deploy deploy-dry migrate migrate-status \
-        ssh db-clone usage usage-daily analytics analytics-list analytics-q versions circulation preview anatomy prompt ask-eval search-eval help
+        ssh db-clone usage usage-daily analytics analytics-list analytics-q versions circulation preview anatomy prompt search-eval help
 
 # Default window for the analytics queries; override with RUNS=N
 RUNS ?= 30
@@ -25,8 +25,6 @@ eval-stages: ## Grade each subagent's recorded output (per-stage L1, no model ca
 	bin/eval-stages
 eval-coherence: ## Harness-faithful COHERENCE recall/false-drop eval (MAKES model calls; opt-in)
 	bin/eval-coherence
-ask-eval: ## Behavioural eval for /ask (MAKES model calls; seeds a planted-injection archive)
-	bin/ask-eval
 eval-repair: ## Harness-faithful REPAIR error-removal/preservation eval (MAKES model calls; opt-in)
 	bin/eval-repair
 eval-select-order: ## SELECT order-dependence harness on one archived run (MAKES model calls; usage: make eval-select-order RUN=298)

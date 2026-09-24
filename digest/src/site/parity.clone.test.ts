@@ -38,7 +38,6 @@ describe.skipIf(!DIR || !DB_URL)("parity with the Rust server's recorded answers
     const known = verdicts.filter((v) => !v.ok && v.known);
     console.log(`site parity: ${verdicts.filter((v) => v.ok).length} of ${verdicts.length} equal (${verdicts.filter((v) => v.asDocument).length} of them as Markdown documents, not bytes), ${known.length} known divergences, ${failed.length} failures`);
     for (const v of known) console.log(`  known ${v.name} (${v.known}): ${v.diffs.join("; ")}`);
-    for (const v of verdicts.filter((x) => x.overlap)) console.log(`  search ${v.name}: ${JSON.stringify(v.overlap)}`);
     for (const v of failed) console.log(`  FAIL ${v.name}: ${v.diffs.join("\n    ")}`);
     expect(failed.map((v) => v.name)).toEqual([]);
   });

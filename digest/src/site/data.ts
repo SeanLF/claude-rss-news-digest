@@ -1,4 +1,4 @@
-// What the site reads, as one port. The pages, the feed and the MCP tools depend on this interface;
+// What the site reads, as one port. The pages and the feed depend on this interface;
 // store.ts binds it to the product schema, and tests stand in for it with rows.
 
 export interface IndexMeta {

@@ -2,10 +2,10 @@ import type { SearchHit } from "../data.js";
 import { type Metrics, type Stats } from "../stats.js";
 import { type SourceRow, bucket } from "../sources.js";
 import { escapeHtml, formatDayMonthYear } from "../text.js";
-import { askCss, askJs, connectCss, copyJs, feedbackCss, notFoundCss, searchCss, sourcesCss, statsCss } from "./blobs.js";
-import { type PageCtx, brand, pageBody, pageHead, script, subChrome, subMasthead } from "./chrome.js";
+import { feedbackCss, notFoundCss, searchCss, sourcesCss, statsCss } from "./blobs.js";
+import { type PageCtx, brand, pageBody, pageHead, subChrome, subMasthead } from "./chrome.js";
 
-// The sub-pages (circulation's templates/*.rs): sources, search, stats, feedback, connect, ask and the
+// The sub-pages (circulation's templates/*.rs): sources, search, stats, feedback and the
 // friendly 404, each in the shared frame.
 
 const name = (ctx: PageCtx) => escapeHtml(ctx.cfg.digestName);
@@ -249,101 +249,6 @@ export function feedbackPage(ctx: PageCtx): string {
       </div>
     </main>`;
   return pageHead(ctx, name(ctx), "Tell me what you think — feedback goes straight to a human inbox.", feedbackCss) + pageBody(ctx, chrome, inner);
-}
-
-// ── connect ──
-export const SERVER_KEY = "news-digest";
-export const cursorLink = (mcpUrl: string): string =>
-  `cursor://anysphere.cursor-deeplink/mcp/install?name=${SERVER_KEY}&config=${Buffer.from(`{"url":"${mcpUrl}"}`).toString("base64")}`;
-// Every command is derived from the one MCP URL, so a domain change cannot leave a stale one.
-export const commands = (mcpUrl: string): [string, string, string][] => [
-  ["Claude Code", "Run in your terminal", `claude mcp add --transport http ${SERVER_KEY} ${mcpUrl}`],
-  ["Codex", "Run in your terminal", `codex mcp add ${SERVER_KEY} --url ${mcpUrl}`],
-  // VS Code's own documented quoting, which cmd.exe also passes through as JSON.
-  ["VS Code", "Run in your terminal", `code --add-mcp "{\\"name\\":\\"${SERVER_KEY}\\",\\"type\\":\\"http\\",\\"url\\":\\"${mcpUrl}\\"}"`],
-  ["Any other client", "Paste this URL", mcpUrl],
-];
-export function connectPage(ctx: PageCtx, origin: string, tools: { name: string; description: string }[]): string {
-  const chrome = subChrome(ctx.cfg, "", "/connect", "Read-only tools over the archive, for any MCP client.");
-  const mcpUrl = `${origin}/mcp`;
-  const cursor = `<div class="opt"><div class="oh"><span class="on">Cursor</span><span class="od">One-click install</span></div>
-<a class="oneclick" href="${escapeHtml(cursorLink(mcpUrl))}">Add to Cursor &rarr;</a></div>`;
-  const opts = commands(mcpUrl)
-    .map(
-      ([n, note, cmd], i) =>
-        `<div class="opt"><div class="oh"><span class="on">${n}</span><span class="od">${note}</span></div>
-<pre id="c${i}"><code>${escapeHtml(cmd)}</code></pre>
-<button class="copy" type="button" data-for="c${i}" hidden>Copy</button></div>${i === 1 ? cursor : ""}`,
-    )
-    .join("");
-  const inner = `<main id="main" class="narrow">
-      <a class="brandmark" href="/">${brand(ctx)}</a>
-      <h1 class="h1">Connect your <em>assistant</em></h1>
-      <p class="lede">This briefing publishes its archive as a Model Context Protocol server, so your own assistant can read it directly &mdash; every issue, the running story threads, the sources with their bias ratings, and the cost of each run.</p>
-      <p class="body">Answers come from the archive itself, not from a search index built over it: ask for an issue by date and you get that issue. Read-only, public data, no key, no account.</p>
-      <div class="opts">${opts}</div>
-      <p class="body">No client? Every tool is also a plain URL &mdash; start at <a href="${origin}/mcp/tools.json">the tool catalogue</a>, or read <a href="${origin}/mcp">the endpoint's own listing</a>.</p>
-      <div class="tools">
-        <h2>What your assistant can call</h2>
-        <dl>${tools.map((t) => `<dt>${escapeHtml(t.name)}</dt><dd>${escapeHtml(t.description)}</dd>`).join("")}</dl>
-      </div>
-    </main>`;
-  return pageHead(ctx, name(ctx), "Connect this briefing's archive to Claude, ChatGPT, or any MCP client.", connectCss) + pageBody(ctx, chrome, inner, [script(copyJs)]);
-}
-
-// ── ask ──
-// Chosen by asking them: each exercises a different tool path, and none names a story, so none dates.
-const SUGGESTIONS = ["What did I miss this week?", "Which story has developed the most this month?", "Where did outlets disagree in the latest issue?", "What is the briefing still waiting to find out?"];
-export interface AskView {
-  model: string;
-  provider: string;
-  openrouter: boolean;
-}
-export function askPage(ctx: PageCtx, origin: string, view: AskView | undefined): string {
-  const chrome = subChrome(ctx.cfg, "", "/ask", "Ask the archive a question; answers cite the issue they came from.");
-  const head = pageHead(ctx, name(ctx), "Ask a question about the briefing's archive; answers cite the issue they came from.", askCss);
-  const attrs = ` data-origin="${escapeHtml(origin)}"`;
-  if (!view) {
-    const inner = `<main id="main" class="narrow">
-      <a class="brandmark" href="/">${brand(ctx)}</a>
-      <h1 class="h1">Ask the <em>archive</em></h1>
-      <div class="off">The question box is not switched on for this deployment. You can still
-      point your own assistant at the archive &mdash; see <a href="/connect">connect your
-      assistant</a>.</div>
-    </main>`;
-    return head + pageBody(ctx, chrome, inner, [], attrs);
-  }
-  const provider = view.openrouter
-    ? ', routed through <a href="https://openrouter.ai/">OpenRouter</a> (US) only to hosts that do not train on your question. If the first model is rate-limited the next one answers, and the name above changes to match; if all fail it tells you'
-    : view.provider
-      ? ` served by ${escapeHtml(view.provider)}`
-      : "";
-  const inner = `<main id="main" class="narrow">
-      <a class="brandmark" href="/">${brand(ctx)}</a>
-      <h1 class="h1">Ask the <em>archive</em></h1>
-      <p class="lede">Every answer here is read out of the briefing's own archive by the same
-      read-only tools any assistant can call, and cites the issue it came from. It has no
-      opinions of its own and no knowledge beyond what has been published.</p>
-
-      <div class="thread" id="thread" aria-live="polite"></div>
-
-      <div class="askbox">
-        <label class="asklabel" for="askq">Ask a question</label>
-        <form class="askform" id="askform" novalidate>
-          <textarea class="askin" id="askq" rows="2" maxlength="2000"
-            placeholder="What has the briefing said about&hellip;"></textarea>
-          <button class="asksend" id="asksend" type="submit">Ask</button>
-        </form>
-        <div class="chips" id="chips" aria-label="Example questions">${SUGGESTIONS.map((s) => `<button class="chip" type="button">${s}</button>`).join("")}</div>
-      </div>
-
-      <p class="fine">Answers are generated by <code id="askmodel">${escapeHtml(view.model)}</code>${provider}, from the archive's
-      own search, issues, threads, sources and statistics. It can still be wrong, and the
-      briefing it reads was itself written by a model &mdash; follow the issue links for what
-      was actually published. Nothing you type is stored. Prefer your own assistant? See
-      <a href="/connect">connect your assistant</a>.</p>
-    </main>`;
-  return head + pageBody(ctx, chrome, inner, [script(askJs)], attrs);
 }
 
 export const TAGLINE_ALL = TAG_ALL;

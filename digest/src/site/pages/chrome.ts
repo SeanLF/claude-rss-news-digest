@@ -76,8 +76,6 @@ function footerLinks(cfg: SiteConfig): [string, string][] {
     ["/sources", "Sources"],
     ["/threads", "Threads"],
     ["/stats", "Stats"],
-    ["/ask", "Ask"],
-    ["/connect", "Connect"],
     ["/feed.xml", "RSS"],
   ];
   if (cfg.sourceUrl) links.push([cfg.sourceUrl, "GitHub"]);

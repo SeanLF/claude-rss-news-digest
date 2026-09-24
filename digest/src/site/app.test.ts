@@ -1,7 +1,6 @@
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { describe, expect, it, vi } from "vitest";
-import { AskState } from "./ask.js";
 import { makeToken } from "./subscribe.js";
 import { fakeData, testApp, testConfig } from "./testing.js";
 import type { SiteData } from "./data.js";
@@ -32,7 +31,7 @@ describe("security headers", () => {
     "referrer-policy": "strict-origin-when-cross-origin",
   };
 
-  it.each(["/", "/sources", "/issues/2026-09-01", "/feed.xml", "/mcp", "/.well-known/mcp.json", "/today", "/no/such/page", "/health"])("are on %s", async (path) => {
+  it.each(["/", "/sources", "/issues/2026-09-01", "/feed.xml", "/today", "/no/such/page", "/health"])("are on %s", async (path) => {
     const res = await get(testApp(withIssue()), path);
     for (const [k, v] of Object.entries(REQUIRED)) expect(res.headers.get(k), k).toBe(v);
     expect(res.headers.get("permissions-policy")).toMatch(/camera=\(\).*geolocation=\(\).*microphone=\(\)/);
@@ -134,8 +133,6 @@ describe("routing as circulation answered", () => {
 
   it.each([
     ["GET", "/subscribe", "POST"],
-    ["GET", "/ask.json", "POST"],
-    ["DELETE", "/mcp", "GET,HEAD,POST"],
     ["POST", "/feed.xml", "GET,HEAD"],
     ["POST", "/2026-09-01", "GET,HEAD"],
   ])("answers %s %s with 405 and its Allow", async (method, path, allow) => {
@@ -240,15 +237,22 @@ describe("subscribe", () => {
   });
 });
 
-describe("/ask switched off", () => {
-  it("says so on both doors", async () => {
-    const app = testApp(fakeData());
-    const stream = await app.request("/ask", { method: "POST", body: '{"question":"hi"}' });
-    expect(stream.status).toBe(503);
-    const json = await app.request("/ask.json", { method: "POST", body: '{"question":"hi"}' });
-    expect(json.status).toBe(503);
-    expect(await json.json()).toEqual({ error: "The question box is not switched on for this deployment." });
-    expect(await (await get(app, "/ask")).text()).toContain("not switched on");
+describe("the retired /ask and MCP surface", () => {
+  it.each(["/ask", "/ask.json", "/connect", "/mcp", "/mcp/tools.json", "/mcp/tools/get_issue.json", "/.well-known/mcp.json", "/.well-known/mcp/server-card.json"])("%s is the ordinary 404 page", async (path) => {
+    const app = testApp(withIssue());
+    const res = await get(app, path);
+    expect(res.status).toBe(404);
+    expect(await res.text()).toContain('<p class="nf-code">404</p>');
+    // A POST is refused as any other unknown path is (a 405 where the legacy /:date route matches).
+    expect([404, 405]).toContain((await get(app, path, {}, "POST")).status);
+  });
+
+  it("is linked from nowhere", async () => {
+    const app = testApp(withIssue());
+    for (const path of ["/", "/sources", "/issues/2026-09-01", "/llms.txt", "/index.md"]) {
+      const body = await (await get(app, path)).text();
+      expect(body, path).not.toMatch(/\/(ask|connect|mcp)\b/);
+    }
   });
 });
 
@@ -261,7 +265,6 @@ describe("health", () => {
 });
 
 // Found by review (2026-09-23), each reproduced live before the fix.
-const ASK_CFG = { apiBase: "http://provider.invalid/v1", models: ["m"], apiKey: "k", providerLabel: "p", openrouter: false, referer: undefined, title: "t" };
 const stream = (chunks: Uint8Array[], fail = false) =>
   new ReadableStream<Uint8Array>({
     start(ctl) {
@@ -276,25 +279,6 @@ describe("hostile requests", () => {
     const big = stream(Array.from({ length: 40 }, () => new Uint8Array(16 * 1024).fill(97)));
     const res = await testApp(fakeData()).request("/subscribe", { method: "POST", headers: { "content-type": "application/x-www-form-urlencoded" }, body: big, duplex: "half" } as RequestInit);
     expect(res.status).toBe(413);
-  });
-
-  it("frees the /ask slot when the client hangs up mid-body", async () => {
-    const ask = new AskState(ASK_CFG);
-    const app = testApp(fakeData(), { ask });
-    for (const path of ["/ask", "/ask.json"]) {
-      const body = stream([new TextEncoder().encode('{"question":')], true);
-      const res = await app.request(path, { method: "POST", headers: { "x-forwarded-for": "198.51.100.30" }, body, duplex: "half" } as RequestInit);
-      expect(res.status).toBe(400);
-    }
-    // No slot was taken, so this client is not "still answering".
-    expect(ask.takeSlot("198.51.100.30")).toBeTypeOf("function");
-  });
-
-  it("refuses a JSON-RPC batch, which would pass the rate limit once per call", async () => {
-    const batch = Array.from({ length: 3 }, (_, i) => ({ jsonrpc: "2.0", id: i, method: "tools/list" }));
-    const res = await testApp(fakeData()).request("/mcp", { method: "POST", headers: { accept: "application/json, text/event-stream", "content-type": "application/json" }, body: JSON.stringify(batch) });
-    expect(res.status).toBe(400);
-    expect(await res.json()).toMatchObject({ error: { code: -32600 } });
   });
 
   it.each(["/threads?before=garbage&before_id=1", "/threads/more?before=2026-09-01%2000:00:00.5&before_id=1"])("refuses a cursor the site never wrote: %s", async (path) => {
