@@ -4,6 +4,7 @@ import { sendAlert, type AlertRequest } from "../ops/alerts.js";
 import { broadcastState } from "../ops/broadcast-state.js";
 import { feedHealthAlert } from "../ops/feed-health.js";
 import { healthcheck } from "../ops/healthcheck.js";
+import { preSendFailures, readPreSend } from "../ops/pre-send.js";
 import { coherenceKindCounts, getRunHealth, threadsEnabled, violations } from "../ops/run-health.js";
 import { openDb } from "../store/db.js";
 import { threadsConfigFrom } from "./threads.js";
@@ -26,8 +27,8 @@ const activityInfo = (): { attempt: number; key?: string } => {
   }
 };
 
-// The operations activities: everything that tells the operator a run went wrong. Every one of them is
-// best-effort; none can fail a run that delivered.
+// The operations activities: everything that tells the operator a run went wrong. None can fail a run
+// that delivered; all but checkPreSend are best-effort.
 export function opsActivities(deps: OpsDeps) {
   const hc = healthcheck(deps.env, deps.fetch);
   const send: SendEmail = deps.send ?? ((email, opts) => emailSender(resendClient(deps.env["RESEND_API_KEY"] ?? "", {}, deps.env).emails)(email, opts));
@@ -64,6 +65,15 @@ export function opsActivities(deps: OpsDeps) {
         console.error(`run-health check FAILED to run for run ${runId} (non-fatal): ${String(e)}`);
         return null;
       }
+    },
+
+    // The pre-send checks on the assembled issue. Unlike the checks above this one throws: a check
+    // that cannot run is not a clean run, and the workflow holds it.
+    checkPreSend: async (runId: number): Promise<string[]> => {
+      const input = await readPreSend(openDb(deps.dbUrl), runId, { threadsEnabled: threadsEnabled(deps.env), dormantAfter: threadsConfigFrom(deps.env).dormantAfter });
+      const failures = preSendFailures(input);
+      console.log(JSON.stringify({ stage: "pre-send", runId, failures }));
+      return failures;
     },
 
     alert: async (request: AlertRequest): Promise<void> => {

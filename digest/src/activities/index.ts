@@ -49,7 +49,7 @@ export interface DigestOutput {
   runId: number;
   stories: number;
   // "disabled": BROADCAST_ENABLED is off, so nothing was published, like "rejected".
-  // "held-out": the budget left no time for a review, so it was not sent unreviewed.
+  // "held-out": the run reached the send too late for the send and its record to fit the budget.
   broadcast: "sent" | "disabled" | "rejected" | "skipped" | "held-out";
   recipients?: number;
 }
@@ -82,8 +82,10 @@ export interface Activities extends LinkDecoder {
   render(runId: number, selections: Pointer, threads: Pointer, gnews: Pointer): Promise<{ html: Pointer; email: Pointer }>;
   archiveRun(runId: number, selections: Pointer, clusters: Pointer): Promise<void>;
   sendEnabled(): Promise<boolean>;
-  // holdEndsAt null: no run budget was left for a hold, and the send follows at once.
-  notifyHold(runId: number, selections: Pointer, holdEndsAt: string | null): Promise<{ sent: boolean }>;
+  // The pre-send checks (ops/pre-send.ts): one "CODE: detail" line per failure; none sends at once.
+  checkPreSend(runId: number): Promise<string[]>;
+  // The hold's email: what failed, when the hold ends, and how to approve or reject.
+  notifyHold(runId: number, selections: Pointer, holdEndsAt: string, failures: string[]): Promise<{ sent: boolean }>;
   saveDigest(runId: number, html: Pointer, selections: Pointer): Promise<{ date: string }>;
   broadcast(runId: number, email: Pointer): Promise<{ broadcastId: string; status: string; recipients: number }>;
   recordShownHeadlines(runId: number, selections: Pointer): Promise<{ rows: number }>;

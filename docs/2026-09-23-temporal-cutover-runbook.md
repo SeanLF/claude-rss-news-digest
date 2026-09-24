@@ -122,16 +122,18 @@ Python worker 67-79, UI 7.
    bin/ssh systemctl restart news-digest-worker        # re-imports digest_staged, migrates, then starts
    bin/ssh "$T workflow start -t digest --type DigestWorkflow -w digest-staged-$(date -u +%F) -i '{\"runDate\":\"$(date -u +%F)\",\"force\":true}'"
    ```
-   Watch it in the UI. It holds before broadcast (2 h, or a signal), and with broadcast off it sends
-   nothing either way.
+   Watch it in the UI. With broadcast off it never holds and sends nothing; it still runs the pre-send
+   checks, and the "not sent" alert lists any that failed, so a staged day shows whether a live run
+   would have held.
 
 ## Before the cut-over
 
 1. Three passed gate days (spec §7).
 2. `broadcast` is a real activity. Run 305 still had broadcast, gnews and threads stubbed.
 3. A clean staged run on prod (above).
-4. healthchecks.io: the success ping will arrive at the dead-man time (15:00 Europe/Paris), not at run
-   end. Widen the check's schedule or grace first, or the first Temporal day alerts falsely.
+4. healthchecks.io: the success ping arrives at the send, 10:25Z plus the run (about 15-20 minutes),
+   plus 15 minutes when a pre-send check holds it. Check the check's schedule and grace fit that
+   before the first Temporal day (unverified against the check's current settings).
 5. **The TypeScript circulation site is live and reads Postgres `digest`.** The Rust circulation reads
    `digest.db`, which stops changing at the cut-over: from the first Temporal day it would serve no
    new issue, and the email's "View in browser" link would 404.
@@ -239,6 +241,12 @@ history. Rehearsed under systemd in a container: no unit files and no active uni
 - **UI and the three signals.** Open `https://seanfloyd-hetzner.tail739266.ts.net:8233` on the tailnet;
   it has no login and is not on any public interface. From the CLI (`$T` as above):
   `bin/ssh "$T workflow signal -w <id> --name approve --input '{\"decision\":\"approve\"}'"`.
+- **The pre-send hold** (spec §2.3, from 2026-09-24). A run that passes its pre-send checks
+  (`digest/src/ops/pre-send.ts`) sends at once, unheld. A run that fails one emails
+  `HEALTH_ALERT_EMAIL` a `[Hold]` notice naming each failed check and holds 15 minutes: `approve`
+  sends now, `reject` stops it (nothing published or sent), and no answer sends it anyway. A run that
+  reaches the send with less than the tail's 30-minute margin left before its deadline is not sent
+  (`held-out`), flagged or not.
 - **Pause by hand:** `bin/ssh /opt/news-digest/bin/digest-schedule pause "reason"`. Restore with
   `bin/ssh systemctl restart news-digest-temporal-bootstrap`, which sets the state the mode calls for.
 - **Deploys** in staged or temporal:
@@ -252,7 +260,7 @@ history. Rehearsed under systemd in a container: no unit files and no active uni
     Temporal. In staged mode each of these warns and the deploy goes on: the TypeScript runs there
     are rehearsals on a scratch database, and a Temporal problem must not block Python's deploy.
   - Clearing a live run so a temporal deploy can go ahead:
-    - in its hold (up to 14:25Z): approve or reject it;
+    - in its hold (a flagged run, 15 minutes at most): approve or reject it;
     - parked on the retry signal: answer it (retry or abort);
     - **stuck**: its workflow task keeps failing, as on a nondeterminism error. The refusal marks
       it "stuck". It cannot take a signal, so approving or rejecting does nothing, and it blocks

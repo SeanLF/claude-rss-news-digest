@@ -70,9 +70,9 @@ describe("alertEmail", () => {
   it("not-sent names why the day was not delivered and what to do", () => {
     const d = alertEmail({ kind: "not-sent", workflowId: "digest-2026-09-23", runId: 305, reason: "disabled", detail: "broadcasting disabled on this worker" });
     expect(d.subject).toBe("[Alert] Digest not sent: broadcasting disabled on this worker (run 305)");
-    const h = alertEmail({ kind: "not-sent", workflowId: "digest-2026-09-23", runId: 305, reason: "held-out", detail: "12 minutes left" });
-    expect(h.subject).toBe("[Alert] Digest not sent: no time left to review it (run 305)");
-    expect(h.html).toContain("approve and send by hand");
+    const h = alertEmail({ kind: "not-sent", workflowId: "digest-2026-09-23", runId: 305, reason: "held-out", detail: "the run reached the send 3 minute(s) late" });
+    expect(h.subject).toBe("[Alert] Digest not sent: no time left for the send (run 305)");
+    expect(h.html).toContain("resume it on a fresh budget");
     expect(h.html).toContain('ARGS="--resume 305"');
   });
 });

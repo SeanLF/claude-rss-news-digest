@@ -25,7 +25,7 @@ export default class DigestWorkflowProvider {
     const since = new Date().toISOString().replace("T", " ").slice(0, 19); // model_calls's recorded_at format
     const t0 = Date.now();
     const handle = await startDigest(await connect(), context.vars.date, { resumeRun: run, force: true });
-    await handle.signal(approveSignal, { decision: "approve" }); // the hold is not part of the band
+    await handle.signal(approveSignal, { decision: "approve" }); // a flagged run's hold is not part of the band
     const result = await handle.result();
     const latencyMs = Date.now() - t0;
     const { costUsd, calls } = await runCost(openDb(this.dbUrl), run, since);

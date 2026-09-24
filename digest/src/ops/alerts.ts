@@ -87,11 +87,11 @@ ${FOOTER}`,
       };
     }
     case "not-sent": {
-      const why = req.reason === "disabled" ? "broadcasting disabled on this worker" : "no time left to review it";
+      const why = req.reason === "disabled" ? "broadcasting disabled on this worker" : "no time left for the send";
       const next =
         req.reason === "disabled"
           ? "Nothing was published or sent. Set BROADCAST_ENABLED=true on the worker that should send."
-          : `The run's time budget could not fit a review before the send, so it was not sent unreviewed. To approve and send by hand, resume it (it holds again, on a fresh budget) and approve in the hold: ${resumeHint(req.runId)}.`;
+          : `The run's time budget could not fit the send and its record before the deadline, so nothing was published or sent. To send it, resume it on a fresh budget; it sends at once if its pre-send checks pass, and holds 15 minutes first if not: ${resumeHint(req.runId)}.`;
       return {
         subject: `[Alert] Digest not sent: ${why} (run ${req.runId})`,
         html: `<h2>News Digest Not Sent</h2>

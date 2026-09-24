@@ -34,23 +34,42 @@ const inHoldThen = (decision: "approve" | "reject") => async (h: WorkflowHandle<
   await inHold(h);
   return signalled(decision)(h);
 };
+// A run that fails a pre-send check holds; one that passes sends at once.
+const FLAGGED: Partial<Activities> = { checkPreSend: () => Promise.resolve(["TEST: a failed pre-send check"]) };
+// A clean run's reject must land before its send: the checks end only once it has been delivered.
+let rejectDelivered!: () => void;
+const delivered = new Promise<void>((r) => (rejectDelivered = r));
+const SLOW_CHECKS: Partial<Activities> = {
+  checkPreSend: async () => {
+    await delivered;
+    return [];
+  },
+};
+const rejectedEarly = async (h: WorkflowHandle<typeof DigestWorkflow>) => {
+  await h.signal(approveSignal, { decision: "reject" });
+  rejectDelivered();
+  return h.result();
+};
 export const SCENARIOS: Scenario[] = [
-  // Decided before the hold is reached: the workflow never starts the hold's timer.
-  { name: "sent", drive: signalled("approve") },
-  { name: "rejected", drive: signalled("reject") },
-  { name: "approved-in-hold", drive: inHoldThen("approve") },
-  { name: "rejected-in-hold", drive: inHoldThen("reject") },
-  // A 60 min run timeout leaves a 50 min deadline, 20 min of hold after the tail's margin: under the minimum.
-  { name: "held-out", runTimeout: "60 minutes", drive: (h) => h.result() },
+  // Clean: sent with no hold, or rejected before the send.
+  { name: "sent", drive: (h) => h.result() },
+  { name: "rejected", activities: SLOW_CHECKS, drive: rejectedEarly },
+  // Flagged: the hold's timer runs out and it sends. A 41 min run timeout leaves a 31 min deadline,
+  // about a minute of hold after the tail's margin, so it records in a minute.
+  { name: "flagged-sent", activities: FLAGGED, runTimeout: "41 minutes", drive: (h) => h.result() },
+  { name: "approved-in-hold", activities: FLAGGED, drive: inHoldThen("approve") },
+  { name: "rejected-in-hold", activities: FLAGGED, drive: inHoldThen("reject") },
+  // A 40 min run timeout leaves a 30 min deadline, all of it the tail's margin: no budget for the send.
+  { name: "held-out", runTimeout: "40 minutes", drive: (h) => h.result() },
   { name: "disabled", activities: { sendEnabled: () => Promise.resolve(false) }, drive: (h) => h.result() },
-  { name: "resume", input: { resumeRun: 303 }, drive: signalled("approve") },
+  { name: "resume", input: { resumeRun: 303 }, drive: (h) => h.result() },
   { name: "parked-abort", input: { failStage: "select" }, drive: async (h) => {
       await h.signal(retrySignal, { decision: "abort" });
       return h.result();
     } },
   { name: "failed", activities: { writeStory: () => Promise.reject(ApplicationFailure.nonRetryable("the model is gone", "Record")) }, drive: (h) => h.result().catch(() => undefined) },
-  // A run a deploy would find: waiting in the pre-broadcast hold. Recorded open, then terminated.
-  { name: "in-hold", drive: async (h) => inHold(h) },
+  // A run a deploy would find: waiting in the pre-send hold. Recorded open, then terminated.
+  { name: "in-hold", activities: FLAGGED, drive: async (h) => inHold(h) },
 ];
 
 async function main(outDir: string, address = process.env["TEMPORAL_ADDRESS"] ?? "localhost:7233"): Promise<void> {

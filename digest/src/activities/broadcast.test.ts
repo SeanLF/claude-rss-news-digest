@@ -293,38 +293,41 @@ describe("broadcast: at most once per digest date (the 2026-06-16 rule)", () => 
 });
 
 describe("notifyHold", () => {
-  it("emails the operator the run's Temporal UI link and its headlines", async () => {
+  const FAILED = ["INTERNAL_ID_LEAK: 1 leak(s): must_know.summary '(A2)' in 'Deal <signed>'", "THREAD_AUDIT_FAILED: 1 thread update(s) shipped facts their audit could not check (it fails open)"];
+  it("emails the operator every failed check, when the hold ends and that it then sends, the signals, the run's link and its headlines", async () => {
     const { selections, make } = await setup({});
     const fake = fakeMail({});
-    expect(await make(fake.mail).notifyHold(300, selections, "2026-09-08T12:45:00.000Z")).toEqual({ sent: true });
+    expect(await make(fake.mail).notifyHold(300, selections, "2026-09-08T12:45:00.000Z", FAILED)).toEqual({ sent: true });
     expect(fake.names()).toEqual(["email"]);
     const p = fake.calls[0]![1] as { from: string; to: string[]; subject: string; html: string };
     expect(p.from).toBe("News Digest Alerts <digest@news.test>");
     expect(p.to).toEqual(["ops@news.test"]);
-    expect(p.subject).toContain("2026-09-08");
+    expect(p.subject).toBe("[Hold] Digest 2026-09-08: INTERNAL_ID_LEAK, THREAD_AUDIT_FAILED; sends at 12:45 UTC unless rejected");
+    expect(p.html).toContain("<li>INTERNAL_ID_LEAK: 1 leak(s): must_know.summary &#39;(A2)&#39; in &#39;Deal &lt;signed&gt;&#39;</li>");
+    expect(p.html).toContain("<li>THREAD_AUDIT_FAILED: 1 thread update(s)");
+    expect(p.html).toContain("sends anyway");
+    expect(p.html).toContain("--name approve --input &#39;{&quot;decision&quot;:&quot;reject&quot;}&#39;");
     expect(p.html).toContain("http://digest-box:8233/namespaces/default/workflows/digest-2026-09-08/r-123/history");
     expect(p.html).toContain("Deal &lt;signed&gt;");
     expect(p.html).toContain("Yen falls");
     expect(p.html).toContain("12:45");
   });
-  it("with no budget left for a hold, says the issue is sending now, unheld", async () => {
-    const { selections, make } = await setup({});
-    const fake = fakeMail({});
-    expect(await make(fake.mail).notifyHold(300, selections, null)).toEqual({ sent: true });
-    const p = fake.calls[0]![1] as { subject: string; html: string };
-    expect(p.subject).toContain("unheld");
-    expect(p.html).toContain("not held");
-    expect(p.html).not.toContain("To stop it");
-  });
-  it("without an operator address it sends nothing and says so, rather than failing the run", async () => {
+  it("without an operator address it sends nothing and logs what it would have said, rather than failing the run", async () => {
     const { selections, make } = await setup({}, { ...ENV, HEALTH_ALERT_EMAIL: "" });
     const fake = fakeMail({});
-    expect(await make(fake.mail).notifyHold(300, selections, "2026-09-08T12:45:00.000Z")).toEqual({ sent: false });
+    const logged: string[] = [];
+    const spy = vi.spyOn(console, "error").mockImplementation((m: string) => void logged.push(m));
+    try {
+      expect(await make(fake.mail).notifyHold(300, selections, "2026-09-08T12:45:00.000Z", FAILED)).toEqual({ sent: false });
+    } finally {
+      spy.mockRestore();
+    }
     expect(fake.names()).toEqual([]);
+    expect(logged.join("\n")).toContain("INTERNAL_ID_LEAK");
   });
   it("a Resend error is reported, not thrown", async () => {
     const { selections, make } = await setup({});
     const fake = fakeMail({ email: [() => fail("application_error")] });
-    expect(await make(fake.mail).notifyHold(300, selections, "2026-09-08T12:45:00.000Z")).toEqual({ sent: false });
+    expect(await make(fake.mail).notifyHold(300, selections, "2026-09-08T12:45:00.000Z", FAILED)).toEqual({ sent: false });
   });
 });

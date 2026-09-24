@@ -19,9 +19,9 @@ export const WORKFLOW_RUN_TIMEOUT = `${RUN_TIMEOUT_HOURS} hours` as const;
 // still alive to alert, ping the dead-man's switch and fail. DEADLINE_MARGIN_MS covers the alert.
 export const RUN_DEADLINE_MS = 230 * 60 * 1000;
 export const DEADLINE_MARGIN_MS = 10 * 60 * 1000;
-export const HOLD_TIMEOUT = 2 * 60 * 60 * 1000; // 2 h, in ms: the hold notification names its end
-// A review shorter than this is no review: a run that cannot hold this long is not sent unreviewed.
-export const HOLD_MINIMUM_MS = 30 * 60 * 1000;
+// A run that fails a pre-send check (ops/pre-send.ts) holds this long for the operator, then sends
+// anyway (spec §2.3, 2026-09-24); a clean run does not hold. In ms: the notification names its end.
+export const HOLD_TIMEOUT = 15 * 60 * 1000;
 // What the tail after the hold is given of the budget; a test holds TAIL_WORST_CASE_MS under it.
 export const TAIL_MARGIN_MS = 30 * 60 * 1000;
 
@@ -30,9 +30,9 @@ function deadlineMs(): number {
   const { runTimeoutMs } = workflowInfo();
   return runTimeoutMs ? Math.max(60_000, Math.min(RUN_DEADLINE_MS, runTimeoutMs - DEADLINE_MARGIN_MS)) : RUN_DEADLINE_MS;
 }
-// The hold, cut to what the deadline leaves after the tail; 0 when nothing is left.
-function holdFor(): number {
-  return Math.max(0, Math.min(HOLD_TIMEOUT, workflowInfo().runStartTime.getTime() + deadlineMs() - TAIL_MARGIN_MS - Date.now()));
+// What the deadline leaves before the tail must start; at or under 0 the send cannot fit.
+function sendBudget(): number {
+  return workflowInfo().runStartTime.getTime() + deadlineMs() - TAIL_MARGIN_MS - Date.now();
 }
 // Workflow identity replaces the dup-run guard for every kind of start (spec §2.1).
 export const workflowIdFor = (runDate: string): string => `digest-${runDate}`;
@@ -75,6 +75,10 @@ const TAIL_ATTEMPT_MS = 60_000;
 const TAIL_ATTEMPTS = 2;
 const TAIL_RETRY_MS = 5_000;
 const tail = proxyActivities<Activities>({ startToCloseTimeout: TAIL_ATTEMPT_MS, retry: { maximumAttempts: TAIL_ATTEMPTS, initialInterval: TAIL_RETRY_MS, maximumInterval: TAIL_RETRY_MS } });
+// The hold notice: one short attempt (it reports its own failure), so a hold cut to under a minute
+// overruns into the tail's margin by at most this; a test holds it inside the margin's slack.
+export const NOTIFY_MS = 60_000;
+const notify = proxyActivities<Activities>({ startToCloseTimeout: NOTIFY_MS, retry: { maximumAttempts: 1 } });
 const SEND_MS = 10 * 60 * 1000; // the send proxy's start-to-close, one attempt
 const OPS_WORST_MS = 3 * 2 * 60 * 1000 + 30_000; // the ops policy: 3 attempts of 2 min, 10 s then 20 s apart
 // saveDigest, the send, recordShownHeadlines, finishRun, the success ping, the health check, its alert.
@@ -244,38 +248,48 @@ async function runDigest(input: DigestInput, state: RunState): Promise<DigestOut
       log.warn("archiving the run's selections and clusters failed; the issue goes on", { runId, error: String(e) });
     });
     const { html, email } = await rebuild.render(runId, selections, threads, gnews);
+    // The pre-send checks (ops/pre-send.ts). A check that cannot run is a failed check: it holds.
+    const failures = await record.checkPreSend(runId).catch((e: unknown): string[] => {
+      if (isCancellation(e)) throw e;
+      return [`PRE_SEND_CHECK_ERROR: the checks could not run: ${causes(e)}`];
+    });
+    if (failures.length) log.warn("pre-send checks failed", { runId, failures });
 
     // Only a real send publishes: with the send disabled the run ends like a rejected one, with no
     // web copy, no story sources and no sent outcome, and the operator is told.
     if (!(await record.sendEnabled())) {
       log.warn("BROADCAST_ENABLED is not true: nothing published, sent or recorded as shown", { runId });
-      await notSent("disabled", "broadcasting disabled on this worker");
+      await notSent("disabled", `broadcasting disabled on this worker${failures.length ? `; the pre-send checks failed: ${failures.join("; ")}` : ""}`);
       return await finish({ stories: storyCount, broadcast: "disabled" });
     }
-    // Pre-broadcast hold (spec §2.3 signal 1): 2 h, then proceed, cut to the run's budget. A run
-    // whose budget cannot fit a real review is not sent unreviewed: at most once beats unreviewed.
-    // Checked whatever the approval: an early approve skips the review, never the tail's budget.
+    // An operator's reject stops the send whenever it lands before it, held or not.
     if (approval === "reject") return await finish({ stories: storyCount, broadcast: "rejected" });
-    const hold = holdFor();
-    if (hold < (approval === "approve" ? 1 : HOLD_MINIMUM_MS)) {
-      log.warn("no run budget left for a review and the send; not sending", { runId, holdMs: hold });
-      await notSent("held-out", `the run's budget left ${Math.floor(hold / 60_000)} minutes for the hold, under the ${HOLD_MINIMUM_MS / 60_000}-minute minimum`);
+    // The send and its record need the tail's margin before the deadline. Without it the run is not
+    // sent, clean or flagged: a send the deadline could cut is one that may reach readers unrecorded.
+    const budget = sendBudget();
+    if (budget <= 0) {
+      log.warn("no run budget left for the send; not sending", { runId, budgetMs: budget });
+      await notSent("held-out", `the run reached the send ${Math.ceil(-budget / 60_000)} minute(s) after the last moment its send and record fit before the deadline`);
       return await finish({ stories: storyCount, broadcast: "held-out" });
     }
-    // The operator hears of it by email, best-effort. Nothing reaches readers before the hold ends: the
-    // web copy, the send and the shown headlines (the next day's dedup) all follow it.
-    // The hold ends at a fixed time: the notification's own duration comes out of it, not on top of it.
-    const holdEnds = Date.now() + hold;
-    await once.notifyHold(runId, selections, new Date(holdEnds).toISOString()).catch((e: unknown) => {
-      if (isCancellation(e)) throw e;
-      log.warn("the hold notification failed; holding anyway", { runId, error: String(e) });
-    });
-    const left = holdEnds - Date.now();
-    if (left > 0) await condition(() => approval !== undefined, left);
-    if (approvalNow() === "reject") return await finish({ stories: storyCount, broadcast: "rejected" });
+    // The pre-send hold (spec §2.3 signal 1), only for a run that failed a check: the operator is
+    // emailed what failed and may approve or reject; unanswered, it sends when the hold ends. Cut to
+    // the budget and never refused for being short: its timeout sends anyway, so a shorter hold
+    // changes only how long the operator has. Nothing reaches readers before it ends.
+    if (failures.length) {
+      // The hold ends at a fixed time: the notification's own duration comes out of it, not on top of it.
+      const holdEnds = Date.now() + Math.min(HOLD_TIMEOUT, budget);
+      await notify.notifyHold(runId, selections, new Date(holdEnds).toISOString(), failures).catch((e: unknown) => {
+        if (isCancellation(e)) throw e;
+        log.warn("the hold notification failed; holding anyway", { runId, error: String(e) });
+      });
+      const left = holdEnds - Date.now();
+      if (left > 0) await condition(() => approval !== undefined, left);
+      if (approvalNow() === "reject") return await finish({ stories: storyCount, broadcast: "rejected" });
+    }
     // From here the deadline cannot cut in: a send in progress and the record of one that landed are
     // never cancelled, since a cancelled send can still reach readers and a cut record would call it
-    // failed. The hold's budget left the tail its margin.
+    // failed. The budget check above left the tail its margin.
     return await CancellationScope.nonCancellable(async () => {
       await tail.saveDigest(runId, html, selections);
       const sent = await send.broadcast(runId, email); // at most once: one attempt (spec §2.1)
