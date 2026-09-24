@@ -115,7 +115,8 @@ describe("run lifecycle", () => {
     });
     it("refuses while another run of the day started within the last 4 h and is still running", async () => {
       const { db, acts } = await setup();
-      await db.exec("INSERT INTO runs (started_at, status) VALUES (now() - interval '30 minutes', 'running')");
+      // Clamped to today (UTC): between 00:00 and 00:30Z, 30 minutes ago is yesterday and the guard rightly ignores it.
+      await db.exec("INSERT INTO runs (started_at, status) VALUES (GREATEST(now() - interval '30 minutes', date_trunc('day', now(), 'UTC') + interval '1 second'), 'running')");
       await expect(acts.startRun({ runDate: "" })).rejects.toMatchObject({ type: "AlreadyRan" });
     });
     it("starts over a run that failed, or one still marked running after 4 h (a crash)", async () => {
