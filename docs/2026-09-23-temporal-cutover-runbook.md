@@ -132,7 +132,8 @@ Python worker 67-79, UI 7.
 5. **The TypeScript circulation site is live and reads Postgres `digest`.** The Rust circulation reads
    `digest.db`, which stops changing at the cut-over: from the first Temporal day it would serve no
    new issue, and the email's "View in browser" link would 404.
-6. The scripts in "Scripts still on SQLite" below are ported, or knowingly left broken.
+6. "Scripts still on SQLite" below: `digest_ro` applied and refusing a write; `bin/lib/prod-store`
+   flips in the same change as the mode.
 7. The schedule is fixed at 10:25Z. The Python timer is 12:25 Europe/Paris, which is 10:25Z in summer
    and 11:25Z in winter (CET from 2026-10-25), so in winter the digest lands an hour earlier.
 
@@ -160,7 +161,7 @@ Outside the run window. `bin/ssh systemctl is-active news-digest.service` must s
    bin/ssh 'journalctl -u news-digest-worker --since -1h --no-pager | grep -E "import-|migrat|^ *ok "'   # "digest imported", every check "ok"
    ```
 3. The next day: the run completed and sent, the dead-man passed, and healthchecks.io got its ping.
-   Until `bin/ops` is ported (below):
+   Until `bin/lib/prod-store` says `postgres` (below):
    ```
    bin/ssh 'docker exec news-digest-temporal-postgres psql -U postgres -d digest -c "SELECT id, started_at, status, outcome FROM runs ORDER BY id DESC LIMIT 3"'
    ```
@@ -338,30 +339,33 @@ so nothing fails when it breaks: take yoyo out of `bin/deploy` in the change tha
 
 ## Scripts still on SQLite
 
-Each reads `digest.db` (or a clone) under the old table names. After the cut-over `digest.db` stops
-changing, so each reads a frozen copy and says nothing about Temporal days. Port or retire at the
-cut-over. The Naming section of `docs/2026-09-23-data-model-design.md` has the renames; the
-`completed_at IS NOT NULL` filters become the `sent_runs` view.
+`digest.db` stops changing at the cut-over, so a tool still reading it reads a frozen copy and says
+nothing about Temporal days. The Naming section of `docs/2026-09-23-data-model-design.md` has the
+renames; `completed_at IS NOT NULL` became the `sent_runs` view.
 
-Port (Postgres, against `DIGEST_DATABASE_URL` or a restored `digest` dump):
-- [ ] `bin/ops` (not `journal`): Python `sqlite3` on the box over SSH, in a container with the data
-  volume `:ro` and the file `mode=ro`. `digest_runs`, `run_usage`, `source_health`, `run_artifacts`
-  → `runs`/`run_attempts`, `model_calls`, `source_fetches`, `artifacts`, token columns under the
-  OTel names. Keep both read-only guarantees: a read-only role (or `default_transaction_read_only`)
-  in place of the `:ro` mount, and its test.
-- [ ] `bin/usage` (`make usage`, `make usage-daily`): the `sqlite3` CLI. `run_usage` joined to
-  `digest_runs.completed_at` → `model_calls` joined to `sent_runs`.
-- [ ] `bin/trace`: imports `newsroom/src/db.py` for `run_artifacts`. Rewrite over `artifacts` without
-  the Python import.
-- [ ] `bin/analytics` and `analytics/queries/*.sql` (`make analytics*`): Python `sqlite3`; all 16
-  queries name old tables, and 8 use SQLite date or JSON functions (`datetime(`, `julianday`,
-  `json_each`). The runner needs a Postgres driver and parameter binding; each query needs its
-  tables renamed and its date functions rewritten.
-- [ ] `bin/db-clone` (`make db-clone`): pulls `digest.db` over ssh and checks `integrity_check`.
-  Becomes a restore of the newest `digest` dump (`bin/backup-volumes` already streams it to the Mac)
-  into a local Postgres.
-- [ ] `bin/ask-eval`: plants a row in a copy's `digests` and runs the Rust circulation on it. Moves
-  with the TypeScript site: a scratch Postgres and an `issues` row.
+Ported to Postgres (rewrite/a1-spine 9cddfb3, f9bb18e); what the cut-over still owes them:
+- [x] `bin/usage`, `bin/trace`, `bin/analytics` and its 16 queries read a local Postgres clone
+  through `bin/psql`, read-only. `bin/analytics-parity` holds the queries to their SQLite originals.
+  Runs mailed before Resend broadcasts have no send (their counts live in Resend), so
+  `run-reliability` shows their recipients blank and unflagged, and `cost-per-shipped-story` their
+  per-subscriber columns blank.
+- [x] `bin/ask-eval` imports its SQLite copy into a scratch Postgres.
+- [ ] `bin/ops` and `bin/db-clone` read production through the switch `bin/lib/prod-store`
+  (`sqlite` until the cut-over; `DIGEST_PROD_STORE` overrides it). On Postgres, `bin/ops` logs in
+  as `digest_ro`, a SELECT-only role in a read-only session (`digest/db/ops/digest_ro.sql`).
+  - Before the cut-over: the infra's `pg-roles` must apply `digest_ro.sql` to `digest` after every
+    Postgres start, and `import-digest-db` after it renames `digest_import` over `digest` (the grants
+    belong to the database and its tables; the script fails on a database with no `runs`). Then
+    check the role reads, and refuses a write on both guarantees (each line fails differently when
+    the role or its grants are missing, so read the output, not just the exit code):
+    ```
+    P='docker exec news-digest-temporal-postgres psql -U digest_ro -d digest'
+    bin/ssh "$P -tAc 'SELECT count(*) FROM runs'"                             # a count
+    bin/ssh "$P -c 'DELETE FROM runs WHERE false'"                            # ... read-only transaction
+    bin/ssh "$P -c 'BEGIN READ WRITE' -c 'DELETE FROM runs WHERE false'"      # permission denied for table runs
+    ```
+  - At the cut-over: flip `bin/lib/prod-store` to `postgres` in the change that sets
+    `news_digest_pipeline = "temporal"`. On a rollback, flip it back to `sqlite`.
 
 Retire (Python-era; they read `newsroom/src` modules or diff against the Python pipeline):
 - [ ] `bin/migrate` and `bin/deploy`'s `run_migrations` (yoyo on `digest.db`): dbmate's `migrate.js`
@@ -446,6 +450,9 @@ first initialised, nothing logs in with it, and local connections inside the con
   read.
 - **The 1280 MiB worker cap** rests on the 245 MiB-per-process figure. A four-way fan-out under that
   cap has not been measured.
+- **Prod's `digest.db` is in rollback-journal mode, not WAL** (header bytes 18-19 = 1 1, checked
+  2026-09-24). `bin/import-legacy` refuses a file with a `-journal` or `-wal` beside it; the import
+  scripts only ever hand it an online-backup snapshot, which has neither.
 - **The product database on the box.** `pg-roles`, `refresh-staged-db`, `import-digest-db` and the
   `migrate.js` step have run only in local rehearsals (the import: 15 s, 283 MiB peak on the prod
   clone, the `node:sqlite` importer, measured locally). The import inside the worker unit's
