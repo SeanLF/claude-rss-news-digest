@@ -132,7 +132,8 @@ Python worker 67-79, UI 7.
 5. **The TypeScript circulation site is live and reads Postgres `digest`.** The Rust circulation reads
    `digest.db`, which stops changing at the cut-over: from the first Temporal day it would serve no
    new issue, and the email's "View in browser" link would 404.
-6. The schedule is fixed at 10:25Z. The Python timer is 12:25 Europe/Paris, which is 10:25Z in summer
+6. The scripts in "Scripts still on SQLite" below are ported, or knowingly left broken.
+7. The schedule is fixed at 10:25Z. The Python timer is 12:25 Europe/Paris, which is 10:25Z in summer
    and 11:25Z in winter (CET from 2026-10-25), so in winter the digest lands an hour earlier.
 
 ## Cut-over
@@ -159,7 +160,7 @@ Outside the run window. `bin/ssh systemctl is-active news-digest.service` must s
    bin/ssh 'journalctl -u news-digest-worker --since -1h --no-pager | grep -E "import-|migrat|^ *ok "'   # "digest imported", every check "ok"
    ```
 3. The next day: the run completed and sent, the dead-man passed, and healthchecks.io got its ping.
-   Until `bin/ops` reads Postgres:
+   Until `bin/ops` is ported (below):
    ```
    bin/ssh 'docker exec news-digest-temporal-postgres psql -U postgres -d digest -c "SELECT id, started_at, status, outcome FROM runs ORDER BY id DESC LIMIT 3"'
    ```
@@ -334,6 +335,52 @@ The cut-over retires the Python pipeline, not `newsroom/`. Deleting it breaks th
 
 A deleted file in the first three rows fails its image build. The last row is not a Dockerfile copy,
 so nothing fails when it breaks: take yoyo out of `bin/deploy` in the change that deletes it.
+
+## Scripts still on SQLite
+
+Each reads `digest.db` (or a clone) under the old table names. After the cut-over `digest.db` stops
+changing, so each reads a frozen copy and says nothing about Temporal days. Port or retire at the
+cut-over. The Naming section of `docs/2026-09-23-data-model-design.md` has the renames; the
+`completed_at IS NOT NULL` filters become the `sent_runs` view.
+
+Port (Postgres, against `DIGEST_DATABASE_URL` or a restored `digest` dump):
+- [ ] `bin/ops` (not `journal`): Python `sqlite3` on the box over SSH, in a container with the data
+  volume `:ro` and the file `mode=ro`. `digest_runs`, `run_usage`, `source_health`, `run_artifacts`
+  → `runs`/`run_attempts`, `model_calls`, `source_fetches`, `artifacts`, token columns under the
+  OTel names. Keep both read-only guarantees: a read-only role (or `default_transaction_read_only`)
+  in place of the `:ro` mount, and its test.
+- [ ] `bin/usage` (`make usage`, `make usage-daily`): the `sqlite3` CLI. `run_usage` joined to
+  `digest_runs.completed_at` → `model_calls` joined to `sent_runs`.
+- [ ] `bin/trace`: imports `newsroom/src/db.py` for `run_artifacts`. Rewrite over `artifacts` without
+  the Python import.
+- [ ] `bin/analytics` and `analytics/queries/*.sql` (`make analytics*`): Python `sqlite3`; all 16
+  queries name old tables, and 8 use SQLite date or JSON functions (`datetime(`, `julianday`,
+  `json_each`). The runner needs a Postgres driver and parameter binding; each query needs its
+  tables renamed and its date functions rewritten.
+- [ ] `bin/db-clone` (`make db-clone`): pulls `digest.db` over ssh and checks `integrity_check`.
+  Becomes a restore of the newest `digest` dump (`bin/backup-volumes` already streams it to the Mac)
+  into a local Postgres.
+- [ ] `bin/ask-eval`: plants a row in a copy's `digests` and runs the Rust circulation on it. Moves
+  with the TypeScript site: a scratch Postgres and an `issues` row.
+
+Retire (Python-era; they read `newsroom/src` modules or diff against the Python pipeline):
+- [ ] `bin/migrate` and `bin/deploy`'s `run_migrations` (yoyo on `digest.db`): dbmate's `migrate.js`
+  replaces them.
+- [ ] `bin/replay`, `bin/rerun-run`, `bin/rerun-stage`, `bin/eval-stages`: `run_artifacts` through
+  `newsroom/src/db.py`.
+- [ ] `bin/eval`: reads `digests(date, html)` from a clone.
+- [ ] `bin/record-oracle`, `bin/render-oracle`, `bin/threads-oracle`: Python oracles for the
+  TypeScript port; nothing is left to diff against.
+- [ ] `bin/repair-threads`, `bin/relabel-installments`, `bin/seed-threads`: write the thread tables
+  through the Python db module. If one is still needed, it gets a TypeScript CLI over `threads` and
+  `thread_updates`.
+
+Python-era too, though they do not read `digest.db`: `bin/eval-regression`, `bin/eval-judge`,
+`bin/eval-coherence`, `bin/eval-cohesion`, `bin/eval-io-shape`, `bin/eval-repair`,
+`bin/eval-select-order`, `bin/eval-write-arms`, `bin/eval-write-turns` and `bin/test-prompt` run
+`newsroom/src`; they go with it.
+
+`bin/import-legacy` stays: it is the cut-over's importer, and it already writes Postgres.
 
 ## Backups and the restore drill
 
