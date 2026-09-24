@@ -36,6 +36,8 @@ SERVICE_NEWSROOM="digest-newsroom"
 # terraform never pulls.
 SERVICE_WORKER="digest-worker"
 SERVICE_PYTHON="digest-python"
+# The TypeScript site, digest/Dockerfile's `site` target; terraform's news_digest_site_image_name.
+SERVICE_SITE="digest-site"
 
 # Rendered on the box by terraform (news-digest-temporal.tf): pauses the daily Temporal schedule,
 # or re-derives its pause state from which pipeline is live.
@@ -393,9 +395,15 @@ capture_digest() {
 # confident SBOM of software that was never shipped:
 #   circulation -> source; the image holds only apk once the cargo graph is a static binary.
 #   newsroom -> image; a source scan reads uv.lock, which the Dockerfile never installs from.
-# Report-only.
+#   site -> bundled; the image has no node_modules, so a scan finds no npm packages. The build
+#     writes the SBOM from the lockfile and the bundle's metafile, and it is copied out of the image.
 generate_sbom() {
   local name="$1" dockerfile="$2" scan="$3"
+  if [ "$scan" = "bundled" ]; then
+    dry_run_skip "copy $SITE_SBOM_PATH out of $name and audit it" && return 0
+    bundled_sbom "$name"
+    return
+  fi
   dry_run_skip "syft SBOM for $name" && return 0
 
   # Blocks, like a missing still_active. Returning 0 here would mean `generate_sbom || return 1`
@@ -413,7 +421,7 @@ generate_sbom() {
 
   # No default: a new service must choose at its call site rather than inherit the wrong scan.
   if [ "$scan" != "image" ] && [ "$scan" != "source" ]; then
-    log_error "$name: scan target must be 'image' or 'source', got '${scan:-empty}' -- NO SBOM generated"
+    log_error "$name: scan target must be 'image', 'source' or 'bundled', got '${scan:-empty}' -- NO SBOM generated"
     return 0
   fi
 
@@ -440,6 +448,11 @@ generate_sbom() {
   # Count PACKAGES (purl-bearing), not components: syft also catalogues individual files, which
   # for the newsroom image is 2208 of 2371 entries. An SBOM of nothing but file entries would pass
   # a bare `.components | length > 0` while carrying no dependency graph to audit.
+  check_sbom_and_audit "$name" "$out"
+}
+
+check_sbom_and_audit() {
+  local name="$1" out="$2"
   if [ ! -s "$out" ] || ! jq -e '[.components[] | select(.purl)] | length > 0' "$out" >/dev/null 2>&1; then
     log_error "SBOM for $name is empty or unparseable at $out -- nothing to audit"
     return 1
@@ -447,6 +460,26 @@ generate_sbom() {
 
   log_success "SBOM: $out ($(jq '[.components[] | select(.purl)] | length' "$out") packages)"
   audit_sbom "$name" "$out"
+}
+
+# From the LOCAL image for this commit, as the image scan reads it: the SBOM the pushed bytes carry,
+# not one rebuilt beside them.
+SITE_SBOM_PATH="/app/digest/site.cdx.json"
+bundled_sbom() {
+  local name="$1" cid rc=0
+  mkdir -p "$SBOM_DIR"
+  local out="$SBOM_DIR/$name-${SHA:0:7}.cdx.json"
+  if ! cid=$(docker create "$REGISTRY/$name:${SHA:0:7}" 2>/dev/null) || [ -z "$cid" ]; then
+    log_error "could not create a container from $name to copy $SITE_SBOM_PATH out -- nothing to audit"
+    return 1
+  fi
+  docker cp "$cid:$SITE_SBOM_PATH" "$out" >/dev/null 2>&1 || rc=$?
+  docker rm "$cid" >/dev/null 2>&1 || true
+  if [[ $rc != 0 ]]; then
+    log_error "$name carries no $SITE_SBOM_PATH (docker cp exit $rc) -- nothing to audit"
+    return 1
+  fi
+  check_sbom_and_audit "$name" "$out"
 }
 
 # The SBOM gate. Generating an SBOM and printing the command that would audit it is not a gate --
@@ -591,7 +624,6 @@ build_and_push() {
   run_or_skip "cargo audit" \
     run_quiet docker compose run --rm ci-rust "cargo audit"
 
-  # Build both images in parallel
   log_step "Building images (parallel)..."
 
   build_and_push_image "$SERVICE_CIRCULATION" "." "circulation/Dockerfile" "" source &
@@ -603,22 +635,26 @@ build_and_push() {
   # The Temporal workers only when the box runs them: in "python" mode they are not built, gated
   # or pushed, so a problem in digest/ cannot block a Python deploy. Image scans, like newsroom:
   # the worker's graph is the pruned node_modules the image ships, and the Python worker's is the venv
-  # its image builds from digest/python/uv.lock without the dev group.
-  local worker_pid="" python_pid=""
+  # its image builds from digest/python/uv.lock without the dev group. The site is the same
+  # Dockerfile's `site` target; its SBOM is the bundle's own (generate_sbom).
+  local worker_pid="" python_pid="" site_pid=""
   if temporal_on; then
-    build_and_push_image "$SERVICE_WORKER" "." "digest/Dockerfile" "--build-arg GIT_SHA=${SHA:0:7}" image &
+    build_and_push_image "$SERVICE_WORKER" "." "digest/Dockerfile" "--target worker --build-arg GIT_SHA=${SHA:0:7}" image &
     worker_pid=$!
     build_and_push_image "$SERVICE_PYTHON" "." "digest/python/Dockerfile" "" image &
     python_pid=$!
+    build_and_push_image "$SERVICE_SITE" "." "digest/Dockerfile" "--target site --build-arg GIT_SHA=${SHA:0:7}" bundled &
+    site_pid=$!
   fi
 
-  local circ_failed=false news_failed=false worker_failed=false python_failed=false
+  local circ_failed=false news_failed=false worker_failed=false python_failed=false site_failed=false
   wait "$circ_pid" || circ_failed=true
   wait "$news_pid" || news_failed=true
   if [ -n "$worker_pid" ]; then wait "$worker_pid" || worker_failed=true; fi
   if [ -n "$python_pid" ]; then wait "$python_pid" || python_failed=true; fi
+  if [ -n "$site_pid" ]; then wait "$site_pid" || site_failed=true; fi
 
-  if [ "$circ_failed" = "true" ] || [ "$news_failed" = "true" ] || [ "$worker_failed" = "true" ] || [ "$python_failed" = "true" ]; then
+  if [ "$circ_failed" = "true" ] || [ "$news_failed" = "true" ] || [ "$worker_failed" = "true" ] || [ "$python_failed" = "true" ] || [ "$site_failed" = "true" ]; then
     # "or its SBOM audit": generate_sbom runs BEFORE the push, so an image that built cleanly
     # still lands here when it ships a HIGH+ vulnerability -- and it was never pushed. Saying only
     # "build failed" would send the next reader to the Dockerfile for a dependency problem.
@@ -626,6 +662,7 @@ build_and_push() {
     [ "$news_failed" = "true" ] && log_error "$SERVICE_NEWSROOM build or its SBOM audit failed"
     [ "$worker_failed" = "true" ] && log_error "$SERVICE_WORKER build or its SBOM audit failed"
     [ "$python_failed" = "true" ] && log_error "$SERVICE_PYTHON build or its SBOM audit failed"
+    [ "$site_failed" = "true" ] && log_error "$SERVICE_SITE build or its SBOM audit failed"
     return 1
   fi
 
@@ -1041,11 +1078,12 @@ apply_terraform() {
 
   # Empty when --skip-build ran (nothing was pushed this time); terraform falls back to :latest,
   # which is the pre-existing behaviour rather than a hard failure on a build-less apply.
-  local newsroom_digest circulation_digest worker_digest python_digest
+  local newsroom_digest circulation_digest worker_digest python_digest site_digest
   newsroom_digest=$(cat "$DIGEST_DIR/$SERVICE_NEWSROOM.digest" 2>/dev/null || echo "")
   circulation_digest=$(cat "$DIGEST_DIR/$SERVICE_CIRCULATION.digest" 2>/dev/null || echo "")
   worker_digest=$(cat "$DIGEST_DIR/$SERVICE_WORKER.digest" 2>/dev/null || echo "")
   python_digest=$(cat "$DIGEST_DIR/$SERVICE_PYTHON.digest" 2>/dev/null || echo "")
+  site_digest=$(cat "$DIGEST_DIR/$SERVICE_SITE.digest" 2>/dev/null || echo "")
 
   local -a targets=("${TF_TARGETS[@]}") vars=()
   temporal_on && targets+=("${TF_TEMPORAL_TARGETS[@]}")
@@ -1064,6 +1102,7 @@ apply_terraform() {
     -var="news_digest_circulation_digest=$circulation_digest" \
     -var="news_digest_worker_digest=$worker_digest" \
     -var="news_digest_python_digest=$python_digest" \
+    -var="news_digest_site_digest=$site_digest" \
     "${vars[@]}" \
     -detailed-exitcode \
     -out=/tmp/news-digest-tfplan \
@@ -1287,7 +1326,7 @@ main() {
     [[ $SKIP_BUILD == false ]] && echo "  - Build and push Docker images"
     echo "  - Apply Terraform (news_digest_env, news_digest_service, news_digest_alert, news_digest_deadman, digest_server)"
     if temporal_on; then
-      echo "  - Pipeline mode $PIPELINE_MODE: build the Temporal workers, pause the schedule for the deploy and restore it"
+      echo "  - Pipeline mode $PIPELINE_MODE: build the Temporal workers and the site image, pause the schedule for the deploy and restore it"
       echo "    after, apply the Temporal stack (news_digest_temporal_db/_server/_bootstrap/_backup, news_digest_workers),"
       echo "    and make the new worker's build the current version"
     fi
