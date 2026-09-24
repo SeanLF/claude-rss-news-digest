@@ -40,7 +40,8 @@ class _FakeTrafilatura:
 
 
 def _collect(tasks, deadline_s=120):
-    return fulltext._collect_inline(tasks, max_chars=4000, deadline_s=deadline_s, max_doc_chars=0)
+    results, _unfinished = fulltext._collect_inline(tasks, max_chars=4000, deadline_s=deadline_s, max_doc_chars=0)
+    return results
 
 
 class TestTrafilaturaLoggerDoesNotLeakUrls:

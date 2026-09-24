@@ -138,7 +138,7 @@ class TestTheWorkerCannotOutliveItsBound:
         with _serving({"/slow": _slow_document()}) as base:
             start = time.monotonic()
             with caplog.at_level("WARNING"):
-                results, _outcome = _collect({"A1": f"{base}/slow"})
+                results, outcome = _collect({"A1": f"{base}/slow"})
             elapsed = time.monotonic() - start
             settled = _cpu_seconds()
             time.sleep(3.0)
@@ -147,6 +147,7 @@ class TestTheWorkerCannotOutliveItsBound:
         assert elapsed < hard + 10, f"the bound did not hold: {elapsed:.1f}s for a {hard}s budget"
         assert leaked < 0.5, f"{leaked:.2f} CPU-seconds still being burned after the step returned"
         assert results == {}  # nothing extracted: the CSV floor, as designed
+        assert outcome == "deadline"  # cut short, so a resume fetches it again
 
     def test_a_slow_fetch_costs_the_soft_deadline_not_the_hard_one(self, monkeypatch):
         """The kill is the backstop, not the mechanism. A worker that hits its own deadline hands

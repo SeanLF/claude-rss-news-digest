@@ -19,6 +19,7 @@ See docs/lessons/a-deadline-on-the-waiter-does-not-bound-the-worker.md.
 
 from __future__ import annotations
 
+import contextlib
 import importlib.metadata
 import ipaddress
 import json
@@ -28,6 +29,8 @@ import re
 import socket
 import subprocess
 import sys
+import threading
+import time
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
@@ -55,6 +58,10 @@ logging.getLogger("trafilatura").propagate = False
 _MAX_WORKERS = 6
 # Per connect and per read, as trafilatura's DOWNLOAD_TIMEOUT was set here.
 _PER_FETCH_TIMEOUT_S = 10
+# The whole fetch, redirects included. The per-read timeout never fires on a host that sends a byte
+# every few seconds, which then held a thread for the step's whole budget. Six threads share a
+# 120 s step, about 57 fetches, so a fetch gets ~12 s on average; 20 s leaves slow hosts room.
+_PER_FETCH_WALL_S = 20
 
 # Puts this module into worker mode (see _worker_main). The task list goes over stdin, never
 # argv: argv is world-readable in `ps` and the task list contains URLs.
@@ -137,10 +144,48 @@ def _resolve(host: str, port: int, allow: frozenset[tuple[str, int]]) -> list[tu
 
 
 class _Guard:
-    """One fetch's connection policy, handed to each connection urllib3 opens for it."""
+    """One fetch's connection policy and wall clock, handed to each connection urllib3 opens for it.
 
-    def __init__(self, allow: frozenset[tuple[str, int]]):
+    At the limit a timer shuts down every socket the fetch opened, which unblocks a read in progress
+    whatever the per-read timeout says. Sockets, not connections: http.client drops the connection's
+    socket when the response says `Connection: close`, while the response goes on reading it. A TLS
+    handshake in progress has no socket to shut down (the raw one is detached, the wrapped one not yet
+    registered), so connect() gives the socket a timeout no longer than the time left, and CPython
+    bounds a whole handshake by it.
+    """
+
+    def __init__(self, allow: frozenset[tuple[str, int]], wall_s: float):
         self.allow = allow
+        self.deadline = time.monotonic() + wall_s
+        self.expired = False
+        self._socks: list[socket.socket] = []
+        self._lock = threading.Lock()
+        self._timer = threading.Timer(wall_s, self._expire)
+        self._timer.daemon = True
+        self._timer.start()
+
+    def remaining(self) -> float:
+        left = self.deadline - time.monotonic()
+        if left <= 0 or self.expired:
+            raise FetchRefused("over the wall-clock limit")
+        return left
+
+    def _expire(self) -> None:
+        with self._lock:
+            self.expired = True
+            socks = list(self._socks)
+        for sock in socks:
+            _shutdown(sock)
+
+    def register(self, sock: socket.socket) -> None:
+        with self._lock:
+            self._socks.append(sock)
+            expired = self.expired
+        if expired:
+            _shutdown(sock)
+
+    def cancel(self) -> None:
+        self._timer.cancel()
 
     def connect(self, conn: HTTPConnection) -> socket.socket:
         infos = _resolve(conn.host, conn.port, self.allow)
@@ -148,10 +193,20 @@ class _Guard:
         last: OSError | None = None
         for family, _type, _proto, _name, sockaddr in infos:
             try:
-                return _connect(family, sockaddr, timeout)
+                sock = _connect(family, sockaddr, min(timeout, self.remaining()))
             except OSError as e:
                 last = e
+                continue
+            self.register(sock)
+            return sock
         raise last or OSError("no address to connect to")
+
+
+def _shutdown(sock: socket.socket) -> None:
+    # socket.socket's, not SSLSocket's: that one unwraps TLS under a reading thread. A closed or
+    # detached socket has no descriptor left, so this cannot reach one the OS has since reused.
+    with contextlib.suppress(OSError):
+        socket.socket.shutdown(sock, socket.SHUT_RDWR)
 
 
 class _GuardedHTTPConnection(HTTPConnection):
@@ -171,6 +226,10 @@ class _GuardedHTTPSConnection(HTTPSConnection):
     def _new_conn(self) -> socket.socket:
         return self._guard.connect(self)
 
+    def connect(self) -> None:
+        super().connect()
+        self._guard.register(self.sock)  # the TLS socket the response will read
+
 
 class _GuardedHTTPPool(HTTPConnectionPool):
     ConnectionCls = _GuardedHTTPConnection
@@ -186,9 +245,23 @@ def _download(url: str, *, allow: frozenset[tuple[str, int]] = frozenset()) -> b
     Returns the decoded body of a 200, None for any other status or a body under the minimum size,
     and raises FetchRefused for a hop off the public internet or over a limit.
     """
-    guard = _Guard(allow)
+    guard = _Guard(allow, _PER_FETCH_WALL_S)
+    try:
+        return _follow(url, guard)
+    except FetchRefused:
+        raise
+    except Exception as e:
+        if guard.expired:  # the timer cut the socket; the read error is its symptom
+            raise FetchRefused("over the wall-clock limit") from e
+        raise
+    finally:
+        guard.cancel()
+
+
+def _follow(url: str, guard: _Guard) -> bytes | None:
     timeout = urllib3.Timeout(connect=_PER_FETCH_TIMEOUT_S, read=_PER_FETCH_TIMEOUT_S)
     for hop in range(_MAX_REDIRECTS + 1):
+        guard.remaining()
         parts = urlsplit(url)
         if parts.scheme not in ("http", "https") or not parts.hostname:
             raise FetchRefused(f"not an http(s) URL on hop {hop}")
@@ -234,6 +307,8 @@ def _download(url: str, *, allow: frozenset[tuple[str, int]] = frozenset()) -> b
                 response.release_conn()
         finally:
             pool.close()
+        # A cut socket can end a close-delimited body cleanly; what was read is not the article.
+        guard.remaining()
         return bytes(data) if len(data) >= _MIN_FILE_SIZE else None
     raise FetchRefused(f"more than {_MAX_REDIRECTS} redirects")
 
@@ -317,8 +392,9 @@ def _collect_inline(
     max_doc_chars: int,
     on_result: Callable[[str, str], None] | None = None,
     allow: frozenset[tuple[str, int]] = frozenset(),
-) -> dict[str, str]:
+) -> tuple[dict[str, str], int]:
     """Fetch + extract every task on a thread pool, taking whatever finished by ``deadline_s``.
+    Returns the results and how many fetches the deadline left unfinished.
 
     The body of the worker process, and the ONLY place the network is touched. ``deadline_s`` is
     a SOFT budget -- a thread inside a C extension cannot be cancelled, so work still running when
@@ -328,6 +404,7 @@ def _collect_inline(
     been handed over survives.
     """
     results: dict[str, str] = {}
+    unfinished = 0
     executor = ThreadPoolExecutor(max_workers=_MAX_WORKERS)
     try:
         futures = {executor.submit(_fetch_one, aid, url, max_chars, max_doc_chars, allow): aid for aid, url in tasks}
@@ -339,17 +416,18 @@ def _collect_inline(
                     if on_result is not None:
                         on_result(aid, text)
         except TimeoutError:
+            unfinished = sum(1 for f in futures if not f.done())
             logger.warning(
                 "fulltext: deadline (%ss) hit, %d/%d fetches still in flight, taking what finished",
                 deadline_s,
-                sum(1 for f in futures if not f.done()),
+                unfinished,
                 len(futures),
             )
     finally:
         # Cancels only what has not STARTED, and declines to join the rest. Sound only because
         # this process is itself bounded from outside.
         executor.shutdown(wait=False, cancel_futures=True)
-    return results
+    return results, unfinished
 
 
 def _worker_command() -> list[str]:
@@ -374,8 +452,9 @@ def _relay_worker_logs(stderr: bytes) -> None:
         logger.warning("fulltext: worker emitted %d more log lines, suppressed", len(lines) - _MAX_RELAYED_LOG_LINES)
 
 
-def _parse_worker_results(stdout: bytes) -> tuple[dict[str, str], int]:
-    """Read the worker's JSONL results, and the count of lines that could not be read.
+def _parse_worker_results(stdout: bytes) -> tuple[dict[str, str], int, str | None]:
+    """Read the worker's JSONL results, the count of lines that could not be read, and the
+    worker's own status line (`{"outcome": ...}`), if it wrote one.
 
     A killed worker's last line can be a partial write, so an unparseable line is skipped rather
     than discarding the batch with it. The count is returned because a silent skip and an empty
@@ -383,11 +462,15 @@ def _parse_worker_results(stdout: bytes) -> tuple[dict[str, str], int]:
     """
     results: dict[str, str] = {}
     skipped = 0
+    status: str | None = None
     for line in stdout.decode("utf-8", "replace").splitlines():
         if not line.strip():
             continue
         try:
             row = json.loads(line)
+            if isinstance(row, dict) and set(row) == {"outcome"} and isinstance(row["outcome"], str):
+                status = row["outcome"]
+                continue
             aid, text = row["id"], row["text"]
         except ValueError, KeyError, TypeError:
             skipped += 1
@@ -396,7 +479,7 @@ def _parse_worker_results(stdout: bytes) -> tuple[dict[str, str], int]:
             results[aid] = text
         else:
             skipped += 1
-    return results, skipped
+    return results, skipped, status
 
 
 def _collect_isolated(
@@ -450,7 +533,7 @@ def _collect_isolated(
         stdout, stderr, returncode = completed.stdout, completed.stderr, completed.returncode
     except subprocess.TimeoutExpired as e:
         stdout, stderr, returncode = e.output or b"", e.stderr or b"", None
-        results, skipped = _parse_worker_results(stdout)
+        results, skipped, _status = _parse_worker_results(stdout)
         _relay_worker_logs(stderr)
         if skipped:
             logger.warning("fulltext: %d unreadable result line(s) from the killed worker", skipped)
@@ -468,13 +551,16 @@ def _collect_isolated(
         return {}, "spawn_failed"
 
     _relay_worker_logs(stderr)
-    results, skipped = _parse_worker_results(stdout)
+    results, skipped, status = _parse_worker_results(stdout)
     if skipped:
         logger.warning("fulltext: %d unreadable result line(s) from the worker", skipped)
     if returncode != 0:
         # A crashed worker is a failed batch, not a failed run.
         logger.warning("fulltext: worker exited %s, keeping whatever it emitted first", returncode)
         return results, f"crashed:{returncode}"
+    # Fetches the deadline cut short were never tried to the end: not settled, so a resume retries.
+    if status == "deadline":
+        return results, "deadline"
     return results, "completed"
 
 
@@ -518,7 +604,7 @@ def _worker_main(argv: list[str]) -> int:
         sys.stdout.flush()
 
     try:
-        _collect_inline(
+        _results, unfinished = _collect_inline(
             tasks,
             max_chars=int(request["max_chars"]),
             deadline_s=float(request["deadline_s"]),
@@ -530,6 +616,8 @@ def _worker_main(argv: list[str]) -> int:
         # Our own record, not a bare traceback: the relay would re-emit that line by line.
         logger.warning("fulltext: worker failed: %s: %s", type(e).__name__, e, exc_info=True)
         return 1
+    if unfinished:
+        sys.stdout.write(json.dumps({"outcome": "deadline"}) + "\n")
     return 0
 
 

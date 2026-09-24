@@ -41,6 +41,14 @@ describe("fulltext", () => {
     await acts.storeFulltext(300, { tasks: 3, results: { A1: "Body text that came back this time." }, outcome: "completed" });
     expect((await acts.planFulltext(300, sel)).existing).toBeDefined();
   });
+  it("an attempt the fetcher's deadline cut short is planned again on a resume", async () => {
+    const { store, sel, acts } = await setup();
+    await acts.storeFulltext(300, { tasks: 3, results: { A1: "Body text that came back in time." }, outcome: "deadline" });
+    const plan = await acts.planFulltext(300, sel);
+    expect(plan.tasks).toHaveLength(3);
+    expect(plan.existing).toBeUndefined();
+    expect(await store.statuses(300, FULLTEXT_OUTPUT)).toContain("quarantined");
+  });
   it("an archived output with no health record is kept: nothing says it failed", async () => {
     const { store, sel, acts } = await setup();
     await store.put(300, FULLTEXT_OUTPUT, JSON.stringify({ A1: { text: "archived" } }));
