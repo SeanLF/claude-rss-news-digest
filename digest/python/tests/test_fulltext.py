@@ -13,7 +13,7 @@ import fulltext
 
 
 class _FakeTrafilatura:
-    """A fake trafilatura module: fetch_url/extract keyed by URL, so a test can script
+    """A fake download and a fake trafilatura module, keyed by URL, so a test can script
     per-article outcomes (success text, None-download, None-extract, or a raise)."""
 
     def __init__(self, downloads: dict[str, str | None] | None = None, extracts: dict[str, str | None] | None = None):
@@ -21,12 +21,16 @@ class _FakeTrafilatura:
         self.extracts = extracts or {}
         self.fetch_calls: list[str] = []
 
-    def fetch_url(self, url, config=None):
+    def install(self, monkeypatch):
+        monkeypatch.setattr(fulltext, "trafilatura", self)
+        monkeypatch.setattr(fulltext, "_download", self.download)
+
+    def download(self, url, allow=frozenset()):
         self.fetch_calls.append(url)
         result = self.downloads.get(url, "<html>default</html>")
         if isinstance(result, Exception):
             raise result
-        return result
+        return None if result is None else result.encode()
 
     def extract(self, downloaded, **_kwargs):
         result = self.extracts.get(downloaded, downloaded)
@@ -69,7 +73,7 @@ class TestTrafilaturaLoggerDoesNotLeakUrls:
 class TestCollector:
     def test_results_are_keyed_by_article_id_with_no_url(self, monkeypatch):
         fake = _FakeTrafilatura(extracts={"<html>default</html>": "The full extracted article body. Real sentences."})
-        monkeypatch.setattr(fulltext, "trafilatura", fake)
+        fake.install(monkeypatch)
 
         assert _collect([("A1", "https://example.com/secret-path/story")]) == {
             "A1": "The full extracted article body. Real sentences."
@@ -80,7 +84,7 @@ class TestCollector:
             downloads={"https://bad.example.com/b": None},
             extracts={"<html>default</html>": "A perfectly good article body with enough text."},
         )
-        monkeypatch.setattr(fulltext, "trafilatura", fake)
+        fake.install(monkeypatch)
 
         with caplog.at_level("INFO"):
             results = _collect([("A1", "https://good.example.com/a"), ("A2", "https://bad.example.com/b")])
@@ -95,13 +99,13 @@ class TestCollector:
             downloads={"https://example.com/a": ConnectionError("boom")},
             extracts={"<html>default</html>": RuntimeError("parser bug")},
         )
-        monkeypatch.setattr(fulltext, "trafilatura", fake)
+        fake.install(monkeypatch)
 
         assert _collect([("A1", "https://example.com/a"), ("A2", "https://example.com/b")]) == {}
 
     def test_results_are_handed_over_as_they_land(self, monkeypatch):
         fake = _FakeTrafilatura(extracts={"<html>default</html>": "Body text that is long enough."})
-        monkeypatch.setattr(fulltext, "trafilatura", fake)
+        fake.install(monkeypatch)
         seen = []
 
         fulltext._collect_inline(

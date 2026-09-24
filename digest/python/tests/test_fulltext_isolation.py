@@ -17,6 +17,7 @@ import sys
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from urllib.parse import urlsplit
 
 import pytest
 
@@ -88,9 +89,12 @@ def _serving(routes: dict[str, bytes]):
         thread.join(timeout=5)
 
 
-def _collect(urls: dict[str, str], *, deadline_s: float = 2, max_doc_chars: int = 0):
+def _collect(urls: dict[str, str], *, deadline_s: float = 2, max_doc_chars: int = 0, exempt: bool = True):
+    """The production path, with the loopback test server exempted by exact address unless `exempt`
+    is off: the fetch refuses loopback otherwise (test_fetch_guard.py)."""
+    allow = frozenset((urlsplit(u).hostname, urlsplit(u).port) for u in urls.values()) if exempt else frozenset()
     return fulltext._collect_isolated(
-        list(urls.items()), max_chars=4000, deadline_s=deadline_s, max_doc_chars=max_doc_chars
+        list(urls.items()), max_chars=4000, deadline_s=deadline_s, max_doc_chars=max_doc_chars, allow=allow
     )
 
 
@@ -219,6 +223,14 @@ class TestTheIsolatedWorkerStillDoesTheJob:
         assert outcome == "completed"
         assert "bridge repair" in results["A1"]
         assert "http" not in json.dumps(results)  # the no-URLs invariant holds across the boundary
+
+    def test_the_child_refuses_loopback_when_nothing_exempts_it(self, caplog):
+        """The same document through the same child, as the activity calls it: no exemption."""
+        with _serving({"/a": _normal_document()}) as base, caplog.at_level("INFO"):
+            results, _outcome = _collect({"A1": f"{base}/a"}, exempt=False)
+
+        assert results == {}
+        assert any("fetch refused for A1" in r.getMessage() for r in caplog.records)
 
     def test_worker_log_lines_reach_the_parents_logger(self, caplog):
         """The child logs to its own stderr; those lines must end up in the run's log (stdout AND
