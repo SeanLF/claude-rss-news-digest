@@ -152,6 +152,22 @@ import-check: ## Import a copy of the prod clone into a fresh Postgres and hold 
 	  -e PARITY_DATABASE_URL="postgres://postgres:digest@digest-pg:5432/$$db?sslmode=disable" \
 	  ci-ts npx vitest run src/store/import.clone.test.ts src/prepare/prepare.parity.test.ts; status=$$?; rm -f "$$copy"; exit $$status
 
+threads-parity: ## Replay the TypeScript thread layer against the Python oracle, each case imported fresh (ORACLE=data/replay/threads-oracle from bin/threads-oracle; host-only)
+	@oracle=$$(cd "$${ORACLE:-data/replay/threads-oracle}" 2>/dev/null && pwd) && ls "$$oracle"/*/pre.db >/dev/null 2>&1 || \
+	  { echo "no oracle cases: DB=<prod clone> bin/threads-oracle 300 301 302 303 304"; exit 2; }; \
+	image=$${COMPOSE_PROJECT_NAME:-news-digest}-threads-import:local; \
+	docker build -q -f digest/Dockerfile --build-arg GIT_SHA=import -t "$$image" . >/dev/null && \
+	docker compose up -d --wait digest-pg && \
+	net=$$(docker inspect -f '{{range $$k, $$v := .NetworkSettings.Networks}}{{$$k}}{{end}}' $$(docker compose ps -q digest-pg)) && \
+	for dir in "$$oracle"/*/; do \
+	  db=threads_$$(basename "$$dir"); \
+	  docker compose exec -T digest-pg psql -q -U postgres -c "DROP DATABASE IF EXISTS $$db" -c "CREATE DATABASE $$db" && \
+	  IMPORT_NETWORK=$$net DIGEST_IMAGE=$$image bin/import-legacy "$$dir/pre.db" "postgres://postgres:digest@digest-pg:5432/$$db?sslmode=disable" || exit 1; \
+	done && \
+	docker compose run --rm --build -v "$$oracle:/oracle:ro" -e THREADS_ORACLE=/oracle \
+	  -e THREADS_PARITY_DB_PREFIX=postgres://postgres:digest@digest-pg:5432/threads_ \
+	  ci-ts npx vitest run src/threads/threads.parity.test.ts
+
 band: ## Same-day curation band of the TypeScript workflow via promptfoo (RUN=300 DATE=2026-09-18 REPS=3; model calls, ~$4/rep)
 	@stamp=band_$$(date -u +%Y%m%dT%H%M%SZ | tr 'A-Z' 'a-z'); \
 	docker compose --env-file .env -f digest/compose.temporal.yml up -d --wait digest-db && \
