@@ -128,7 +128,7 @@ services:
 
   # One-shot: the product schema, applied before the worker starts, as the pipeline's role does on the box.
   digest-migrate:
-    build: { context: ., dockerfile: digest/Dockerfile }
+    build: { context: ., dockerfile: digest/Dockerfile, target: worker }
     command: ["node", "dist/cli/migrate.js"]
     depends_on: { digest-pg: { condition: service_healthy } }
     environment:
@@ -149,7 +149,7 @@ services:
   # http://resend-fake.<project>.orb.local:8025 (digest/src/devmail/fake.ts). Its contacts (the dev audience)
   # and caught mail are kept on a volume across restarts; make dev-mail-clear empties them.
   resend-fake:
-    build: { context: ., dockerfile: digest/Dockerfile }
+    build: { context: ., dockerfile: digest/Dockerfile, target: worker }
     command: ["node", "dist/devmail/main.js"]
     environment: [RESEND_FAKE_STATE=/data/state.json]
     volumes: [resend-fake-data:/data]
@@ -171,7 +171,7 @@ services:
   digest-worker:
     # GIT_SHA is the worker's build id (Worker Versioning). Every local build is "dev" unless set, so a
     # rebuilt local worker takes over the previous one's runs, as an unversioned worker would.
-    build: { context: ., dockerfile: digest/Dockerfile, args: { GIT_SHA: "${GIT_SHA:-dev}" } }
+    build: { context: ., dockerfile: digest/Dockerfile, target: worker, args: { GIT_SHA: "${GIT_SHA:-dev}" } }
     depends_on:
       temporal: { condition: service_started }
       digest-migrate: { condition: service_completed_successfully }
@@ -217,6 +217,8 @@ services:
   # on instead of running it with full access over untrusted publisher text. Local evals only.
   digest-judge:
     extends: { service: digest-worker }
+    # The worker plus a system CA store, which the native Codex binary needs and the worker does not.
+    build: { context: ., dockerfile: digest/Dockerfile, target: dev, args: { GIT_SHA: "${GIT_SHA:-dev}" } }
     security_opt: ["seccomp=unconfined"]
     restart: "no"
     profiles: ["judge"]
@@ -226,10 +228,8 @@ services:
   # (docs/2026-09-23-web-tier-typescript-fork.md §8): an empty `digest` serves an empty archive, and
   # `make dev-import` loads a copy of the prod clone. Answers at http://digest-site.<project>.orb.local:8080.
   digest-site:
-    build:
-      context: .
-      dockerfile: digest/Dockerfile
-    command: ["node", "dist/site/main.js"]
+    # The esbuild bundle and its assets only: no node_modules, no dist/cli.
+    build: { context: ., dockerfile: digest/Dockerfile, target: site }
     restart: unless-stopped
     depends_on:
       digest-roles: { condition: service_completed_successfully }

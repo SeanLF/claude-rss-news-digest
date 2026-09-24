@@ -37,6 +37,7 @@ scratch/
 !docs/proposed/**/*.log
 digest/node_modules
 digest/dist
+digest/bundle
 digest/sbom.cdx.json
 
 # make judges writes the fixture-specific config here

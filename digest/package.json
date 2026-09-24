@@ -11,6 +11,8 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "oxlint --type-aware src",
     "test": "vitest run",
+    "bundle:site": "esbuild src/site/main.ts --bundle --platform=node --format=esm --target=node26 --external:pg-native --banner:js=\"import{createRequire}from'node:module';const require=createRequire(import.meta.url);\" --outfile=bundle/dist/site/main.js --metafile=bundle/meta.json --log-level=warning",
+    "sbom:site": "node dist/cli/site-sbom.js package-lock.json bundle/meta.json bundle/site.cdx.json",
     "check-injections": "node dist/cli/check-injections.js",
     "sbom": "npx --yes @cyclonedx/cyclonedx-npm --output-format JSON --output-file sbom.cdx.json"
   },
@@ -52,6 +54,7 @@
     "@types/turndown": "5.0.6",
     "defuddle": "0.19.4",
     "dom-smoothie-js": "0.16.0",
+    "esbuild": "0.28.2",
     "linkedom": "0.18.13",
     "markdown-it": "15.0.2",
     "oxlint": "1.85.0",

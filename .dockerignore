@@ -12,4 +12,5 @@ __pycache__/
 CLAUDE.local.md
 digest/node_modules/
 digest/dist/
+digest/bundle/
 digest/sbom.cdx.json
