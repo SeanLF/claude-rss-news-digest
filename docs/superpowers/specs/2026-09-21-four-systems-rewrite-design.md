@@ -1,6 +1,7 @@
 # Four systems: design for the TypeScript-on-Temporal rewrite
 
 **Date:** 2026-09-21
+**Superseded in part:** §3, §5, §6 and the Plan B gate by `../../2026-09-24-web-tier-and-ops-decisions.md`.
 **Status:** draft for Sean's review, revised after an adversarial review (14 findings, all applied); decisions marked *owed* carry a default that holds until he rules.
 **Companion:** the design brief (claude.ai artifact "Four Systems Plan", revision 15) holds the evidence
 tables this spec cites; `docs/proposed/coherence-planted/io-shape-2026-09-21/` holds the last measurement.
