@@ -95,12 +95,57 @@ services:
     entrypoint: ["sh", "-c"]
     command: ["cargo fmt --check && cargo clippy -- -D warnings && cargo test"]
 
+  # The web tier in TypeScript (digest/src/site), which replaces digest-circulation at the cut-over. It
+  # reads the product database in digest-pg, which starts empty: `make site-local` imports a copy of the
+  # prod clone into it first. Locally it migrates on start (as the superuser), so a bare `up` serves an
+  # empty archive rather than failing; in production the pipeline's role owns migrations and the site's
+  # role only reads (docs/2026-09-23-web-tier-typescript-fork.md §8). The site itself issues no writes.
+  digest-site:
+    build:
+      context: .
+      dockerfile: digest/Dockerfile
+    command: ["sh", "-c", "node dist/cli/migrate.js && exec node dist/site/main.js"]
+    restart: unless-stopped
+    depends_on:
+      digest-pg: { condition: service_healthy }
+    ports:
+      - "8080:8080"
+    environment:
+      - DIGEST_DATABASE_URL=postgres://postgres:digest@digest-pg:5432/digest?sslmode=disable
+      - DIGEST_NAME=${DIGEST_NAME:-News Digest}
+      - DIGEST_DOMAIN
+      - HOMEPAGE_URL
+      - SOURCE_URL
+      - CONTACT_EMAIL
+      - RESEND_API_KEY
+      - RESEND_AUDIENCE_ID
+      - RESEND_FROM
+      - SUBSCRIBE_TOKEN_SECRET
+      - SUBSCRIBE_DOUBLE_OPT_IN
+      # /ask: both are required; the key alone does not arm an endpoint that spends money per request.
+      - ASK_ENABLED
+      - ASK_API_KEY
+      - ASK_MODEL
+      - ASK_OPENROUTER_MODELS
+      - ASK_API_BASE
+      - ASK_PROVIDER_LABEL
+      - ASK_REFERER
+      - ASK_TITLE
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8080/health').then((r) => process.exit(r.ok ? 0 : 1), () => process.exit(1))"]
+      interval: 2s
+      retries: 30
+    # Production caps the web container at 256 MiB; matching it here surfaces a memory problem locally.
+    mem_limit: 256m
+    cpus: 2
+
   digest-circulation:
     build:
       context: .
       dockerfile: circulation/Dockerfile
+    # 8081: the TypeScript site above has taken 8080, the port every local tool assumes.
     ports:
-      - "8080:8080"
+      - "8081:8080"
     volumes:
       # rw (not :ro) -- GET /feedback records a vote (INSERT INTO story_feedback);
       # circulation was read-only until this route existed.

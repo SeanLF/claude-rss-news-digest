@@ -89,8 +89,9 @@ The database is created automatically on first run.
 ### 4. Web archive (optional)
 
 ```bash
-docker compose up -d digest-circulation
+make site-local        # imports a copy of the prod clone into Postgres, then serves the TypeScript site
 # Browse at http://localhost:8080
+docker compose up -d digest-circulation   # the Rust server it replaces, on :8081 until the cut-over
 ```
 
 ## Sources
