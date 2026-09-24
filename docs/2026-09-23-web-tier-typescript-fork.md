@@ -8,14 +8,13 @@ being replaced and settles the forks before code; it is not a plan.
 ## 1. Inventory: every route in `circulation/src`
 
 "Reads" are legacy SQLite tables; the new column is where the same data lives in the product schema
-(`digest/db/migrations/`, names as of `baee333`; the vocabulary rename renames them again, and the
-queries are bound after it lands). "Parity" is the gate's contract: **P** = byte parity with the Rust
+(`digest/db/migrations/`, after the vocabulary rename of 44a8dfe). "Parity" is the gate's contract: **P** = byte parity with the Rust
 response on the same data (after the normalisations in §5), **S** = status, `content-type`, `location`,
 `cache-control`, `link` and `vary` only, the body judged on requirement plus a11y and Lighthouse.
 
 | Route | Rust handler | Reads | New source | Parity |
 |---|---|---|---|---|
-| `GET /` (`?before`, `?year`, notices) | `handlers::index` | `digests` (count, bounds, page), `shown_narratives` (tier counts, source ids per run), `sources.json` | latest revision per `issues.date`; `shown_narratives` | S |
+| `GET /` (`?before`, `?year`, notices) | `handlers::index` | `digests` (count, bounds, page), `shown_narratives` (tier counts, source ids per run), `sources.json` | highest revision per `issues.issue_date`; `story_sources` | S |
 | `GET /` with `Accept: text/markdown`, `GET /index.md` | `index`, `index_md` | as above | as above | P |
 | `GET /archive` (fragment) | `archive::archive_fragment` | as above | as above | S |
 | `GET /issues/{date}` | `handlers::get_digest` | `digests.html`, `preheader` | latest revision's `html` | S |
@@ -24,10 +23,10 @@ response on the same data (after the normalisations in §5), **S** = status, `co
 | `GET /{date}`, `/{date}.md`, `/{date}/translate` | legacy redirects | none | none | S |
 | `GET /issues/{date}/translate`, `GET /translate?to=` | `translate::*` | `digests` existence | `issues` existence | S |
 | `GET /feed.xml` | `handlers::feed` | 30 newest `digests` (date, preheader) | 30 newest issue dates, latest revision | P |
-| `GET /search?q=` | `search::search` | FTS5 `shown_narratives_fts` join `digests` on `run_id` | `shown_narratives.search` tsvector, `issues.run_id` | S |
-| `GET /threads`, `/threads/more` | `thread::threads_index`, `threads_fragment` | `threads` (label, status, updated_at), `thread_installments` | `thread_state` view, installments of published runs | S |
-| `GET /thread/{id}` | `thread::thread_page` | `threads`, `thread_installments`, `digest_runs.run_at`, `digests`, `thread_questions.status` | `threads.merged_into`, `thread_state`, installments, `thread_question_state` | S |
-| `GET /stats` (`?days=7,30,90`) | `stats::stats_html` | `source_health`, `shown_narratives`, `digest_runs`, `run_usage`, `dedup_log`, `sources.json` | same tables | S |
+| `GET /search?q=` | `search::search` | FTS5 `shown_narratives_fts` join `digests` on `run_id` | `story_sources.search` tsvector, `issues.run_id` | S |
+| `GET /threads`, `/threads/more` | `thread::threads_index`, `threads_fragment` | `threads` (label, status, updated_at), `thread_installments` | `thread_state` view, `thread_updates` of published runs | S |
+| `GET /thread/{id}` | `thread::thread_page` | `threads`, `thread_installments`, `digest_runs.run_at`, `digests`, `thread_questions.status` | `threads.merged_into_id`, `thread_state`, `thread_updates`, `runs.started_at`, `thread_question_state` | S |
+| `GET /stats` (`?days=7,30,90`) | `stats::stats_html` | `source_health`, `shown_narratives`, `digest_runs`, `run_usage`, `dedup_log`, `sources.json` | `source_fetches`, `story_sources`, `runs` of `sent_runs` (was `completed_at IS NOT NULL`), `sends.recipients` (was `articles_emailed`), `model_calls`, `dedup_matches` | S |
 | `GET /stats.json` | `stats::stats_json` | as above | as above | P |
 | `GET /sources` | `handlers::sources` | `sources.json` only | same file | S |
 | `GET /ask`, `POST /ask` (SSE), `POST /ask.json` | `ask::*` | through the MCP tools | same | S; behaviour by the promptfoo eval |
@@ -149,8 +148,16 @@ Expected divergences, each a decided change rather than a regression, reported b
    error codes are held to parity.
 5. **Headers are a superset**: the security-header set (CSP with a nonce, HSTS with preload,
    permissions-policy, referrer-policy, nosniff, frame-options) is new on every response.
-6. **JSON is compared as values**, not bytes: serde_json prints a whole float as `1.0` where
+6. **MCP transport refusals.** A request without `text/event-stream` in Accept (406), with the wrong
+   content type (415) or an unparseable body gets a JSON-RPC error object from the TypeScript SDK where
+   rmcp sent plain text; for the unparseable body the SDK's status is 400 (a parse error), rmcp's 415.
+7. **JSON is compared as values**, not bytes: serde_json prints a whole float as `1.0` where
    JavaScript prints `1`, and sorts object keys. A consumer parsing the JSON sees the same values.
+
+Markdown is compared as a document: both texts must render the same under CommonMark with GFM tables
+(`digest/src/site/parity/document.ts`), since htmd and turndown spell the same document differently
+(`*` or `-` bullets, trailing spaces, table padding). A comparison that passes only this way is counted
+separately from byte equality.
 
 A divergence a request is expected to show is marked `known` in `requests.ts` with its reason; the
 comparison still runs and is reported, and the gate counts it apart from unexplained failures. Search
@@ -170,3 +177,60 @@ answers `/stats/` with 404, so the app is built non-strict and answers wrong met
   `digest/src/activities/broadcast.ts`, logged every send); the site adds none.
 - The gate's "monitor green for seven days" needs an UptimeRobot monitor in terraform (spec §3). That
   lives in seanfloyd.dev, which this unit does not edit; it is on the infrastructure list it hands over.
+
+## 7. Results (2026-09-23, on the prod clone runs 1-305)
+
+- **Parity** (`make site-parity`, goldens `data/site-parity/20260923T230128Z`, Rust commit d17a32c): 138 of
+  144 requests equal (3 of them as Markdown documents), the 6 others the known divergences of §5 (3 thread
+  listings: `updated_at`; 3 MCP transport refusals), 0 unexplained. Every issue's Markdown, 282 of 282,
+  renders the same as htmd's; 80 are byte-equal. Search: "Iran nuclear" returns the same 37 headlines.
+  "ceasefire" matches 1,469 rows against FTS5's 1,468 (counted outside the harness: `SELECT count(*) FROM
+  shown_narratives_fts WHERE shown_narratives_fts MATCH '"ceasefire"'` on the clone, and `... WHERE search
+  @@ phraseto_tsquery('english','ceasefire')` on the import), but both answers are capped at 50 and the
+  rankings pick different fifties: they share 3 of Rust's 26 distinct headlines. Passes only by the capped
+  rule; a reader will see different "ceasefire" results. The recording is kept in the main checkout's
+  `data/site-parity/20260923T230128Z` (gitignored); `make site-parity-record` makes a fresh one.
+- **a11y and Lighthouse** (`bin/web-check --base` against the local site over the clone): the structural
+  invariants pass on 10 pages; Lighthouse accessibility, best practices and SEO are 100 on all 10, with the
+  CSP in force (a violation would have cost best practices its console-errors audit).
+- **/ask eval** (`bin/ask-eval`, the two free OpenRouter legs): 6 of 8. The 2 failures are the model ending
+  a turn empty after its tool budget; the Rust server run the same hour on the same models failed the
+  script's first probe (504, timed out), so the eval cannot currently separate the port from the legs.
+- **Dependencies** (`still_active --sbom` on digest's production SBOM): the new ones are all `ok` except
+  turndown's `@mixmark-io/domino` (`stale`); the three `archived` are the ones already owed (require-from-string
+  via the Agent SDK, source-map-loader via Temporal, xtend via pg).
+
+## 8. What the cut-over owes (seanfloyd.dev is not edited here)
+
+Infrastructure, in seanfloyd.dev:
+- A web container from the digest image with `node dist/site/main.js`, replacing `digest-circulation` behind
+  kamal-proxy on the same host name and health path (`/health`), port 8080, 256 MiB.
+- Its environment: `DIGEST_DATABASE_URL` to the `digest` database with a **read-only role** (the site issues
+  no writes; the pipeline's role migrates, and must `ALTER DEFAULT PRIVILEGES ... GRANT SELECT` to the site's
+  role so tables and views later migrations add stay readable; the site's container must not run
+  `migrate.js` as local compose does), `DIGEST_NAME`, `DIGEST_DOMAIN`, `HOMEPAGE_URL`, `SOURCE_URL`,
+  `CONTACT_EMAIL`, the Resend and subscribe variables, the `ASK_*` variables. With subscriptions on and
+  double opt-in on, a missing `SUBSCRIBE_TOKEN_SECRET`, `DIGEST_DOMAIN` or `RESEND_FROM` now stops the
+  container at start; check the secrets exist before the apply.
+- Network access from the web container to the Postgres that Temporal runs; no volume mount (the SQLite
+  file mount goes).
+- The UptimeRobot monitor for the site (spec §3) in terraform, which the plan B gate's seven green days need.
+- Drop any header the proxy sets that now duplicates the site's own (CSP, HSTS, frame options).
+
+Deleting `circulation/`, after the cut-over deploy has served from the TypeScript site:
+- the tree itself, `Cargo.lock` with it; the `ci-rust` and `digest-circulation` services and the
+  `cargo-*` volumes in `docker-compose.yml`; `bin/circulation`; the `circulation` Makefile target;
+- `bin/ci`: the Rust suite and its `_SCOPE` rows; `newsroom/tests/test_ci_scope.py` rows naming them;
+- `newsroom/tests/test_markdown_chrome_contract.py` (reads `markdown.rs`) and the Cargo.lock pins in
+  `test_sbom_exceptions.py`, repointed at `digest/src/site/markdown.ts` and digest's lockfile;
+- `bin/deploy` (`SERVICE_CIRCULATION`, the Rust image build and its provenance check), `bin/check-versions`,
+  `bin/cssdiff` and `newsroom/tools/web_check.py` (`SERVICE` becomes `digest-site`, which needs data:
+  `make site-local` first), `bin/ops` where it names the container;
+- `bin/site-parity-record` builds the Rust image: re-record once before deleting and keep that recording
+  with the commit that deletes the tree, or retire the harness with it;
+- `newsroom/tests/test_pipeline_contract.py` and `test_sources_catalogue.py` (they read circulation's
+  sources handling; repoint at `digest/src/site/sources.ts`), the `circulation/sources.json` symlink,
+  `bin/a11y-check`'s usage text, the comments in `design/tokens.css` and `newsroom/templates/digest.css`;
+- `newsroom/tools/web_check.py` now defaults to 8081 (circulation's local port since the site took 8080);
+  at deletion it targets `digest-site` on 8080 again;
+- README, CLAUDE.md and `docs/operations.md` sections on circulation.

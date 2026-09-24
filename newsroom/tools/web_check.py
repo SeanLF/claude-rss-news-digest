@@ -30,7 +30,9 @@ REPO = Path(__file__).resolve().parents[2]
 SERVICE = "digest-circulation"
 # 127.0.0.1, not localhost: localhost resolves to ::1 first and the published
 # port does not answer there, so the gate would time out against a healthy server.
-DEFAULT_BASE = "http://127.0.0.1:8080"
+# 8081: the port compose publishes digest-circulation on since the TypeScript site took 8080. On 8080 the
+# gate would reuse whatever answers there (the TypeScript site) and grade it in place of what deploys.
+DEFAULT_BASE = "http://127.0.0.1:8081"
 
 # Every server-rendered HTML page. Non-HTML routes (/feed.xml, /og-image.png,
 # /robots.txt, /health) have nothing for either gate to assert.

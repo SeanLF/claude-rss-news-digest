@@ -126,6 +126,20 @@ digest-schedule: ## Create or update the daily 10:25Z schedule on local Temporal
 site-parity-record: ## Record the Rust circulation server's answers on a copy of the prod clone: the goldens the TypeScript site is held to (SRC=data/prod-20260923b.db; host-only)
 	bin/site-parity-record $${SRC:-data/prod-20260923b.db}
 
+site-parity: ## Hold the TypeScript site to the newest Rust goldens: import their clone into Postgres, run the parity tests (DIR=data/site-parity/<stamp>; host-only)
+	bin/site-parity $(DIR)
+
+site-local: ## Serve the TypeScript site at http://127.0.0.1:8080 over a copy of the prod clone (SRC=data/prod-20260923b.db)
+	@src=$${SRC:-data/prod-20260923b.db}; copy=data/site-local.db; \
+	test -r "$$src" || { echo "no $$src (make db-clone)"; exit 2; }; \
+	rm -f "$$copy" && cp -c "$$src" "$$copy" || exit 1; \
+	docker compose stop digest-site >/dev/null 2>&1; \
+	docker compose up -d --wait digest-pg && \
+	docker compose exec -T digest-pg psql -q -U postgres -c "DROP DATABASE IF EXISTS digest WITH (FORCE)" -c "CREATE DATABASE digest" && \
+	IMPORT_NETWORK=$$(docker inspect -f '{{range $$k, $$v := .NetworkSettings.Networks}}{{$$k}}{{end}}' $$(docker compose ps -q digest-pg)) \
+	  bin/import-legacy "$$copy" "postgres://postgres:digest@digest-pg:5432/digest?sslmode=disable" && \
+	docker compose up -d --build --wait digest-site; status=$$?; rm -f "$$copy"; exit $$status
+
 import-check: ## Import a copy of the prod clone into a fresh Postgres and hold it to the design's §5.1 and prepare's parity (SRC=data/prod-20260923b.db; host-only, ~1 min)
 	@src=$${SRC:-data/prod-20260923b.db}; copy=data/import-check.db; db=import_check; \
 	test -r "$$src" || { echo "no $$src (make db-clone)"; exit 2; }; \
