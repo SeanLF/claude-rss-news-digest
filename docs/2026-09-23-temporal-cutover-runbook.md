@@ -487,3 +487,36 @@ first initialised, nothing logs in with it, and local connections inside the con
   Postgres with the empty dynamic config the box uses: the worker image registered `digest:<GIT_SHA>`,
   `set-current.js` made it current, and a run recorded `VERSIONING_BEHAVIOR_PINNED` on it. The
   `docker exec` step in `bin/deploy` has not run on the box.
+
+## First staged apply (checklist)
+
+After 11:45Z and after the day's Python run has finished. Infra: seanfloyd.dev `digest-temporal`
+1f66aa6..6c1fb28. Stop at any STOP; rollback is `news_digest_pipeline = "python"` plus the teardown above.
+
+```
+bin/ssh 'systemctl show -p ActiveState --value news-digest.service'   # must be inactive (not activating)
+bin/ssh 'free -m; docker stats --no-stream --format "{{.Name}}\t{{.MemUsage}}"'   # STOP if available < 2600 MiB
+cd ~/Developer/seanfloyd.dev && git merge --ff-only digest-temporal && bin/tf init
+# terraform.tfvars: news_digest_pipeline = "staged"
+cd ~/Developer/news-digest && make deploy-dry && bin/deploy -y; echo "deploy exit $?"   # never pipe it
+cd ~/Developer/seanfloyd.dev && bin/tf apply --fresh -target='hcloud_zone_rrset.news_digest_preview_a[0]' -target='hcloud_zone_rrset.news_digest_preview_aaaa[0]'
+bin/ssh 'systemctl cat news-digest.service | grep -A3 staged-yield; grep -c "^RESEND_LIVE=true" /opt/news-digest/worker.env'
+bin/ssh 'docker exec kamal-proxy kamal-proxy list'   # public host still -> digest-circulation-*; digest-next -> the preview
+curl -s https://next.news-digest.seanfloyd.dev/health   # {"status":"healthy"} once DNS and the cert land
+P='docker exec news-digest-temporal-postgres psql -U digest_ro -d digest_staged'
+bin/ssh "$P -tAc 'SELECT count(*) FROM runs'"                               # a count
+bin/ssh "$P -c 'DELETE FROM runs WHERE false'"                              # refused: read-only transaction
+bin/ssh "$P -c 'BEGIN READ WRITE' -c 'DELETE FROM runs WHERE false'"        # refused: permission denied
+bin/ssh 'free -m; docker stats --no-stream'   # STOP (teardown before 10:25Z) if available + worker usage < 2150 MiB
+```
+
+Then the staged run by hand ("Staged verification", step 4). The next day, during the 10:25Z Python run:
+
+```
+bin/ssh 'id=$(docker inspect -f {{.Id}} news-digest-run); while [ -e /sys/fs/cgroup/system.slice/docker-$id.scope ]; do cat /sys/fs/cgroup/system.slice/docker-$id.scope/memory.peak; sleep 5; done | tail -1'   # the Python run's real peak
+bin/ssh 'journalctl -u news-digest-worker --since today --no-pager | grep -E "Stopped|Skipped|Started"; sar -r -s 10:20:00 -e 11:00:00'   # the worker stepped aside
+```
+
+Unverified until then: TLS for the preview host; kamal-proxy's `--tls` deploy before DNS resolves;
+the worker's four-way fan-out and the server's and Python worker's caps under load (measured idle
+only). A staged deploy during the Python run fails at `set_current_version`: the worker is held down.
