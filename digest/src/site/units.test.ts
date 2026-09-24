@@ -189,7 +189,7 @@ describe("the site's boundary", () => {
 
   it("is imported by nothing outside it but its CLIs", () => {
     const bad = files(src)
-      .filter((f) => !f.includes("/site/") && !f.endsWith("/cli/site-parity.ts") && !f.endsWith("/cli/search-eval.ts"))
+      .filter((f) => !f.includes("/site/") && !/\/cli\/(site-parity|search-eval|check-injections(\.test)?)\.ts$/.test(f))
       .flatMap((f) => imports(f).filter((i) => i.includes("/site/")).map((i) => `${f}: ${i}`));
     expect(bad).toEqual([]);
   });

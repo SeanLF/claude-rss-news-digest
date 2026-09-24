@@ -89,10 +89,10 @@ describe("security headers", () => {
 
 describe("the issue page", () => {
   it("injects the site's chrome at every needle of the real template", async () => {
-    const warn = vi.spyOn(console, "warn");
+    const error = vi.spyOn(console, "error");
     const html = await (await get(testApp(withIssue(), { cfg: testConfig({ CONTACT_EMAIL: "hi@digest.example" }) }), "/issues/2026-09-01")).text();
-    expect(warn).not.toHaveBeenCalled();
-    warn.mockRestore();
+    expect(error).not.toHaveBeenCalled();
+    error.mockRestore();
     expect(html).toContain('<a href="#main" class="skip-link">');
     expect(html).toContain('class="topbar"');
     expect(html).toContain('href="/issues/2026-09-01/translate"');
@@ -100,6 +100,16 @@ describe("the issue page", () => {
     expect(html).toContain('id="themeBtn"');
     expect(html).toContain('<meta property="og:title" content="News Digest – 2026-09-01">');
     expect(html).toContain('<link rel="alternate" type="text/markdown" href="/issues/2026-09-01.md">');
+  });
+
+  it("logs a missed injection as an error naming the needle and the date, and still serves the page", async () => {
+    const error = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const html = ISSUE_HTML.replace('<div class="paper">', '<div class="sheet">');
+    const res = await get(testApp(withIssue({ issue: async () => ({ html, preheader: "" }) })), "/issues/2026-09-01");
+    expect(res.status).toBe(200);
+    const lines = error.mock.calls.map((c) => JSON.parse(String(c[0])) as Record<string, unknown>);
+    error.mockRestore();
+    expect(lines).toEqual([expect.objectContaining({ site: "issue", level: "error", date: "2026-09-01", needle: '<div class="paper">' })]);
   });
 
   it("negotiates Markdown, and an explicit .md never 406s", async () => {

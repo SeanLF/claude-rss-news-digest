@@ -30,18 +30,21 @@ const navHtml = (date: string): string =>
 const feedbackHtml = (date: string, email: string | undefined): string =>
   email ? `<p class="footer-feedback">Got feedback or a suggestion? <a href="mailto:${escapeHtml(email)}?subject=Digest%20feedback%20-%20${date}">Send a note &rarr;</a></p>` : "";
 
-// Replaces the first `needle`, or warns: a missed needle means the stored HTML drifted from the template
-// and that piece of chrome silently vanished from the page.
-function inject(html: string, needle: string, replacement: string, date: string): string {
+// Replaces the first `needle`, or records it as missed: the stored HTML drifted from the template and
+// that piece of chrome is gone from the page.
+function inject(html: string, needle: string, replacement: string, missed: string[]): string {
   const i = html.indexOf(needle);
   if (i < 0) {
-    console.warn(JSON.stringify({ site: "issue", date, needle, warning: "web injection missed; the stored HTML may have drifted from the template" }));
+    missed.push(needle);
     return html;
   }
   return html.slice(0, i) + replacement + html.slice(i + needle.length);
 }
 
-export function issuePage(ctx: PageCtx, date: string, stored: { html: string; preheader: string }, mdAbs: string): string {
+// The page, with every needle it failed to find. The feedback line's needles are looked for only when
+// a contact address is configured.
+export function renderIssue(ctx: PageCtx, date: string, stored: { html: string; preheader: string }, mdAbs: string): { html: string; missed: string[] } {
+  const missed: string[] = [];
   const { cfg } = ctx;
   const title = escapeHtml(`${cfg.digestName} – ${date}`);
   const description = escapeHtml(stored.preheader);
@@ -66,15 +69,24 @@ export function issuePage(ctx: PageCtx, date: string, stored: { html: string; pr
     stored.html,
     NEEDLES.head,
     `${headInject}\n<style>${digestNavCss}</style>\n<style>${fontFace(ctx.assets.fontUrl)}\n${skipLinkCss}\n${reducedMotionCss}</style></head>`,
-    date,
+    missed,
   );
-  html = inject(html, NEEDLES.body, `<body>${SKIP_LINK}${hiddenPointer(mdAbs)}`, date);
-  html = inject(html, NEEDLES.paper, `${NEEDLES.paper}${navHtml(date)}`, date);
+  html = inject(html, NEEDLES.body, `<body>${SKIP_LINK}${hiddenPointer(mdAbs)}`, missed);
+  html = inject(html, NEEDLES.paper, `${NEEDLES.paper}${navHtml(date)}`, missed);
   const feedback = feedbackHtml(date, cfg.contactEmail);
   if (feedback) {
     html = html.includes(NEEDLES.footerMeta)
-      ? inject(html, NEEDLES.footerMeta, `${feedback}\n    ${NEEDLES.footerMeta}`, date)
-      : inject(html, NEEDLES.footer, `${feedback}\n  </footer>`, date);
+      ? inject(html, NEEDLES.footerMeta, `${feedback}\n    ${NEEDLES.footerMeta}`, missed)
+      : inject(html, NEEDLES.footer, `${feedback}\n  </footer>`, missed);
   }
-  return inject(html, NEEDLES.bodyEnd, `<script>${toggleJs}</script></body>`, date);
+  html = inject(html, NEEDLES.bodyEnd, `<script>${toggleJs}</script></body>`, missed);
+  return { html, missed };
+}
+
+// The page as served. A miss still serves what rendered, and is logged at error level: `make
+// check-injections` finds every stored issue that has one.
+export function issuePage(ctx: PageCtx, date: string, stored: { html: string; preheader: string }, mdAbs: string): string {
+  const { html, missed } = renderIssue(ctx, date, stored, mdAbs);
+  for (const needle of missed) console.error(JSON.stringify({ site: "issue", level: "error", date, needle, error: "web injection missed; the stored HTML drifted from the template" }));
+  return html;
 }

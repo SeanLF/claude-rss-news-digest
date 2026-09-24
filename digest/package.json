@@ -11,6 +11,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "oxlint --type-aware src",
     "test": "vitest run",
+    "check-injections": "node dist/cli/check-injections.js",
     "sbom": "npx --yes @cyclonedx/cyclonedx-npm --output-format JSON --output-file sbom.cdx.json"
   },
   "dependencies": {
