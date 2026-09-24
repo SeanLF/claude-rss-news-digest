@@ -47,17 +47,28 @@ bin/ops journal [--since 6h] [--lines 200] [--grep PAT]
 bin/ops <any> --print-command             # show what would run, run nothing
 ```
 
-Read-only twice over: the volume is mounted `:ro` and SQLite opens with
+Read-only twice over. On SQLite the volume is mounted `:ro` and SQLite opens with
 `mode=ro`, both negative-controlled against the live database
 (`docs/2026-09-03-ops-access-review.md`). That doc also records why this is a
-CLI and not a Tailscale-only route on circulation.
+CLI and not a Tailscale-only route on circulation. On Postgres psql logs in as
+`digest_ro` (SELECT only, `digest/db/ops/digest_ro.sql`) in a read-only session;
+`digest/src/ops/ops-payloads.test.ts` shows each refusing a write without the
+other. `bin/lib/prod-store` names the store production runs on; the cut-over
+flips it from `sqlite` to `postgres` (`DIGEST_PROD_STORE` overrides it for one
+command).
 
 Clone only when you need the whole database offline -- a replay harness, or
-analysis across many runs. `bin/db-clone` prefers the newest verified deploy
-backup (so it is **stale** until the next deploy; `--live` forces a wire copy)
-and verifies any candidate with `integrity_check` and
-`page_count x page_size == file size` before replacing the target, leaving the
-existing file untouched if that fails. No manual check needed.
+analysis across many runs. `bin/db-clone` prefers the newest verified backup (so
+it is **stale** until the next deploy or nightly dump; `--live` forces a wire
+copy) and fills the local Postgres clone (`digest_clone` in the local Temporal
+stack's `digest-db`; `DIGEST_CLONE_URL` and `DIGEST_CLONE_NETWORK` point it
+elsewhere), building it as `digest_clone_new` and renaming it over the old one
+only once it verifies. Before the cut-over it also lands the SQLite file at
+`data/digest.db` (checked with `integrity_check` and
+`page_count x page_size == file size`) and imports it with `bin/import-legacy`;
+after it, it restores the `digest.pg.dump` backup, or a live `pg_dump` as
+`digest_ro`. `bin/usage`, `bin/trace` and `bin/analytics` read the clone through
+`bin/psql`, read-only; `bin/psql` alone opens it.
 
 ## Local development
 

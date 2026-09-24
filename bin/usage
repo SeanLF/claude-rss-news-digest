@@ -1,81 +1,75 @@
 #!/bin/bash
-# Query token usage data from local (cloned) database.
-#
-# Prerequisites: bin/db-clone to pull prod DB locally.
+# Token usage from the local clone of the product database (bin/db-clone fills it; bin/psql
+# reaches it), read-only.
 #
 # Usage:
-#   bin/usage              # Per-subagent breakdown, last 14 days
+#   bin/usage              # Per-stage rows for every finished run, newest first, and a total
 #   bin/usage daily        # Daily totals
 
-set -e
+set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
-DB="$PROJECT_DIR/data/digest.db"
+PSQL="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/psql"
+export PGOPTIONS="-c default_transaction_read_only=on"
 
-if [ ! -f "$DB" ]; then
-  echo "No local database. Run: bin/db-clone" >&2
-  exit 1
-fi
-
+# A run's calls count once it ended, completed with any outcome or failed: a held-out, rejected or
+# failed run spent the same tokens. Only a run still running is left out.
 case "${1:-detail}" in
   detail)
-    sqlite3 -header -column "$DB" "
+    "$PSQL" -q -v ON_ERROR_STOP=1 -P footer=off -c "
       WITH recent AS (
         SELECT
-          date(dr.run_at) as date,
-          ru.subagent,
-          ru.model,
-          ru.input_tokens as input,
-          ru.output_tokens as output,
-          ru.cache_write_tokens as cache_w,
-          ru.cache_read_tokens as cache_r,
-          ru.api_cost_usd as cost_usd
-        FROM run_usage ru
-        JOIN digest_runs dr ON dr.id = ru.run_id
-        WHERE dr.completed_at IS NOT NULL
-        ORDER BY dr.run_at DESC, ru.subagent
+          (r.started_at AT TIME ZONE 'UTC')::date AS date,
+          r.started_at,
+          mc.stage,
+          mc.request_model AS model,
+          mc.input_tokens AS input,
+          mc.output_tokens AS output,
+          mc.cache_creation_input_tokens AS cache_w,
+          mc.cache_read_input_tokens AS cache_r,
+          mc.api_cost_usd AS cost_usd,
+          mc.id
+        FROM model_calls mc
+        JOIN runs r ON r.id = mc.run_id
+        WHERE r.status <> 'running'
+      ), fmt AS (
+        SELECT date::text AS date, stage, model, input, output, cache_w, cache_r, cost_usd, 0 AS total_row, started_at, id
+        FROM recent
+        UNION ALL
+        SELECT 'TOTAL', '', '', SUM(input), SUM(output), SUM(cache_w), SUM(cache_r), SUM(cost_usd), 1, NULL, NULL
+        FROM recent
       )
-      SELECT date, subagent, model,
-        CASE WHEN input  >= 1000000 THEN printf('%.1fM', input /1000000.0)  WHEN input  >= 1000 THEN printf('%.0fK', input /1000.0)  ELSE input  END as input,
-        CASE WHEN output >= 1000000 THEN printf('%.1fM', output/1000000.0)  WHEN output >= 1000 THEN printf('%.0fK', output/1000.0)  ELSE output END as output,
-        CASE WHEN cache_w >= 1000000 THEN printf('%.1fM', cache_w/1000000.0) WHEN cache_w >= 1000 THEN printf('%.0fK', cache_w/1000.0) ELSE cache_w END as cache_w,
-        CASE WHEN cache_r >= 1000000 THEN printf('%.1fM', cache_r/1000000.0) WHEN cache_r >= 1000 THEN printf('%.0fK', cache_r/1000.0) ELSE cache_r END as cache_r,
-        printf('\$%.2f', cost_usd) as cost
-      FROM recent
-      UNION ALL
-      SELECT 'TOTAL', '', '',
-        CASE WHEN SUM(input)   >= 1000000 THEN printf('%.1fM', SUM(input)  /1000000.0) WHEN SUM(input)   >= 1000 THEN printf('%.0fK', SUM(input)  /1000.0) ELSE SUM(input)   END,
-        CASE WHEN SUM(output)  >= 1000000 THEN printf('%.1fM', SUM(output) /1000000.0) WHEN SUM(output)  >= 1000 THEN printf('%.0fK', SUM(output) /1000.0) ELSE SUM(output)  END,
-        CASE WHEN SUM(cache_w) >= 1000000 THEN printf('%.1fM', SUM(cache_w)/1000000.0) WHEN SUM(cache_w) >= 1000 THEN printf('%.0fK', SUM(cache_w)/1000.0) ELSE SUM(cache_w) END,
-        CASE WHEN SUM(cache_r) >= 1000000 THEN printf('%.1fM', SUM(cache_r)/1000000.0) WHEN SUM(cache_r) >= 1000 THEN printf('%.0fK', SUM(cache_r)/1000.0) ELSE SUM(cache_r) END,
-        printf('\$%.2f', SUM(cost_usd))
-      FROM recent;
+      SELECT date, stage, model,
+        CASE WHEN input   >= 1000000 THEN round(input   / 1000000.0, 1) || 'M' WHEN input   >= 1000 THEN round(input   / 1000.0) || 'K' ELSE input::text   END AS input,
+        CASE WHEN output  >= 1000000 THEN round(output  / 1000000.0, 1) || 'M' WHEN output  >= 1000 THEN round(output  / 1000.0) || 'K' ELSE output::text  END AS output,
+        CASE WHEN cache_w >= 1000000 THEN round(cache_w / 1000000.0, 1) || 'M' WHEN cache_w >= 1000 THEN round(cache_w / 1000.0) || 'K' ELSE cache_w::text END AS cache_w,
+        CASE WHEN cache_r >= 1000000 THEN round(cache_r / 1000000.0, 1) || 'M' WHEN cache_r >= 1000 THEN round(cache_r / 1000.0) || 'K' ELSE cache_r::text END AS cache_r,
+        '\$' || to_char(cost_usd, 'FM999999990.00') AS cost
+      FROM fmt
+      ORDER BY total_row, started_at DESC, stage COLLATE \"C\", id;
     "
     ;;
   daily)
-    sqlite3 -header -column "$DB" "
+    "$PSQL" -q -v ON_ERROR_STOP=1 -P footer=off -c "
       WITH daily AS (
         SELECT
-          date(dr.run_at) as date,
-          COUNT(DISTINCT ru.subagent) as subagents,
-          SUM(ru.input_tokens + ru.output_tokens + ru.cache_write_tokens + ru.cache_read_tokens) as total_tokens,
-          SUM(ru.api_cost_usd) as cost_usd
-        FROM run_usage ru
-        JOIN digest_runs dr ON dr.id = ru.run_id
-        WHERE dr.completed_at IS NOT NULL
-        GROUP BY date(dr.run_at)
-        ORDER BY date DESC
+          (r.started_at AT TIME ZONE 'UTC')::date AS date,
+          COUNT(DISTINCT mc.stage) AS stages,
+          SUM(mc.input_tokens + mc.output_tokens + mc.cache_creation_input_tokens + mc.cache_read_input_tokens) AS total_tokens,
+          SUM(mc.api_cost_usd) AS cost_usd
+        FROM model_calls mc
+        JOIN runs r ON r.id = mc.run_id
+        WHERE r.status <> 'running'
+        GROUP BY 1
+      ), fmt AS (
+        SELECT date::text AS date, stages, total_tokens, cost_usd, 0 AS total_row FROM daily
+        UNION ALL
+        SELECT 'TOTAL', SUM(stages), SUM(total_tokens), SUM(cost_usd), 1 FROM daily
       )
-      SELECT date, subagents,
-        CASE WHEN total_tokens >= 1000000 THEN printf('%.1fM', total_tokens/1000000.0) WHEN total_tokens >= 1000 THEN printf('%.0fK', total_tokens/1000.0) ELSE total_tokens END as total_tokens,
-        printf('\$%.2f', cost_usd) as total_cost
-      FROM daily
-      UNION ALL
-      SELECT 'TOTAL', SUM(subagents),
-        CASE WHEN SUM(total_tokens) >= 1000000 THEN printf('%.1fM', SUM(total_tokens)/1000000.0) WHEN SUM(total_tokens) >= 1000 THEN printf('%.0fK', SUM(total_tokens)/1000.0) ELSE SUM(total_tokens) END,
-        printf('\$%.2f', SUM(cost_usd))
-      FROM daily;
+      SELECT date, stages,
+        CASE WHEN total_tokens >= 1000000 THEN round(total_tokens / 1000000.0, 1) || 'M' WHEN total_tokens >= 1000 THEN round(total_tokens / 1000.0) || 'K' ELSE total_tokens::text END AS total_tokens,
+        '\$' || to_char(cost_usd, 'FM999999990.00') AS total_cost
+      FROM fmt
+      ORDER BY total_row, date DESC;
     "
     ;;
   *)

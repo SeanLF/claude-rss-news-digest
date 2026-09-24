@@ -7,7 +7,7 @@
 --   and last_run -- WHICH thresholds are actually still live. A threshold whose
 --   last_run is far behind the newest run has been retired, and its numbers are
 --   history, not current exposure.
--- CAVEAT: dedup_log records only FILTERED articles -- there is no row for an article
+-- CAVEAT: dedup_matches records only FILTERED articles -- there is no row for an article
 --   the filter passed. So this can measure the composition and volume of suppression
 --   but CANNOT compute a precision or recall, and `pct_of_intake` is against the
 --   fetched pool, not against the true duplicate rate. The 65% false-positive figure
@@ -20,14 +20,14 @@
 -- PARAMS: runs (window size, default 30)
 
 WITH bounds AS (
-    SELECT MAX(id) - :runs + 1 AS lo FROM digest_runs
+    SELECT MAX(id) - :runs + 1 AS lo FROM runs
 ),
 d AS (
-    SELECT dl.* FROM dedup_log dl, bounds b WHERE dl.run_id >= b.lo
+    SELECT dm.* FROM dedup_matches dm, bounds b WHERE dm.run_id >= b.lo
 ),
 intake AS (
     SELECT SUM(articles_kept) AS kept, COUNT(*) AS n_runs
-    FROM digest_runs, bounds
+    FROM runs, bounds
     WHERE id >= bounds.lo AND status = 'completed'
 )
 SELECT
@@ -38,17 +38,17 @@ SELECT
     MIN(d.run_id)                                                AS first_run,
     MAX(d.run_id)                                                AS last_run,
     COUNT(DISTINCT d.run_id)                                     AS runs_present,
-    CASE WHEN MAX(d.run_id) < (SELECT MAX(id) FROM digest_runs) - 2
+    CASE WHEN MAX(d.run_id) < (SELECT MAX(id) FROM runs) - 2
          THEN 'RETIRED' ELSE 'live' END                          AS state,
     COUNT(*)                                                     AS filtered,
     ROUND(1.0 * COUNT(*) / (SELECT n_runs FROM intake), 1)       AS per_run,
     ROUND(100.0 * COUNT(*) / (SELECT kept FROM intake), 2)       AS pct_of_intake,
-    SUM(d.similarity < 0.50)                                     AS band_marginal,
-    ROUND(100.0 * SUM(d.similarity < 0.50) / COUNT(*), 1)        AS pct_marginal,
-    SUM(d.similarity >= 0.50 AND d.similarity < 0.80)            AS band_mid,
-    SUM(d.similarity >= 0.80)                                    AS band_confident,
-    SUM(d.similarity >= 0.999)                                   AS band_exact,
-    ROUND(AVG(d.similarity), 3)                                  AS avg_similarity
+    SUM((d.similarity < 0.50)::int)                              AS band_marginal,
+    ROUND(100.0 * SUM((d.similarity < 0.50)::int) / COUNT(*), 1) AS pct_marginal,
+    SUM((d.similarity >= 0.50 AND d.similarity < 0.80)::int)     AS band_mid,
+    SUM((d.similarity >= 0.80)::int)                             AS band_confident,
+    SUM((d.similarity >= 0.999)::int)                            AS band_exact,
+    ROUND(AVG(d.similarity)::numeric, 3)                         AS avg_similarity
 FROM d
 GROUP BY d.threshold
 ORDER BY d.threshold;

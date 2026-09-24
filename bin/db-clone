@@ -1,15 +1,18 @@
 #!/bin/bash
-# Clone the production SQLite database to this machine.
+# Clone the production database into a local Postgres database (bin/psql, bin/usage, bin/trace and
+# bin/analytics read it).
 # Usage: bin/db-clone [--output PATH] [--live]
 #
-# Prefers the newest verified deploy backup over a live copy. bin/deploy snapshots
-# digest.db through the SQLite backup API and restore-verifies it; a live `cat` of the
-# volume copies a file that may be mid-write. --live forces the wire copy.
-#
-# The target is replaced only after a candidate verifies. The previous version wrote the
-# ssh output straight into it, and a shell redirect truncates before the command runs --
-# so any failure (a stopped Tailscale, 2026-08-30) destroyed the local database and left
-# nothing to fall back to.
+# Prefers the newest verified backup over a live copy; --live forces the wire copy. What production
+# runs on is bin/lib/prod-store (DIGEST_PROD_STORE overrides it), and the cut-over flips it:
+#   sqlite    bin/deploy's SQLite snapshot (or a live `cat` of the volume) lands at --output
+#             (default data/digest.db), then bin/import-legacy builds the Postgres clone from it.
+#   postgres  bin/backup-volumes' digest.pg.dump (or a live pg_dump as digest_ro) is restored.
+# The clone is $DIGEST_CLONE_URL (default digest_clone in the local Temporal stack's digest-db,
+# started here if it is not running). It is built as <name>_new and renamed over <name> only after
+# it verifies, as the SQLite file is replaced only after its candidate verifies: a shell redirect
+# truncates before the command runs, so writing straight into the target once destroyed the local
+# database on a failed copy (a stopped Tailscale, 2026-08-30) and left nothing to fall back to.
 
 set -euo pipefail
 
@@ -17,6 +20,9 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 DEFAULT_OUTPUT="$PROJECT_DIR/data/digest.db"
 BACKUP_ROOT="${NEWS_DIGEST_BACKUP_ROOT:-$HOME/Backups/seanfloyd-hetzner}"
+STORE="${DIGEST_PROD_STORE:-$(tr -d '[:space:]' < "$SCRIPT_DIR/lib/prod-store")}"
+PG_IMAGE="postgres:18.6-alpine3.24"
+PG_CONTAINER="news-digest-temporal-postgres"
 
 # shellcheck source=lib/log.sh
 source "$SCRIPT_DIR/lib/log.sh"
@@ -33,14 +39,59 @@ while [[ $# -gt 0 ]]; do
       FORCE_LIVE=true; shift ;;
     -h|--help)
       echo "Usage: bin/db-clone [--output PATH] [--live]"
-      echo "Clone the production SQLite database to this machine."
-      echo "Prefers the newest verified deploy backup; --live forces a copy over the wire."
-      echo "Default output: $DEFAULT_OUTPUT (replaced only after the candidate verifies)"
+      echo "Clone the production database into the local Postgres clone (\$DIGEST_CLONE_URL)."
+      echo "Prefers the newest verified backup; --live forces a copy over the wire."
+      echo "Production store: $STORE (bin/lib/prod-store). On sqlite, the file also lands at --output"
+      echo "(default $DEFAULT_OUTPUT, replaced only after the candidate verifies)."
       exit 0 ;;
     *)
       log_error "Unknown option: $1"; exit 1 ;;
   esac
 done
+
+case "$STORE" in
+  sqlite|postgres) ;;
+  *) log_error "unknown store '$STORE' (bin/lib/prod-store or DIGEST_PROD_STORE)"; exit 1 ;;
+esac
+
+# --- the local Postgres clone -------------------------------------------------------------------
+
+CLONE_URL="${DIGEST_CLONE_URL:-postgres://postgres:digest@digest-db:5432/digest_clone?sslmode=disable}"
+CLONE_NET="${DIGEST_CLONE_NETWORK:-digest_default}"
+clone_query="" ; [[ "$CLONE_URL" == *\?* ]] && clone_query="?${CLONE_URL#*\?}"
+clone_path="${CLONE_URL%%\?*}"
+CLONE_DB="${clone_path##*/}"
+CANDIDATE_DB="${CLONE_DB}_new"
+url_for() { echo "${clone_path%/*}/$1$clone_query"; }
+[[ "$CLONE_DB" =~ ^[a-z_][a-z0-9_]*$ ]] || { log_error "clone database name '$CLONE_DB' must be a plain lower-case identifier"; exit 1; }
+
+# Runs a Postgres client tool in the server's image, on the server's network.
+pg_tool() { docker run --rm -i --network "$CLONE_NET" -e PGTZ=UTC "$PG_IMAGE" "$@"; }
+admin_sql() { pg_tool psql -X -q -v ON_ERROR_STOP=1 "$(url_for postgres)" -c "SET client_min_messages = warning" -c "$1" </dev/null; }
+
+ensure_local_server() {
+  [[ -z ${DIGEST_CLONE_URL:-} ]] || return 0
+  log_step "Starting the local digest-db (digest/compose.temporal.yml)..."
+  docker compose -f "$PROJECT_DIR/digest/compose.temporal.yml" up -d --wait digest-db >/dev/null
+}
+
+new_candidate() {
+  admin_sql "DROP DATABASE IF EXISTS $CANDIDATE_DB WITH (FORCE)"
+  admin_sql "CREATE DATABASE $CANDIDATE_DB"
+}
+
+# The candidate replaces the clone only once it holds the runs table with rows in it; FORCE drops
+# the sessions a reader left open on the old clone.
+promote_candidate() {
+  local runs
+  runs="$(pg_tool psql -X -q -A -t -v ON_ERROR_STOP=1 "$(url_for "$CANDIDATE_DB")" -c "SELECT count(*) FROM runs" </dev/null)"
+  [[ "$runs" =~ ^[0-9]+$ && "$runs" -gt 0 ]] || { log_error "candidate has no runs ($runs) -- $CLONE_DB left untouched"; return 1; }
+  admin_sql "DROP DATABASE IF EXISTS $CLONE_DB WITH (FORCE)"
+  admin_sql "ALTER DATABASE $CANDIDATE_DB RENAME TO $CLONE_DB"
+  log_success "Clone: $CLONE_DB ($runs runs)"
+}
+
+# --- sqlite: the file, then the import --------------------------------------------------------
 
 # A SQLite file is only trustworthy if it is internally consistent AND complete. Size alone
 # is not enough: a truncated copy is still non-empty, which is exactly what the old -s check
@@ -61,42 +112,94 @@ verify_sqlite() {
   return 0
 }
 
-TMP="$(mktemp "${TMPDIR:-/tmp}/db-clone.XXXXXX")"
-trap 'rm -f "$TMP" "$TMP.gz"' EXIT
-
-SOURCE=""
-if [[ "$FORCE_LIVE" == false && -d "$BACKUP_ROOT" ]]; then
-  # Newest first; a partially-written backup dir simply fails verification and we move on.
-  while IFS= read -r dir; do
-    [[ -f "$dir/digest.db.gz" ]] || continue
-    log_step "Trying backup $(basename "$dir")..."
-    # Verify against the backup's own MANIFEST before spending time on decompression.
-    if [[ -f "$dir/MANIFEST" ]] && command -v shasum >/dev/null 2>&1; then
-      if ! (cd "$dir" && shasum -a 256 -c --status --ignore-missing MANIFEST 2>/dev/null); then
-        log_info "  checksum mismatch -- skipping"; continue
+clone_sqlite() {
+  local tmp="$1" source="" dir
+  if [[ "$FORCE_LIVE" == false && -d "$BACKUP_ROOT" ]]; then
+    # Newest first; a partially-written backup dir simply fails verification and we move on.
+    # fd 3, because docker run -i reads stdin: on fd 0 the first restore swallowed the list.
+    while IFS= read -r dir <&3; do
+      [[ -f "$dir/digest.db.gz" ]] || continue
+      log_step "Trying backup $(basename "$dir")..."
+      # Verify against the backup's own MANIFEST before spending time on decompression.
+      if [[ -f "$dir/MANIFEST" ]] && command -v shasum >/dev/null 2>&1; then
+        if ! (cd "$dir" && shasum -a 256 -c --status --ignore-missing MANIFEST 2>/dev/null); then
+          log_info "  checksum mismatch -- skipping"; continue
+        fi
       fi
-    fi
-    gunzip -c "$dir/digest.db.gz" >"$TMP" 2>/dev/null || { log_info "  decompress failed -- skipping"; continue; }
-    if verify_sqlite "$TMP"; then SOURCE="backup $(basename "$dir")"; break; fi
-    log_info "  failed verification -- skipping"
-  done < <(find "$BACKUP_ROOT" -mindepth 1 -maxdepth 1 -type d | sort -r)
-fi
+      gunzip -c "$dir/digest.db.gz" >"$tmp" 2>/dev/null || { log_info "  decompress failed -- skipping"; continue; }
+      if verify_sqlite "$tmp"; then source="backup $(basename "$dir")"; break; fi
+      log_info "  failed verification -- skipping"
+    done 3< <(find "$BACKUP_ROOT" -mindepth 1 -maxdepth 1 -type d | sort -r)
+  fi
 
-if [[ -z "$SOURCE" ]]; then
-  [[ "$FORCE_LIVE" == true ]] || log_info "No verified backup found -- falling back to a live copy"
-  log_step "Cloning over the wire..."
-  "$SCRIPT_DIR/ssh" "docker run --rm -v news-digest-data:/data alpine cat /data/digest.db" >"$TMP"
-  verify_sqlite "$TMP" || { log_error "Live clone failed verification -- $OUTPUT_PATH left untouched"; exit 1; }
-  SOURCE="live copy"
-fi
+  if [[ -z "$source" ]]; then
+    [[ "$FORCE_LIVE" == true ]] || log_info "No verified backup found -- falling back to a live copy"
+    log_step "Cloning over the wire..."
+    "$SCRIPT_DIR/ssh" "docker run --rm -v news-digest-data:/data alpine cat /data/digest.db" >"$tmp"
+    verify_sqlite "$tmp" || { log_error "Live clone failed verification -- $OUTPUT_PATH left untouched"; exit 1; }
+    source="live copy"
+  fi
 
-mkdir -p "$(dirname "$OUTPUT_PATH")"
-mv "$TMP" "$OUTPUT_PATH"
-trap - EXIT
+  mkdir -p "$(dirname "$OUTPUT_PATH")"
+  mv "$tmp" "$OUTPUT_PATH"
+  log_success "Done: $OUTPUT_PATH ($(du -h "$OUTPUT_PATH" | cut -f1), from $source)"
+  if [[ "$source" == backup* ]]; then
+    # bin/deploy snapshots BEFORE applying migrations, so the file can be one yoyo migration behind
+    # for the Python tools that read it. Run `make migrate` if a stage errors on a missing column.
+    log_step "Backups are taken pre-migration -- run 'make migrate' if the file's schema looks behind."
+  fi
 
-log_success "Done: $OUTPUT_PATH ($(du -h "$OUTPUT_PATH" | cut -f1), from $SOURCE)"
-if [[ "$SOURCE" == backup* ]]; then
-  # bin/deploy snapshots BEFORE applying migrations, so a backup-sourced clone can be one
-  # schema behind. Run `make migrate` if a stage errors on a missing column.
-  log_step "Backups are taken pre-migration -- run 'make migrate' if the schema looks behind."
+  ensure_local_server
+  log_step "Importing it into $CANDIDATE_DB (bin/import-legacy)..."
+  new_candidate
+  IMPORT_NETWORK="$CLONE_NET" "$SCRIPT_DIR/import-legacy" "$OUTPUT_PATH" "$(url_for "$CANDIDATE_DB")" \
+    || { log_error "import failed -- $CLONE_DB left untouched; $OUTPUT_PATH is current"; exit 1; }
+  promote_candidate
+}
+
+# --- postgres: a dump, restored ---------------------------------------------------------------
+
+# Restoring the whole archive is the verification: a dump cut off mid-table fails pg_restore
+# --exit-on-error, where pg_restore --list reads only the table of contents and passes it.
+restore_dump() {
+  local dump="$1"
+  new_candidate
+  pg_tool pg_restore --no-owner --no-acl --exit-on-error -d "$(url_for "$CANDIDATE_DB")" <"$dump"
+}
+
+clone_postgres() {
+  local tmp="$1" source="" dir
+  ensure_local_server
+  if [[ "$FORCE_LIVE" == false && -d "$BACKUP_ROOT" ]]; then
+    # fd 3, because docker run -i reads stdin: on fd 0 the first restore swallowed the list.
+    while IFS= read -r dir <&3; do
+      [[ -s "$dir/digest.pg.dump" && -f "$dir/VERIFIED" ]] || continue
+      log_step "Trying backup $(basename "$dir")..."
+      if [[ -f "$dir/MANIFEST" ]] && command -v shasum >/dev/null 2>&1; then
+        if ! (cd "$dir" && shasum -a 256 -c --status --ignore-missing MANIFEST 2>/dev/null); then
+          log_info "  checksum mismatch -- skipping"; continue
+        fi
+      fi
+      if restore_dump "$dir/digest.pg.dump" && promote_candidate; then source="backup $(basename "$dir")"; break; fi
+      log_info "  failed to restore -- skipping"
+    done 3< <(find "$BACKUP_ROOT" -mindepth 1 -maxdepth 1 -type d | sort -r)
+  fi
+
+  if [[ -z "$source" ]]; then
+    [[ "$FORCE_LIVE" == true ]] || log_info "No verified backup found -- falling back to a live dump"
+    log_step "Dumping over the wire (pg_dump as digest_ro)..."
+    "$SCRIPT_DIR/ssh" "docker exec $PG_CONTAINER pg_dump -U digest_ro -Fc digest" >"$tmp"
+    { restore_dump "$tmp" && promote_candidate; } || { log_error "Live dump failed to restore -- $CLONE_DB left untouched"; exit 1; }
+    source="live dump"
+  fi
+  log_success "Done: $CLONE_DB from $source"
+}
+
+TMP="$(mktemp "${TMPDIR:-/tmp}/db-clone.XXXXXX")"
+trap 'rm -f "$TMP"' EXIT
+
+if [[ "$STORE" == sqlite ]]; then
+  clone_sqlite "$TMP"
+else
+  clone_postgres "$TMP"
 fi

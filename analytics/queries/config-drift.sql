@@ -15,6 +15,11 @@
 --   indistinguishable from a measured one, which is the whole point of the column. A DELIBERATE
 --   SDK-default (cluster_extractjoin._thinking_for's next-gen branch resolves thinking to None on
 --   purpose) is recorded as the distinct token "(sdk default)".
+-- CAVEAT: the cut-over to Temporal changes what a row is, not only its values.
+--   From the Temporal pipeline on, `write` records one call per story (and cluster-extract one per
+--   batch), and the thread stages are renamed (thread-link/thread_synthesis/thread_audit become
+--   threads-link/threads): a window spanning the cut-over shows per-call averages shifting and
+--   stages appearing and vanishing with no configuration change.
 -- CAVEAT: `thinking` and `effort` arrived with migration 20260830210000, so every earlier row is
 --   NULL -- which reads as "not recorded", NOT as "disabled". Do not treat the historical NULLs as
 --   a measurement; the pre-migration configuration has to be read from the git history of
@@ -23,23 +28,23 @@
 --   see, since 5856f35 changed COHERENCE's model and prompt together and left them unseparable.
 
 SELECT
-  u.subagent,
-  u.model,
-  COALESCE(u.thinking, '(not recorded)') AS thinking,
-  COALESCE(u.effort, '(not recorded)')   AS effort,
+  u.stage,
+  u.request_model                         AS model,
+  COALESCE(u.thinking, '(not recorded)')  AS thinking,
+  COALESCE(u.effort, '(not recorded)')    AS effort,
   COUNT(DISTINCT u.run_id)                AS runs,
   COUNT(*)                                AS calls,
   MIN(u.run_id)                           AS first_run,
   MAX(u.run_id)                           AS last_run,
-  ROUND(AVG(u.api_cost_usd), 4)           AS avg_usd,
-  ROUND(AVG(u.cache_read_tokens), 0)      AS avg_cache_read,
+  ROUND(AVG(u.api_cost_usd)::numeric, 4)  AS avg_usd,
+  ROUND(AVG(u.cache_read_input_tokens), 0) AS avg_cache_read,
   ROUND(AVG(u.output_tokens), 0)          AS avg_output,
   ROUND(AVG(u.duration_ms) / 1000.0, 1)   AS avg_secs,
   -- The signature that identified COHERENCE's pathology: a stage re-reading far more than it
   -- writes is substituting retrieval for reasoning, and is a candidate for adaptive thinking.
   -- COHERENCE ran at ~200x before the change; SELECT sits near 13x and gained nothing from it.
-  ROUND(1.0 * AVG(u.cache_read_tokens) / NULLIF(AVG(u.output_tokens), 0), 1) AS reread_ratio
-FROM run_usage u
-WHERE u.run_id >= (SELECT MAX(id) - :runs + 1 FROM digest_runs)
-GROUP BY u.subagent, u.model, u.thinking, u.effort
-ORDER BY u.subagent, first_run;
+  ROUND(1.0 * AVG(u.cache_read_input_tokens) / NULLIF(AVG(u.output_tokens), 0), 1) AS reread_ratio
+FROM model_calls u
+WHERE u.run_id >= (SELECT MAX(id) - :runs + 1 FROM runs)
+GROUP BY u.stage, u.request_model, u.thinking, u.effort
+ORDER BY u.stage COLLATE "C", first_run;

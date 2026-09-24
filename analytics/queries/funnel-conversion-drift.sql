@@ -17,24 +17,25 @@ WITH bounds AS (
     SELECT MAX(id) - :runs + 1 AS recent_lo,
            MAX(id) - 2 * :runs + 1 AS prior_lo,
            MAX(id) - :runs AS prior_hi
-    FROM digest_runs
+    FROM runs
 ),
 per_run AS (
     SELECT
-        dr.id,
-        CASE WHEN dr.id >= b.recent_lo THEN 'recent'
-             WHEN dr.id >= b.prior_lo AND dr.id <= b.prior_hi THEN 'prior' END AS bucket,
-        (SELECT SUM(articles_fetched) FROM source_health sh WHERE sh.run_id = dr.id) AS rss_items,
-        dr.articles_kept AS kept,
-        (SELECT json_array_length(clusters_json, '$.clusters')
-           FROM cluster_runs cr WHERE cr.run_id = dr.id)                            AS clusters,
-        (SELECT json_array_length(content, '$.must_know')
-              + json_array_length(content, '$.should_know')
-           FROM run_artifacts ra
-          WHERE ra.run_id = dr.id AND ra.artifact_name = 'selected.json')           AS selected,
-        (SELECT COUNT(DISTINCT headline) FROM shown_narratives sn WHERE sn.run_id = dr.id) AS shipped
-    FROM digest_runs dr, bounds b
-    WHERE dr.id >= b.prior_lo AND dr.status = 'completed'
+        r.id,
+        CASE WHEN r.id >= b.recent_lo THEN 'recent'
+             WHEN r.id >= b.prior_lo AND r.id <= b.prior_hi THEN 'prior' END AS bucket,
+        (SELECT SUM(articles_fetched) FROM source_fetches sf WHERE sf.run_id = r.id) AS rss_items,
+        r.articles_kept AS kept,
+        (SELECT jsonb_array_length(a.content::jsonb -> 'clusters')
+           FROM artifacts a
+          WHERE a.run_id = r.id AND a.name = 'clusters.json' AND a.status = 'current') AS clusters,
+        (SELECT jsonb_array_length(a.content::jsonb -> 'must_know')
+              + jsonb_array_length(a.content::jsonb -> 'should_know')
+           FROM artifacts a
+          WHERE a.run_id = r.id AND a.name = 'selected.json' AND a.status = 'current') AS selected,
+        (SELECT COUNT(DISTINCT headline) FROM story_sources ss WHERE ss.run_id = r.id) AS shipped
+    FROM runs r, bounds b
+    WHERE r.id >= b.prior_lo AND r.status = 'completed'
 ),
 -- Only runs with EVERY stage recorded may enter the aggregate. Without this,
 -- SUM() skips NULL artifact rows in one term but not another, and the ratio

@@ -42,6 +42,8 @@ _SCOPE: tuple[tuple[str, frozenset[str]], ...] = (
     ("circulation/", frozenset({RUST})),
     # The ci-ts image COPYs all of digest/, python/ included.
     ("digest/python/", frozenset({WORKER, TS})),
+    # bin/ops's Postgres payloads: executed in ci-ts, and read by newsroom/tests/test_ops.py.
+    ("digest/db/ops/", frozenset({TS, PYTHON})),
     ("digest/", frozenset({TS})),
 )
 

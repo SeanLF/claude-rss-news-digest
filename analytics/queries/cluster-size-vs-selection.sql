@@ -16,28 +16,31 @@
 -- PARAMS: runs (window size, default 30)
 
 WITH bounds AS (
-    SELECT MAX(id) - :runs + 1 AS lo FROM digest_runs
+    SELECT MAX(id) - :runs + 1 AS lo FROM runs
 ),
 clusters AS (
-    SELECT cr.run_id,
-           c.key                                          AS cluster_index,
-           json_array_length(c.value, '$.article_ids')    AS size
-    FROM cluster_runs cr, json_each(cr.clusters_json, '$.clusters') c, bounds b
-    WHERE cr.run_id >= b.lo
+    SELECT a.run_id,
+           c.ord - 1                                         AS cluster_index,
+           jsonb_array_length(c.value -> 'article_ids')      AS size
+    FROM artifacts a
+    CROSS JOIN bounds b
+    CROSS JOIN LATERAL jsonb_array_elements(a.content::jsonb -> 'clusters') WITH ORDINALITY AS c(value, ord)
+    WHERE a.name = 'clusters.json' AND a.status = 'current' AND a.run_id >= b.lo
 ),
 picked AS (
-    SELECT ra.run_id, json_extract(s.value, '$.cluster_index') AS cluster_index, tier.k AS tier
-    FROM run_artifacts ra, bounds b,
-         (SELECT 'must_know' AS k UNION ALL SELECT 'should_know') tier,
-         json_each(json_extract(ra.content, '$.' || tier.k)) s
-    WHERE ra.artifact_name = 'selected.json' AND ra.run_id >= b.lo
+    SELECT a.run_id, s.value -> 'cluster_index' AS cluster_index, tier.k AS tier
+    FROM artifacts a
+    CROSS JOIN bounds b
+    CROSS JOIN (VALUES ('must_know'), ('should_know')) AS tier(k)
+    CROSS JOIN LATERAL jsonb_array_elements(a.content::jsonb -> tier.k) AS s
+    WHERE a.name = 'selected.json' AND a.status = 'current' AND a.run_id >= b.lo
 ),
 joined AS (
     SELECT c.run_id, c.size,
            CASE WHEN p.cluster_index IS NULL THEN 0 ELSE 1 END AS selected,
            p.tier
     FROM clusters c
-    LEFT JOIN picked p ON p.run_id = c.run_id AND p.cluster_index = c.cluster_index
+    LEFT JOIN picked p ON p.run_id = c.run_id AND p.cluster_index = to_jsonb(c.cluster_index)
 )
 SELECT
     CASE WHEN size = 1 THEN '1 (single outlet)'
@@ -53,7 +56,7 @@ SELECT
     ROUND(100.0 * SUM(selected) / SUM(SUM(selected)) OVER (), 1) AS pct_of_selections,
     ROUND((1.0 * SUM(selected) / SUM(SUM(selected)) OVER ())
         / NULLIF(1.0 * COUNT(*) / SUM(COUNT(*)) OVER (), 0), 2)  AS lift,
-    SUM(tier = 'must_know')                                AS as_must_know
+    SUM((tier = 'must_know')::int)                         AS as_must_know
 FROM joined
 GROUP BY cluster_size
 ORDER BY MIN(size);

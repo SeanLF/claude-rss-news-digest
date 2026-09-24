@@ -9,8 +9,9 @@
 --   the digest with no run-health rule covering it. This query is the read-out: it reads the
 --   archived selections.json, which is what the reader actually received, rather than
 --   inferring from the coherence report.
--- CAVEAT: Reads `selections.json` from run_artifacts, so it only covers runs 204+ (older runs
---   have no artifact) and a fail-soft archive write shows as a missing run, not a zero. It counts
+-- CAVEAT: Reads `selections.json` from artifacts, so it covers runs 204+ and the 67-200 the
+--   import carried from the retired selections table; a fail-soft archive write shows as a
+--   missing run, not a zero. It counts
 --   the SHIPPED state, so it cannot distinguish "repair was never attempted" from "repair was
 --   attempted and failed" -- read it against `repair_calls` in coherence-repair-yield, or against
 --   data/repair_log.jsonl, for that split.
@@ -29,13 +30,13 @@
 
 WITH shipped AS (
   SELECT
-    ra.run_id,
-    DATE(r.run_at) AS run_date,
-    TRIM(COALESCE(j.value ->> '$.why_it_matters', '')) AS wim
-  FROM run_artifacts ra
-  JOIN digest_runs r ON r.id = ra.run_id
-  JOIN json_each(json_extract(ra.content, '$.must_know')) AS j
-  WHERE ra.artifact_name = 'selections.json'
+    a.run_id,
+    (r.started_at AT TIME ZONE 'UTC')::date AS run_date,
+    TRIM(COALESCE(j.value ->> 'why_it_matters', '')) AS wim
+  FROM artifacts a
+  JOIN runs r ON r.id = a.run_id
+  CROSS JOIN LATERAL jsonb_array_elements(a.content::jsonb -> 'must_know') AS j
+  WHERE a.name = 'selections.json' AND a.status = 'current'
 ),
 per_run AS (
   SELECT

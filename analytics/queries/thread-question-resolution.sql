@@ -6,8 +6,8 @@
 --   defect the reader can see even though nothing errors. The age of the still-open
 --   questions is the tell: genuinely pending questions are recent, abandoned ones are
 --   old.
--- CAVEAT: "Resolved" means the pipeline marked it resolved, not that the world
---   answered it -- there is no verification that `resolved_how` is accurate, and a
+-- CAVEAT: "Resolved" means a published run resolved it (thread_question_state), not that
+--   the world answered it -- there is no verification that the `answer` is accurate, and a
 --   model with an incentive to close loops may over-resolve. Unresolved is also the
 --   correct state for a genuinely unresolved question, so a low resolution rate is
 --   not automatically failure; read it together with `mean_age_days` and
@@ -18,12 +18,13 @@
 -- PARAMS: (none -- describes the whole question population)
 
 WITH q AS (
-    SELECT tq.id, tq.status, tq.thread_id, tq.raised_run_id, tq.resolved_run_id,
-           t.status AS thread_status,
-           julianday('now') - julianday(tq.created_at) AS age_days,
-           tq.resolved_run_id - tq.raised_run_id       AS runs_to_resolve
-    FROM thread_questions tq
-    LEFT JOIN threads t ON t.id = tq.thread_id
+    SELECT qs.id, qs.status, qs.thread_id, qs.raised_run_id, qs.resolved_run_id,
+           ts.status AS thread_status,
+           EXTRACT(EPOCH FROM now() - tq.created_at) / 86400 AS age_days,
+           qs.resolved_run_id - qs.raised_run_id             AS runs_to_resolve
+    FROM thread_question_state qs
+    JOIN thread_questions tq ON tq.id = qs.id
+    LEFT JOIN thread_state ts ON ts.id = qs.thread_id
 )
 SELECT
     status,
@@ -34,9 +35,9 @@ SELECT
     ROUND(MAX(age_days), 1)                                       AS oldest_days,
     ROUND(AVG(runs_to_resolve), 1)                                AS mean_runs_to_resolve,
     MAX(runs_to_resolve)                                          AS max_runs_to_resolve,
-    SUM(thread_status = 'dormant')                                AS on_dormant_thread,
-    ROUND(100.0 * SUM(thread_status = 'dormant') / COUNT(*), 1)   AS pct_on_dormant_thread,
-    SUM(age_days <= 7)                                            AS raised_last_7d
+    SUM((thread_status = 'dormant')::int)                         AS on_dormant_thread,
+    ROUND(100.0 * SUM((thread_status = 'dormant')::int) / COUNT(*), 1) AS pct_on_dormant_thread,
+    SUM((age_days <= 7)::int)                                     AS raised_last_7d
 FROM q
 GROUP BY status
-ORDER BY status;
+ORDER BY status COLLATE "C";
