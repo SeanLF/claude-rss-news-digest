@@ -24,7 +24,7 @@ def plan_args(tmp_path, mode):
     tf.write_text(f'#!/bin/bash\nprintf "%s\\n" "$@" >> {asked}\nexit 0\n')
     tf.chmod(0o755)
     digests = tmp_path / "digests"
-    digests.mkdir()
+    digests.mkdir(exist_ok=True)
     script = f"""
 source {DEPLOY}
 trap - EXIT
@@ -48,6 +48,16 @@ def test_the_importer_is_this_checkouts(tmp_path, mode):
     args = plan_args(tmp_path, mode)
     assert args[0] == "plan"
     assert f"-var=news_digest_import_legacy_path={REPO.resolve()}/bin/import-legacy" in args
+
+
+def test_the_site_image_is_pinned_by_the_digest_it_was_pushed_at(tmp_path):
+    # seanfloyd.dev news-digest-temporal.tf runs var.news_digest_site_image_name ("digest-site") at
+    # var.news_digest_site_digest, and :latest when it is empty.
+    digests = tmp_path / "digests"
+    digests.mkdir()
+    (digests / "digest-site.digest").write_text("sha256:" + "a" * 64 + "\n")
+    args = plan_args(tmp_path, "temporal")
+    assert "-var=news_digest_site_digest=sha256:" + "a" * 64 in args
 
 
 def test_python_mode_passes_no_importer(tmp_path):
