@@ -405,18 +405,21 @@ def _collect_inline(
     """
     results: dict[str, str] = {}
     unfinished = 0
+    collected = 0
     executor = ThreadPoolExecutor(max_workers=_MAX_WORKERS)
     try:
         futures = {executor.submit(_fetch_one, aid, url, max_chars, max_doc_chars, allow): aid for aid, url in tasks}
         try:
             for future in as_completed(futures, timeout=deadline_s):
+                collected += 1
                 aid, text = future.result()
                 if text:
                     results[aid] = text
                     if on_result is not None:
                         on_result(aid, text)
         except TimeoutError:
-            unfinished = sum(1 for f in futures if not f.done())
+            # Not `not f.done()`: a fetch that finished after the timeout was never collected either.
+            unfinished = len(futures) - collected
             logger.warning(
                 "fulltext: deadline (%ss) hit, %d/%d fetches still in flight, taking what finished",
                 deadline_s,

@@ -115,6 +115,22 @@ class TestTheDeadlineOutcome:
         assert results == {}
         assert unfinished == 1
 
+    def test_a_fetch_that_lands_after_the_timeout_still_counts_as_unfinished(self, monkeypatch):
+        """Done but never collected: its result was not handed over, so the batch is not settled."""
+        monkeypatch.setattr(fulltext, "_download", lambda url, allow=frozenset(): None)
+
+        def times_out_after_the_fetch_finished(futures, timeout=None):
+            for f in futures:
+                f.result()
+            raise TimeoutError
+            yield  # a generator, as as_completed is
+
+        monkeypatch.setattr(fulltext, "as_completed", times_out_after_the_fetch_finished)
+        _results, unfinished = fulltext._collect_inline(
+            [("A1", "https://example.com/a")], max_chars=4000, deadline_s=5, max_doc_chars=0
+        )
+        assert unfinished == 1
+
     def test_a_batch_that_finished_leaves_nothing_unfinished(self, monkeypatch):
         monkeypatch.setattr(fulltext, "_download", lambda url, allow=frozenset(): None)
         results, unfinished = fulltext._collect_inline(
