@@ -188,6 +188,7 @@ services:
       # On: a dev run goes through the hold, its notification, approve or reject, and the send, all into
       # resend-fake. make band turns it off: a curation band has no send.
       BROADCAST_ENABLED: "${BROADCAST_ENABLED:-true}"
+      HOLD_ALWAYS_THROUGH: "${HOLD_ALWAYS_THROUGH:-}" # the cut-over hold, off unless set
       HEALTH_ALERT_EMAIL: operator@dev.invalid
       DIGEST_NAME: "${DIGEST_NAME:-News Digest}"
       # The email's "view in browser" and archive links go to the dev site.

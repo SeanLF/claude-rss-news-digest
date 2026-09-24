@@ -525,9 +525,10 @@ describe("DigestWorkflow", () => {
       expect(out.broadcast).toBe("sent");
       expect(calls).toContain("broadcast");
     }, 120_000);
-    it("with the send disabled nothing is published, sent, held for or recorded as shown, and the alert carries the failed checks", async () => {
+    it("with the send disabled nothing is published, sent, held for or recorded as shown, and the alert carries the failed checks, not the cut-over hold", async () => {
       const ops = recorder();
-      const { calls, acts } = tail({ sendEnabled: () => Promise.resolve(false), checkPreSend: () => Promise.resolve(FAILED) });
+      const CUTOVER = "CUTOVER_HOLD: every run through 2026-10-06 holds for the cut-over (HOLD_ALWAYS_THROUGH); no check failed";
+      const { calls, acts } = tail({ sendEnabled: () => Promise.resolve(false), checkPreSend: () => Promise.resolve([CUTOVER, ...FAILED]) });
       const out = await withWorker(async () => (await start("2026-10-06")).result(), { ...ops.acts, ...acts });
       expect(calls).toEqual(["archiveRun", "render", "checkPreSend", "sendEnabled", "finishRun"]);
       expect(out).toMatchObject({ broadcast: "disabled" });

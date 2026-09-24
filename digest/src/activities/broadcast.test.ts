@@ -325,6 +325,30 @@ describe("notifyHold", () => {
     expect(fake.names()).toEqual([]);
     expect(logged.join("\n")).toContain("INTERNAL_ID_LEAK");
   });
+  it("a cut-over hold with no failed check says so, and names no failed check", async () => {
+    const { selections, make } = await setup({});
+    const fake = fakeMail({});
+    const CUTOVER = "CUTOVER_HOLD: every run through 2026-10-01 holds for the cut-over (HOLD_ALWAYS_THROUGH); no check failed";
+    expect(await make(fake.mail).notifyHold(300, selections, "2026-09-08T12:45:00.000Z", [CUTOVER])).toEqual({ sent: true });
+    const p = fake.calls[0]![1] as { subject: string; html: string };
+    expect(p.subject).toBe("[Hold] Digest 2026-09-08: cut-over hold, no check failed; sends at 12:45 UTC unless rejected");
+    expect(p.html).toContain("<h2>Digest 2026-09-08 is held for the cut-over; no pre-send check failed</h2>");
+    expect(p.html).toContain("every run through 2026-10-01 holds for the cut-over");
+    expect(p.html).not.toContain("What failed");
+    expect(p.html).toContain("sends anyway");
+  });
+  it("a cut-over hold beside a failed check counts only the failed check", async () => {
+    const { selections, make } = await setup({});
+    const fake = fakeMail({});
+    const CUTOVER = "CUTOVER_HOLD: every run through 2026-10-01 holds for the cut-over (HOLD_ALWAYS_THROUGH); no check failed";
+    await make(fake.mail).notifyHold(300, selections, "2026-09-08T12:45:00.000Z", [CUTOVER, FAILED[0]!]);
+    const p = fake.calls[0]![1] as { subject: string; html: string };
+    expect(p.subject).toBe("[Hold] Digest 2026-09-08: INTERNAL_ID_LEAK; sends at 12:45 UTC unless rejected");
+    expect(p.html).toContain("<h2>Digest 2026-09-08 failed 1 pre-send check(s) and is held</h2>");
+    expect(p.html).toContain("<li>INTERNAL_ID_LEAK");
+    expect(p.html).not.toContain("<li>CUTOVER_HOLD");
+    expect(p.html).toContain("every run through 2026-10-01 holds for the cut-over");
+  });
   it("a Resend error is reported, not thrown", async () => {
     const { selections, make } = await setup({});
     const fake = fakeMail({ email: [() => fail("application_error")] });

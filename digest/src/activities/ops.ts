@@ -4,8 +4,10 @@ import { sendAlert, type AlertRequest } from "../ops/alerts.js";
 import { broadcastState } from "../ops/broadcast-state.js";
 import { feedHealthAlert } from "../ops/feed-health.js";
 import { healthcheck } from "../ops/healthcheck.js";
+import { cutoverHold } from "../ops/cutover-hold.js";
 import { preSendFailures, readPreSend } from "../ops/pre-send.js";
 import { coherenceKindCounts, getRunHealth, threadsEnabled, violations } from "../ops/run-health.js";
+import { runDateIn } from "../store/artifacts.js";
 import { openDb } from "../store/db.js";
 import { threadsConfigFrom } from "./threads.js";
 
@@ -68,10 +70,13 @@ export function opsActivities(deps: OpsDeps) {
     },
 
     // The pre-send checks on the assembled issue. Unlike the checks above this one throws: a check
-    // that cannot run is not a clean run, and the workflow holds it.
+    // that cannot run is not a clean run, and the workflow holds it. The cut-over hold rides along as
+    // one more line, so the workflow holds it with no command of its own.
     checkPreSend: async (runId: number): Promise<string[]> => {
-      const input = await readPreSend(openDb(deps.dbUrl), runId, { threadsEnabled: threadsEnabled(deps.env), dormantAfter: threadsConfigFrom(deps.env).dormantAfter });
-      const failures = preSendFailures(input);
+      const db = openDb(deps.dbUrl);
+      const input = await readPreSend(db, runId, { threadsEnabled: threadsEnabled(deps.env), dormantAfter: threadsConfigFrom(deps.env).dormantAfter });
+      const cutover = cutoverHold(deps.env, await runDateIn(db, runId));
+      const failures = [...(cutover ? [cutover] : []), ...preSendFailures(input)];
       console.log(JSON.stringify({ stage: "pre-send", runId, failures }));
       return failures;
     },

@@ -1,4 +1,5 @@
 import { resendBaseUrl } from "../resend/destination.js";
+import { holdAlwaysInvalid } from "./cutover-hold.js";
 
 // One line naming what the worker's environment leaves silent, logged at startup: an alert, a ping or a
 // send that cannot happen is otherwise found out only on the day it was needed. Null when all is set.
@@ -14,6 +15,8 @@ export function operationsEnvWarning(env: Record<string, string | undefined>): s
       parts.push(`every email will be refused (${e instanceof Error ? e.message : String(e)})`);
     }
   }
+  const hold = holdAlwaysInvalid(env);
+  if (hold) parts.push(`every run will hold (${hold})`);
   if (!env["HEALTHCHECK_PING_URL"]) parts.push("the dead-man's switch will not be pinged (HEALTHCHECK_PING_URL unset)");
   if (env["BROADCAST_ENABLED"] !== "true") parts.push("nothing will be broadcast (BROADCAST_ENABLED is not true)");
   else {

@@ -17,6 +17,10 @@ describe("operationsEnvWarning", () => {
     expect(operationsEnvWarning(dev)).toMatch(/^operations misconfigured: every email will be refused \(RESEND_BASE_URL is unset and RESEND_LIVE is not true/);
     expect(operationsEnvWarning({ ...dev, RESEND_BASE_URL: "http://resend-fake:8025" })).toBeNull();
   });
+  it("names a HOLD_ALWAYS_THROUGH that is not a date, since it holds every run until fixed", () => {
+    expect(operationsEnvWarning({ ...FULL, HOLD_ALWAYS_THROUGH: "true" })).toBe("operations misconfigured: every run will hold (HOLD_ALWAYS_THROUGH='true' is not a YYYY-MM-DD date)");
+    expect(operationsEnvWarning({ ...FULL, HOLD_ALWAYS_THROUGH: "2026-10-01" })).toBeNull();
+  });
   it("with the send on, a missing audience is named", () => {
     const { RESEND_AUDIENCE_ID: _, ...env } = FULL;
     expect(operationsEnvWarning(env)).toBe("operations misconfigured: the send will fail (RESEND_AUDIENCE_ID unset)");

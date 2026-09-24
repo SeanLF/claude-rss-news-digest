@@ -9,6 +9,7 @@ const db = (): Promise<string> => freshDb([305]);
 // Nothing listens on port 1: every query fails to connect.
 const UNREACHABLE = "postgres://nobody@127.0.0.1:1/none";
 const env = { HEALTH_ALERT_EMAIL: "ops@example.com", RESEND_API_KEY: "re_test", RESEND_FROM: "digest@example.com", THREADS_ENABLED: "true" };
+const story = (h: string, ids: string[]) => ({ headline: h, summary: `${h}.`, sources: ids.map((article_id) => ({ article_id })) });
 afterEach(async () => {
   vi.restoreAllMocks();
 });
@@ -60,6 +61,17 @@ describe("ops activities", () => {
     await opsActivities({ dbUrl: path, env, maxAttempts: 3, send }).alert({ kind: "run-failed", workflowId: "digest-2026-09-23", runId: 305, reason: "deadline", timedOut: true, sent: false });
     expect(sent[0]?.subject).toBe("[Alert] digest-2026-09-23 timed out after the digest was sent (run 305)");
     expect(sent[0]?.html).not.toContain("--resume");
+  });
+  it("checkPreSend adds the cut-over hold to a clean run dated on or before HOLD_ALWAYS_THROUGH, and not after", async () => {
+    vi.spyOn(console, "log").mockImplementation(() => undefined);
+    const path = await db(); // run 305 on 2026-09-18
+    const sel = { must_know: [{ ...story("Ceasefire holds", ["A1"]), why_it_matters: "It matters." }], should_know: [story("Storm nears", ["A2"]), story("Chips report", ["A3"]), story("Vote delayed", ["A4"])], preheader: "A ceasefire holds." };
+    const store = new ArtifactStore(path);
+    await store.put(305, "selections.json", JSON.stringify(sel));
+    await store.put(305, "draft_selections.json", JSON.stringify({ ...sel, preheader: "" }));
+    const check = (through: string) => opsActivities({ dbUrl: path, env: { ...env, THREADS_ENABLED: "false", HOLD_ALWAYS_THROUGH: through }, maxAttempts: 3 }).checkPreSend(305);
+    expect(await check("2026-09-18")).toEqual(["CUTOVER_HOLD: every run through 2026-09-18 holds for the cut-over (HOLD_ALWAYS_THROUGH); no check failed"]);
+    expect(await check("2026-09-17")).toEqual([]);
   });
   it("healthcheck maps success to the bare ping URL and logs through /log", async () => {
     const urls: string[] = [];
