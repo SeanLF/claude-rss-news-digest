@@ -16,8 +16,10 @@ export function sendRow(db: Sql, date: string): Promise<SendRow | undefined> {
 export const claimText = (row: Pick<SendRow, "claimedAt" | "token">): string => `${CLAIMED}${row.claimedAt ?? "?"} ${row.token ?? "?"}`;
 
 // The send for a run's UTC day, null when the day has none. A held claim reads as its claim text.
-export async function broadcastState(db: Sql, runId: number): Promise<{ date: string; id: string | null; status: string | null } | null> {
-  const run = await db.one<{ date: string }>("SELECT (started_at AT TIME ZONE 'UTC')::date AS date FROM runs WHERE id = $1", [runId]);
+// issueDate is the day the run is for; without it, the run's UTC start day stands in, which is wrong for
+// a run started before midnight for the next day, or resumed after midnight.
+export async function broadcastState(db: Sql, runId: number, issueDate?: string): Promise<{ date: string; id: string | null; status: string | null } | null> {
+  const run = issueDate === undefined ? await db.one<{ date: string }>("SELECT (started_at AT TIME ZONE 'UTC')::date AS date FROM runs WHERE id = $1", [runId]) : { date: issueDate };
   const row = run && (await sendRow(db, run.date));
   if (!row) return null;
   return { date: row.date, id: row.id, status: row.status === "claimed" ? claimText(row) : row.status };

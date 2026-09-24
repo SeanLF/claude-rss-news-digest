@@ -72,7 +72,7 @@ export function opsActivities(deps: OpsDeps) {
       if (req.kind === "run-failed" && req.runId !== null) {
         const runId = req.runId;
         try {
-          const day = await broadcastState(openDb(deps.dbUrl), runId);
+          const day = await broadcastState(openDb(deps.dbUrl), runId, /^digest-(\d{4}-\d{2}-\d{2})$/.exec(req.workflowId)?.[1]);
           if (day) req = { ...req, broadcastStatus: day.status, date: day.date };
         } catch (e) {
           console.error(`could not read the day's broadcast state for run ${runId}: ${String(e)}`); // the alert goes anyway

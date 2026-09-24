@@ -18,6 +18,12 @@ describe("the day's broadcast state", () => {
     expect(await broadcastState(await day(null), 300)).toBeNull();
     expect(await broadcastState(await day("sent", "b1"), 301)).toBeNull();
   });
+  it("reads the issue date the run is for, not the day it started: a run for tomorrow is not yesterday's send", async () => {
+    const d = await day("sent", "b1");
+    await d.run("INSERT INTO runs (id, started_at, status) VALUES (301, '2026-09-08 11:00:00+00', 'failed')");
+    expect(await broadcastState(d, 301, "2026-09-09")).toBeNull();
+    expect(await broadcastState(d, 300, "2026-09-08")).toMatchObject({ date: "2026-09-08", status: "sent" });
+  });
   it("shows a held claim as its claim text", async () => {
     expect(await broadcastState(await day("claimed"), 300)).toEqual({ date: "2026-09-08", id: null, status: "claimed 2026-09-08 10:00:00 00000000-0000-4000-8000-000000000001" });
   });
