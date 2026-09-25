@@ -50,18 +50,21 @@ def test_no_retired_variable_is_passed(tmp_path):
     assert "-var=news_digest_deploy_sha=0123456789" in args
 
 
-def test_the_targets_are_the_temporal_pipeline_the_site_swap_and_the_retirement(tmp_path):
+def test_the_targets_are_the_temporal_pipeline_and_the_site_swap(tmp_path):
     targets = {a.removeprefix("-target=") for a in plan_args(tmp_path) if a.startswith("-target=")}
     assert {
         "null_resource.news_digest_temporal_db",
         "null_resource.news_digest_workers",
         "null_resource.digest_server",
-        # A moved resource must be targeted by its own name: a dependency pulled in by digest_server
-        # does not count, and terraform refuses the plan.
         "null_resource.news_digest_site",
-        "null_resource.news_digest_retire_python",
     } <= targets
-    for gone in ("news_digest_service", "news_digest_timer", "news_digest_health_check", "news_digest_deadman"):
+    for gone in (
+        "news_digest_service",
+        "news_digest_timer",
+        "news_digest_health_check",
+        "news_digest_deadman",
+        "news_digest_retire_python",
+    ):
         assert f"null_resource.{gone}" not in targets
 
 

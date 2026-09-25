@@ -70,7 +70,7 @@ the old one only once it verifies. `bin/usage`, `bin/trace` and `bin/analytics` 
 through `bin/psql`, read-only; `bin/psql` alone opens it.
 
 The last SQLite database (`digest.db`, the Python pipeline's, frozen at the cut-over) is imported
-into Postgres by `bin/import-legacy`, which `make dev-import`, `make import-check`,
+into Postgres by `bin/import-legacy`, which `make import-check`,
 `make threads-parity`, `bin/site-parity` and `bin/search-eval` still use on their recorded clones.
 
 ## The dev stack (pipeline, site, mail)
@@ -82,7 +82,7 @@ and harnesses use `ci-pg`, a scratch server with no volume; a band copies `diges
 `CREATE DATABASE ... TEMPLATE`.
 
 ```bash
-make dev-import                   # a cp -c copy of data/prod-20260923b.db (SRC=...) becomes `digest`; starts the stack
+make dev-import                   # a copy of the prod clone (make db-clone first) becomes `digest`; starts the stack
 make dev-up                       # start or rebuild the stack; keeps its data
 make digest-start                 # today's run (UTC): sends at once if its pre-send checks pass, else holds 15 min
 make digest-start ARGS=--force    # today again: a new revision of the issue on the site, never a second send

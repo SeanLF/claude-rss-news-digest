@@ -87,16 +87,13 @@ dev-urls: ## Where the dev stack answers (OrbStack domains)
 dev-down: ## Stop the dev stack; keeps its volumes (the product database, Temporal's history, resend-fake's mail and contacts)
 	$(COMPOSE) stop $(DEV_SERVICES) digest-pg
 
-dev-import: ## Replace the dev stack's product database with a copy of a prod clone, then start the stack; resend-fake is left running (SRC=data/prod-20260923b.db)
-	@src=$${SRC:-data/prod-20260923b.db}; copy=data/dev-import.db; \
-	test -r "$$src" || { echo "no $$src (make db-clone)"; exit 2; }; \
-	rm -f "$$copy" && cp -c "$$src" "$$copy" || exit 1; \
+dev-import: ## Replace the dev stack's product database with a copy of the prod clone (make db-clone first), then start the stack; resend-fake is left running
+	@$(COMPOSE) up -d --wait digest-pg && \
+	$(COMPOSE) exec -T digest-pg psql -q -U postgres -v ON_ERROR_STOP=1 -tAc "SELECT 1 FROM pg_database WHERE datname = 'digest_clone'" | grep -q 1 \
+	  || { echo "no digest_clone in the dev stack (make db-clone)"; exit 2; }; \
 	$(COMPOSE) stop digest-site digest-worker >/dev/null 2>&1; \
-	$(COMPOSE) up -d --wait digest-pg && \
-	$(COMPOSE) exec -T digest-pg psql -q -U postgres -c "DROP DATABASE IF EXISTS digest WITH (FORCE)" -c "CREATE DATABASE digest" && \
-	IMPORT_NETWORK=$(PG_NETWORK) bin/import-legacy "$$copy" "postgres://postgres:digest@digest-pg:5432/digest?sslmode=disable" && \
-	$(MAKE) --no-print-directory dev-up COMPOSE='$(COMPOSE)' DEV_BUILD='$(filter-out resend-fake,$(DEV_BUILD))' && \
-	$(MAKE) --no-print-directory backfill-markdown COMPOSE='$(COMPOSE)'; status=$$?; rm -f "$$copy"; exit $$status
+	$(COMPOSE) exec -T digest-pg psql -q -U postgres -v ON_ERROR_STOP=1 -c "DROP DATABASE IF EXISTS digest WITH (FORCE)" -c "CREATE DATABASE digest TEMPLATE digest_clone" && \
+	$(MAKE) --no-print-directory dev-up COMPOSE='$(COMPOSE)' DEV_BUILD='$(filter-out resend-fake,$(DEV_BUILD))'
 
 backfill-markdown: ## Fill each stored issue's Markdown from its HTML where the pipeline wrote none (the imported issues; a rerun is a no-op)
 	$(COMPOSE) run --rm --no-deps digest-worker node dist/cli/backfill-markdown.js
