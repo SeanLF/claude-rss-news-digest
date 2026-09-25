@@ -1,4 +1,4 @@
-"""bin/deploy refuses a staged or temporal deploy whose terraform gives the worker no DIGEST_DATABASE_URL.
+"""bin/deploy refuses a deploy whose terraform gives the worker no DIGEST_DATABASE_URL.
 
 The worker dies at startup without it (digest/src/worker.ts), so the deploy would apply, and the
 day's run would never start. Terraform writes the worker's env (seanfloyd.dev news-digest-temporal.tf,
@@ -15,7 +15,7 @@ REPO = Path(__file__).parent.parent.parent
 DEPLOY = REPO / "bin" / "deploy"
 
 
-def check(tmp_path, *, mode, tf_out, tf_rc=0, tf_err=""):
+def check(tmp_path, *, tf_out, tf_rc=0, tf_err=""):
     """Source bin/deploy with bin/tf stubbed; return (rc, output, what console was asked)."""
     infra = tmp_path / "infra"
     (infra / "bin").mkdir(parents=True)
@@ -30,7 +30,6 @@ source {DEPLOY}
 trap - EXIT
 set +e
 INFRA_DIR={infra}
-PIPELINE_MODE={mode}
 DRY_RUN=false
 check_database_url
 """
@@ -39,9 +38,8 @@ check_database_url
     return p.returncode, p.stdout + p.stderr, asked.read_text() if asked.exists() else ""
 
 
-@pytest.mark.parametrize("mode", ["staged", "temporal"])
-def test_a_url_with_a_password_passes(tmp_path, mode):
-    rc, out, asked = check(tmp_path, mode=mode, tf_out="true\n")
+def test_a_url_with_a_password_passes(tmp_path):
+    rc, out, asked = check(tmp_path, tf_out="true\n")
     assert rc == 0, out
     assert "console" in asked
     assert "DIGEST_DATABASE_URL" in asked
@@ -52,20 +50,17 @@ def test_a_url_with_a_password_passes(tmp_path, mode):
 
 def test_a_warning_from_bin_tf_does_not_refuse(tmp_path):
     # bin/tf warns on stderr and exits 0 when an optional secret is unreadable (OpenRouter's key).
-    rc, out, _ = check(
-        tmp_path, mode="temporal", tf_out="true\n", tf_err="warn: OPENROUTER_API_KEY unreadable -- /ask stays dark\n"
-    )
+    rc, out, _ = check(tmp_path, tf_out="true\n", tf_err="warn: OPENROUTER_API_KEY unreadable -- /ask stays dark\n")
     assert rc == 0, out
 
 
 def test_the_refusal_names_terraforms_error_without_its_colour_codes(tmp_path):
     err = "\x1b[31m\u2577\x1b[0m\n\x1b[31m\u2502\x1b[0m \x1b[1m\x1b[31mError: \x1b[0m\x1b[1mReference to undeclared local value\x1b[0m\n"
-    rc, out, _ = check(tmp_path, mode="temporal", tf_out="", tf_rc=1, tf_err=err)
+    rc, out, _ = check(tmp_path, tf_out="", tf_rc=1, tf_err=err)
     assert rc == 1
     assert "Error: Reference to undeclared local value" in out
 
 
-@pytest.mark.parametrize("mode", ["staged", "temporal"])
 @pytest.mark.parametrize(
     ("tf_out", "tf_rc"),
     [
@@ -74,13 +69,7 @@ def test_the_refusal_names_terraforms_error_without_its_colour_codes(tmp_path):
         ("(sensitive value)\n", 0),  # anything but a plain true
     ],
 )
-def test_anything_but_a_url_refuses(tmp_path, mode, tf_out, tf_rc):
-    rc, out, _ = check(tmp_path, mode=mode, tf_out=tf_out, tf_rc=tf_rc)
+def test_anything_but_a_url_refuses(tmp_path, tf_out, tf_rc):
+    rc, out, _ = check(tmp_path, tf_out=tf_out, tf_rc=tf_rc)
     assert rc == 1, out
     assert "DIGEST_DATABASE_URL" in out
-
-
-def test_python_mode_never_asks(tmp_path):
-    rc, out, asked = check(tmp_path, mode="python", tf_out="false\n")
-    assert rc == 0, out
-    assert asked == ""

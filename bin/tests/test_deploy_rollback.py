@@ -1,9 +1,8 @@
 """The box keeps the last three images of each repository, and bin/deploy --rollback deploys one.
 
 The box's weekly cleanup (seanfloyd.dev scripts/server/cleanup.sh) runs `docker image prune -af`,
-which removes every image no container references, stopped or not. The newsroom image runs only as a
-one-shot `--rm` container, so it never survives a week, and a replaced worker's image goes the same
-way. bin/deploy leaves a stopped container per pushed image, labelled by repository, and removes all
+which removes every image no container references, stopped or not, so a replaced worker's or site's
+image never survives a week. bin/deploy leaves a stopped container per pushed image, labelled by repository, and removes all
 but the newest three, so a rollback by digest finds its image on the box. Here the box is played by
 a bash that runs the command bin/ssh is given, against a docker stub that keeps its containers in a
 file, newest first, as `docker ps` lists them.
@@ -89,11 +88,11 @@ def kept(tmp_path):
 
 
 def test_each_pushed_image_is_held_by_a_labelled_stopped_container(tmp_path):
-    rc, out = keep(tmp_path, {"digest-worker": digest("a"), "digest-newsroom": digest("b")})
+    rc, out = keep(tmp_path, {"digest-worker": digest("a"), "digest-site": digest("b")})
     assert rc == 0, out
     rows = {r[1]: r for r in kept(tmp_path)}
     assert rows["news-digest.keep=digest-worker"][2] == "reg.example:5000/digest-worker@" + digest("a")
-    assert rows["news-digest.keep=digest-newsroom"][2] == "reg.example:5000/digest-newsroom@" + digest("b")
+    assert rows["news-digest.keep=digest-site"][2] == "reg.example:5000/digest-site@" + digest("b")
 
 
 def test_only_the_newest_three_per_repository_are_kept(tmp_path):
@@ -191,9 +190,21 @@ SHIPPED = "0123456789abcdef0123456789abcdef01234567"
 
 @needs_git
 def test_a_rollback_pins_the_tags_digests_and_its_commit(tmp_path):
-    out, files = rollback(tmp_path, f"deploy {SHIPPED}\ndigest-newsroom {digest('b')}\ndigest-worker {digest('a')}")
+    out, files = rollback(tmp_path, f"deploy {SHIPPED}\ndigest-site {digest('b')}\ndigest-worker {digest('a')}")
     assert f"rc=0 SHA={SHIPPED} SKIP_BUILD=true" in out, out
-    assert files == {"digest-newsroom": digest("b"), "digest-worker": digest("a")}
+    assert files == {"digest-site": digest("b"), "digest-worker": digest("a")}
+
+
+@needs_git
+def test_a_rollback_ignores_the_retired_services_a_tag_pins(tmp_path):
+    # Tags from before the cut-over pin digest-newsroom and digest-circulation too.
+    out, files = rollback(
+        tmp_path,
+        f"deploy {SHIPPED}\ndigest-newsroom {digest('c')}\ndigest-circulation {digest('d')}\ndigest-worker {digest('a')}",
+    )
+    assert "rc=0" in out, out
+    assert files == {"digest-worker": digest("a")}
+    assert "digest-newsroom, which is no longer deployed" in out
 
 
 @needs_git
@@ -223,14 +234,14 @@ def test_a_missing_tag_refuses(tmp_path):
 def test_a_rollback_says_which_services_stay_on_latest(tmp_path):
     out, _ = rollback(tmp_path, f"deploy {SHIPPED}\ndigest-worker {digest('a')}")
     assert "rc=0" in out
-    assert "digest-newsroom" in out and ":latest" in out
+    assert "digest-python" in out and "digest-site" in out and ":latest" in out
 
 
 @needs_git
-def test_a_rollback_neither_migrates_nor_checks_local_provenance(tmp_path):
+def test_a_rollback_does_not_check_local_provenance(tmp_path):
     out, _ = rollback(
         tmp_path,
-        f"deploy {SHIPPED}\ndigest-newsroom {digest('b')}",
-        fn="load_rollback; SCRIPT_DIR=/nonexistent; verify_provenance && run_migrations",
+        f"deploy {SHIPPED}\ndigest-worker {digest('b')}",
+        fn="load_rollback; SCRIPT_DIR=/nonexistent; verify_provenance",
     )
     assert "rc=0" in out, out

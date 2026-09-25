@@ -13,13 +13,12 @@ import pytest
 DEPLOY = Path(__file__).parent.parent.parent / "bin" / "deploy"
 
 
-def window(paris_hhmm, mode="temporal", force="false"):
+def window(paris_hhmm, force="false"):
     # `date` answers only when asked for Paris time; a UTC read gets a time outside any window.
     script = f"""
 source {DEPLOY}
 trap - EXIT
 date() {{ [ "$TZ" = Europe/Paris ] && echo {paris_hhmm} || echo 0300; }}
-PIPELINE_MODE={mode}
 FORCE={force}
 check_run_window
 """
@@ -43,7 +42,3 @@ def test_allows_outside_it(hhmm):
 
 def test_force_goes_ahead_inside_it():
     assert window("1225", force="true")[0] == 0
-
-
-def test_only_temporal_mode_is_guarded():
-    assert window("1225", mode="staged")[0] == 0

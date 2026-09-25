@@ -61,9 +61,8 @@ def test_a_failed_fresh_dump_is_loud_and_does_not_stop_the_deploy(tmp_path):
 
 
 def test_an_infra_checkout_without_the_flag_is_named_and_still_backed_up(tmp_path):
-    # Exit 64 is backup-volumes' usage error: a checkout older than --fresh-digest-dump. That version
-    # snapshots digest.db on every run and copies no Postgres dump, so a plain run still saves the
-    # SQLite side, and the output must say the Postgres dump is missing.
+    # Exit 64 is backup-volumes' usage error: a checkout older than --fresh-digest-dump, which copies
+    # no Postgres dump. A plain run still saves the volumes, and the output must say the dump is missing.
     rc, out, calls = backup(tmp_path, rc_fresh=64)
     assert rc == 0, out
     assert "--fresh-digest-dump" in out

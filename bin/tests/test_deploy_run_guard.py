@@ -3,9 +3,6 @@
 A run is pinned to the worker build that started it, and a deploy stops the box's only worker of that
 build, so the run sits with no alert (digest/src/deployment.test.ts). The guard asks the box's
 Temporal, through a stub of bin/ssh here, so each answer the box can give is played.
-
-Only "temporal" refuses. In "staged" the TypeScript runs are rehearsals on a scratch database and
-Python is live, so a Temporal problem there warns and must not block Python's deploy.
 """
 
 import base64
@@ -57,9 +54,7 @@ STUCK = [
 ]
 
 
-def run_guard(
-    tmp_path, *, mode="temporal", ssh_out="[]\n", ssh_rc=0, force=False, dry_run=False, fn="check_no_run_in_flight"
-):
+def run_guard(tmp_path, *, ssh_out="[]\n", ssh_rc=0, force=False, dry_run=False, fn="check_no_run_in_flight"):
     """Source bin/deploy with bin/ssh stubbed; return (rc, output, the commands ssh was given)."""
     calls = tmp_path / "ssh-calls"
     stub = tmp_path / "ssh"
@@ -70,7 +65,6 @@ source {DEPLOY}
 trap - EXIT
 set +e
 SCRIPT_DIR={tmp_path}
-PIPELINE_MODE={mode}
 FORCE={"true" if force else "false"}
 DRY_RUN={"true" if dry_run else "false"}
 SHA=0123456789
@@ -117,19 +111,6 @@ def test_a_stuck_run_is_named_as_stuck(tmp_path):
     assert "digest-2026-09-23 (stuck" not in out
 
 
-def test_staged_warns_under_a_running_digest_and_deploys(tmp_path):
-    rc, out, calls = run_guard(tmp_path, mode="staged", ssh_out=json.dumps(RUNNING))
-    assert rc == 0
-    assert "digest-2026-09-23" in out
-    assert len(calls) == 1
-
-
-def test_staged_warns_past_an_unreachable_temporal(tmp_path):
-    rc, out, _ = run_guard(tmp_path, mode="staged", ssh_out="", ssh_rc=255)
-    assert rc == 0
-    assert "could not list" in out
-
-
 @pytest.mark.parametrize(
     ("ssh_out", "ssh_rc"),
     [
@@ -157,12 +138,6 @@ def test_a_box_without_temporal_yet_has_no_run_to_wait_for(tmp_path):
     assert rc == 0, out
 
 
-def test_python_mode_never_asks(tmp_path):
-    rc, _, calls = run_guard(tmp_path, mode="python", ssh_out=json.dumps(RUNNING))
-    assert rc == 0
-    assert calls == []
-
-
 def test_dry_run_never_asks(tmp_path):
     rc, _, calls = run_guard(tmp_path, dry_run=True, ssh_out=json.dumps(RUNNING))
     assert rc == 0
@@ -173,12 +148,6 @@ def test_dry_run_never_asks(tmp_path):
 def test_a_pause_that_fails_refuses(tmp_path):
     rc, out, _ = run_guard(tmp_path, fn="pause_schedule", ssh_out="connection refused", ssh_rc=1)
     assert rc == 1, out
-
-
-def test_a_pause_that_fails_in_staged_warns_and_deploys(tmp_path):
-    rc, out, _ = run_guard(tmp_path, mode="staged", fn="pause_schedule", ssh_out="connection refused", ssh_rc=1)
-    assert rc == 0
-    assert "could not pause" in out
 
 
 def test_a_pause_that_fails_deploys_under_force(tmp_path):
@@ -233,7 +202,7 @@ def test_a_waiting_list_that_failed_claims_no_waiting_run(tmp_path):
     assert "no worker has taken digest run" not in out
 
 
-def test_a_stranded_run_fails_a_temporal_deploy_and_says_how_to_move_it(tmp_path):
+def test_a_stranded_run_fails_the_deploy_and_says_how_to_move_it(tmp_path):
     rc, out, _ = run_guard(tmp_path, fn="set_current_version", ssh_out=STRANDED, ssh_rc=2)
     assert rc == 1
     assert "digest-2026-09-23 pinned to 0ld0000" in out
@@ -241,15 +210,8 @@ def test_a_stranded_run_fails_a_temporal_deploy_and_says_how_to_move_it(tmp_path
     assert "--versioning-override-build-id abc1234" in out
 
 
-def test_a_stranded_rehearsal_warns_in_staged(tmp_path):
-    rc, out, _ = run_guard(tmp_path, mode="staged", fn="set_current_version", ssh_out=STRANDED, ssh_rc=2)
-    assert rc == 0
-    assert "digest-2026-09-23" in out
-
-
-@pytest.mark.parametrize(("mode", "dry_run"), [("python", False), ("temporal", True)])
-def test_set_current_never_asks_in_python_or_a_dry_run(tmp_path, mode, dry_run):
-    rc, _, calls = run_guard(tmp_path, mode=mode, dry_run=dry_run, fn="set_current_version", ssh_out=CURRENT)
+def test_set_current_never_asks_in_a_dry_run(tmp_path):
+    rc, _, calls = run_guard(tmp_path, dry_run=True, fn="set_current_version", ssh_out=CURRENT)
     assert rc == 0
     assert calls == []
 

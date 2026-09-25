@@ -50,13 +50,12 @@ mkdir -p "$DIGEST_DIR"
     return p.returncode, p.stdout + p.stderr, made
 
 
-def builds(tmp_path, mode):
+def builds(tmp_path):
     """build_and_push's image calls, with each build replaced by a line naming its arguments."""
     rc, out, _ = run(
         tmp_path,
         f"""
 DRY_RUN=true
-PIPELINE_MODE={mode}
 build_and_push_image() {{ printf '%s|%s|%s|%s|%s\\n' "$@" >> {tmp_path / "builds"}; }}
 build_and_push
 """,
@@ -66,9 +65,8 @@ build_and_push
     return {line.split("|")[0]: line.split("|")[1:] for line in lines}
 
 
-@pytest.mark.parametrize("mode", ["staged", "temporal"])
-def test_the_worker_and_the_site_build_from_their_own_targets(tmp_path, mode):
-    b = builds(tmp_path, mode)
+def test_the_worker_and_the_site_build_from_their_own_targets(tmp_path):
+    b = builds(tmp_path)
     worker, site = b["digest-worker"], b["digest-site"]
     assert worker[1] == site[1] == "digest/Dockerfile"
     assert "--target worker" in worker[2]
@@ -80,10 +78,11 @@ def test_the_worker_and_the_site_build_from_their_own_targets(tmp_path, mode):
     assert site[3] == "bundled"
 
 
-def test_python_mode_builds_neither(tmp_path):
-    b = builds(tmp_path, "python")
-    assert "digest-worker" not in b
-    assert "digest-site" not in b
+def test_only_the_three_temporal_images_are_built(tmp_path):
+    # The Python pipeline (digest-newsroom) and circulation (digest-circulation) retired at the cut-over.
+    b = builds(tmp_path)
+    assert set(b) == {"digest-worker", "digest-python", "digest-site"}
+    assert b["digest-python"] == [".", "digest/python/Dockerfile", "", "image"]
 
 
 def test_the_image_build_passes_the_revision_label(tmp_path):

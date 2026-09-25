@@ -1,21 +1,20 @@
-"""bin/deploy hands terraform the importer from its own checkout.
+"""bin/deploy's terraform plan: which resources it targets and which variables it passes.
 
-Terraform ships bin/import-legacy to the box for the staged refresh and the cut-over import
-(seanfloyd.dev news-digest-temporal.tf, var.news_digest_import_legacy_path). Left empty, terraform
-reads a sibling checkout, which may be on another commit than the worker image this deploy built.
+seanfloyd.dev's news-digest.tf and news-digest-temporal.tf describe the Temporal pipeline alone since
+the cut-over. Terraform refuses a -var for a variable it does not declare, so the Python pipeline's
+and circulation's digests and the importer's path must not be passed, and a -target of a resource it
+no longer has would only plan its destroy.
 """
 
 import os
 import subprocess
 from pathlib import Path
 
-import pytest
-
 REPO = Path(__file__).parent.parent.parent
 DEPLOY = REPO / "bin" / "deploy"
 
 
-def plan_args(tmp_path, mode):
+def plan_args(tmp_path):
     """Run apply_terraform with bin/tf stubbed to 'no changes'; return the plan's arguments."""
     infra = tmp_path / "infra"
     (infra / "bin").mkdir(parents=True)
@@ -31,7 +30,6 @@ trap - EXIT
 set +e
 INFRA_DIR={infra}
 DIGEST_DIR={digests}
-PIPELINE_MODE={mode}
 DRY_RUN=false
 SHA=0123456789
 apply_terraform
@@ -43,28 +41,64 @@ apply_terraform
     return asked.read_text().splitlines()
 
 
-@pytest.mark.parametrize("mode", ["staged", "temporal"])
-def test_the_importer_is_this_checkouts(tmp_path, mode):
-    args = plan_args(tmp_path, mode)
+def test_no_retired_variable_is_passed(tmp_path):
+    args = plan_args(tmp_path)
     assert args[0] == "plan"
-    assert f"-var=news_digest_import_legacy_path={REPO.resolve()}/bin/import-legacy" in args
+    for gone in ("news_digest_newsroom_digest", "news_digest_circulation_digest", "news_digest_import_legacy_path"):
+        assert not [a for a in args if gone in a], gone
+    # Negative control: the variables that stay are passed.
+    assert "-var=news_digest_deploy_sha=0123456789" in args
 
 
-def test_the_site_image_is_pinned_by_the_digest_it_was_pushed_at(tmp_path):
-    # seanfloyd.dev news-digest-temporal.tf runs var.news_digest_site_image_name ("digest-site") at
-    # var.news_digest_site_digest, and :latest when it is empty.
+def test_the_targets_are_the_temporal_pipeline_the_site_swap_and_the_retirement(tmp_path):
+    targets = {a.removeprefix("-target=") for a in plan_args(tmp_path) if a.startswith("-target=")}
+    assert {
+        "null_resource.news_digest_temporal_db",
+        "null_resource.news_digest_workers",
+        "null_resource.digest_server",
+        "null_resource.news_digest_retire_python",
+    } <= targets
+    for gone in ("news_digest_service", "news_digest_timer", "news_digest_health_check", "news_digest_deadman"):
+        assert f"null_resource.{gone}" not in targets
+
+
+def test_each_image_is_pinned_by_the_digest_it_was_pushed_at(tmp_path):
+    # seanfloyd.dev news-digest-temporal.tf runs each image at its digest, and :latest when it is empty.
     digests = tmp_path / "digests"
     digests.mkdir()
-    (digests / "digest-site.digest").write_text("sha256:" + "a" * 64 + "\n")
-    args = plan_args(tmp_path, "temporal")
+    for name, c in (("digest-site", "a"), ("digest-worker", "b"), ("digest-python", "c")):
+        (digests / f"{name}.digest").write_text("sha256:" + c * 64 + "\n")
+    args = plan_args(tmp_path)
     assert "-var=news_digest_site_digest=sha256:" + "a" * 64 in args
+    assert "-var=news_digest_worker_digest=sha256:" + "b" * 64 in args
+    assert "-var=news_digest_python_digest=sha256:" + "c" * 64 in args
 
 
-def test_python_mode_passes_no_importer(tmp_path):
-    # The variable exists only in infra that carries the product database; python-mode infra may not
-    # declare it, and terraform refuses a value for an undeclared variable.
-    args = plan_args(tmp_path, "python")
-    assert not [a for a in args if "news_digest_import_legacy_path" in a]
+def pipeline_mode(tmp_path, answer):
+    infra = tmp_path / "infra"
+    (infra / "bin").mkdir(parents=True, exist_ok=True)
+    tf = infra / "bin" / "tf"
+    tf.write_text(f"#!/bin/bash\ncat >/dev/null\nprintf '%s' '{answer}'\n")
+    tf.chmod(0o755)
+    script = f"""
+source {DEPLOY}
+trap - EXIT
+set +e
+INFRA_DIR={infra}
+read_pipeline_mode
+"""
+    p = subprocess.run(
+        ["bash", "-c", script], capture_output=True, text=True, env={**os.environ, "CLAUDECODE": ""}, timeout=60
+    )
+    return p.returncode, p.stdout + p.stderr
+
+
+def test_the_pipeline_mode_must_be_temporal(tmp_path):
+    assert pipeline_mode(tmp_path, '"temporal"')[0] == 0
+    for other in ('"python"', '"staged"', "", "Warning: value for undeclared variable"):
+        rc, out = pipeline_mode(tmp_path, other)
+        assert rc == 1, (other, out)
+        assert "not temporal" in out
 
 
 def test_a_failed_plan_never_applies_a_plan_file_left_behind(tmp_path):
@@ -87,7 +121,6 @@ source {DEPLOY}
 trap - EXIT
 INFRA_DIR={infra}
 DIGEST_DIR={digests}
-PIPELINE_MODE=temporal
 DRY_RUN=false
 SHA=0123456789
 apply_terraform

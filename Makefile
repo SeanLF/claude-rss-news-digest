@@ -45,7 +45,7 @@ web-check: ## Both gates against the pages the site (digest-site) really serves 
 	bin/web-check $(if $(FAST),--fast,)
 
 ## Deploy
-deploy: ## Deploy to production (build, push, terraform, migrate)
+deploy: ## Deploy to production (build, push, terraform)
 	bin/deploy
 deploy-dry: ## Preview deployment without changes
 	bin/deploy --dry-run
