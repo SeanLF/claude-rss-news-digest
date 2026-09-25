@@ -1,58 +1,42 @@
 #!/bin/bash
 # Clone the production database into a local Postgres database (bin/psql, bin/usage, bin/trace and
 # bin/analytics read it).
-# Usage: bin/db-clone [--output PATH] [--live]
+# Usage: bin/db-clone [--live]
 #
-# Prefers the newest verified backup over a live copy; --live forces the wire copy. What production
-# runs on is bin/lib/prod-store (DIGEST_PROD_STORE overrides it), and the cut-over flips it:
-#   sqlite    bin/deploy's SQLite snapshot (or a live `cat` of the volume) lands at --output
-#             (default data/digest.db), then bin/import-legacy builds the Postgres clone from it.
-#   postgres  bin/backup-volumes' digest.pg.dump (or a live pg_dump as digest_ro) is restored.
+# Restores bin/backup-volumes' newest verified digest.pg.dump; --live (or no verified backup) takes a
+# pg_dump over the wire as digest_ro instead.
 # The clone is $DIGEST_CLONE_URL (default digest_clone in the dev stack's digest-pg, docker-compose.yml,
-# project ${COMPOSE_PROJECT_NAME:-news-digest}, started here if it is not running). It is built as <name>_new and renamed over <name> only after
-# it verifies, as the SQLite file is replaced only after its candidate verifies: a shell redirect
-# truncates before the command runs, so writing straight into the target once destroyed the local
-# database on a failed copy (a stopped Tailscale, 2026-08-30) and left nothing to fall back to.
+# project ${COMPOSE_PROJECT_NAME:-news-digest}, started here if it is not running). It is built as
+# <name>_new and renamed over <name> only after it verifies: writing straight into the target once
+# destroyed the local database on a failed copy (a stopped Tailscale, 2026-08-30) and left nothing
+# to fall back to.
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
-DEFAULT_OUTPUT="$PROJECT_DIR/data/digest.db"
 BACKUP_ROOT="${NEWS_DIGEST_BACKUP_ROOT:-$HOME/Backups/seanfloyd-hetzner}"
-STORE="${DIGEST_PROD_STORE:-$(tr -d '[:space:]' < "$SCRIPT_DIR/lib/prod-store")}"
 PG_IMAGE="postgres:18.6-alpine3.24"
 PG_CONTAINER="news-digest-temporal-postgres"
 
 # shellcheck source=lib/log.sh
 source "$SCRIPT_DIR/lib/log.sh"
 
-OUTPUT_PATH="$DEFAULT_OUTPUT"
 FORCE_LIVE=false
 
 while [[ $# -gt 0 ]]; do
   case $1 in
-    --output)
-      [[ -n ${2:-} ]] || { log_error "--output requires a path argument"; exit 1; }
-      OUTPUT_PATH="$2"; shift 2 ;;
     --live)
       FORCE_LIVE=true; shift ;;
     -h|--help)
-      echo "Usage: bin/db-clone [--output PATH] [--live]"
+      echo "Usage: bin/db-clone [--live]"
       echo "Clone the production database into the local Postgres clone (\$DIGEST_CLONE_URL)."
       echo "Prefers the newest verified backup; --live forces a copy over the wire."
-      echo "Production store: $STORE (bin/lib/prod-store). On sqlite, the file also lands at --output"
-      echo "(default $DEFAULT_OUTPUT, replaced only after the candidate verifies)."
       exit 0 ;;
     *)
       log_error "Unknown option: $1"; exit 1 ;;
   esac
 done
-
-case "$STORE" in
-  sqlite|postgres) ;;
-  *) log_error "unknown store '$STORE' (bin/lib/prod-store or DIGEST_PROD_STORE)"; exit 1 ;;
-esac
 
 # --- the local Postgres clone -------------------------------------------------------------------
 
@@ -90,72 +74,6 @@ promote_candidate() {
   admin_sql "DROP DATABASE IF EXISTS $CLONE_DB WITH (FORCE)"
   admin_sql "ALTER DATABASE $CANDIDATE_DB RENAME TO $CLONE_DB"
   log_success "Clone: $CLONE_DB ($runs runs)"
-}
-
-# --- sqlite: the file, then the import --------------------------------------------------------
-
-# A SQLite file is only trustworthy if it is internally consistent AND complete. Size alone
-# is not enough: a truncated copy is still non-empty, which is exactly what the old -s check
-# accepted. page_count*page_size catches the truncation; integrity_check catches corruption.
-verify_sqlite() {
-  local path="$1"
-  [[ -s "$path" ]] || { log_error "candidate is empty"; return 1; }
-  if ! command -v sqlite3 >/dev/null 2>&1; then
-    log_info "sqlite3 not on PATH -- size checked, contents NOT verified"
-    return 0
-  fi
-  local integrity expected actual
-  integrity="$(sqlite3 "$path" 'PRAGMA integrity_check;' 2>/dev/null | head -1)"
-  [[ "$integrity" == "ok" ]] || { log_error "integrity_check: ${integrity:-unreadable}"; return 1; }
-  expected="$(sqlite3 "$path" 'SELECT (SELECT * FROM pragma_page_count())*(SELECT * FROM pragma_page_size());' 2>/dev/null)"
-  actual="$(wc -c <"$path" | tr -d ' ')"
-  [[ "$expected" == "$actual" ]] || { log_error "truncated: $actual bytes, header claims $expected"; return 1; }
-  return 0
-}
-
-clone_sqlite() {
-  local tmp="$1" source="" dir
-  if [[ "$FORCE_LIVE" == false && -d "$BACKUP_ROOT" ]]; then
-    # Newest first; a partially-written backup dir simply fails verification and we move on.
-    # fd 3, because docker run -i reads stdin: on fd 0 the first restore swallowed the list.
-    while IFS= read -r dir <&3; do
-      [[ -f "$dir/digest.db.gz" ]] || continue
-      log_step "Trying backup $(basename "$dir")..."
-      # Verify against the backup's own MANIFEST before spending time on decompression.
-      if [[ -f "$dir/MANIFEST" ]] && command -v shasum >/dev/null 2>&1; then
-        if ! (cd "$dir" && shasum -a 256 -c --status --ignore-missing MANIFEST 2>/dev/null); then
-          log_info "  checksum mismatch -- skipping"; continue
-        fi
-      fi
-      gunzip -c "$dir/digest.db.gz" >"$tmp" 2>/dev/null || { log_info "  decompress failed -- skipping"; continue; }
-      if verify_sqlite "$tmp"; then source="backup $(basename "$dir")"; break; fi
-      log_info "  failed verification -- skipping"
-    done 3< <(find "$BACKUP_ROOT" -mindepth 1 -maxdepth 1 -type d | sort -r)
-  fi
-
-  if [[ -z "$source" ]]; then
-    [[ "$FORCE_LIVE" == true ]] || log_info "No verified backup found -- falling back to a live copy"
-    log_step "Cloning over the wire..."
-    "$SCRIPT_DIR/ssh" "docker run --rm -v news-digest-data:/data alpine cat /data/digest.db" >"$tmp"
-    verify_sqlite "$tmp" || { log_error "Live clone failed verification -- $OUTPUT_PATH left untouched"; exit 1; }
-    source="live copy"
-  fi
-
-  mkdir -p "$(dirname "$OUTPUT_PATH")"
-  mv "$tmp" "$OUTPUT_PATH"
-  log_success "Done: $OUTPUT_PATH ($(du -h "$OUTPUT_PATH" | cut -f1), from $source)"
-  if [[ "$source" == backup* ]]; then
-    # bin/deploy snapshots BEFORE applying migrations, so the file can be one yoyo migration behind
-    # for the Python tools that read it. Run `make migrate` if a stage errors on a missing column.
-    log_step "Backups are taken pre-migration -- run 'make migrate' if the file's schema looks behind."
-  fi
-
-  ensure_local_server
-  log_step "Importing it into $CANDIDATE_DB (bin/import-legacy)..."
-  new_candidate
-  IMPORT_NETWORK="$CLONE_NET" "$SCRIPT_DIR/import-legacy" "$OUTPUT_PATH" "$(url_for "$CANDIDATE_DB")" \
-    || { log_error "import failed -- $CLONE_DB left untouched; $OUTPUT_PATH is current"; exit 1; }
-  promote_candidate
 }
 
 # --- postgres: a dump, restored ---------------------------------------------------------------
@@ -199,8 +117,4 @@ clone_postgres() {
 TMP="$(mktemp "${TMPDIR:-/tmp}/db-clone.XXXXXX")"
 trap 'rm -f "$TMP"' EXIT
 
-if [[ "$STORE" == sqlite ]]; then
-  clone_sqlite "$TMP"
-else
-  clone_postgres "$TMP"
-fi
+clone_postgres "$TMP"

@@ -1,19 +1,15 @@
 """bin/ops: read-only operator queries against prod, over the SSH channel that already exists.
 
 The security property under test is that this tool can only READ. It runs on the box with production
-data under it, so a payload that could write would be a foot-gun. Until the cut-over it reads the
-SQLite file (every payload opens it read-only, from a read-only mount); after it, Postgres (the
-digest_ro role and a read-only session). bin/lib/prod-store says which, and the cut-over flips it.
-Both stores are tested here whatever the file says. The Postgres payloads are executed against a
-real server in digest/src/ops/ops-payloads.test.ts.
+data under it, so a payload that could write would be a foot-gun. It reads Postgres as the
+digest_ro role in a read-only session. The payloads are executed against a real server in
+digest/src/ops/ops-payloads.test.ts.
 """
 
 import os
 import re
 import shlex
-import sqlite3
 import subprocess
-import sys
 from importlib.machinery import SourceFileLoader
 from importlib.util import module_from_spec, spec_from_loader
 from pathlib import Path
@@ -34,23 +30,6 @@ def _load():
 ops = _load()
 
 SQL_SUBCOMMANDS = ("run", "usage", "health", "artifacts", "artifact")
-WRITE_VERBS = ("insert ", "update ", "delete ", "drop ", "alter ", "create ", "attach ")
-
-
-@pytest.mark.parametrize("sub", SQL_SUBCOMMANDS)
-def test_every_sql_payload_opens_the_database_read_only(sub):
-    """mode=ro is the whole safety story: SQLite itself refuses the write, so a bug in this
-    script cannot damage production data."""
-    payload = ops.build_payload(sub, store="sqlite")
-    assert "mode=ro" in payload
-    assert "uri=True" in payload
-
-
-@pytest.mark.parametrize("sub", SQL_SUBCOMMANDS)
-def test_no_payload_carries_a_write_verb(sub):
-    payload = ops.build_payload(sub, store="sqlite").lower()
-    for verb in WRITE_VERBS:
-        assert verb not in payload, f"{sub} payload contains {verb!r}"
 
 
 @pytest.mark.parametrize("sub", SQL_SUBCOMMANDS)
@@ -58,9 +37,7 @@ def test_no_postgres_payload_carries_a_write_or_a_session_change(sub):
     """A SET could turn the read-only session off, so it counts as a write here. A psql
     meta-command runs as root in the database's container on the box (\\! is a shell, \\o writes a
     file), so only the ones the payloads need may appear; those lines and comments are not SQL."""
-    lines = [
-        line for line in ops.build_payload(sub, store="postgres").splitlines() if not line.lstrip().startswith("--")
-    ]
+    lines = [line for line in ops.build_payload(sub).splitlines() if not line.lstrip().startswith("--")]
     allowed = {
         "\\set",
         "\\pset",
@@ -101,20 +78,9 @@ def test_no_postgres_payload_carries_a_write_or_a_session_change(sub):
         assert not re.search(rf"\b{verb}\b", sql), f"{sub} payload contains {verb!r}"
 
 
-def test_the_prod_store_file_names_a_store():
-    """The switch the cut-over flips. Anything else would make every subcommand refuse to run."""
-    assert ops.STORE_FILE.read_text().strip() in ("sqlite", "postgres")
-
-
-def test_an_unknown_store_is_refused(monkeypatch):
-    monkeypatch.setenv("DIGEST_PROD_STORE", "mysql")
-    with pytest.raises(SystemExit):
-        ops.prod_store()
-
-
 @pytest.mark.parametrize("sub", SQL_SUBCOMMANDS)
 def test_a_postgres_payload_is_the_psql_script_the_real_server_test_runs(sub):
-    payload = ops.build_payload(sub, store="postgres")
+    payload = ops.build_payload(sub)
     assert payload == (ops.PAYLOAD_DIR / f"{sub}.sql").read_text()
     # The run id (and the name) reach Postgres as bound parameters read from the environment.
     assert "\\getenv rid OPS_RUN" in payload and "\\bind" in payload
@@ -123,7 +89,7 @@ def test_a_postgres_payload_is_the_psql_script_the_real_server_test_runs(sub):
 def test_the_postgres_command_logs_in_as_the_read_only_role_in_a_read_only_session():
     """The two guarantees on Postgres: digest_ro holds SELECT only, and PGOPTIONS makes every
     transaction read-only. ops-payloads.test.ts shows each refusing a write without the other."""
-    argv = shlex.split(ops.remote_command({"OPS_RUN": "285", "OPS_NAME": ""}, store="postgres"))
+    argv = shlex.split(ops.remote_command({"OPS_RUN": "285", "OPS_NAME": ""}))
     exec_at = argv.index("exec")
     assert argv[exec_at - 1] == "docker"
     assert "PGOPTIONS=-c default_transaction_read_only=on" in argv
@@ -137,24 +103,22 @@ def test_the_postgres_command_logs_in_as_the_read_only_role_in_a_read_only_sessi
 
 def test_the_postgres_command_passes_an_empty_run_id_rather_than_none():
     """An unset variable reaches \\bind as the literal text ':rid'; an empty one means the latest."""
-    argv = shlex.split(ops.remote_command({"OPS_RUN": "", "OPS_NAME": ""}, store="postgres"))
+    argv = shlex.split(ops.remote_command({"OPS_RUN": "", "OPS_NAME": ""}))
     assert "OPS_RUN=" in argv and "OPS_NAME=" in argv
 
 
 def test_a_hostile_name_stays_one_quoted_word_in_the_postgres_command():
     hostile = "x'; docker rm -f news-digest-temporal-postgres; echo '"
-    argv = shlex.split(ops.remote_command({"OPS_RUN": "1", "OPS_NAME": hostile}, store="postgres"))
+    argv = shlex.split(ops.remote_command({"OPS_RUN": "1", "OPS_NAME": hostile}))
     assert f"OPS_NAME={hostile}" in argv
     assert "rm" not in argv
 
 
-def test_journal_follows_the_pipeline_unit_of_each_store():
-    assert "news-digest.service" in ops.journal_command(since="1h", lines=10, grep=None, store="sqlite")
-    assert "news-digest-worker.service" in ops.journal_command(since="1h", lines=10, grep=None, store="postgres")
+def test_journal_follows_the_worker_unit():
+    assert "news-digest-worker.service" in ops.journal_command(since="1h", lines=10, grep=None)
 
 
 def test_print_command_on_postgres_shows_the_payload_and_runs_nothing(monkeypatch, capsys):
-    monkeypatch.setenv("DIGEST_PROD_STORE", "postgres")
     monkeypatch.setattr(ops, "_ssh", lambda *a: pytest.fail("--print-command must not run anything"))
     assert ops.main(["artifact", "285", "clusters.json", "--print-command"]) == 0
     out = capsys.readouterr().out
@@ -162,78 +126,14 @@ def test_print_command_on_postgres_shows_the_payload_and_runs_nothing(monkeypatc
     assert "\\getenv name OPS_NAME" in out
 
 
-def _scratch_db(tmp_path):
-    db = tmp_path / "t.db"
-    con = sqlite3.connect(db)
-    con.executescript(
-        "create table digest_runs(id integer primary key);"
-        "create table run_artifacts(run_id int, artifact_name text, content text);"
-        "insert into digest_runs(id) values (285);"
-        "insert into run_artifacts values (285, 'clusters.json', 'PAYLOAD-OK');"
-    )
-    con.commit()
-    con.close()
-    return db
-
-
-def _run_payload(payload, db, name, run="285"):
-    return subprocess.run(
-        [sys.executable, "-c", payload],
-        env={**os.environ, "OPS_RUN": run, "OPS_NAME": name},
-        capture_output=True,
-        text=True,
-    )
-
-
-def test_a_hostile_artifact_name_cannot_reach_sql(tmp_path):
-    """The real data path, executed: OPS_NAME goes in as a bound parameter at runtime.
-
-    The earlier version of this test only inspected build_payload's text, which the review
-    showed would still pass if the generated script concatenated OPS_NAME into the SQL. This
-    one runs the script against a scratch database and checks the table is still standing.
-    """
-    db = _scratch_db(tmp_path)
-    payload = ops.build_payload("artifact", db=str(db), store="sqlite")
-
-    hostile = _run_payload(payload, db, "'; drop table digest_runs--")
-    assert hostile.returncode == 1, hostile.stderr
-    assert "no such artifact" in hostile.stderr
-
-    con = sqlite3.connect(db)
-    assert con.execute("select count(*) from digest_runs").fetchone()[0] == 1
-    assert con.execute("select count(*) from run_artifacts").fetchone()[0] == 1
-    con.close()
-
-    good = _run_payload(payload, db, "clusters.json")
-    assert good.returncode == 0, good.stderr
-    assert good.stdout == "PAYLOAD-OK"
-
-
-def test_the_payload_cannot_write_even_to_a_writable_file(tmp_path):
-    """mode=ro is the layer that survives if the :ro mount is ever dropped, so it is tested
-    on a file the process CAN write at the filesystem level."""
-    db = _scratch_db(tmp_path)
-    # The injected write must run BEFORE the select: the scratch digest_runs has none of the
-    # columns the run query names, so if this ever stopped failing on readonly it would fail
-    # on "no such column" instead of passing for the wrong reason.
-    payload = ops.build_payload("run", db=str(db), store="sqlite").replace(
-        "rows = [dict(r) for r in conn.execute(",
-        'conn.execute("delete from digest_runs")\nrows = [dict(r) for r in conn.execute(',
-    )
-    r = _run_payload(payload, db, "")
-    assert r.returncode != 0
-    assert "readonly" in r.stderr.lower()
-
-
-@pytest.mark.parametrize("store", ("sqlite", "postgres"))
-def test_run_id_defaults_to_the_latest_run(store):
-    payload = ops.build_payload("run", store=store)
+def test_run_id_defaults_to_the_latest_run():
+    payload = ops.build_payload("run")
     assert "max(id)" in payload.lower()
 
 
 def test_journal_is_scoped_to_the_unit_and_bounded():
-    cmd = ops.journal_command(since="1h", lines=200, grep=None, store="sqlite")
-    assert "news-digest.service" in cmd
+    cmd = ops.journal_command(since="1h", lines=200, grep=None)
+    assert "news-digest-worker.service" in cmd
     assert "-n 200" in cmd or "--lines 200" in cmd
 
 
@@ -358,27 +258,6 @@ def test_grep_searches_the_whole_window_not_just_the_last_n_raw_lines(tmp_path):
     cmd = ops.journal_command(since="6h", lines=200, grep="Traceback")
     result = _run_journal_command(cmd, tmp_path, fixture)
     assert "Traceback" in result.stdout, result.stdout
-
-
-def test_the_deployed_image_is_preferred_over_the_latest_tag():
-    """`:latest` on the box is not what the unit runs -- it was `8ffdb88` while production ran
-    a pinned digest at `c276c83`. Nothing here needs project code (stdlib sqlite3 reads the
-    volume), but resolving the unit's own reference means this works exactly when prod does,
-    and does not break if `:latest` is pruned."""
-    cmd = ops.remote_command(store="sqlite")
-    unit_at = cmd.index("news-digest.service")
-    latest_at = cmd.index("digest-newsroom:latest")
-    assert unit_at < latest_at, "the unit's pinned digest must be tried first"
-    assert "digest-newsroom@sha256:" in cmd
-
-
-def test_remote_command_never_writes_to_the_volume_and_picks_the_project_image():
-    cmd = ops.remote_command(store="sqlite")
-    assert "digest-newsroom" in cmd
-    assert "--rm" in cmd and "-i" in cmd
-    # Positive assertion: docker's default with no suffix is READ-WRITE, so checking for the
-    # absence of ":rw" passed even with the :ro suffix deleted (found in review).
-    assert f"-v {ops.VOLUME}:/d:ro " in cmd
 
 
 def test_a_run_id_that_is_not_a_number_is_refused():

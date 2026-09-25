@@ -5,21 +5,15 @@ Reviewing a run used to mean cloning a 176 MB database over Tailscale and greppi
 by hand. This runs the query on the box instead and prints JSON, so nothing is copied and
 nothing is stale.
 
-Two independent read-only guarantees, because production data is under this. Which two depends on
-the store production runs on, named in bin/lib/prod-store (the cut-over flips it; DIGEST_PROD_STORE
-overrides it for one command):
-  sqlite    1. the data volume is mounted ``:ro``, so the container cannot write it (verified against
-               the live WAL database -- a read-only mount does open cleanly);
-            2. SQLite opens the file with ``mode=ro``, so it refuses a write even if the mount changed.
-  postgres  1. psql logs in as digest_ro, which holds SELECT and nothing else (digest/db/ops/digest_ro.sql);
-            2. the session is read-only (PGOPTIONS default_transaction_read_only=on), so it refuses a
-               write even from a role that may write.
-Tests assert both, and that no payload carries a write verb (or, on Postgres, a SET that could
-turn the session writable); digest/src/ops/ops-payloads.test.ts runs the Postgres payloads against
-a real server and shows each guarantee refusing a write with the other absent. On Postgres the
-output is compact JSON; pipe it to jq.
+Two independent read-only guarantees, because production data is under this:
+  1. psql logs in as digest_ro, which holds SELECT and nothing else (digest/db/ops/digest_ro.sql);
+  2. the session is read-only (PGOPTIONS default_transaction_read_only=on), so it refuses a write
+     even from a role that may write.
+Tests assert both, and that no payload carries a write verb or a SET that could turn the session
+writable; digest/src/ops/ops-payloads.test.ts runs the payloads against a real server and shows
+each guarantee refusing a write with the other absent. The output is compact JSON; pipe it to jq.
 
-Deliberately NOT an HTTP surface. circulation sits behind kamal-proxy on an internal Docker
+Deliberately NOT an HTTP surface. The site sits behind kamal-proxy on an internal Docker
 network and never sees a client address, so "Tailscale-only routes" there could only mean
 trusting an X-Forwarded-For header -- an authorisation boundary made of a header a caller
 controls. See docs/2026-09-03-ops-access-review.md. The channel here is SSH over Tailscale,
@@ -38,22 +32,14 @@ Usage:
 from __future__ import annotations
 
 import argparse
-import os
 import re
 import shlex
 import subprocess
 import sys
 from pathlib import Path
 
-UNIT = "news-digest.service"
-VOLUME = "news-digest-data"
-IMAGE_MATCH = "digest-newsroom:latest"
-DB = "/d/digest.db"
-
-STORE_FILE = Path(__file__).resolve().parent / "lib" / "prod-store"
-STORES = ("sqlite", "postgres")
-# After the cut-over: the product database in the Postgres Temporal runs (seanfloyd.dev
-# news-digest-temporal.tf), reached over the container's local socket, and the worker's unit.
+# The product database in the Postgres Temporal runs (seanfloyd.dev news-digest-temporal.tf),
+# reached over the container's local socket, and the worker's unit.
 PG_CONTAINER = "news-digest-temporal-postgres"
 PG_ROLE = "digest_ro"
 PG_DATABASE = "digest"
@@ -62,102 +48,31 @@ PG_READ_ONLY = "-c default_transaction_read_only=on"
 PAYLOAD_DIR = Path(__file__).resolve().parent.parent / "digest" / "db" / "ops"
 
 
-def prod_store() -> str:
-    store = os.environ.get("DIGEST_PROD_STORE") or STORE_FILE.read_text().strip()
-    if store not in STORES:
-        raise SystemExit(f"bin/ops: unknown store {store!r} (bin/lib/prod-store or DIGEST_PROD_STORE): {STORES}")
-    return store
+# One psql script per subcommand, each a SELECT. The run id and the artifact name arrive as bound
+# parameters from the environment, never as SQL text, so a caller-supplied name cannot become SQL.
+SQL_SUBCOMMANDS = ("run", "usage", "health", "artifacts", "artifact")
 
 
-# Every query is a SELECT. The run id and the artifact name arrive as bound parameters from
-# the environment, never as SQL text, so a caller-supplied name cannot become SQL.
-_QUERIES = {
-    "run": """
-        select id, run_at, articles_kept, articles_emailed, completed_at, status, git_sha
-        from digest_runs where id = :rid
-    """,
-    "usage": """
-        select subagent, model, input_tokens, output_tokens, cache_read_tokens,
-               round(api_cost_usd, 4) as cost_usd, duration_ms, thinking, effort
-        from run_usage where run_id = :rid order by api_cost_usd desc
-    """,
-    "health": """
-        select source_id, success, articles_fetched, articles_kept, error_message
-        from source_health where run_id = :rid order by success asc, source_id
-    """,
-    "artifacts": """
-        select artifact_name, length(content) as bytes
-        from run_artifacts where run_id = :rid order by artifact_name
-    """,
-    "artifact": """
-        select content from run_artifacts where run_id = :rid and artifact_name = :name
-    """,
-}
-
-SQL_SUBCOMMANDS = tuple(_QUERIES)
-
-
-def build_payload(sub: str, db: str = DB, store: str | None = None) -> str:
-    """What runs on the box: a psql script on Postgres, a Python program on SQLite.
+def build_payload(sub: str) -> str:
+    """What runs on the box: the psql script for the subcommand.
 
     The run id and the artifact name are NOT arguments here: they reach the database as bound
     parameters read from the environment inside the container, so no caller-supplied string
-    ever enters SQL text. `db` exists so a test can run the SQLite payload against a scratch
-    database and prove that end to end.
+    ever enters SQL text.
     """
-    if sub not in _QUERIES:
+    if sub not in SQL_SUBCOMMANDS:
         raise KeyError(sub)
-    if (store or prod_store()) == "postgres":
-        return (PAYLOAD_DIR / f"{sub}.sql").read_text()
-    sql = " ".join(_QUERIES[sub].split())
-    body = f'''
-import json, os, sqlite3, sys
-conn = sqlite3.connect("file:{db}?mode=ro", uri=True)
-conn.row_factory = sqlite3.Row
-rid = os.environ.get("OPS_RUN") or None
-rid = int(rid) if rid else conn.execute("select max(id) from digest_runs").fetchone()[0]
-params = {{"rid": rid, "name": os.environ.get("OPS_NAME", "")}}
-rows = [dict(r) for r in conn.execute({sql!r}, params)]
-if {sub!r} == "artifact":
-    if not rows:
-        sys.stderr.write("no such artifact for run %s\\n" % rid)
-        raise SystemExit(1)
-    sys.stdout.write(rows[0]["content"])
-else:
-    json.dump({{"run_id": rid, "rows": rows}}, sys.stdout, indent=2)
-    sys.stdout.write("\\n")
-'''
-    return body.strip() + "\n"
+    return (PAYLOAD_DIR / f"{sub}.sql").read_text()
 
 
-def remote_command(env: dict[str, str] | None = None, store: str | None = None) -> str:
-    """The shell command sent over bin/ssh.
-
-    On Postgres, psql in the database's own container reads the payload from stdin. Every
-    variable is passed even when empty: psql's \\getenv leaves an unset one unset, and \\bind then
-    sends the literal text ':rid'.
-
-    On SQLite, resolves the image on the box rather than pinning a registry host, so this survives
-    a change of registry -- preferring the digest the systemd unit runs, falling back to the
-    `:latest` tag."""
-    if (store or prod_store()) == "postgres":
-        pg_flags = "".join(f" -e {k}={shlex.quote(v)}" for k, v in sorted((env or {}).items()))
-        return (
-            f"set -e; docker exec -i{pg_flags} -e PGOPTIONS={shlex.quote(PG_READ_ONLY)} {PG_CONTAINER} "
-            f"psql -X -q -v ON_ERROR_STOP=1 -U {PG_ROLE} -d {PG_DATABASE} -f -"
-        )
-    flags = "".join(f" -e {k}={shlex.quote(v)}" for k, v in sorted((env or {}).items()) if v)
+def remote_command(env: dict[str, str] | None = None) -> str:
+    """The shell command sent over bin/ssh: psql in the database's own container reads the payload
+    from stdin. Every variable is passed even when empty: psql's \\getenv leaves an unset one unset,
+    and \\bind then sends the literal text ':rid'."""
+    flags = "".join(f" -e {k}={shlex.quote(v)}" for k, v in sorted((env or {}).items()))
     return (
-        "set -e; "
-        # The image the digest unit actually runs, by digest. `:latest` on the box is not it
-        # (8ffdb88 while production ran c276c83), and it can be pruned while prod is healthy.
-        f"IMG=$(systemctl cat {shlex.quote(UNIT)} 2>/dev/null "
-        "| grep -oE '[^ ]+/digest-newsroom@sha256:[a-f0-9]+' | head -1); "
-        f"[ -n \"$IMG\" ] || IMG=$(docker images --format '{{{{.Repository}}}}:{{{{.Tag}}}}' "
-        f"| grep -m1 {shlex.quote(IMAGE_MATCH)}); "
-        '[ -n "$IMG" ] || { echo "no digest-newsroom image on host" >&2; exit 1; }; '
-        f"docker run --rm -i{flags} -v {VOLUME}:/d:ro "
-        '--entrypoint /app/.venv/bin/python3 "$IMG" -'
+        f"set -e; docker exec -i{flags} -e PGOPTIONS={shlex.quote(PG_READ_ONLY)} {PG_CONTAINER} "
+        f"psql -X -q -v ON_ERROR_STOP=1 -U {PG_ROLE} -d {PG_DATABASE} -f -"
     )
 
 
@@ -168,11 +83,11 @@ def _relative_time(since: str) -> str:
     return f"-{stripped}" if re.fullmatch(r"\d+[smhdw]", stripped) else since
 
 
-def journal_command(since: str, lines: int, grep: str | None, store: str | None = None) -> str:
+def journal_command(since: str, lines: int, grep: str | None) -> str:
     """Scoped to the digest unit and bounded by --lines on purpose.
 
     A free-form grep over the whole journal would be an unbounded read, and these logs carry
-    email addresses (broadcast.py logs test-send and alert recipients). That is acceptable on a
+    email addresses (alert recipients). That is acceptable on a
     channel the operator already has; it is the specific reason this must never become an HTTP
     tool.
 
@@ -188,8 +103,7 @@ def journal_command(since: str, lines: int, grep: str | None, store: str | None 
     prefix a piped `grep` would have seen; not a concern for the ERROR/Traceback-style patterns
     this is for.
     """
-    unit = PG_UNIT if (store or prod_store()) == "postgres" else UNIT
-    cmd = f"journalctl -u {shlex.quote(unit)} --since {shlex.quote(_relative_time(since))} --no-pager"
+    cmd = f"journalctl -u {shlex.quote(PG_UNIT)} --since {shlex.quote(_relative_time(since))} --no-pager"
     if grep:
         cmd += f" --grep {shlex.quote(grep)}"
     cmd += f" -n {int(lines)}"
@@ -223,9 +137,8 @@ def main(argv: list[str] | None = None) -> int:
     if len(ns.args) > expected:
         ap.error(f"{ns.subcommand} takes at most {expected} argument(s), got {len(ns.args)}")
 
-    store = prod_store()
     if ns.subcommand == "journal":
-        command, payload = journal_command(ns.since, ns.lines, ns.grep, store=store), None
+        command, payload = journal_command(ns.since, ns.lines, ns.grep), None
     else:
         run_id = ns.args[0] if ns.args else ""
         name = ns.args[1] if len(ns.args) > 1 else ""
@@ -233,8 +146,8 @@ def main(argv: list[str] | None = None) -> int:
             ap.error(f"a run id is a number, got {run_id!r}")
         if ns.subcommand == "artifact" and not name:
             ap.error("artifact needs a run id and an artifact name")
-        payload = build_payload(ns.subcommand, store=store)
-        command = remote_command({"OPS_RUN": run_id, "OPS_NAME": name}, store=store)
+        payload = build_payload(ns.subcommand)
+        command = remote_command({"OPS_RUN": run_id, "OPS_NAME": name})
 
     if ns.print_command:
         print(command)
