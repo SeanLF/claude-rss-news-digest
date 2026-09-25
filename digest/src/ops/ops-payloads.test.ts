@@ -34,6 +34,10 @@ async function freshDatabase(): Promise<string> {
   const created = psql(ADMIN!, `CREATE DATABASE ${name}`);
   expect(created.stderr).toBe("");
   const url = withDb(ADMIN!, name);
+  // The box's order: the role (a superuser's, seanfloyd-infra pg-roles), then the schema, whose
+  // migration gives the role its reads. A password so this test can log in over TCP.
+  const role = psql(url, `\\set ON_ERROR_STOP on\n${readFileSync(`${OPS_DIR}digest_ro.sql`, "utf8")}\nALTER ROLE digest_ro PASSWORD 'ro';\n`);
+  expect(role.status, role.stderr).toBe(0);
   migrate(url);
   const seeded = psql(url, `\\set ON_ERROR_STOP on
 INSERT INTO runs (id, started_at, status) VALUES (284, '2026-09-22 10:25Z', 'running'), (285, '2026-09-23 10:25Z', 'running');
@@ -43,9 +47,6 @@ INSERT INTO model_calls (run_id, stage, request_model, api_cost_usd) VALUES (285
 INSERT INTO source_fetches (run_id, source_id, is_success) VALUES (285, 'bbc', false);
 `);
   expect(seeded.status, seeded.stderr).toBe(0);
-  // The role as the box would have it, plus a password so this test can log in over TCP.
-  const role = psql(url, `\\set ON_ERROR_STOP on\n${readFileSync(`${OPS_DIR}digest_ro.sql`, "utf8")}\nALTER ROLE digest_ro PASSWORD 'ro';\n`);
-  expect(role.status, role.stderr).toBe(0);
   return url;
 }
 
@@ -129,5 +130,14 @@ describe.skipIf(!ADMIN)("the ops payloads on real Postgres", { timeout: 30_000 }
     const r = psql(asRole(url, "digest_ro", "ro"), "SELECT count(*) FROM later;");
     expect(r.stderr).toBe("");
     expect(r.stdout).toMatch(/\b1\b/);
+  });
+
+  it("the role file gives back the reads a restore without grants drops (make dev-import)", async () => {
+    const url = await freshDatabase();
+    const ro = asRole(url, "digest_ro", "ro");
+    expect(psql(url, "REVOKE SELECT ON ALL TABLES IN SCHEMA public FROM digest_ro;").status).toBe(0);
+    expect(psql(ro, "SELECT count(*) FROM runs;").stderr).toMatch(/permission denied/); // control
+    expect(psql(url, `\\set ON_ERROR_STOP on\n${readFileSync(`${OPS_DIR}digest_ro.sql`, "utf8")}\nALTER ROLE digest_ro PASSWORD 'ro';\n`).status).toBe(0);
+    expect(psql(ro, "SELECT count(*) FROM runs;").stdout).toMatch(/\b2\b/);
   });
 });

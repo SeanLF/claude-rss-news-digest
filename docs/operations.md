@@ -56,7 +56,8 @@ bin/ops journal [--since 6h] [--lines 200] [--grep PAT]
 bin/ops <any> --print-command             # show what would run, run nothing
 ```
 
-Read-only twice over: psql logs in as `digest_ro` (SELECT only, `digest/db/ops/digest_ro.sql`) in a
+Read-only twice over: psql logs in as `digest_ro` (SELECT only: the role in `digest/db/ops/digest_ro.sql`, its
+reads in the migration `20260925120000_digest_ro_grants.sql`) in a
 read-only session; `digest/src/ops/ops-payloads.test.ts` shows each refusing a write without the
 other. `docs/2026-09-03-ops-access-review.md` records why this is a CLI over SSH and not a
 Tailscale-only route on the site.
