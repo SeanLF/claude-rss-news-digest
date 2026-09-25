@@ -105,8 +105,7 @@ def test_the_pipeline_mode_must_be_temporal(tmp_path):
 
 
 def test_a_failed_plan_never_applies_a_plan_file_left_behind(tmp_path):
-    # Terraform's exit 1 is read as "changes" when a plan file exists (the -target warning bug), so
-    # a file left by an interrupted deploy must not survive into the next plan.
+    # A file left by an interrupted deploy must not survive into the next plan.
     stale = Path("/tmp/news-digest-tfplan")
     stale.write_text("stale plan from an interrupted deploy\n")
     infra = tmp_path / "infra"
@@ -134,5 +133,35 @@ apply_terraform
         )
     finally:
         stale.unlink(missing_ok=True)
+    assert p.returncode != 0, p.stdout + p.stderr
+    assert "apply" not in asked.read_text().splitlines()
+
+
+def test_a_plan_that_exits_1_is_never_applied_even_with_a_plan_file(tmp_path):
+    # Exit 1 is an error. bin/tf passes -detailed-exitcode's 2 through, so nothing reads a 1 as
+    # "changes" any more, whatever file the failed plan left.
+    infra = tmp_path / "infra"
+    (infra / "bin").mkdir(parents=True)
+    asked = tmp_path / "tf-args"
+    tf = infra / "bin" / "tf"
+    tf.write_text(
+        f'#!/bin/bash\nprintf "%s\\n" "$1" >> {asked}\n'
+        'if [ "$1" = plan ]; then for a; do case $a in -out=*) : > "${a#-out=}";; esac; done; exit 1; fi\nexit 0\n'
+    )
+    tf.chmod(0o755)
+    digests = tmp_path / "digests"
+    digests.mkdir()
+    script = f"""
+source {DEPLOY}
+trap - EXIT
+INFRA_DIR={infra}
+DIGEST_DIR={digests}
+DRY_RUN=false
+SHA=0123456789
+apply_terraform
+"""
+    p = subprocess.run(
+        ["bash", "-c", script], capture_output=True, text=True, env={**os.environ, "CLAUDECODE": ""}, timeout=60
+    )
     assert p.returncode != 0, p.stdout + p.stderr
     assert "apply" not in asked.read_text().splitlines()
