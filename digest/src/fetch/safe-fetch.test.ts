@@ -38,6 +38,8 @@ beforeAll(async () => {
     if (q.url === "/to-ftp") return r.writeHead(302, { Location: "ftp://feed.test/x" }).end();
     if (hop) return Number(hop[1]) > 0 ? r.writeHead(301, { Location: `/hop${Number(hop[1]) - 1}` }).end() : r.end(RSS);
     if (q.url === "/gzip") return r.writeHead(200, { "Content-Encoding": "gzip" }).end(gzipSync(RSS));
+    if (q.url === "/mislabelled") return r.writeHead(200, { "Content-Encoding": "utf-8" }).end(RSS);
+    if (q.url === "/truncated") return r.writeHead(200, { "Content-Encoding": "gzip" }).end(gzipSync(RSS).subarray(0, -8));
     if (q.url === "/bomb") return r.writeHead(200, { "Content-Encoding": "gzip" }).end(BOMB);
     if (q.url === "/drip") {
       r.writeHead(200);
@@ -64,6 +66,10 @@ describe("fetchBounded", () => {
   it("asks for compression and decodes it", async () => {
     expect(JSON.parse((await fetchBounded(`${feed}/headers`, { ...opts, headers: { "User-Agent": "UA" } })).body)).toMatchObject({ "accept-encoding": "gzip, deflate, br", "user-agent": "UA" });
     expect((await fetchBounded(`${feed}/gzip`, opts)).body).toBe(RSS);
+  });
+  it("reads a body as fetch would when its encoding is mislabelled or its gzip trailer is missing", async () => {
+    expect((await fetchBounded(`${feed}/mislabelled`, opts)).body).toBe(RSS);
+    expect((await fetchBounded(`${feed}/truncated`, opts)).body).toBe(RSS);
   });
   it("returns a non-2xx status for the caller to judge", async () => {
     expect((await fetchBounded(`${feed}/nope`, opts)).status).toBe(404);

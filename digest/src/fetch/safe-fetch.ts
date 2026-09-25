@@ -65,21 +65,19 @@ function send(url: URL, o: Required<Omit<BoundedOptions, "timeoutMs" | "maxBytes
   };
   return new Promise((resolve, reject) => {
     // No agent: a pooled socket would skip the lookup, and so the check.
-    const req = (url.protocol === "https:" ? https : http).request(url, { headers: { ...o.headers, "Accept-Encoding": "gzip, deflate, br" }, lookup, agent: false, signal }, resolve);
+    const req = (url.protocol === "https:" ? https : http).request(url, { headers: { Accept: "*/*", ...o.headers, "Accept-Encoding": "gzip, deflate, br" }, lookup, agent: false, signal }, resolve);
     req.on("error", reject);
     req.end();
   });
 }
 
-const DECODERS = new Map<string, () => zlib.Gunzip | zlib.Inflate | zlib.BrotliDecompress>([["gzip", zlib.createGunzip], ["x-gzip", zlib.createGunzip], ["deflate", zlib.createInflate], ["br", zlib.createBrotliDecompress]]);
+// Lenient as fetch's decoders are: a body missing its trailer still decodes what arrived.
+const sync = { finishFlush: zlib.constants.Z_SYNC_FLUSH };
+const DECODERS = new Map<string, () => zlib.Gunzip | zlib.Inflate | zlib.BrotliDecompress>([["gzip", () => zlib.createGunzip(sync)], ["x-gzip", () => zlib.createGunzip(sync)], ["deflate", () => zlib.createInflate(sync)], ["br", () => zlib.createBrotliDecompress({ finishFlush: zlib.constants.BROTLI_OPERATION_FLUSH })]]);
 
 async function readBody(res: http.IncomingMessage, maxBytes: number, signal: AbortSignal): Promise<string> {
   const encoding = (res.headers["content-encoding"] ?? "identity").trim().toLowerCase();
-  const decoder = DECODERS.get(encoding);
-  if (decoder === undefined && encoding !== "identity") {
-    res.destroy();
-    throw new Error(`unsupported content-encoding ${encoding}`);
-  }
+  const decoder = DECODERS.get(encoding); // anything else (identity, "utf-8", stacked codings) is read raw, as fetch does
   const chunks: Buffer[] = [];
   let total = 0;
   const collect = async (source: AsyncIterable<Buffer>) => {
