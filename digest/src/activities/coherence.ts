@@ -120,7 +120,7 @@ export async function runChecker(deps: CoherenceDeps, runId: number, draftText: 
   const { store } = deps;
   const corpus: [string, string][] = [];
   for (const n of (await store.names(runId)).filter((x) => /^articles_\d+\.csv$/.test(x) || x === "article_fulltext.json").toSorted()) corpus.push([n, await store.content(runId, n)]);
-  return checkDraft(deps, draftText, corpus, await store.runDate(runId), note);
+  return checkDraft(deps, draftText, corpus, await store.runDate(runId), note, "read-loop", runId);
 }
 
 // The checker over explicit files, with no store: what the activity runs, and what the planted-defect
@@ -132,6 +132,7 @@ export async function checkDraft(
   today: string,
   note?: string,
   shape: CheckerShape = "read-loop", // planted band 2026-09-23: 8/8 recall 3/3 at $0.86; inline-grep 6/8 once
+  runId?: number,
 ) {
   const dir = mkdtempSync(join(tmpdir(), "coherence-"));
   try {
@@ -149,6 +150,7 @@ export async function checkDraft(
     const sent = { ...spec, body, ...(shape === "read-loop" ? { tools: ["Read" as const] } : {}) };
     const r = await runStage(sent, { userMessage: message + (note ? `\n\nOperator note for this attempt: ${note}` : ""), inputDir: dir }, {
       today,
+      ...(runId === undefined ? {} : { runId }),
       outputSchema: coherenceReportJsonSchema(),
       ...(deps.query ? { query: deps.query } : {}), ...(deps.heartbeat ? { heartbeat: deps.heartbeat } : {}), ...(deps.signal?.() ? { signal: deps.signal()! } : {}),
     });

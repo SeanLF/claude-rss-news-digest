@@ -243,6 +243,7 @@ export function threadsActivities(deps: ThreadsDeps) {
     deps.heartbeat?.();
     const r = await runStage(s, { userMessage: clean, inputDir: tmpdir() }, {
       today: await store.runDate(runId),
+      runId,
       signal: signal(ms),
       ...(deps.query ? { query: deps.query } : {}),
       ...(deps.heartbeat ? { heartbeat: deps.heartbeat } : {}),

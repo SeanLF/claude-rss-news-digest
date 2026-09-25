@@ -58,7 +58,7 @@ export function weeklyRecapActivity(deps: WeeklyRecapDeps): (runId: number, forc
     try {
       const spec = parseAgentSpec(readFileSync(join(deps.agentsDir, "weekly-recap.md"), "utf8"));
       deps.heartbeat?.();
-      const r = await runStage(spec, { userMessage: titles, inputDir: tmpdir() }, { today, ...(deps.query ? { query: deps.query } : {}), ...(deps.heartbeat ? { heartbeat: deps.heartbeat } : {}), ...(deps.signal?.() ? { signal: deps.signal()! } : {}) });
+      const r = await runStage(spec, { userMessage: titles, inputDir: tmpdir() }, { today, runId, ...(deps.query ? { query: deps.query } : {}), ...(deps.heartbeat ? { heartbeat: deps.heartbeat } : {}), ...(deps.signal?.() ? { signal: deps.signal()! } : {}) });
       await deps.onUsage?.({ model: spec.model, thinking: spec.thinking, prompt: spec, effort: r.effort, tokens: r.usage, stage: "weekly_recap", runId, costUsd: r.costUsd, durationMs: r.durationMs, numTurns: r.numTurns });
       summary = r.text.trim();
       if (!summary) throw new Error("model returned an empty recap");

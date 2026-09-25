@@ -132,7 +132,7 @@ export function repairActivity(deps: RepairDeps) {
         }
         const spec = parseAgentSpec(readFileSync(join(deps.agentsDir, "repair.md"), "utf8"));
         deps.heartbeat?.();
-        const r = await runStage(spec, { userMessage: `The input directory is ${dir}. Begin.`, inputDir: dir }, { today: await store.runDate(runId), outputSchema: z.toJSONSchema(RepairedSchema, { target: "draft-07" }), ...(deps.query ? { query: deps.query } : {}), ...(deps.heartbeat ? { heartbeat: deps.heartbeat } : {}), ...(deps.signal?.() ? { signal: deps.signal()! } : {}) });
+        const r = await runStage(spec, { userMessage: `The input directory is ${dir}. Begin.`, inputDir: dir }, { today: await store.runDate(runId), runId, outputSchema: z.toJSONSchema(RepairedSchema, { target: "draft-07" }), ...(deps.query ? { query: deps.query } : {}), ...(deps.heartbeat ? { heartbeat: deps.heartbeat } : {}), ...(deps.signal?.() ? { signal: deps.signal()! } : {}) });
         await deps.onUsage?.({ model: spec.model, thinking: spec.thinking, prompt: spec, effort: r.effort, tokens: r.usage, stage: "repair", runId, costUsd: r.costUsd, durationMs: r.durationMs, numTurns: r.numTurns, toolCalls: r.toolCalls.length, unbackedFails: 0 });
         repaired = RepairedSchema.parse(r.structured);
       } finally {

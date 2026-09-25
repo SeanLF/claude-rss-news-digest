@@ -78,7 +78,7 @@ export function selectActivity(deps: SelectDeps) {
       await recordOperatorNote(store, runId, "select", note);
       const message = `The input directory is ${dir}. Begin.${note ? `\n\nOperator note for this attempt: ${note}` : ""}`;
       deps.heartbeat?.();
-      const r = await runStage(spec, { userMessage: message, inputDir: dir }, { today: await store.runDate(runId), outputSchema: selectedJsonSchema(), ...(deps.query ? { query: deps.query } : {}), ...(deps.heartbeat ? { heartbeat: deps.heartbeat } : {}), ...(deps.signal?.() ? { signal: deps.signal()! } : {}) });
+      const r = await runStage(spec, { userMessage: message, inputDir: dir }, { today: await store.runDate(runId), runId, outputSchema: selectedJsonSchema(), ...(deps.query ? { query: deps.query } : {}), ...(deps.heartbeat ? { heartbeat: deps.heartbeat } : {}), ...(deps.signal?.() ? { signal: deps.signal()! } : {}) });
       deps.heartbeat?.();
       await deps.onUsage?.({ model: spec.model, thinking: spec.thinking, prompt: spec, effort: r.effort, tokens: r.usage, stage: "select", runId, costUsd: r.costUsd, durationMs: r.durationMs, numTurns: r.numTurns, toolCalls: r.toolCalls.length });
       const parsed = SelectedSchema.safeParse(r.structured);

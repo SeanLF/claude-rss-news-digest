@@ -161,6 +161,7 @@ export function writeActivities(deps: WriteDeps) {
         deps.heartbeat?.();
         const r = await runStage(spec, { userMessage: message, inputDir: dir }, {
           today: await store.runDate(runId),
+          runId,
           outputSchema: z.toJSONSchema(BranchDraftSchema, { target: "draft-07" }),
           maxBudgetUsd: WRITE_BRANCH_BUDGET_USD,
           ...(deps.query ? { query: deps.query } : {}), ...(deps.heartbeat ? { heartbeat: deps.heartbeat } : {}), ...(deps.signal?.() ? { signal: deps.signal()! } : {}),

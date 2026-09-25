@@ -45,7 +45,7 @@ export function recapActivity(deps: RecapDeps): (runId: number, force?: boolean)
     const r = await runStage(
       spec,
       { userMessage: `Recent RSS titles (title,date):\n\n${titles}`, inputDir: tmpdir() },
-      { today: await store.runDate(runId), ...(deps.query ? { query: deps.query } : {}), ...(deps.heartbeat ? { heartbeat: deps.heartbeat } : {}), ...(deps.signal?.() ? { signal: deps.signal()! } : {}) },
+      { today: await store.runDate(runId), runId, ...(deps.query ? { query: deps.query } : {}), ...(deps.heartbeat ? { heartbeat: deps.heartbeat } : {}), ...(deps.signal?.() ? { signal: deps.signal()! } : {}) },
     );
     deps.heartbeat?.();
     await deps.onUsage?.({ model: spec.model, thinking: spec.thinking, prompt: spec, effort: r.effort, tokens: r.usage, stage: "recap", runId, costUsd: r.costUsd, durationMs: r.durationMs, numTurns: r.numTurns });

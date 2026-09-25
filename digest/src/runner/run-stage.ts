@@ -1,4 +1,7 @@
+import { randomUUID } from "node:crypto";
 import { query, type Options, type SDKMessage, type ThinkingConfig } from "@anthropic-ai/claude-agent-sdk";
+import { instrument } from "@posthog/ai/claude-agent-sdk";
+import { PostHog } from "posthog-node";
 import { renderBody, type StageSpec } from "./prompt.js";
 
 export interface StageInput {
@@ -18,6 +21,14 @@ export interface StageResult {
   effort: string;
 }
 export type SdkQuery = typeof query;
+
+// Model-call traces to PostHog AI Observability, when the worker has a project token: telemetry only,
+// never read back by a run (model_calls keeps the costs the budget check reads).
+const posthogToken = process.env["POSTHOG_PROJECT_TOKEN"];
+const posthogHost = process.env["POSTHOG_HOST"];
+const posthogClient = posthogToken && posthogHost ? new PostHog(posthogToken, { host: posthogHost }) : undefined;
+const posthogClaude = posthogClient ? instrument({ client: posthogClient, privacyMode: false }) : undefined;
+if (posthogClient) process.once("beforeExit", () => void posthogClient.shutdown());
 
 // `tools` is the SDK's base set of built-ins and the only option that restricts availability;
 // `allowedTools` merely skips the permission prompt. The disallow list is belt and braces for
@@ -46,9 +57,20 @@ const thinkingFor = (t: StageSpec["thinking"]): ThinkingConfig => (t === "adapti
 export async function runStage(
   spec: StageSpec,
   input: StageInput,
-  opts: { outputSchema?: Record<string, unknown>; today: string; query?: SdkQuery; maxBudgetUsd?: number; heartbeat?: () => void; signal?: AbortSignal },
+  opts: { outputSchema?: Record<string, unknown>; today: string; query?: SdkQuery; maxBudgetUsd?: number; heartbeat?: () => void; signal?: AbortSignal; runId?: number },
 ): Promise<StageResult> {
-  const q = opts.query ?? query;
+  const q = opts.query ?? (posthogClaude
+    ? ({ prompt, options }) => posthogClaude.query({
+        prompt,
+        ...(options ? { options } : {}),
+        posthog: {
+          traceId: randomUUID(),
+          // The SDK overwrites $ai_session_id with its own session, so the run is a property of ours.
+          properties: { ...(opts.runId === undefined ? {} : { run_id: opts.runId }), stage: spec.name, model: spec.model, thinking: spec.thinking },
+          privacyMode: false,
+        },
+      })
+    : query);
   const allowed: readonly string[] = spec.tools;
   const options: Options = {
     model: spec.model,
