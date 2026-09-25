@@ -1,8 +1,8 @@
 """bin/ci --staged: which suites a commit's staged paths reach.
 
 The property under test is that a staged path can never skip a suite that reads it. Each suite's
-inputs are fixed by its container: ci-ts and ci-python COPY theirs in, ci-rust bind-mounts its
-own, and the newsroom ci and ci-scripts containers mount the whole tree. The tests below read those lists from the
+inputs are fixed by its container: ci-ts and ci-python COPY theirs in, and the newsroom ci and
+ci-scripts containers mount the whole tree. The tests below read those lists from the
 Dockerfiles and compose file themselves, so a new COPY or mount that bin/ci does not route fails
 here rather than in a commit that skipped it.
 """
@@ -28,7 +28,7 @@ def _load():
 
 ci = _load()
 ALL = ci.ALL_SUITES
-PY, RUST, TS, WORKER, SCRIPTS = ci.PYTHON, ci.RUST, ci.TS, ci.WORKER, ci.SCRIPTS
+PY, TS, WORKER, SCRIPTS = ci.PYTHON, ci.TS, ci.WORKER, ci.SCRIPTS
 
 
 @pytest.mark.parametrize(
@@ -40,8 +40,6 @@ PY, RUST, TS, WORKER, SCRIPTS = ci.PYTHON, ci.RUST, ci.TS, ci.WORKER, ci.SCRIPTS
         ("bin/tests/test_ops.py", {SCRIPTS}),
         ("digest/package-lock.json", {TS, SCRIPTS}),
         ("digest/db/ops/digest_ro.sql", {TS, SCRIPTS}),
-        ("circulation/src/main.rs", {RUST}),
-        ("circulation/Cargo.toml", {RUST}),
         ("digest/src/workflow/digest.ts", {TS}),
         ("digest/package.json", {TS}),
         ("digest/python/worker.py", {WORKER, TS}),
@@ -50,7 +48,6 @@ PY, RUST, TS, WORKER, SCRIPTS = ci.PYTHON, ci.RUST, ci.TS, ci.WORKER, ci.SCRIPTS
         ("digest/python/tests/test_fulltext.py", {WORKER, TS}),
         ("newsroom/src/gnews.py", {PY}),
         ("newsroom/src/config.py", {PY}),
-        ("circulation/src/markdown.rs", {RUST, PY}),
     ],
 )
 def test_a_path_one_suite_owns_runs_only_that_suite(path, suites):
@@ -78,8 +75,6 @@ def test_a_path_one_suite_owns_runs_only_that_suite(path, suites):
         "digest/Dockerfile.ci",
         "digest/Dockerfile",
         "digest/python/Dockerfile",
-        "circulation/Dockerfile.ci",
-        "circulation/Dockerfile",
         "newsroom/Dockerfile",
         "docker-compose.override.yml",
         ".dockerignore",
@@ -90,7 +85,7 @@ def test_a_path_one_suite_owns_runs_only_that_suite(path, suites):
         # A sibling that only shares a prefix's spelling is not inside it.
         "digestion/x.ts",
         "newsroom-old/x.py",
-        "circulation",
+        "circulation/src/main.rs",  # retired: an unknown path now
     ],
 )
 def test_a_shared_or_unknown_path_runs_everything(path):
@@ -98,7 +93,7 @@ def test_a_shared_or_unknown_path_runs_everything(path):
 
 
 def test_suites_union_across_paths():
-    assert ci.suites_for(["newsroom/src/db.py", "circulation/src/main.rs"]) == {PY, RUST}
+    assert ci.suites_for(["newsroom/src/db.py", "digest/src/a.ts"]) == {PY, TS}
 
 
 def test_one_unknown_path_among_narrow_ones_runs_everything():
@@ -137,20 +132,11 @@ def _copy_sources(dockerfile: str) -> list[str]:
     return sources
 
 
-def _rust_mounts() -> list[str]:
-    compose = (ROOT / "docker-compose.yml").read_text()
-    block = compose.split("\n  ci-rust:\n", 1)[1].split("\n  digest-", 1)[0]
-    mounts = [m.removeprefix("./") for m in re.findall(r"- (\./[^:]+):", block)]
-    assert "circulation" in mounts, mounts
-    return mounts
-
-
 @pytest.mark.parametrize(
     ("suite", "sources"),
     [
         (TS, ["digest/Dockerfile.ci", *_copy_sources("digest/Dockerfile.ci")]),
         (WORKER, ["digest/python/Dockerfile", *_copy_sources("digest/python/Dockerfile")]),
-        (RUST, _rust_mounts()),
     ],
 )
 def test_every_file_a_container_reads_routes_to_its_suite(suite, sources):
@@ -163,16 +149,15 @@ def test_the_copy_parser_sees_the_shared_inputs():
     ts = _copy_sources("digest/Dockerfile.ci")
     assert {"design/tokens.css", "digest"} <= set(ts)
     assert {"digest/python/fulltext.py", "digest/python/tests"} <= set(_copy_sources("digest/python/Dockerfile"))
-    assert "digest/catalogue/sources.json" in _rust_mounts()
 
 
 _CROSS_REF = re.compile(
-    r"""["'](circulation|digest|newsroom)["']((?:\s*/\s*["'][^"']+["'])+)|["']((?:circulation|digest|newsroom)/[\w./-]+)["']"""
+    r"""["'](digest|newsroom)["']((?:\s*/\s*["'][^"']+["'])+)|["']((?:digest|newsroom)/[\w./-]+)["']"""
 )
 
 
 def _reads_into_other_suites(dirs: list[Path]) -> list[str]:
-    """Paths under circulation/, digest/ or newsroom/ that the code in dirs builds, as Path joins or literals."""
+    """Paths under digest/ or newsroom/ that the code in dirs builds, as Path joins or literals."""
     found = []
     # The code itself only: a local .venv holds third-party files in other encodings.
     files = [py for d in dirs for py in d.rglob("*.py")]
@@ -186,17 +171,6 @@ def _reads_into_other_suites(dirs: list[Path]) -> list[str]:
                 parts = re.findall(r"""["']([^"']+)["']""", m.group(2))
                 found.append("/".join([m.group(1), *parts]))
     return found
-
-
-def test_a_file_the_newsroom_tests_read_elsewhere_routes_to_python():
-    refs = [
-        r
-        for r in _reads_into_other_suites([ROOT / "newsroom" / d for d in ("src", "tests", "tools")])
-        if not r.startswith("newsroom/")
-    ]
-    assert "circulation/src/markdown.rs" in refs  # the parser's negative control
-    unrouted = [r for r in refs if PY not in ci.suites_for([r])]
-    assert not unrouted, f"newsroom reads these, so a change to them must run the Python suite: {unrouted}"
 
 
 def test_a_file_the_script_tests_read_elsewhere_routes_to_them():

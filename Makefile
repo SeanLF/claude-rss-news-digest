@@ -3,17 +3,17 @@
 
 .DEFAULT_GOAL := help
 .PHONY: ci ci-fix ci-full test eval eval-stages eval-coherence eval-repair eval-select-order replay digest a11y lighthouse web-check deploy deploy-dry migrate migrate-status \
-        ssh db-clone usage usage-daily analytics analytics-list analytics-q versions circulation preview anatomy prompt search-eval help
+        ssh db-clone usage usage-daily analytics analytics-list analytics-q versions preview anatomy prompt search-eval help
 
 # Default window for the analytics queries; override with RUNS=N
 RUNS ?= 30
 
 ## CI
-ci: ## Run all checks (Python + Rust, in Docker)
+ci: ## Run all checks (in Docker)
 	bin/ci
 ci-fix: ## Auto-fix style issues
 	bin/ci --fix
-ci-full: ## Full CI including cargo audit
+ci-full: ## Full CI including pip-audit
 	bin/ci --full
 
 ## Test
@@ -78,9 +78,6 @@ ssh: ## SSH to production server
 	bin/ssh
 
 ## Development
-circulation: ## Run circulation server locally (fast Rust rebuilds)
-	bin/circulation
-
 preview: ## Render + screenshot the digest locally, no Docker (usage: make preview [FIXTURE=path])
 	bin/render-preview $(FIXTURE)
 
@@ -173,10 +170,7 @@ schema-types: ## Regenerate digest/src/store/schema.gen.ts, the product schema's
 check-injections: ## Render every stored issue in the dev stack's database and list each date whose site chrome failed to inject (exit 1 on any; read-only)
 	$(COMPOSE) run --rm --build --no-deps -e DIGEST_DATABASE_URL="postgres://digest_ro:digest_ro@digest-pg:5432/digest?sslmode=disable" digest-worker npm run --silent check-injections
 
-site-parity-record: ## Record the Rust circulation server's answers on a copy of the prod clone: the goldens the TypeScript site is held to (SRC=data/prod-20260923b.db; host-only)
-	bin/site-parity-record $${SRC:-data/prod-20260923b.db}
-
-site-parity: ## Hold the TypeScript site to the newest Rust goldens: import their clone into Postgres, run the parity tests (DIR=data/site-parity/<stamp>; host-only)
+site-parity: ## Hold the TypeScript site to the newest recorded Rust goldens (data/site-parity; the recorder retired with circulation): import their clone into Postgres, run the parity tests (DIR=data/site-parity/<stamp>; host-only)
 	bin/site-parity $(DIR)
 
 search-eval: ## Score the site's headline search against the pre-registered queries, judgements and Rust's FTS5 answers, with its negative controls (SRC=data/prod-20260923b.db; no model calls; host-only)

@@ -35,7 +35,7 @@ def _load():
     return module
 
 
-LOCKFILES = [REPO / "circulation" / "Cargo.lock", REPO / "digest" / "package-lock.json"]
+LOCKFILES = [REPO / "digest" / "package-lock.json"]
 PIN = re.compile(r'"[A-Za-z0-9_.\[\],-]+ *@ *((?:git\+)?https?://[^"]+)"')
 
 

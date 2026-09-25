@@ -1,16 +1,15 @@
 #!/usr/bin/env node
 // Cross-page computed-style diff for the app chrome.
 //
-// chrome.rs's module doc says keeping the chrome in one place "guarantees pixel-parity".
-// It does, for the seven pages that render through `chrome::page_head`. digest.rs keeps
-// its own copy of 15 of those selectors, and that copy was written a day after the
-// original, by regenerating it rather than copying it. This finds where the two drifted.
+// Written when the Rust server kept a second copy of 15 chrome selectors for the issue page
+// and the two drifted; it diffs the computed styles of the same elements across whatever
+// pages a running site serves, so it finds that drift in the TypeScript site too.
 //
 //   bin/cssdiff                          # against http://127.0.0.1:8080
 //   bin/cssdiff --base http://host:8081
 //   bin/cssdiff --el toggle              # one element
 //
-// Needs a running circulation (`docker compose up -d digest-circulation`) and the
+// Needs a running site (`make dev-up`, or `docker compose up -d digest-site`) and the
 // Playwright that `npx playwright` installs under ~/.npm/_npx.
 //
 // Design notes, both learned the hard way on this repo:

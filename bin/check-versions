@@ -27,10 +27,6 @@ def gh_tag(repo):
     vs = [t["name"] for t in d if re.match(r"^v?\d+\.\d+(\.\d+)?$", t["name"])]  # exclude alpha/beta/rc
     return max(vs, key=lambda v: [int(x) for x in re.findall(r"\d+", v)], default=None)
 
-def crates_ver(c):
-    d = fetch(f"https://crates.io/api/v1/crates/{c}")
-    return d["crate"]["max_stable_version"] if d else None
-
 def alpine_latest_minor():
     """Newest Alpine release cycle (e.g. '3.24') per endoflife.date -- complete cycle list, no Docker Hub tag-churn/pagination ambiguity."""
     d = fetch("https://endoflife.date/api/alpine.json")
@@ -70,30 +66,6 @@ def check_uv_host():
     if not has("uv"): return ok("uv-host", "(not installed)")
     cur = mise_or_cmd("uv", "uv --version").replace("uv ", "").split()[0]
     return compare("uv-host", cur, gh_release("astral-sh/uv")) if cur else err("uv-host", "can't parse")
-
-def check_rust():
-    # Check Dockerfile pin (what gets deployed)
-    dockerfile = Path(__file__).parent.parent / "circulation" / "Dockerfile"
-    if not dockerfile.exists(): return ok("rust", "(no Dockerfile)")
-    m = re.search(r"FROM rust:(\d+\.\d+)", dockerfile.read_text())
-    if not m: return err("rust", "can't parse Dockerfile pin")
-    cur = m.group(1)
-    lat = gh_tag("rust-lang/rust")
-    lat_minor = ".".join(lat.lstrip("v").split(".")[:2]) if lat else None
-    return compare("rust", cur, lat_minor)
-
-def check_rust_host():
-    if not has("rustc"): return ok("rust-host", "(not installed)")
-    cur = sh("rustc --version").split()[1] if sh("rustc --version") else None
-    if not cur: return err("rust-host", "can't parse")
-    # Compare against Dockerfile pin
-    dockerfile = Path(__file__).parent.parent / "circulation" / "Dockerfile"
-    m = re.search(r"FROM rust:(\d+\.\d+)", dockerfile.read_text()) if dockerfile.exists() else None
-    pinned = m.group(1) if m else None
-    cur_minor = ".".join(cur.split(".")[:2])
-    if pinned and cur_minor != pinned:
-        return ("rust-host", "update", cur, pinned, [f"Dockerfile pins {pinned}, host has {cur}"])
-    return ok("rust-host", cur)
 
 def check_alpine():
     # Check the alpine base-image pin across all Dockerfiles (what gets deployed); flag drift
@@ -193,24 +165,7 @@ def check_python_deps_host():
     if not outdated: return ok("py-deps-host", "synced")
     return ("py-deps-host", "update", f"{len(outdated)} behind lockfile", None, [f"{p['name']}: {p['version']} → {p['latest_version']}" for p in outdated])
 
-def check_rust_deps():
-    cargo_dir = Path(__file__).parent.parent / "circulation"
-    cargo_toml = cargo_dir / "Cargo.toml"
-    cargo_lock = cargo_dir / "Cargo.lock"
-    if not cargo_toml.exists(): return ok("rust-deps", "(no Cargo.toml)")
-    if not cargo_lock.exists(): return err("rust-deps", "no Cargo.lock")
-    # Direct deps from Cargo.toml
-    direct = {n for n, _ in re.findall(r'^(\w+)\s*=\s*["{].*?(\d+\.\d+(?:\.\d+)?)', cargo_toml.read_text(), re.MULTILINE)
-              if n not in ("version", "edition", "rust")}
-    # Resolved versions from Cargo.lock
-    locked = dict(re.findall(r'^name = "(.+?)"\nversion = "(.+?)"', cargo_lock.read_text(), re.MULTILINE))
-    deps = [(n, locked[n]) for n in direct if n in locked]
-    def norm(v): parts = [int(x) for x in v.split(".")]; return parts + [0] * (3 - len(parts))
-    outdated = [(n, c, l) for n, c in deps if (l := crates_ver(n)) and norm(c) < norm(l)]
-    if not outdated: return ok("rust-deps", "checked")
-    return ("rust-deps", "update", f"{len(outdated)} outdated", None, [f"{n}: {c} → {l}" for n, c, l in outdated])
-
-CHECKS = [check_python, check_uv, check_uv_host, check_rust, check_rust_host, check_alpine, check_newsroom_base, check_claude_cli, check_prod_pins, check_docker, check_orbstack, check_tailscale, check_python_deps, check_python_deps_host, check_rust_deps]
+CHECKS = [check_python, check_uv, check_uv_host, check_alpine, check_newsroom_base, check_claude_cli, check_prod_pins, check_docker, check_orbstack, check_tailscale, check_python_deps, check_python_deps_host]
 
 def main():
     if not QUIET: print(f"\n{BOLD}Checking dependency versions...{RESET}\n")
