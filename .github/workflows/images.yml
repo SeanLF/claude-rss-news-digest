@@ -1,6 +1,6 @@
-# The three production images, built and pushed to ghcr only when the dependency scan passes: an image
-# that fails it never exists in the registry, so Kamal (seanfloyd-infra) has nothing to pull. Tagged by the
-# full commit SHA, which is the version Kamal deploys.
+# The three production images, built and pushed to ghcr only from main and only when the tests and the
+# dependency scan pass: an image that fails either never exists in the registry, so Kamal (seanfloyd-infra)
+# has nothing to pull. Tagged by the full commit SHA, which is the version Kamal deploys.
 name: images
 
 on:
@@ -11,6 +11,15 @@ on:
 permissions: {}
 
 jobs:
+  # The repo's own CI (bin/ci): the TypeScript, Python worker and bin/ scripts suites, each in its container.
+  test:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - run: bin/ci
+
   scan:
     permissions:
       actions: read
@@ -23,7 +32,9 @@ jobs:
         --lockfile=digest/python/uv.lock
 
   build:
-    needs: scan
+    needs: [test, scan]
+    # workflow_dispatch runs on any branch; only main's commits become deployable images.
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -77,3 +88,18 @@ jobs:
           subject-name: ghcr.io/seanlf/${{ matrix.name }}
           subject-digest: ${{ steps.push.outputs.digest }}
           push-to-registry: true
+
+  # The newest 10 images per package; older ones go, with their platform manifests and attestations,
+  # which the action deletes with the image that refers to them (a version-count cleanup would not).
+  cleanup:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      packages: write
+    concurrency:
+      group: ghcr-cleanup
+    steps:
+      - uses: dataaxiom/ghcr-cleanup-action@d52806a0dc70b430571a37da1fde39733ffd640f # v1.2.2
+        with:
+          packages: digest-worker,digest-site,digest-python
+          keep-n-tagged: 10
