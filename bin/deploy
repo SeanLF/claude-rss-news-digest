@@ -989,8 +989,9 @@ resume_schedule() {
 # The resources a deploy re-applies, in seanfloyd.dev's news-digest.tf and news-digest-temporal.tf.
 # Each is named even where another depends_on it, so a targeted apply would pull it in anyway:
 # relying on that is how a resource gets left behind the next time the dependency is reworked.
-# digest_server is the public host's blue/green swap to the new site image (news_digest_site, its
-# env and deploy script, comes in as its dependency). news_digest_retire_python removes the Python
+# digest_server is the public host's blue/green swap to the new site image; news_digest_site is its
+# env and deploy script, and a resource a moved block names must be targeted itself or terraform
+# refuses the plan. news_digest_retire_python removes the Python
 # pipeline's and circulation's units from the box once; after that its script hash is unchanged
 # and it plans nothing.
 TF_TARGETS=(
@@ -1001,6 +1002,7 @@ TF_TARGETS=(
   -target=null_resource.news_digest_temporal_server
   -target=null_resource.news_digest_temporal_bootstrap
   -target=null_resource.news_digest_workers
+  -target=null_resource.news_digest_site
   -target=null_resource.news_digest_temporal_backup
   -target=null_resource.digest_server
   -target=null_resource.news_digest_retire_python

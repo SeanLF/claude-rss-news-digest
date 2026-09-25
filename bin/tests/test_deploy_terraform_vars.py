@@ -56,6 +56,9 @@ def test_the_targets_are_the_temporal_pipeline_the_site_swap_and_the_retirement(
         "null_resource.news_digest_temporal_db",
         "null_resource.news_digest_workers",
         "null_resource.digest_server",
+        # A moved resource must be targeted by its own name: a dependency pulled in by digest_server
+        # does not count, and terraform refuses the plan.
+        "null_resource.news_digest_site",
         "null_resource.news_digest_retire_python",
     } <= targets
     for gone in ("news_digest_service", "news_digest_timer", "news_digest_health_check", "news_digest_deadman"):
