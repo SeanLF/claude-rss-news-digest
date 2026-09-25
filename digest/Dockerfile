@@ -17,6 +17,14 @@ RUN npm ci --omit=dev \
  && rm -rf node_modules/@oxlint node_modules/@oxlint-tsgolint \
  && for d in esbuild @esbuild oxlint @oxlint oxlint-tsgolint @oxlint-tsgolint typescript vitest; do \
       if [ -e "node_modules/$d" ]; then echo "dev tool $d in the production install" >&2; exit 1; fi; done
+# Temporal's core-bridge ships one native prebuilt per OS/arch in a single package (no per-platform
+# optional packages to filter) plus its Rust sources; this keeps the one its own loader picks for this
+# platform, and the require fails the build if that is not the one kept.
+RUN cd node_modules/@temporalio/core-bridge \
+ && keep="$(node -p "require('./common').getPrebuiltTargetName()")" \
+ && find releases -mindepth 1 -maxdepth 1 ! -name "$keep" -exec rm -rf {} + \
+ && rm -rf sdk-core src bridge-macros Cargo.toml Cargo.lock \
+ && node -e "require('@temporalio/core-bridge').native"
 
 FROM base AS build
 COPY digest/package.json digest/package-lock.json ./
