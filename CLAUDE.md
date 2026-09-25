@@ -55,7 +55,8 @@ them to URL, source and bias afterwards. Stage prompts are `digest/agents/*.md`.
 - `digest/src/site/` — the web tier; `digest/src/render/` — web and email rendering.
 - `digest/catalogue/sources.json` — the feed catalogue (served at `/sources`, read by fetch).
 - `digest/templates/` — the issue's web template and `digest.css`; `design/tokens.css` — design tokens.
-- `digest/db/ops/` — `bin/ops`'s payloads and `digest_ro.sql`, whose path terraform reads: do not move it.
+- `digest/db/ops/` — `bin/ops`'s payloads and `digest_ro.sql`, which the box applies from the worker image
+  (seanfloyd-infra `digest-ro-grants`): keep its path in the image.
 - `bin/` — operator scripts, tested in `bin/tests` (ci-scripts).
 
 ## Layering
