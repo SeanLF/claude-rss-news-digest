@@ -1,9 +1,9 @@
 # One Dockerfile, three images (docs/2026-09-24-web-tier-and-ops-decisions.md): `site`, `dev`, and
 # `worker`, which stays the last stage so a build without --target is still the worker.
 FROM node:26-slim AS base
-# 1001 is the uid that owns news-digest-data and news-digest-claude in production (the newsroom
-# image's appuser). node:26-slim already holds 1000, so a bare useradd lands on 1001 today only by
-# accident; a different uid cannot write digest.db.
+# 1001 is the uid that owns news-digest-data and news-digest-claude in production (the retired Python
+# pipeline image's appuser). node:26-slim already holds 1000, so a bare useradd lands on 1001 today only
+# by accident; a different uid cannot write digest.db.
 RUN useradd -u 1001 -m appuser
 WORKDIR /app/digest
 
@@ -33,7 +33,7 @@ COPY --from=build /app/digest/bundle/dist ./dist
 COPY --from=build /app/digest/bundle/site.cdx.json /app/digest/bundle/meta.json ./
 # Read relative to the bundle (site/assets.ts): dist/site/main.js -> ../../assets/site.
 COPY digest/assets/site ./assets/site
-COPY newsroom/sources.json /app/sources.json
+COPY digest/catalogue/sources.json /app/sources.json
 COPY design/tokens.css /app/design/tokens.css
 ARG OCI_REVISION=""
 LABEL org.opencontainers.image.revision="${OCI_REVISION}"
@@ -43,10 +43,9 @@ CMD ["node", "dist/site/main.js"]
 FROM base AS app
 COPY --from=build /app/digest ./
 COPY --from=prod-deps /app/digest/node_modules ./node_modules
-# The feed catalogue fetch reads (newsroom owns it until the Python tree retires).
-COPY newsroom/sources.json /app/sources.json
-# The render's template and stylesheet, and the design tokens the email's colours come from.
-COPY newsroom/templates/digest-template.html newsroom/templates/digest.css /app/newsroom/templates/
+# The feed catalogue fetch reads. The render's template and stylesheet came with digest/ above
+# (digest/templates); the design tokens the email's colours come from live outside it.
+COPY digest/catalogue/sources.json /app/sources.json
 COPY design/tokens.css /app/design/tokens.css
 # Below the build: these change every commit. GIT_SHA is what runs.git_sha records;
 # the revision label is what bin/deploy's provenance check reads.

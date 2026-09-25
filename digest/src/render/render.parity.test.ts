@@ -13,14 +13,14 @@ const DB = process.env["DIGEST_DB"] ?? `${REPO}data/digest.db`;
 const ORACLE = process.env["RENDER_ORACLE"] ?? `${REPO}data/replay/oracle`;
 const FIXTURE_AT = new Date("2026-07-05T06:07:00Z");
 const FIXTURES: Record<string, string> = {
-  kitchensink: `${REPO}newsroom/tests/fixtures/kitchensink_selections.json`,
+  kitchensink: `${REPO}digest/src/render/fixtures/kitchensink_selections.json`,
   edge: new URL("./fixtures/edge_selections.json", import.meta.url).pathname,
 };
 const ENVS: Record<string, RenderEnv> = {
   prod: { digestName: "Sean's Daily News Digest", digestDomain: "news-digest.seanfloyd.dev", archiveUrl: "https://news-digest.seanfloyd.dev", authorName: "Sean", authorUrl: "https://seanfloyd.dev" },
   bare: { digestName: undefined, digestDomain: "", archiveUrl: "", authorName: "", authorUrl: "" },
 };
-const assets = loadAssets({ templates: `${REPO}newsroom/templates`, design: `${REPO}design` });
+const assets = loadAssets({ templates: `${REPO}digest/templates`, design: `${REPO}design` });
 
 // The two byte differences the port carries, each normalised away here and nowhere else:
 // escape-goat writes an apostrophe as &#39; where Python's html.escape writes &#x27; (the same

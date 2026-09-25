@@ -24,10 +24,11 @@ ALL_SUITES = frozenset({PYTHON, RUST, TS, WORKER})
 # everything. First match wins, so the shared paths sit above the prefixes that would claim them.
 # test_ci_scope.py holds this table to the COPY and bind-mount lists that define each container.
 _SCOPE: tuple[tuple[str, frozenset[str]], ...] = (
-    # Read by more than one container (ci-ts COPY, ci-rust bind mounts, the newsroom tests).
-    ("newsroom/templates/", ALL_SUITES),
-    ("newsroom/tests/fixtures/", ALL_SUITES),
-    ("newsroom/sources.json", ALL_SUITES),
+    # Read by more than one container (ci-ts COPY, ci-rust bind mounts, and the newsroom tests
+    # through the symlinks newsroom/ keeps to them).
+    ("digest/templates/", ALL_SUITES),
+    ("digest/catalogue/", ALL_SUITES),
+    ("digest/src/render/fixtures/kitchensink_selections.json", ALL_SUITES),
     ("newsroom/Dockerfile.ci", ALL_SUITES),  # the ci image runs bin/ci itself
     ("newsroom/", frozenset({PYTHON})),
     # Read by newsroom tests: test_markdown_chrome_contract.py, and test_sbom_exceptions.py, which

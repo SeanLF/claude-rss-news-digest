@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 
-// The source catalogue (newsroom/sources.json) as the site reads it. Parked sources ("active": false)
+// The source catalogue (digest/catalogue/sources.json) as the site reads it. Parked sources ("active": false)
 // stay in it: past issues were built from them, so the history-facing figures keep them, and only
 // the surfaces about today's shelf leave them out.
 

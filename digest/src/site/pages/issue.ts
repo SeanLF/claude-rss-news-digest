@@ -7,7 +7,7 @@ import { NO_FLASH_JS, type PageCtx, TOGGLE_BTN, ogImageTags, topbar, translatePi
 
 // An issue's web page: the HTML the pipeline rendered, with the site's chrome injected at fixed places
 // (circulation's get_digest). The needles are the template's own markup, held by app.test.ts and check-injections.test.ts against
-// newsroom/templates/digest-template.html.
+// digest/templates/digest-template.html.
 
 export const NEEDLES = { head: "</head>", paper: '<div class="paper">', footerMeta: '<p class="footer-meta">', footer: "</footer>", bodyEnd: "</body>" } as const;
 

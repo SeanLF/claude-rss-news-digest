@@ -5,10 +5,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates
 WORKDIR /app/digest
 COPY digest/package.json digest/package-lock.json ./
 RUN npm ci
-# The render's tests read the template, stylesheet and tokens, and the newsroom's kitchen-sink fixture.
-COPY newsroom/templates/digest-template.html newsroom/templates/digest.css /app/newsroom/templates/
-COPY newsroom/tests/fixtures/kitchensink_selections.json /app/newsroom/tests/fixtures/
+# The render's and the site's tests read the design tokens, which live outside digest/.
 COPY design/tokens.css /app/design/tokens.css
-# The site's tests read the source catalogue, as the site does in production (digest/Dockerfile).
-COPY newsroom/sources.json /app/sources.json
 COPY digest/ ./

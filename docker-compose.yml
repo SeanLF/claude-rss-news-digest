@@ -34,7 +34,7 @@ services:
       - ./data:/app/data
       - claude-sessions:/home/appuser/.claude
       - bash-history:/home/appuser/.bash_history_dir
-      - ./newsroom/templates/digest.css:/app/templates/digest.css:ro
+      - ./digest/templates/digest.css:/app/templates/digest.css:ro
       - ./prompts:/app/prompts:ro
 
   ci:
@@ -95,15 +95,15 @@ services:
     volumes:
       - ./circulation:/app
       - cargo-target:/cargo-target
-      - ./newsroom/sources.json:/app/sources.json:ro
+      - ./digest/catalogue/sources.json:/app/sources.json:ro
       # tokens.css is the shared design source `include_str!`'d by src/assets.rs as
       # ../../design/tokens.css -> /design/tokens.css from /app/src (same bind-mount
       # technique as sources.json above; prod Dockerfile does `COPY design /design`).
       - ./design/tokens.css:/design/tokens.css:ro
-      # The template-seam test (handlers.rs) `include_str!`'s the newsroom web template
+      # The template-seam test (handlers.rs) `include_str!`'s the pipeline's web template
       # at ../../newsroom/templates/... -> /newsroom/templates/... to guard the get_digest
       # injection needles against drift. Test-only include, so no prod Dockerfile COPY needed.
-      - ./newsroom/templates/digest-template.html:/newsroom/templates/digest-template.html:ro
+      - ./digest/templates/digest-template.html:/newsroom/templates/digest-template.html:ro
       - cargo-cache:/usr/local/cargo/registry
     entrypoint: ["sh", "-c"]
     command: ["cargo fmt --check && cargo clippy -- -D warnings && cargo test"]
@@ -312,7 +312,7 @@ services:
         # for the bias table, design/ for the include_str!'d tokens). Watching only circulation/
         # would leave an edit to either silently stale -- the same failure this harness exists to
         # stop, moved one directory over.
-        - path: ./newsroom/sources.json
+        - path: ./digest/catalogue/sources.json
           action: rebuild
         - path: ./design
           action: rebuild

@@ -59,11 +59,11 @@ def test_a_path_one_suite_owns_runs_only_that_suite(path, suites):
     [
         # Shared inputs: more than one container reads each.
         "migrations/20260101000000_x.sql",
-        "newsroom/templates/digest-template.html",
-        "newsroom/templates/digest.css",
-        "newsroom/tests/fixtures/kitchensink_selections.json",
+        "digest/templates/digest-template.html",
+        "digest/templates/digest.css",
+        "digest/src/render/fixtures/kitchensink_selections.json",
         "design/tokens.css",
-        "newsroom/sources.json",
+        "digest/catalogue/sources.json",
         # The CI machinery itself.
         "docker-compose.yml",
         "bin/ci",
@@ -159,7 +159,7 @@ def test_the_copy_parser_sees_the_shared_inputs():
     ts = _copy_sources("digest/Dockerfile.ci")
     assert {"design/tokens.css", "digest"} <= set(ts)
     assert {"digest/python/fulltext.py", "digest/python/tests"} <= set(_copy_sources("digest/python/Dockerfile"))
-    assert "newsroom/sources.json" in _rust_mounts()
+    assert "digest/catalogue/sources.json" in _rust_mounts()
 
 
 _CROSS_REF = re.compile(

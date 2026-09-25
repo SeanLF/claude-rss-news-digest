@@ -5,7 +5,7 @@ import { roundHalfEven, slugify } from "./common.js";
 import { applyDecodedLinks, attachThreads, collapseReposts, loadAssets, renderEmail, renderWeb, resolveArticleIds, type RenderInput, type Selections } from "./render.js";
 
 const REPO = new URL("../../../", import.meta.url).pathname;
-const assets = loadAssets({ templates: `${REPO}newsroom/templates`, design: `${REPO}design` });
+const assets = loadAssets({ templates: `${REPO}digest/templates`, design: `${REPO}design` });
 const edge = () => JSON.parse(readFileSync(new URL("./fixtures/edge_selections.json", import.meta.url), "utf8")) as Selections;
 const env = { digestName: "Digest", digestDomain: "news.example", archiveUrl: "https://news.example", authorName: "Sean", authorUrl: "https://author.example/" };
 const input = (selections: Selections): RenderInput => ({ selections, now: new Date("2026-09-18T10:42:40Z"), issueNo: 277, env, assets });
@@ -65,7 +65,7 @@ describe("the web issue", () => {
 const text = (s: string) => s.replaceAll(/<[^>]+>/g, " ").replaceAll("&nbsp;", " ").replaceAll(/\s+/g, " ");
 const sourceCounts = (t: string) => [...t.matchAll(/(\d+) (?:source|sources) · /gi)].map((m) => m[1]);
 describe("email and web show the same issue", () => {
-  it.each([["edge", edge()], ["kitchen sink", JSON.parse(readFileSync(`${REPO}newsroom/tests/fixtures/kitchensink_selections.json`, "utf8")) as Selections]] as const)("%s", (_n, sel) => {
+  it.each([["edge", edge()], ["kitchen sink", JSON.parse(readFileSync(`${REPO}digest/src/render/fixtures/kitchensink_selections.json`, "utf8")) as Selections]] as const)("%s", (_n, sel) => {
     const web = text(renderWeb(input(sel)));
     const email = text(renderEmail(input(sel)));
     let wAt = 0;

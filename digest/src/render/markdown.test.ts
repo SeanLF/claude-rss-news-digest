@@ -5,9 +5,9 @@ import { issueMarkdownBody } from "../store/html-markdown.js";
 import { loadAssets, renderMarkdown, renderWeb, type RenderInput, type Selections } from "./render.js";
 
 const REPO = new URL("../../../", import.meta.url).pathname;
-const assets = loadAssets({ templates: `${REPO}newsroom/templates`, design: `${REPO}design` });
+const assets = loadAssets({ templates: `${REPO}digest/templates`, design: `${REPO}design` });
 const edge = () => JSON.parse(readFileSync(new URL("./fixtures/edge_selections.json", import.meta.url), "utf8")) as Selections;
-const kitchenSink = () => JSON.parse(readFileSync(`${REPO}newsroom/tests/fixtures/kitchensink_selections.json`, "utf8")) as Selections;
+const kitchenSink = () => JSON.parse(readFileSync(`${REPO}digest/src/render/fixtures/kitchensink_selections.json`, "utf8")) as Selections;
 // The web page fills a {{DATE}} that editorial text quotes (the Python's order of fills, kept for
 // parity); the Markdown keeps it literal. That one difference aside, they are the same document.
 const edgeNoPlaceholder = (): Selections => JSON.parse(JSON.stringify(edge()).replaceAll("{{DATE}}", "a date")) as Selections;

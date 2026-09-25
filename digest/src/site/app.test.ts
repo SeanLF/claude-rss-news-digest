@@ -8,7 +8,7 @@ import type { SiteData } from "./data.js";
 const get = (app: ReturnType<typeof testApp>, path: string, headers: Record<string, string> = {}, method = "GET") => app.request(path, { method, headers });
 
 // The pipeline's web template, whose markup the issue page's injections are anchored to.
-const TEMPLATE = readFileSync("/app/newsroom/templates/digest-template.html", "utf8");
+const TEMPLATE = readFileSync(new URL("../../templates/digest-template.html", import.meta.url), "utf8");
 const ISSUE_HTML = TEMPLATE.replace("{{STYLES}}", "body{}").replaceAll(/\{\{[A-Z_]+\}\}/g, "");
 
 const STORED_MD = "## Must Know\n\n### A headline\n\nA summary.";

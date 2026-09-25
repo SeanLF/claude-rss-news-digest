@@ -6,7 +6,7 @@ import { freshDb } from "../store/test-db.js";
 import { EMAIL_OUTPUT, MARKDOWN_OUTPUT, RENDER_CONTEXT, renderActivity, WEB_OUTPUT } from "./render.js";
 
 const REPO = new URL("../../../", import.meta.url).pathname;
-const assets = loadAssets({ templates: `${REPO}newsroom/templates`, design: `${REPO}design` });
+const assets = loadAssets({ templates: `${REPO}digest/templates`, design: `${REPO}design` });
 const env = { digestName: "Digest", digestDomain: "news.example", archiveUrl: "https://news.example", authorName: "Sean", authorUrl: "https://author.example" };
 const stub = (runId: number, name: string): Pointer => ({ runId, name, sha256: "0".repeat(64) });
 

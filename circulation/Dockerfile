@@ -14,7 +14,7 @@ RUN mkdir src && echo "fn main() {}" > src/main.rs \
 # Build actual source (deps layer cached above)
 COPY circulation/apple-touch-icon.png circulation/og-image.png ./
 COPY circulation/src ./src
-COPY newsroom/sources.json ./sources.json
+COPY digest/catalogue/sources.json ./sources.json
 # WORKDIR /app maps to circulation/, so repo-root maps to /. Mirror the local layout so the
 # include_str!/include_bytes! relative paths (../../design, ../assets) resolve identically:
 #   /app/src/assets.rs -> ../../design/tokens.css == /design/tokens.css

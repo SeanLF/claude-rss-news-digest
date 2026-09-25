@@ -72,8 +72,8 @@ LABEL org.opencontainers.image.revision="${OCI_REVISION}"
 
 # Application code + shared resources (owned by appuser directly, no recursive chown).
 COPY --chown=appuser:appuser newsroom/src/ ./src/
-COPY --chown=appuser:appuser newsroom/sources.json ./
-COPY --chown=appuser:appuser newsroom/templates/ ./templates/
+COPY --chown=appuser:appuser digest/catalogue/sources.json ./
+COPY --chown=appuser:appuser digest/templates/ ./templates/
 # Canonical design tokens (repo-root design/). Build context is the repo root
 # (docker-compose sets `context: .`), so the source path is design/. Needed at
 # runtime: render prepends design/tokens.css to digest.css for var() resolution.
