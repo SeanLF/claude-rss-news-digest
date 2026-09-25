@@ -7,13 +7,25 @@ FROM node:26-slim AS base
 RUN useradd -u 1001 -m appuser
 WORKDIR /app/digest
 
+# Production dependencies only. `npm prune --omit=dev` left dev tools' platform binaries in the worker
+# image, and their Go libraries failed the SBOM audit. A clean `npm ci --omit=dev` still installs the
+# optional platform binaries of the dev-only linters (npm installs them whatever --omit says), so they
+# are removed by name, and the build fails if a dev tool is still there.
+FROM base AS prod-deps
+COPY digest/package.json digest/package-lock.json ./
+RUN npm ci --omit=dev \
+ && rm -rf node_modules/@oxlint node_modules/@oxlint-tsgolint \
+ && for d in esbuild @esbuild oxlint @oxlint oxlint-tsgolint @oxlint-tsgolint typescript vitest; do \
+      if [ -e "node_modules/$d" ]; then echo "dev tool $d in the production install" >&2; exit 1; fi; done
+
 FROM base AS build
 COPY digest/package.json digest/package-lock.json ./
 RUN npm ci
 COPY digest/ ./
 # tsc for the worker, esbuild for the site, the site's SBOM from the lockfile and the bundle's
-# metafile (an image with no node_modules gives a scanner nothing to read), then drop the dev toolchain.
-RUN npm run build && npm run bundle:site && npm run sbom:site && npm prune --omit=dev
+# metafile (an image with no node_modules gives a scanner nothing to read), then drop the dev toolchain;
+# the worker takes its node_modules from prod-deps.
+RUN npm run build && npm run bundle:site && npm run sbom:site && rm -rf node_modules
 
 # The web tier: the bundle, its assets and the two files it reads, and no node_modules.
 FROM base AS site
@@ -30,6 +42,7 @@ CMD ["node", "dist/site/main.js"]
 
 FROM base AS app
 COPY --from=build /app/digest ./
+COPY --from=prod-deps /app/digest/node_modules ./node_modules
 # The feed catalogue fetch reads (newsroom owns it until the Python tree retires).
 COPY newsroom/sources.json /app/sources.json
 # The render's template and stylesheet, and the design tokens the email's colours come from.

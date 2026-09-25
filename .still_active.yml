@@ -1,0 +1,94 @@
+# still_active policy for bin/deploy's SBOM gate (--fail-if-vulnerable=high). Each entry accepts ONE
+# advisory by id, with a reason and an expiry, so a new advisory on the same module still fails.
+#
+# All of these are inside the dbmate binary (node_modules/@dbmate/*/bin/dbmate, dbmate 2.36.0, the latest),
+# which the worker runs only as `migrate.js`: our own migration SQL against our own Postgres. govulncheck
+# -mode=binary (2026-09-25) lists the x/crypto and klauspost/compress symbols as compiled in; none is fed
+# attacker-controlled input here (no PGP, no SSH peer, no s2 data). The flatbuffers ids are OSS-Fuzz findings
+# on the C++ library, which govulncheck does not report for the Go module.
+
+ignore:
+  - advisory: GO-2026-5841
+    gem: go/github.com/klauspost/compress
+    reason: "dbmate's s2 dictionary code; dbmate reads only our migrations and our Postgres. Fixed in 1.18.7: drop when dbmate ships it"
+    expires: 2026-11-30
+
+  - advisory: GO-2026-5932
+    gem: go/golang.org/x/crypto
+    reason: "openpgp compiled into dbmate; nothing in migrate.js decrypts or verifies PGP"
+    expires: 2026-11-30
+
+  - advisory: GO-2026-6354
+    gem: go/golang.org/x/crypto
+    reason: "ssh channel DoS; dbmate connects to Postgres over TCP, no SSH"
+    expires: 2026-11-30
+
+  - advisory: GO-2026-6355
+    gem: go/golang.org/x/crypto
+    reason: "ssh channel DoS; dbmate connects to Postgres over TCP, no SSH"
+    expires: 2026-11-30
+
+  - advisory: OSV-2021-1229
+    gem: go/github.com/google/flatbuffers
+    reason: "OSS-Fuzz finding on the C++ flatbuffers library; govulncheck reports nothing for the Go module in dbmate"
+    expires: 2026-11-30
+
+  - advisory: OSV-2021-1249
+    gem: go/github.com/google/flatbuffers
+    reason: "OSS-Fuzz finding on the C++ flatbuffers library; govulncheck reports nothing for the Go module in dbmate"
+    expires: 2026-11-30
+
+  - advisory: OSV-2021-1314
+    gem: go/github.com/google/flatbuffers
+    reason: "OSS-Fuzz finding on the C++ flatbuffers library; govulncheck reports nothing for the Go module in dbmate"
+    expires: 2026-11-30
+
+  - advisory: OSV-2021-1678
+    gem: go/github.com/google/flatbuffers
+    reason: "OSS-Fuzz finding on the C++ flatbuffers library; govulncheck reports nothing for the Go module in dbmate"
+    expires: 2026-11-30
+
+  - advisory: OSV-2021-1695
+    gem: go/github.com/google/flatbuffers
+    reason: "OSS-Fuzz finding on the C++ flatbuffers library; govulncheck reports nothing for the Go module in dbmate"
+    expires: 2026-11-30
+
+  - advisory: OSV-2021-281
+    gem: go/github.com/google/flatbuffers
+    reason: "OSS-Fuzz finding on the C++ flatbuffers library; govulncheck reports nothing for the Go module in dbmate"
+    expires: 2026-11-30
+
+  - advisory: OSV-2021-308
+    gem: go/github.com/google/flatbuffers
+    reason: "OSS-Fuzz finding on the C++ flatbuffers library; govulncheck reports nothing for the Go module in dbmate"
+    expires: 2026-11-30
+
+  - advisory: OSV-2021-333
+    gem: go/github.com/google/flatbuffers
+    reason: "OSS-Fuzz finding on the C++ flatbuffers library; govulncheck reports nothing for the Go module in dbmate"
+    expires: 2026-11-30
+
+  - advisory: OSV-2021-347
+    gem: go/github.com/google/flatbuffers
+    reason: "OSS-Fuzz finding on the C++ flatbuffers library; govulncheck reports nothing for the Go module in dbmate"
+    expires: 2026-11-30
+
+  - advisory: OSV-2021-349
+    gem: go/github.com/google/flatbuffers
+    reason: "OSS-Fuzz finding on the C++ flatbuffers library; govulncheck reports nothing for the Go module in dbmate"
+    expires: 2026-11-30
+
+  - advisory: OSV-2021-520
+    gem: go/github.com/google/flatbuffers
+    reason: "OSS-Fuzz finding on the C++ flatbuffers library; govulncheck reports nothing for the Go module in dbmate"
+    expires: 2026-11-30
+
+  - advisory: OSV-2021-541
+    gem: go/github.com/google/flatbuffers
+    reason: "OSS-Fuzz finding on the C++ flatbuffers library; govulncheck reports nothing for the Go module in dbmate"
+    expires: 2026-11-30
+
+  - advisory: OSV-2021-581
+    gem: go/github.com/google/flatbuffers
+    reason: "OSS-Fuzz finding on the C++ flatbuffers library; govulncheck reports nothing for the Go module in dbmate"
+    expires: 2026-11-30
