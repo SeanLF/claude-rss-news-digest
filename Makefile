@@ -2,7 +2,7 @@
 # Run `make` or `make help` to see available targets
 
 .DEFAULT_GOAL := help
-.PHONY: ci ci-fix a11y lighthouse web-check deploy deploy-dry ssh db-clone usage usage-daily analytics \
+.PHONY: ci ci-fix a11y lighthouse web-check deploy ssh db-clone usage usage-daily analytics \
         analytics-list analytics-q versions help
 
 # Default window for the analytics queries; override with RUNS=N
@@ -23,10 +23,11 @@ web-check: ## Both gates against the pages the site (digest-site) really serves 
 	bin/web-check $(if $(FAST),--fast,)
 
 ## Deploy
-deploy: ## Deploy to production (build, push, terraform)
-	bin/deploy
-deploy-dry: ## Preview deployment without changes
-	bin/deploy --dry-run
+deploy: ## Deploy HEAD's images (built by CI) with seanfloyd-infra's bin/deploy-digest (INFRA_DIR in .env)
+	@if [ -f .env ]; then . ./.env; fi; \
+	test -n "$$INFRA_DIR" || { echo "INFRA_DIR is unset: set it in .env to the seanfloyd-infra checkout" >&2; exit 2; }; \
+	test -x "$$INFRA_DIR/bin/deploy-digest" || { echo "no executable $$INFRA_DIR/bin/deploy-digest" >&2; exit 2; }; \
+	exec "$$INFRA_DIR/bin/deploy-digest" "$$(git rev-parse HEAD)"
 
 ## Database
 db-clone: ## Clone production database locally
