@@ -28,7 +28,7 @@ describe("deploymentOptions", () => {
 });
 
 describe("waitingLine", () => {
-  it("is the line bin/deploy matches: bin/tests/test_deploy_run_guard.py plays this exact text", () => {
+  it("is the line set-current prints for a run no worker has taken", () => {
     expect(waitingLine(["digest-2026-10-05"])).toBe("waiting: digest-2026-10-05 -- no worker has taken these; they start once a polling build is current");
   });
 });
@@ -201,53 +201,6 @@ describe("worker versioning on a dev server", () => {
     }
   }, 120_000);
 
-  // bin/deploy points current at the build it ships before the apply, whose bootstrap may start a run
-  // while the old worker still polls. That run must wait for the new build, not pin to the old one.
-  it("a build made current before its worker exists takes the runs started in between, and is confirmed only once it polls", async () => {
-    const d = await versioned("build-d");
-    const drained = d.run();
-    await setCurrentVersion(env.client, "build-d", TASK_QUEUE);
-    await env.client.workflowService.setWorkerDeploymentCurrentVersion({ namespace: env.client.options.namespace, deploymentName: DEPLOYMENT_NAME, buildId: "build-e", allowNoPollers: true, ignoreMissingTaskQueues: true });
-    const h = await env.client.workflow.start("DigestWorkflow", startOptions("2026-10-03", {}));
-    await pause(3000);
-    expect(await completedTasks(h)).toEqual([]); // the old build's worker does not take it
-    await expect(setCurrentVersion(env.client, "build-e", TASK_QUEUE, 3000)).rejects.toThrow(/no worker of digest:build-e/);
-    d.shutdown();
-    await drained;
-    const e = await versioned("build-e");
-    await e.runUntil(async () => {
-      await setCurrentVersion(env.client, "build-e", TASK_QUEUE);
-      expect(await strandedRuns(env.client, "build-e")).toEqual([]);
-      await h.signal(approveSignal, { decision: "approve" });
-      expect((await h.result()).broadcast).toBe("sent");
-      expect(await versionOf(h)).toEqual({ behavior: PINNED, buildId: "build-e" });
-    });
-  }, 120_000);
-
-  // bin/deploy's exit trap after a deploy that died between pointing current at the new build and its
-  // worker polling: the bootstrap's run is waiting, unpinned, on the new build; the trap makes the
-  // running (old) build current again. The run must follow current to the old build and run there.
-  it("a run waiting, unpinned, on a build with no worker follows current back to the running build", async () => {
-    const f = await versioned("build-f");
-    await f.runUntil(async () => {
-      await setCurrentVersion(env.client, "build-f", TASK_QUEUE);
-      await env.client.workflowService.setWorkerDeploymentCurrentVersion({ namespace: env.client.options.namespace, deploymentName: DEPLOYMENT_NAME, buildId: "build-g", allowNoPollers: true, ignoreMissingTaskQueues: true });
-      const h = await env.client.workflow.start("DigestWorkflow", startOptions("2026-10-04", {}));
-      await pause(3000);
-      expect(await completedTasks(h)).toEqual([]); // control: it waits for build-g
-      await setCurrentVersion(env.client, "build-f", TASK_QUEUE); // the trap's set-current.js in the old container
-      expect(await strandedRuns(env.client, "build-f")).toEqual([]);
-      await untilInHold(h);
-      await h.signal(approveSignal, { decision: "approve" });
-      expect((await h.result()).broadcast).toBe("sent");
-      expect(await versionOf(h)).toEqual({ behavior: PINNED, buildId: "build-f" });
-    });
-  }, 120_000);
-
-  // The trap's other ending: no worker's build can be made current (the new worker never polls), so
-  // current stays on a build nobody runs. A run already waiting there is pinned to nothing, so
-  // strandedRuns cannot see it; set-current names it as waiting, or the deploy's error would not
-  // say that today's run is sitting.
   it("a run waiting, unpinned, while current names a build with no worker, is named as waiting", async () => {
     const f = await versioned("build-h");
     await f.runUntil(async () => {

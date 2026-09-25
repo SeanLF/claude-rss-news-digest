@@ -1,5 +1,5 @@
 // usage: set-current   makes this image's build (GIT_SHA) the current worker deployment version on
-// the Temporal at TEMPORAL_ADDRESS, once its worker polls. bin/deploy runs it inside the running
+// the Temporal at TEMPORAL_ADDRESS, once its worker polls. seanfloyd-infra's bin/deploy-digest runs it (kamal app exec --reuse) inside the running
 // worker container, so the build made current is the one that is running.
 // Exit 0: current, and no running digest is pinned to another build. 2: current, and the runs listed
 // are pinned to a build whose worker is gone (runbook, "Stranded runs"). 3: current, but the running
@@ -14,7 +14,7 @@ const client = await connect();
 try {
   await setCurrentVersion(client, version.buildId, TASK_QUEUE);
 } catch (e) {
-  // The reason first: bin/deploy prints the first 300 characters.
+  // The reason first.
   console.log(`not current: ${String(e)}`);
   try {
     const waiting = await waitingRuns(client);

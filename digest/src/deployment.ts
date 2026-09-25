@@ -6,7 +6,7 @@ export const DEPLOYMENT_NAME = "digest";
 
 // Pinned as the worker's default rather than on DigestWorkflow: the SDK requires a default once
 // versioning is on, and every workflow this worker runs must finish on the build that started it.
-// The build id is the image's GIT_SHA (bin/deploy's build arg): two builds sharing one would replay
+// The build id is the image's GIT_SHA (CI's build arg): two builds sharing one would replay
 // each other's runs.
 export function deploymentOptions(env: Record<string, string | undefined> = process.env): WorkerDeploymentOptions {
   const buildId = env["GIT_SHA"]?.trim();
@@ -27,7 +27,7 @@ export const ACTIVITY_QUEUE = 2;
 // registers the poller's build, one queue type at a time, and until both are registered it refuses
 // the build: NOT_FOUND, or FAILED_PRECONDITION ("missing active task queues") while the current
 // build has work on a queue the new one has not registered yet. Nor is registration alone enough:
-// bin/deploy may already have made the build current before its worker existed.
+// a build can be made current before its worker exists (allowNoPollers, by hand).
 export async function setCurrentVersion(client: Client, buildId: string, taskQueue: string, waitMs = 120_000): Promise<void> {
   const namespace = client.options.namespace;
   const until = Date.now() + waitMs;
@@ -74,7 +74,7 @@ export async function waitingRuns(client: Client): Promise<string[]> {
   return waiting;
 }
 
-// set-current's line for them, which bin/deploy matches (bin/tests/test_deploy_run_guard.py).
+// set-current's line for them, for the operator reading the deploy's output.
 export const waitingLine = (ids: string[]): string => `waiting: ${ids.join(" ")} -- no worker has taken these; they start once a polling build is current`;
 
 // The running digests pinned to a build other than `buildId`. On this one-worker box that build's
