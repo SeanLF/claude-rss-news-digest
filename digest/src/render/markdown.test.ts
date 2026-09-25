@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { sameDocument, rendered } from "../site/parity/document.js";
+import { sameDocument, rendered } from "./same-document.js";
 import { issueMarkdownBody } from "../store/html-markdown.js";
 import { loadAssets, renderMarkdown, renderWeb, type RenderInput, type Selections } from "./render.js";
 

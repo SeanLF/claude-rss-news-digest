@@ -28,8 +28,7 @@ services:
     environment:
       - DIGEST_TEST_DATABASE_URL=postgres://postgres:digest@ci-pg:5432/postgres?sslmode=disable
 
-  # Scratch Postgres for tests and one-off harnesses (import-check, threads-parity, bin/site-parity),
-  # each in a database of its own. The box's image and major, with no volume: every
+  # Scratch Postgres for tests and one-off harnesses, each in a database of its own. The box's image and major, with no volume: every
   # `up` starts empty, and the databases tests create and never drop leave nothing on disk. Not the
   # dev stack's product database, which is digest-pg below.
   ci-pg:

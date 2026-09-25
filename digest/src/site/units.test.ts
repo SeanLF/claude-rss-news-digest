@@ -191,7 +191,7 @@ describe("the site's boundary", () => {
   // notion of the same document.
   it("is imported by nothing outside it but its CLIs and tests", () => {
     const bad = files(src)
-      .filter((f) => !f.includes("/site/") && !/\/cli\/(site-parity|search-eval|check-injections(\.test)?|backfill-markdown\.test)\.ts$/.test(f) && !f.endsWith("/render/markdown.test.ts"))
+      .filter((f) => !f.includes("/site/") && !/\/cli\/(check-injections(\.test)?|backfill-markdown\.test)\.ts$/.test(f) && !f.endsWith("/render/markdown.test.ts"))
       .flatMap((f) => imports(f).filter((i) => i.includes("/site/")).map((i) => `${f}: ${i}`));
     expect(bad).toEqual([]);
   });

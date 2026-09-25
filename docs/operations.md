@@ -69,9 +69,9 @@ the local Postgres clone (`digest_clone` in the dev stack's `digest-pg`; `DIGEST
 the old one only once it verifies. `bin/usage`, `bin/trace` and `bin/analytics` read the clone
 through `bin/psql`, read-only; `bin/psql` alone opens it.
 
-The last SQLite database (`digest.db`, the Python pipeline's, frozen at the cut-over) is imported
-into Postgres by `bin/import-legacy`, which `make import-check`,
-`make threads-parity`, `bin/site-parity` and `bin/search-eval` still use on their recorded clones.
+The last SQLite database (`digest.db`, the Python pipeline's, frozen at the cut-over) is in
+`~/Backups/news-digest-python-era/`; its importer is in git history (`bin/import-legacy`, deleted
+after the cut-over).
 
 ## The dev stack (pipeline, site, mail)
 

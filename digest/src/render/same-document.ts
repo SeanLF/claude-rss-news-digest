@@ -1,5 +1,4 @@
 import MarkdownIt from "markdown-it";
-import type { SameDocument } from "./harness.js";
 
 // Markdown as a document: rendered under CommonMark with GFM tables, whitespace collapsed, and dropped
 // where a block starts or ends (it renders as nothing there). A trailing space, `*` against `-` for a
@@ -12,4 +11,4 @@ const blockSpace = new RegExp(`\\s*(</?${BLOCK}\\b[^>]*>)\\s*`, "g");
 
 export const rendered = (text: string): string => md.render(text).replaceAll(/\s+/g, " ").replaceAll(blockSpace, "$1").trim();
 
-export const sameDocument: SameDocument = (a, b) => rendered(a) === rendered(b);
+export const sameDocument = (a: string, b: string): boolean => rendered(a) === rendered(b);

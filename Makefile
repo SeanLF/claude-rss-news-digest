@@ -3,7 +3,7 @@
 
 .DEFAULT_GOAL := help
 .PHONY: ci ci-fix a11y lighthouse web-check deploy deploy-dry ssh db-clone usage usage-daily analytics \
-        analytics-list analytics-q versions search-eval help
+        analytics-list analytics-q versions help
 
 # Default window for the analytics queries; override with RUNS=N
 RUNS ?= 30
@@ -124,40 +124,6 @@ schema-types: ## Regenerate digest/src/store/schema.gen.ts, the product schema's
 
 check-injections: ## Render every stored issue in the dev stack's database and list each date whose site chrome failed to inject (exit 1 on any; read-only)
 	$(COMPOSE) run --rm --build --no-deps -e DIGEST_DATABASE_URL="postgres://digest_ro:digest_ro@digest-pg:5432/digest?sslmode=disable" digest-worker npm run --silent check-injections
-
-site-parity: ## Hold the TypeScript site to the newest recorded Rust goldens (data/site-parity; the recorder retired with circulation): import their clone into Postgres, run the parity tests (DIR=data/site-parity/<stamp>; host-only)
-	bin/site-parity $(DIR)
-
-search-eval: ## Score the site's headline search against the pre-registered queries, judgements and Rust's FTS5 answers, with its negative controls (SRC=data/prod-20260923b.db; no model calls; host-only)
-	bin/search-eval score
-
-import-check: ## Import a copy of the prod clone into a fresh Postgres and hold it to the design's §5.1 and prepare's parity (SRC=data/prod-20260923b.db; host-only, ~1 min)
-	@src=$${SRC:-data/prod-20260923b.db}; copy=data/import-check.db; db=import_check; \
-	test -r "$$src" || { echo "no $$src (make db-clone)"; exit 2; }; \
-	rm -f "$$copy" && cp -c "$$src" "$$copy" && \
-	docker compose up -d --wait ci-pg && \
-	docker compose exec -T ci-pg psql -q -U postgres -c "DROP DATABASE IF EXISTS $$db" -c "CREATE DATABASE $$db" && \
-	IMPORT_NETWORK=$$(docker inspect -f '{{range $$k, $$v := .NetworkSettings.Networks}}{{$$k}}{{end}}' $$(docker compose ps -q ci-pg)) \
-	  bin/import-legacy "$$copy" "postgres://postgres:digest@ci-pg:5432/$$db?sslmode=disable" && \
-	docker compose run --rm --build -e IMPORTED_CLONE_URL="postgres://postgres:digest@ci-pg:5432/$$db?sslmode=disable" \
-	  -e PARITY_DATABASE_URL="postgres://postgres:digest@ci-pg:5432/$$db?sslmode=disable" \
-	  ci-ts npx vitest run src/store/import.clone.test.ts src/prepare/prepare.parity.test.ts; status=$$?; rm -f "$$copy"; exit $$status
-
-threads-parity: ## Replay the TypeScript thread layer against the recorded Python oracle, each case imported fresh (ORACLE=data/replay/threads-oracle; its recorder retired with the Python pipeline; host-only)
-	@oracle=$$(cd "$${ORACLE:-data/replay/threads-oracle}" 2>/dev/null && pwd) && ls "$$oracle"/*/pre.db >/dev/null 2>&1 || \
-	  { echo "no oracle cases in $${ORACLE:-data/replay/threads-oracle} (recorded before the Python pipeline retired; nothing can record new ones)"; exit 2; }; \
-	image=$${COMPOSE_PROJECT_NAME:-news-digest}-threads-import:local; \
-	docker build -q -f digest/Dockerfile --build-arg GIT_SHA=import -t "$$image" . >/dev/null && \
-	docker compose up -d --wait ci-pg && \
-	net=$$(docker inspect -f '{{range $$k, $$v := .NetworkSettings.Networks}}{{$$k}}{{end}}' $$(docker compose ps -q ci-pg)) && \
-	for dir in "$$oracle"/*/; do \
-	  db=threads_$$(basename "$$dir"); \
-	  docker compose exec -T ci-pg psql -q -U postgres -c "DROP DATABASE IF EXISTS $$db" -c "CREATE DATABASE $$db" && \
-	  IMPORT_NETWORK=$$net DIGEST_IMAGE=$$image bin/import-legacy "$$dir/pre.db" "postgres://postgres:digest@ci-pg:5432/$$db?sslmode=disable" || exit 1; \
-	done && \
-	docker compose run --rm --build -v "$$oracle:/oracle:ro" -e THREADS_ORACLE=/oracle \
-	  -e THREADS_PARITY_DB_PREFIX=postgres://postgres:digest@ci-pg:5432/threads_ \
-	  ci-ts npx vitest run src/threads/threads.parity.test.ts
 
 band: ## Same-day curation band of the TypeScript workflow via promptfoo, on a copy of the dev stack's database (RUN=300 DATE=2026-09-18 REPS=3; model calls, ~$4/rep)
 	@stamp=band_$$(date -u +%Y%m%dT%H%M%SZ | tr 'A-Z' 'a-z'); \
