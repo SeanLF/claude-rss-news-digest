@@ -19,7 +19,7 @@ const RUNNING_DIGESTS = 'WorkflowType="DigestWorkflow" AND ExecutionStatus="Runn
 
 // temporal.api.enums.v1.TaskQueueType; @temporalio/proto is only a dev dependency.
 const WORKFLOW_QUEUE = 1;
-const ACTIVITY_QUEUE = 2;
+export const ACTIVITY_QUEUE = 2;
 
 // Makes `buildId` the version new runs (manual and scheduled) start on, once a worker of that build
 // polls `taskQueue` and the server has registered the build on its workflow and activity queues:

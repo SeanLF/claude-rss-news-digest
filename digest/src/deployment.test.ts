@@ -6,6 +6,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { stubActivities } from "./activities/stub.js";
 import { scheduleOptions, startOptions } from "./client.js";
 import { DEPLOYMENT_NAME, deploymentOptions, setCurrentVersion, strandedRuns, waitingLine, waitingRuns } from "./deployment.js";
+import { missingPollers } from "./pollers.js";
 import { TASK_QUEUE } from "./worker.js";
 import { approveSignal } from "./workflow/signals.js";
 import { PYTHON_TASK_QUEUE } from "./workflow/policy.js";
@@ -112,6 +113,19 @@ async function untilInHold(h: WorkflowHandle): Promise<void> {
   }
   throw new Error("the run never reached the hold");
 }
+
+// A worker's first poll reaches the server a moment after it starts.
+async function settled(queue: string): Promise<string[]> {
+  for (let i = 0; i < 50 && (await missingPollers(env.client, [queue])).length; i++) await pause(100);
+  return missingPollers(env.client, [queue]);
+}
+describe("missingPollers on a dev server", () => {
+  it("sees the unversioned Python worker, which polls activities only, and a versioned digest worker; not a queue nobody polls", async () => {
+    expect(await settled(PYTHON_TASK_QUEUE)).toEqual([]);
+    expect(await settled("nobody-polls")).toEqual(["no worker polls the nobody-polls task queue"]);
+    await (await versioned("build-p")).runUntil(async () => expect(await settled(TASK_QUEUE)).toEqual([]));
+  }, 60_000);
+});
 
 describe("worker versioning on a dev server", () => {
   it("a run started before any version is current waits; setting the version current starts it, pinned, and it records the version in its history", async () => {
