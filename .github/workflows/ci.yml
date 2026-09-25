@@ -5,6 +5,7 @@ name: ci
 on:
   push:
     branches: [main]
+  pull_request:
   workflow_dispatch:
 
 permissions: {}
@@ -26,6 +27,8 @@ jobs:
       security-events: write
     uses: google/osv-scanner-action/.github/workflows/osv-scanner-reusable.yml@a345acffa64b0eaede81a3d9aae6141214d9c8fc # v2.6.0
     with:
+      # A Dependabot PR's token is read-only, so it cannot upload to Code Scanning.
+      upload-sarif: ${{ github.event_name != 'pull_request' }}
       scan-args: |-
         --lockfile=digest/package-lock.json
         --lockfile=digest/python/uv.lock

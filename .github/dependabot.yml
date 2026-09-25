@@ -1,0 +1,41 @@
+# Weekly update PRs; ci.yml runs the tests and osv-scanner on each. Merging one is not deploying it:
+# make deploy ships main when Sean runs it.
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /digest
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    groups:
+      # The Temporal SDK's packages must share one version; a split bump fails at worker start.
+      temporal:
+        patterns: ["@temporalio/*"]
+      minor-and-patch:
+        update-types: [minor, patch]
+
+  - package-ecosystem: uv
+    directory: /digest/python
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    groups:
+      minor-and-patch:
+        update-types: [minor, patch]
+
+  - package-ecosystem: docker
+    directories: [/digest, /digest/python, /bin/tests]
+    schedule:
+      interval: weekly
+
+  - package-ecosystem: docker-compose
+    directory: /
+    schedule:
+      interval: weekly
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly

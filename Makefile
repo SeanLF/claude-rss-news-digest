@@ -3,7 +3,7 @@
 
 .DEFAULT_GOAL := help
 .PHONY: ci ci-fix a11y lighthouse web-check deploy ssh db-clone usage usage-daily analytics \
-        analytics-list analytics-q versions help
+        analytics-list analytics-q help
 
 # Default window for the analytics queries; override with RUNS=N
 RUNS ?= 30
@@ -51,10 +51,6 @@ endif
 ## Server
 ssh: ## SSH to production server
 	bin/ssh
-
-## Checks
-versions: ## Check for dependency updates
-	bin/check-versions
 
 ## Help
 help: ## Show this help
