@@ -22,10 +22,8 @@ ALL_SUITES = frozenset({TS, WORKER, SCRIPTS})
 # everything. First match wins, so the shared paths sit above the prefixes that would claim them.
 # test_ci_scope.py holds this table to the COPY lists that define each container.
 _SCOPE: tuple[tuple[str, frozenset[str]], ...] = (
-    # bin/tests/test_sbom_exceptions.py holds the SBOM gate's pins and exceptions to these
-    # pyprojects and lockfiles.
-    ("digest/package-lock.json", frozenset({TS, SCRIPTS})),
-    ("digest/python/pyproject.toml", frozenset({WORKER, TS, SCRIPTS})),
+    ("digest/package-lock.json", frozenset({TS})),
+    ("digest/python/pyproject.toml", frozenset({WORKER, TS})),
     # The ci-ts image COPYs all of digest/, python/ included.
     ("digest/python/", frozenset({WORKER, TS})),
     # bin/ops's Postgres payloads: executed in ci-ts, and read by bin/tests/test_ops.py.

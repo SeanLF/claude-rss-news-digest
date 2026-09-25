@@ -34,7 +34,7 @@ TS, WORKER, SCRIPTS = ci.TS, ci.WORKER, ci.SCRIPTS
     ("path", "suites"),
     [
         ("bin/tests/test_ops.py", {SCRIPTS}),
-        ("digest/package-lock.json", {TS, SCRIPTS}),
+        ("digest/package-lock.json", {TS}),
         ("digest/db/ops/digest_ro.sql", {TS, SCRIPTS}),
         ("digest/src/workflow/digest.ts", {TS}),
         ("digest/package.json", {TS}),
