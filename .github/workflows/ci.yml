@@ -1,5 +1,5 @@
-# The repo's CI on every push to main: the tests and the dependency scan. seanfloyd-infra's
-# bin/deploy-digest (make deploy) builds and deploys a commit only once this passed for it.
+# The tests and the dependency scan on every push to main, and on Dependabot's PRs, which never pass
+# through the Mac's pre-commit hook. Not a deploy gate: make deploy runs osv-scanner itself.
 name: ci
 
 on:
