@@ -10,32 +10,24 @@ Reusable *lessons* live in [`docs/lessons/`](lessons/); incident narratives live
 ## Deploying
 
 ```bash
-bin/deploy --dry-run   # what it would do
-bin/deploy             # build, audit and push the worker, Python worker and site images; apply terraform
+make deploy                                   # HEAD, once CI (.github/workflows/images.yml) built it
+$INFRA_DIR/bin/deploy-digest <sha> --force    # inside the run window or during a run, loudly
+$INFRA_DIR/bin/deploy-digest --rollback <sha> # to a version the box still holds
 ```
 
-It runs the web gate (`bin/web-check`, on the dev stack's site) first, refuses while a `DigestWorkflow`
-runs and from 12:00 to 13:45 Europe/Paris (`--force` overrides both, loudly), pauses the schedule, has the box take a fresh `pg_dump` and copies it to the Mac
-(seanfloyd-infra's `bin/backup-volumes --fresh-digest-dump`), applies terraform, makes the new worker's
-build the current Temporal version, restores the schedule and smokes the site. The worker applies the
-product schema's dbmate migrations (`digest/db/migrations`) as it starts; they are forward-only.
+CI builds the three images on every push to main: tests and osv-scanner first, then each image with an
+SBOM and a provenance attestation, tagged by the full SHA. `make deploy` hands HEAD to seanfloyd-infra's
+`bin/deploy-digest`, which Kamal-deploys them (design: seanfloyd-infra
+`docs/2026-09-25-news-digest-kamal-design.md`): it checks the SHA is on main, CI passed and each image's
+attestation verifies; refuses while a `DigestWorkflow` runs and from 12:00 to 13:45 Europe/Paris (the
+guard runs in the live worker); dumps Postgres alongside the Python worker's deploy; then deploys the
+worker and the site in parallel. The worker applies the product schema's dbmate migrations as it starts
+and is healthy only once it polls, so a failed migration fails the deploy with the old worker still
+running; its build is then made the current Temporal version, and one that never becomes current is
+rolled back. Migrations only add (a rollback runs old code on the new schema).
 
-## Rolling back a deploy
-
-Every deploy tag records the image digests it shipped, and each deploy leaves a stopped
-`news-digest.keep` container per image on the box, newest three per repository, so the weekly
-`docker image prune -af` cannot remove them.
-
-```bash
-git tag -n3 -l 'deploy/*'                              # pick the deploy to return to
-bin/deploy --rollback=deploy/2026-09-18-053727Z        # add --dry-run to preview
-bin/ssh "docker ps -a --filter label=news-digest.keep" # the images the box holds
-```
-
-`--rollback` runs every gate a deploy runs (run window, run in flight, schedule pause, backup) and
-builds nothing. Migrations are forward-only, so the old code runs against the current schema. A
-repository the tag records no digest for runs `:latest`, and the deploy says which ones; a tag from
-before the cut-over also names `digest-newsroom` and `digest-circulation`, which are ignored.
+Kamal keeps the running container and the three before it per service, so a rollback to any of those
+needs no registry. Container logs: `kamal app logs -c config/deploy/digest-worker.yml` in seanfloyd-infra.
 
 ## Database
 

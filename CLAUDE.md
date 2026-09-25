@@ -41,8 +41,7 @@ them to URL, source and bias afterwards. Stage prompts are `digest/agents/*.md`.
   (`node dist/cli/migrate.js`); after one, `make schema-types` regenerates the row types.
 - **Deploy**: `make deploy` runs seanfloyd-infra's `bin/deploy-digest` on HEAD, which Kamal-deploys the
   images CI built for it (`.github/workflows/images.yml`; refuses during a run and 12:00-13:45
-  Europe/Paris); `bin/deploy-digest --rollback <sha>` there rolls back. `bin/deploy` is the pre-Kamal path,
-  kept until the cut-over.
+  Europe/Paris); `bin/deploy-digest --rollback <sha>` there rolls back.
 - **Production reads**: `bin/ops run|usage|health|artifacts|journal` (read-only, over SSH);
   `make db-clone` then `bin/psql`, `make usage`, `make analytics`.
 - **Server**: `make ssh`.

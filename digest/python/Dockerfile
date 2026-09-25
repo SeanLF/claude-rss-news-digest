@@ -29,11 +29,11 @@ COPY digest/python/tests /app/tests/
 USER appuser
 WORKDIR /app/src
 
-# The image that ships: last, so a build with no --target (bin/deploy) gets it.
+# The image that ships: last, so a build with no --target (CI's images.yml) gets it.
 FROM base
 COPY --from=deps --chown=appuser:appuser /app/.venv /app/.venv
 COPY digest/python/fulltext.py digest/python/settings.py digest/python/worker.py /app/src/
-# Changes every commit, so it sits below the venv copy; bin/deploy's provenance check reads it.
+# Changes every commit, so it sits below the venv copy; CI's attestation covers the image; this names the commit.
 ARG OCI_REVISION=""
 LABEL org.opencontainers.image.revision="${OCI_REVISION}"
 USER appuser

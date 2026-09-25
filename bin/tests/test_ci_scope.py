@@ -162,7 +162,7 @@ def _reads_into_other_suites(dirs: list[Path]) -> list[str]:
 
 def test_a_file_the_script_tests_read_elsewhere_routes_to_them():
     refs = _reads_into_other_suites([ROOT / "bin" / "tests"])
-    assert "digest/python/pyproject.toml" in refs  # the parser's negative control
+    assert "digest/python/Dockerfile" in refs  # the parser's negative control
     unrouted = [r for r in refs if SCRIPTS not in ci.suites_for([r])]
     assert not unrouted, f"bin/tests reads these, so a change to them must run the scripts suite: {unrouted}"
 

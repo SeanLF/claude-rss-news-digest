@@ -30,7 +30,7 @@ export async function runWorker(address = process.env["TEMPORAL_ADDRESS"] ?? "lo
     taskQueue: TASK_QUEUE,
     workflowsPath: new URL("./workflow/digest.workflow.js", import.meta.url).pathname,
     activities: workerActivities(),
-    // A run stays on the build that started it; bin/deploy makes a new build current (cli/set-current.ts).
+    // A run stays on the build that started it; a deploy makes a new build current (cli/set-current.ts).
     workerDeploymentOptions: deploymentOptions(),
   });
   const stopTouching = touchWhileRunning(worker);

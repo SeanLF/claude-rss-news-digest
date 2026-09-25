@@ -25,7 +25,7 @@ make digest-approve                    # or digest-reject, during a hold; the se
 make digest-schedule                   # create or update the daily schedule
 make dev-down                          # stop; keeps the volumes (docs/operations.md, "The dev stack")
 bash scripts/check-api-names.sh        # every library name used is declared in the installed types
-npm run sbom && still_active --sbom=sbom.cdx.json --fail-if-critical   # the library gate
+docker run --rm -v "$PWD":/src ghcr.io/google/osv-scanner:v2.6.0 scan source --lockfile /src/package-lock.json   # the library gate CI runs
 ```
 
 ## Footprint, local, stubs (2026-09-22, one workflow just completed)
