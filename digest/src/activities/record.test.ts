@@ -123,6 +123,24 @@ describe("finishRun", () => {
     await run.finishRun(300, { stories: 17, broadcast: "disabled", recipients: 0 });
     expect(await db.one("SELECT status, outcome FROM runs WHERE id=300")).toEqual({ status: "completed", outcome: "disabled" });
   });
+  it("tells PostHog how the run ended: outcome, stories, recipients, articles kept, cost, duration, build", async () => {
+    const { url, store, db } = await setup();
+    await db.exec("INSERT INTO source_fetches (source_id, is_success, articles_fetched, articles_kept, run_id) VALUES ('a', true, 40, 30, 300)");
+    await db.exec("INSERT INTO model_calls (run_id, stage, request_model, api_cost_usd) VALUES (300, 'select', 'm', 0.5), (300, 'write', 'm', 0.25)");
+    const events: [string, Record<string, unknown>][] = [];
+    const run = runActivities({ store, dbUrl: url, sourcesFile: "/dev/null", track: (e, p) => void events.push([e, p]) });
+    await run.finishRun(300, { stories: 17, broadcast: "sent", recipients: 12 });
+    expect(events).toHaveLength(1);
+    expect(events[0]![0]).toBe("digest_run_finished");
+    expect(events[0]![1]).toMatchObject({ run_id: 300, outcome: "sent", stories: 17, recipients: 12, articles_kept: 30, cost_usd: 0.75 });
+    expect(typeof events[0]![1]["duration_s"]).toBe("number");
+  });
+  it("a tracking failure never fails the run's ending", async () => {
+    const { url, store, db } = await setup();
+    const run = runActivities({ store, dbUrl: url, sourcesFile: "/dev/null", track: () => { throw new Error("posthog down"); } });
+    await run.finishRun(300, { stories: 1, broadcast: "disabled", recipients: 0 });
+    expect(await db.one("SELECT status FROM runs WHERE id=300")).toEqual({ status: "completed" });
+  });
   it("a sent run completes with its fetch-time kept count", async () => {
     const { url, store, db } = await setup();
     await db.exec("INSERT INTO runs (id, started_at) VALUES (299, '2026-09-17 10:25:40')");

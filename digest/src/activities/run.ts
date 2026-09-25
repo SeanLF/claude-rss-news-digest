@@ -8,6 +8,7 @@ import { fetchBounded, type BoundedResponse } from "../fetch/safe-fetch.js";
 import { toCsv, type Fetched } from "../prepare/prepare.js";
 import type { ArtifactStore } from "../store/artifacts.js";
 import { openDb, type RowOf, type Sql } from "../store/db.js";
+import type { Track } from "../telemetry.js";
 import type { DigestInput, DigestOutput } from "./index.js";
 
 export const SOURCES_HEADER = ["id", "name", "bias", "factuality", "perspective"] as const;
@@ -26,6 +27,8 @@ export interface RunDeps {
   sourcesFile: string;
   get?: (url: string) => Promise<Pick<BoundedResponse, "status" | "body">>;
   maxAttempts?: number;
+  // How each run ended, to PostHog (telemetry.ts); absent in tests and without a token.
+  track?: Track;
 }
 
 const currentAttempt = (): number => {
@@ -169,6 +172,22 @@ export function runActivities(deps: RunDeps) {
         else await t.run("UPDATE runs SET status='completed', outcome=$1 WHERE id=$2 AND outcome IS DISTINCT FROM 'sent'", [out.broadcast, runId]);
         await endAttempt(t, runId, "completed");
       });
+      await tellEnding(deps.track, db(), runId, { outcome: out.broadcast, stories: out.stories, recipients: out.recipients });
     },
   };
+}
+
+// How a run ended, to PostHog, after its record is written: a tracking failure is logged and never fails
+// the ending.
+export async function tellEnding(track: Track | undefined, db: Sql, runId: number, fields: Record<string, unknown>, event = "digest_run_finished"): Promise<void> {
+  if (!track) return;
+  try {
+    const r = await db.one<{ articles_kept: number | null; cost_usd: number | null; duration_s: number | null }>(
+      "SELECT r.articles_kept, (SELECT sum(api_cost_usd) FROM model_calls WHERE run_id = r.id) AS cost_usd, extract(epoch FROM now() - r.started_at)::float AS duration_s FROM runs r WHERE r.id = $1",
+      [runId],
+    );
+    track(event, { run_id: runId, ...fields, articles_kept: r?.articles_kept ?? null, cost_usd: r?.cost_usd ?? null, duration_s: r?.duration_s ?? null, git_sha: process.env["GIT_SHA"] ?? null });
+  } catch (e) {
+    console.warn(JSON.stringify({ stage: "telemetry", warning: `${event} not sent`, runId, error: String(e) }));
+  }
 }

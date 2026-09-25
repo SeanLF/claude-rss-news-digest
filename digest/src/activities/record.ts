@@ -4,7 +4,8 @@ import { webArchiveHtml } from "../render/web-archive.js";
 import type { ArtifactStore, Pointer } from "../store/artifacts.js";
 import { openDb, type RowOf } from "../store/db.js";
 import { MARKDOWN_OUTPUT } from "./render.js";
-import { endAttempt } from "./run.js";
+import type { Track } from "../telemetry.js";
+import { endAttempt, tellEnding } from "./run.js";
 
 export interface ShownRow { headline: string; tier: "must_know" | "should_know"; source_id: string | null; source_title: string | null; cluster_id: string | null }
 
@@ -17,7 +18,7 @@ export function shownHeadlines(selections: Selections, index: Record<string, unk
   );
 }
 
-export interface RecordDeps { store: ArtifactStore; dbUrl: string }
+export interface RecordDeps { store: ArtifactStore; dbUrl: string; track?: Track }
 
 // The run's record in the tables the web tier and the next day's run read (db.save_digest,
 // record_shown_headlines, abort_run). Each is idempotent per run: a retried or resumed activity
@@ -70,6 +71,7 @@ export function recordActivities(deps: RecordDeps) {
         await t.run("UPDATE runs SET status='failed', error=$1 WHERE id=$2 AND status='running'", [error, runId]);
         await endAttempt(t, runId, "failed", error);
       });
+      await tellEnding(deps.track, db(), runId, { outcome: "failed", error }, "digest_run_failed");
     },
   };
 }
