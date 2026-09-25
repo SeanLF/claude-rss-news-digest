@@ -66,7 +66,7 @@ function oracleQuery(exp: Expected, seen: { link: string[]; synthesis: Map<strin
 }
 
 describe("threads parity with the Python on archived runs", () => {
-  if (cases.length === 0) it.skip(`no oracle in ${ORACLE}, or THREADS_PARITY_DB_PREFIX unset: generate it with DB=<prod clone> bin/threads-oracle 300 301 302 303 304 and import each pre.db`, () => undefined);
+  if (cases.length === 0) it.skip(`no oracle in ${ORACLE}, or THREADS_PARITY_DB_PREFIX unset: bin/threads-oracle retired with the Python pipeline, so only a kept recording can run this (make threads-parity)`, () => undefined);
   it.each(cases)("%s", async (dir) => {
     const exp = JSON.parse(readFileSync(join(ORACLE, dir, "expected.json"), "utf8")) as Expected;
     const url = `${PREFIX!}${dir}`;

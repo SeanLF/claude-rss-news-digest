@@ -7,47 +7,6 @@ x-dev-mail: &dev-mail
 x-dev-site-domain: &dev-site-domain "${DEV_SITE_DOMAIN:-digest-site.${COMPOSE_PROJECT_NAME}.orb.local}"
 
 services:
-  digest-newsroom:
-    build:
-      context: .
-      dockerfile: newsroom/Dockerfile
-    environment:
-      - ANTHROPIC_API_KEY
-      - CLAUDE_CODE_OAUTH_TOKEN
-      - RESEND_API_KEY
-      - RESEND_FROM
-      - DIGEST_EMAIL
-      - DIGEST_NAME
-      - DIGEST_DOMAIN
-      - AUTHOR_NAME
-      - AUTHOR_URL
-      - ARCHIVE_URL
-      - SOURCE_URL
-      - IN_DOCKER=1
-      - CLAUDE_CODE_EAGER_FLUSH=1
-      # Optional (have defaults):
-      - HEALTH_ALERT_EMAIL
-      - HEALTH_ALERT_THRESHOLD
-      - RSS_MAX_RETRIES
-      - RSS_RETRY_DELAY
-    volumes:
-      - ./data:/app/data
-      - claude-sessions:/home/appuser/.claude
-      - bash-history:/home/appuser/.bash_history_dir
-      - ./digest/templates/digest.css:/app/templates/digest.css:ro
-      - ./prompts:/app/prompts:ro
-
-  ci:
-    build:
-      context: .
-      dockerfile: newsroom/Dockerfile.ci
-    working_dir: /app
-    environment:
-      - IN_DOCKER=1
-    volumes:
-      - .:/app
-    entrypoint: ["python3", "bin/ci"]
-
   # The operator scripts' tests (bin/tests): the tree mounted, pytest and ruff in the image.
   ci-scripts:
     build:
@@ -97,7 +56,6 @@ services:
   # A band gets its own copy (CREATE DATABASE ... TEMPLATE digest, make band); tests use ci-pg. Mail
   # goes to resend-fake and nowhere else: every dev-stack service names it as RESEND_BASE_URL with a dummy
   # key, and the client refuses real Resend without RESEND_LIVE=true (digest/src/resend/destination.ts).
-  # Not so the legacy digest-newsroom above: it takes .env's real key.
   digest-pg:
     image: postgres:18.6-alpine3.24
     environment:
@@ -245,9 +203,8 @@ volumes:
   digest-pg:
   temporal-data:
   resend-fake-data:
-  # The Claude Code login the worker runs as: the newsroom project's volume, shared by every project.
+  # The Claude Code login the worker runs as: one volume, news-digest_claude-sessions (make dev-up creates
+  # it), shared by every compose project.
   claude-login:
     external: true
     name: news-digest_claude-sessions
-  claude-sessions:
-  bash-history:

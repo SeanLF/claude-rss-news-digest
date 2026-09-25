@@ -21,13 +21,9 @@ from urllib.parse import urlparse
 import tomllib
 
 # Source -> why it ships unaudited. Every URL pin in a pyproject and every git source in a lockfile
-# is here, and nothing else is (tested).
-EXCEPTIONS = {
-    "https://github.com/SeanLF/google-news-url-decoder/archive/4860ab58e633c08d86fded1af69ae249ab6de2cb.tar.gz": (
-        "the googlenewsdecoder fork newsroom's gnews.py calls, until the Python pipeline retires at the "
-        "cut-over (the digest decodes with gnews-decoder from npm). Maintained by Sean alone; review it by hand."
-    ),
-}
+# is here, and nothing else is (tested). Empty since the Python pipeline, the googlenewsdecoder fork's
+# only user, retired; the digest decodes with gnews-decoder from npm.
+EXCEPTIONS: dict[str, str] = {}
 
 GIT_PREFIXES = ("git+", "github:")
 # A tarball from any other host is as unaudited as a git dependency. In-repo paths (`link`) have no scheme.

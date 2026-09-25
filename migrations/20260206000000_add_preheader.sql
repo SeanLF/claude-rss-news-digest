@@ -1,1 +1,0 @@
-ALTER TABLE digests ADD COLUMN preheader TEXT DEFAULT '';

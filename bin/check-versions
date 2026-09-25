@@ -52,8 +52,8 @@ def check_python():
     return compare("python", cur, gh_tag("python/cpython")) if cur else err("python", "not found")
 
 def check_uv():
-    # Check the Dockerfile pin (what the deployed image builds with), not the host
-    dockerfile = Path(__file__).parent.parent / "newsroom" / "Dockerfile"
+    # Check the Dockerfile pin (what the Python worker's image builds with), not the host
+    dockerfile = Path(__file__).parent.parent / "digest" / "python" / "Dockerfile"
     if not dockerfile.exists(): return ok("uv", "(no Dockerfile)")
     m = re.search(r"ghcr\.io/astral-sh/uv:(\S+?)[\s@]", dockerfile.read_text())
     if not m: return err("uv", "can't parse Dockerfile pin")
@@ -102,14 +102,14 @@ def pypi_ver(pkg):
     return d["info"]["version"] if d else None
 
 def check_python_deps():
-    # Check uv.lock versions against PyPI (what gets deployed)
-    lockfile = Path(__file__).parent.parent / "newsroom" / "uv.lock"
-    pyproject = Path(__file__).parent.parent / "newsroom" / "pyproject.toml"
+    # Check the Python worker's uv.lock versions against PyPI (what gets deployed)
+    lockfile = Path(__file__).parent.parent / "digest" / "python" / "uv.lock"
+    pyproject = Path(__file__).parent.parent / "digest" / "python" / "pyproject.toml"
     if not lockfile.exists(): return err("py-deps", "no uv.lock")
     if not pyproject.exists(): return err("py-deps", "no pyproject.toml")
     # Match dependency names whether they carry a version specifier OR are bare (`"name"`). The
-    # old pattern required a `[><=!~[` terminator, so it silently skipped every BARE dep (all of
-    # this project's -- claude-agent-sdk, scikit-learn, etc.), quietly checking nothing.
+    # old pattern required a `[><=!~[` terminator, so it silently skipped every BARE dep, quietly
+    # checking nothing.
     direct = set(re.findall(r'"([A-Za-z][\w.-]+?)(?:[><=!~\[]|")', pyproject.read_text()))
     locked = dict(re.findall(r'^name = "(.+?)"\nversion = "(.+?)"', lockfile.read_text(), re.MULTILINE))
     deps = [(n, locked[n]) for n in direct if n in locked]
@@ -118,54 +118,26 @@ def check_python_deps():
     if not outdated: return ok("py-deps", "checked")
     return ("py-deps", "update", f"{len(outdated)} outdated", None, [f"{n}: {c} → {l}" for n, c, l in outdated])
 
-def check_newsroom_base():
-    """The newsroom runtime base image. This project MIGRATED Alpine -> python:3.14-slim (the
-    scientific stack has no musl wheels), so check_alpine no longer covers it -- it only sees
-    circulation's Rust image. Flags when a newer Python minor series is out so the pinned base can
-    be bumped deliberately (a base bump must re-confirm the constraints-prod.txt cp3XX wheels exist)."""
-    dockerfile = Path(__file__).parent.parent / "newsroom" / "Dockerfile"
-    if not dockerfile.exists(): return ok("newsroom-base", "(no Dockerfile)")
+def check_python_base():
+    """The Python worker's base image (python:X.Y-slim, pinned by digest). Flags when a newer Python
+    minor series is out so the pinned base can be bumped deliberately."""
+    dockerfile = Path(__file__).parent.parent / "digest" / "python" / "Dockerfile"
+    if not dockerfile.exists(): return ok("python-base", "(no Dockerfile)")
     m = re.search(r"FROM python:(\d+\.\d+)-slim", dockerfile.read_text())
-    if not m: return err("newsroom-base", "can't parse python:X.Y-slim base pin")
+    if not m: return err("python-base", "can't parse python:X.Y-slim base pin")
     lat = gh_tag("python/cpython")
     lat_minor = ".".join(lat.lstrip("v").split(".")[:2]) if lat else None
-    return compare("newsroom-base", m.group(1), lat_minor)
-
-def check_prod_pins():
-    """Prod dependency pins (newsroom/constraints-prod.txt) vs PyPI latest. These are what the prod
-    build ACTUALLY installs (the Agent SDK + the compiled scientific stack) -- the deployed truth,
-    unlike the stale uv.lock the build ignores. Flags a pin that is behind so it can be bumped
-    deliberately (a claude-agent-sdk bump must also re-run bin/sdk-canary -- see test_sdk_pin.py)."""
-    cfile = Path(__file__).parent.parent / "newsroom" / "constraints-prod.txt"
-    if not cfile.exists(): return ok("prod-pins", "(none)")
-    pins = re.findall(r'^([A-Za-z][\w.-]+)==([\d.]+)', cfile.read_text(), re.MULTILINE)
-    if not pins: return err("prod-pins", "no pins parsed")
-    def norm(v): parts = [int(x) for x in v.split(".")]; return parts + [0] * (3 - len(parts))
-    behind = [(n, c, l) for n, c in pins if (l := pypi_ver(n)) and norm(c) < norm(l)]
-    if not behind: return ok("prod-pins", f"{len(pins)} current")
-    return ("prod-pins", "update", f"{len(behind)}/{len(pins)} behind", None, [f"{n}: {c} → {l}" for n, c, l in behind])
+    return compare("python-base", m.group(1), lat_minor)
 
 def check_claude_cli():
-    """Claude Code CLI -- there are TWO. (1) The PIPELINE runs the CLI BUNDLED inside
-    claude-agent-sdk: the Python SDK ships a CLI *snapshot*, PINNED by the SDK version (prod-pins),
-    NOT floating -- and it lags Claude Code's daily release train (e.g. SDK 0.2.110 bundles CC
-    2.1.191, several patches behind latest). (2) The image's curl|bash `claude` (interactive only)
-    floats to latest. This line reports the latest CC release for AWARENESS -- it is neither the
-    pipeline's version (that's the pinned SDK's bundle) nor a drift signal. To move the pipeline's
-    CLI, bump the claude-agent-sdk pin (which re-runs bin/sdk-canary)."""
+    """The worker runs the Claude Code CLI bundled with @anthropic-ai/claude-agent-sdk, pinned by
+    digest/package-lock.json, and it lags Claude Code's release train. This line reports the latest
+    CC release for AWARENESS; it is neither the pipeline's version nor a drift signal. To move the
+    pipeline's CLI, bump the SDK."""
     lat = gh_release("anthropics/claude-code")
     return ok("claude-cli", f"latest CC {lat} (FYI; pipeline CLI = the pinned SDK's bundle, not this)" if lat else "?")
 
-def check_python_deps_host():
-    if not has("uv"): return ok("py-deps-host", "(uv not installed)")
-    cwd = Path(__file__).parent.parent
-    out = sh(f"cd {cwd} && mise exec -- uv pip list --outdated --format=json 2>/dev/null")
-    try: outdated = json.loads(out) if out.strip() else []
-    except: return ok("py-deps-host", "(no venv)")
-    if not outdated: return ok("py-deps-host", "synced")
-    return ("py-deps-host", "update", f"{len(outdated)} behind lockfile", None, [f"{p['name']}: {p['version']} → {p['latest_version']}" for p in outdated])
-
-CHECKS = [check_python, check_uv, check_uv_host, check_alpine, check_newsroom_base, check_claude_cli, check_prod_pins, check_docker, check_orbstack, check_tailscale, check_python_deps, check_python_deps_host]
+CHECKS = [check_python, check_uv, check_uv_host, check_alpine, check_python_base, check_claude_cli, check_docker, check_orbstack, check_tailscale, check_python_deps]
 
 def main():
     if not QUIET: print(f"\n{BOLD}Checking dependency versions...{RESET}\n")

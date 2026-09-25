@@ -8,9 +8,8 @@ lockfiles for git dependencies (syft gives those no ``vcs`` reference): one that
 exception blocks the deploy, and a listed one is printed as unaudited.
 
 Every URL pin must be an exception and every exception a URL pin, so dropping the pin fails here
-until the exception goes too. The fork's only remaining user is newsroom's gnews.py; the digest
-decodes with gnews-decoder on npm, so the pin and its exception retire with the Python pipeline.
-``RETIRE_BY`` keeps a slipped cut-over from leaving the fork unaudited indefinitely.
+until the exception goes too. There are none since the Python pipeline, the fork's only user,
+retired; the mechanism is tested with an exception listed in-process.
 """
 
 import importlib.machinery
@@ -19,12 +18,11 @@ import json
 import re
 import subprocess
 import sys
-from datetime import date
 from pathlib import Path
 
 REPO = Path(__file__).parent.parent.parent
 SCRIPT = REPO / "bin" / "sbom-unregistered"
-PYPROJECTS = [REPO / "newsroom" / "pyproject.toml", REPO / "digest" / "python" / "pyproject.toml"]
+PYPROJECTS = [REPO / "digest" / "python" / "pyproject.toml"]
 
 
 def _load():
@@ -151,18 +149,22 @@ def _run(path):
     return subprocess.run([sys.executable, str(SCRIPT), str(path)], capture_output=True, text=True)
 
 
-def test_a_listed_url_install_passes_and_is_named_as_unaudited(tmp_path):
-    (url,) = _load().EXCEPTIONS
-    r = _run(_sbom(tmp_path, url))
-    assert r.returncode == 0, r.stderr
-    assert "googlenewsdecoder" in r.stderr and "NOT audited" in r.stderr
+FORK = "https://github.com/SeanLF/google-news-url-decoder/archive/4860ab58e633c08d86fded1af69ae249ab6de2cb.tar.gz"
+
+
+def test_a_listed_url_install_passes_and_is_named_as_unaudited(tmp_path, capsys):
+    mod = _load()
+    mod.EXCEPTIONS[FORK] = "reviewed by hand"
+    assert mod.main(str(_sbom(tmp_path, FORK)), []) == 0
+    err = capsys.readouterr().err
+    assert "googlenewsdecoder" in err and "NOT audited" in err
 
 
 def test_an_unlisted_url_install_blocks(tmp_path):
-    # Negative control: the same component from any other URL is not the exception.
-    r = _run(_sbom(tmp_path, "https://github.com/someone/else/archive/abc.tar.gz"))
+    # Negative control: a URL install that no exception names blocks.
+    r = _run(_sbom(tmp_path, FORK))
     assert r.returncode == 1
-    assert "someone/else" in r.stderr
+    assert "google-news-url-decoder" in r.stderr
 
 
 def test_a_registry_only_sbom_passes_quietly(tmp_path):
@@ -178,13 +180,3 @@ def test_an_unreadable_sbom_is_an_error_not_a_pass(tmp_path):
 
 def test_every_url_pin_is_an_exception_and_every_exception_a_pin():
     assert _url_pins() == set(_load().EXCEPTIONS)
-
-
-RETIRE_BY = date(2026, 12, 23)
-
-
-def test_the_fork_exception_has_not_outlived_the_python_pipeline():
-    assert date.today() <= RETIRE_BY, (
-        "newsroom still pins the googlenewsdecoder fork, which ships unaudited. Retire the Python "
-        "pipeline (the digest decodes with gnews-decoder), or review the fork by hand and move RETIRE_BY."
-    )

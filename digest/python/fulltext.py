@@ -2,7 +2,7 @@
 
 The TypeScript side plans the tasks and stores the result (digest/src/activities/fulltext.ts); this
 module only turns (article_id, url) pairs into extracted text. Forked from newsroom/src/fulltext.py,
-which the still-deployed newsroom pipeline keeps using until the cut-over.
+which retired with the Python pipeline at the cut-over.
 
 THE INVARIANT: no URL reaches a model or a log line. Results are keyed by article_id; log lines name
 the domain only.

@@ -1,10 +1,9 @@
 """bin/ci --staged: which suites a commit's staged paths reach.
 
 The property under test is that a staged path can never skip a suite that reads it. Each suite's
-inputs are fixed by its container: ci-ts and ci-python COPY theirs in, and the newsroom ci and
-ci-scripts containers mount the whole tree. The tests below read those lists from the
-Dockerfiles and compose file themselves, so a new COPY or mount that bin/ci does not route fails
-here rather than in a commit that skipped it.
+inputs are fixed by its container: ci-ts and ci-python COPY theirs in, and ci-scripts mounts the
+whole tree. The tests below read the COPY lists from the Dockerfiles themselves, so a new COPY
+that bin/ci does not route fails here rather than in a commit that skipped it.
 """
 
 import re
@@ -28,26 +27,22 @@ def _load():
 
 ci = _load()
 ALL = ci.ALL_SUITES
-PY, TS, WORKER, SCRIPTS = ci.PYTHON, ci.TS, ci.WORKER, ci.SCRIPTS
+TS, WORKER, SCRIPTS = ci.TS, ci.WORKER, ci.SCRIPTS
 
 
 @pytest.mark.parametrize(
     ("path", "suites"),
     [
-        ("newsroom/src/db.py", {PY}),
-        ("newsroom/tests/test_db.py", {PY}),
-        ("newsroom/pyproject.toml", {PY, SCRIPTS}),
         ("bin/tests/test_ops.py", {SCRIPTS}),
         ("digest/package-lock.json", {TS, SCRIPTS}),
         ("digest/db/ops/digest_ro.sql", {TS, SCRIPTS}),
         ("digest/src/workflow/digest.ts", {TS}),
         ("digest/package.json", {TS}),
         ("digest/python/worker.py", {WORKER, TS}),
-        ("newsroom/src/fulltext.py", {PY}),
         ("digest/python/fulltext.py", {WORKER, TS}),
         ("digest/python/tests/test_fulltext.py", {WORKER, TS}),
-        ("newsroom/src/gnews.py", {PY}),
-        ("newsroom/src/config.py", {PY}),
+        ("digest/templates/digest.css", {TS}),
+        ("digest/catalogue/sources.json", {TS}),
     ],
 )
 def test_a_path_one_suite_owns_runs_only_that_suite(path, suites):
@@ -57,25 +52,18 @@ def test_a_path_one_suite_owns_runs_only_that_suite(path, suites):
 @pytest.mark.parametrize(
     "path",
     [
-        # Shared inputs: more than one container reads each.
-        "migrations/20260101000000_x.sql",
-        "digest/templates/digest-template.html",
-        "digest/templates/digest.css",
-        "digest/src/render/fixtures/kitchensink_selections.json",
+        # Read from outside digest/ by ci-ts (and by the images).
         "design/tokens.css",
-        "digest/catalogue/sources.json",
         # The CI machinery itself.
         "docker-compose.yml",
         "bin/ci",
         "lefthook.yml",
         "Makefile",
-        "newsroom/Dockerfile.ci",
         "bin/tests/Dockerfile",
         # Container definitions, which the routing tests below parse: under a narrow prefix too.
         "digest/Dockerfile.ci",
         "digest/Dockerfile",
         "digest/python/Dockerfile",
-        "newsroom/Dockerfile",
         "docker-compose.override.yml",
         ".dockerignore",
         # Anything no rule names.
@@ -84,8 +72,9 @@ def test_a_path_one_suite_owns_runs_only_that_suite(path, suites):
         "README.md",
         # A sibling that only shares a prefix's spelling is not inside it.
         "digestion/x.ts",
-        "newsroom-old/x.py",
-        "circulation/src/main.rs",  # retired: an unknown path now
+        # Retired trees: unknown paths now.
+        "newsroom/src/db.py",
+        "circulation/src/main.rs",
     ],
 )
 def test_a_shared_or_unknown_path_runs_everything(path):
@@ -93,7 +82,7 @@ def test_a_shared_or_unknown_path_runs_everything(path):
 
 
 def test_suites_union_across_paths():
-    assert ci.suites_for(["newsroom/src/db.py", "digest/src/a.ts"]) == {PY, TS}
+    assert ci.suites_for(["bin/tests/test_ops.py", "digest/src/a.ts"]) == {SCRIPTS, TS}
 
 
 def test_one_unknown_path_among_narrow_ones_runs_everything():
@@ -105,7 +94,7 @@ def test_nothing_staged_reaches_no_suite():
 
 
 def test_every_suite_has_a_command():
-    assert set(ci.suite_commands(False, False, [])) == ALL
+    assert set(ci.suite_commands(False)) == ALL
 
 
 def _files_under(rel: str) -> list[str]:
@@ -151,13 +140,11 @@ def test_the_copy_parser_sees_the_shared_inputs():
     assert {"digest/python/fulltext.py", "digest/python/tests"} <= set(_copy_sources("digest/python/Dockerfile"))
 
 
-_CROSS_REF = re.compile(
-    r"""["'](digest|newsroom)["']((?:\s*/\s*["'][^"']+["'])+)|["']((?:digest|newsroom)/[\w./-]+)["']"""
-)
+_CROSS_REF = re.compile(r"""["'](digest)["']((?:\s*/\s*["'][^"']+["'])+)|["'](digest/[\w./-]+)["']""")
 
 
 def _reads_into_other_suites(dirs: list[Path]) -> list[str]:
-    """Paths under digest/ or newsroom/ that the code in dirs builds, as Path joins or literals."""
+    """Paths under digest/ that the code in dirs builds, as Path joins or literals."""
     found = []
     # The code itself only: a local .venv holds third-party files in other encodings.
     files = [py for d in dirs for py in d.rglob("*.py")]

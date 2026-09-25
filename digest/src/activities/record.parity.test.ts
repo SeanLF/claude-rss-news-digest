@@ -37,7 +37,7 @@ function canonical(html: string): string[] {
 const present = existsSync(`${ORACLE}/inbox-markup/web.archive.html`) && RUNS.every((r) => existsSync(`${ORACLE}/run${r}-prod/web.archive.html`));
 // A skipped host-only suite says so by name, so a green run without the oracle is not mistaken for one with it.
 describe.runIf(!present)("record parity with the Python (host-only)", () => {
-  it.skip(`SKIPPED: needs bin/record-oracle's output at ${ORACLE}; run bin/record-oracle 300 301 302 303 304`, () => undefined);
+  it.skip(`SKIPPED: needs bin/record-oracle's output at ${ORACLE}; bin/record-oracle retired with the Python pipeline, so only a kept recording can run this`, () => undefined);
 });
 describe.skipIf(!present)("the web copy strips what db.prepare_for_web strips, on a page that carries it", () => {
   const page = present ? readFileSync(`${ORACLE}/inbox-markup/web.html`, "utf8") : "";

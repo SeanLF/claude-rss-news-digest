@@ -1,13 +1,11 @@
 #!/usr/bin/env python3
 """
-Local CI - run all checks in Docker for reproducibility.
+Local CI: every suite in its own container, in parallel.
 
 Usage:
-    bin/ci           Run all checks (in Docker)
+    bin/ci           Run every suite
     bin/ci --staged  Run only the suites the staged paths reach (the pre-commit hook)
-    bin/ci --fix     Auto-fix style issues
-    bin/ci --full    Include pip-audit over the newsroom environment
-    bin/ci --local   Run locally (skip Docker)
+    bin/ci --fix     Let the linters fix what they can (ruff in the scripts suite)
 """
 
 import os
@@ -17,23 +15,15 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
-PYTHON, TS, WORKER, SCRIPTS = "python", "ts", "worker", "scripts"
-ALL_SUITES = frozenset({PYTHON, TS, WORKER, SCRIPTS})
+TS, WORKER, SCRIPTS = "ts", "worker", "scripts"
+ALL_SUITES = frozenset({TS, WORKER, SCRIPTS})
 
 # A path narrows the run only when it clearly belongs to one suite's inputs; every other path runs
 # everything. First match wins, so the shared paths sit above the prefixes that would claim them.
-# test_ci_scope.py holds this table to the COPY and bind-mount lists that define each container.
+# test_ci_scope.py holds this table to the COPY lists that define each container.
 _SCOPE: tuple[tuple[str, frozenset[str]], ...] = (
-    # Read by more than one container (ci-ts COPY, and the newsroom tests through the symlinks
-    # newsroom/ keeps to them).
-    ("digest/templates/", ALL_SUITES),
-    ("digest/catalogue/", ALL_SUITES),
-    ("digest/src/render/fixtures/kitchensink_selections.json", ALL_SUITES),
-    ("newsroom/Dockerfile.ci", ALL_SUITES),  # the ci image runs bin/ci itself
     # bin/tests/test_sbom_exceptions.py holds the SBOM gate's pins and exceptions to these
     # pyprojects and lockfiles.
-    ("newsroom/pyproject.toml", frozenset({PYTHON, SCRIPTS})),
-    ("newsroom/", frozenset({PYTHON})),
     ("digest/package-lock.json", frozenset({TS, SCRIPTS})),
     ("digest/python/pyproject.toml", frozenset({WORKER, TS, SCRIPTS})),
     # The ci-ts image COPYs all of digest/, python/ included.
@@ -51,7 +41,7 @@ def suites_for(paths: list[str]) -> frozenset[str]:
     suites: set[str] = set()
     for path in paths:
         # Container definitions are what test_ci_scope.py reads to check this table, so a change
-        # to any of them must run that test (Python) as well as the suite it builds.
+        # to any of them must run that test (the scripts suite) as well as the suite it builds.
         name = path.rsplit("/", 1)[-1]
         if name.startswith("Dockerfile") or name == ".dockerignore" or (
             name.startswith("docker-compose") and name.endswith((".yml", ".yaml"))
@@ -86,14 +76,12 @@ BOLD = "\033[1m"
 RESET = "\033[0m"
 
 ROOT = Path(__file__).resolve().parent.parent
-IN_DOCKER = os.environ.get("IN_DOCKER") == "1"
 QUIET = os.environ.get("CLAUDECODE") == "1"
 
 
-def suite_commands(fix_mode: bool, full_mode: bool, ci_args: list[str]) -> dict[str, list[str]]:
+def suite_commands(fix_mode: bool) -> dict[str, list[str]]:
     """The docker compose command each suite runs as, keyed by suite."""
     return {
-        PYTHON: ["docker", "compose", "run", "--rm", "--build", "ci", *ci_args],
         TS: ["docker", "compose", "run", "--rm", "--build", "ci-ts", "sh", "-c", TS_CMD],
         WORKER: [
             "docker", "compose", "run", "--rm", "--build", "ci-python",
@@ -117,7 +105,6 @@ def scripts_cmd(fix_mode: bool) -> str:
 TS_CMD = "npm run typecheck; t=$?; npm run lint; l=$?; npm test; v=$?; [ $t -eq 0 ] && [ $l -eq 0 ] && [ $v -eq 0 ]"
 
 SUITE_NAMES = {
-    PYTHON: "Python CI",
     TS: "TypeScript CI",
     WORKER: "Python worker CI",
     SCRIPTS: "bin/ scripts CI",
@@ -128,9 +115,6 @@ def run_in_docker() -> int:
     """Run CI via docker compose, one container per suite, all in parallel."""
     args = sys.argv[1:]
     fix_mode = "--fix" in args
-    full_mode = "--full" in args
-    # Pass --fix/--full through so the Python CI container fixes or runs the dependency audit.
-    ci_args = [a for a in args if a != "--staged"]
 
     suites = ALL_SUITES
     if "--staged" in args:
@@ -147,7 +131,7 @@ def run_in_docker() -> int:
 
     # In quiet mode, capture output and only show on failure
     capture = {"stdout": subprocess.PIPE, "stderr": subprocess.STDOUT} if QUIET else {}
-    commands = suite_commands(fix_mode, full_mode, ci_args)
+    commands = suite_commands(fix_mode)
     start = time.monotonic()
     procs = {s: subprocess.Popen(commands[s], cwd=ROOT, **capture) for s in sorted(suites)}
 
@@ -172,117 +156,8 @@ def run_in_docker() -> int:
     return failed[0] if failed else 0
 
 
-def run_step(name: str, cmd: list[str], cwd: Path | None = None) -> bool:
-    """Run a CI step and return success status."""
-    if QUIET:
-        result = subprocess.run(cmd, cwd=cwd or ROOT, capture_output=True)
-        passed = result.returncode == 0
-        status = f"{GREEN}pass{RESET}" if passed else f"{RED}FAIL{RESET}"
-        print(f"  {status}  {name}")
-        if not passed:
-            output = (result.stdout or b"") + (result.stderr or b"")
-            if output:
-                print(output.decode(errors="replace"))
-        return passed
-
-    print(f"\n{BOLD}{PURPLE}=== {name} ==={RESET}")
-    result = subprocess.run(cmd, cwd=cwd or ROOT)
-    passed = result.returncode == 0
-    print(f"{GREEN}Passed{RESET}" if passed else f"{RED}Failed{RESET}")
-    return passed
-
-
-def py_cmd(tool: str, *args: str) -> list[str]:
-    """Build command to run a Python tool (via python -m in Docker)."""
-    if IN_DOCKER:
-        return ["python3", "-m", tool, *args]
-    return [tool, *args]
-
-
-def check_tool(tool: str) -> bool:
-    """Check if a tool is available."""
-    try:
-        subprocess.run(py_cmd(tool, "--version"), capture_output=True, check=True)
-        return True
-    except (subprocess.CalledProcessError, FileNotFoundError):
-        return False
-
-
-def run_checks(fix_mode: bool, full_mode: bool) -> int:
-    """Run all CI checks."""
-    # Verify tools available
-    tools = ["ruff", "mypy", "bandit", "pytest"]
-    missing = [t for t in tools if not check_tool(t)]
-    if missing:
-        print(f"{YELLOW}Missing tools: {', '.join(missing)}{RESET}")
-        print("Install with: uv pip install ruff mypy bandit pytest")
-        return 1
-
-    # Define steps
-    steps: list[tuple[str, list[str], Path | None]] = []
-
-    # Python checks - target newsroom/src/ and newsroom/tests/
-    ruff_config = ["--config", "newsroom/pyproject.toml"]
-    if fix_mode:
-        steps.append(("Style: Python (fix)", py_cmd("ruff", "check", "--fix", *ruff_config, "newsroom/src/", "newsroom/tests/", "newsroom/tools/"), None))
-        steps.append(("Format: Python", py_cmd("ruff", "format", *ruff_config, "newsroom/src/", "newsroom/tests/", "newsroom/tools/"), None))
-    else:
-        steps.append(("Style: Python", py_cmd("ruff", "check", *ruff_config, "newsroom/src/", "newsroom/tests/", "newsroom/tools/"), None))
-        steps.append(("Format: Python (check)", py_cmd("ruff", "format", "--check", *ruff_config, "newsroom/src/", "newsroom/tests/", "newsroom/tools/"), None))
-
-    steps.append(("Types: Python", py_cmd("mypy", "--config-file", "newsroom/pyproject.toml", "newsroom/src/run.py", "newsroom/src/merge.py", "newsroom/src/repair.py", "newsroom/src/schema.py"), None))
-    steps.append(("Security: Python", py_cmd("bandit", "-c", "newsroom/pyproject.toml", "-r", "newsroom/src/run.py", "newsroom/src/merge.py", "newsroom/src/repair.py", "newsroom/src/schema.py", "-q"), None))
-
-    # Dependency vulnerability scan (pip-audit, only with --full).
-    # Audits the installed environment (prod pins lxml, floats the rest to latest). pip-audit is
-    # not baked into the CI image; install it inline into the system env the same way the image
-    # installs its other tools (uv pip install --system), then run it via `python3 -m`.
-    if full_mode:
-        pip_audit = ["python3", "-m", "pip_audit"]
-
-        def has_pip_audit() -> bool:
-            return subprocess.run([*pip_audit, "--version"], capture_output=True).returncode == 0
-
-        if not has_pip_audit():
-            subprocess.run(
-                ["uv", "pip", "install", "--system", "--break-system-packages", "pip-audit"],
-                capture_output=True,
-            )
-        if has_pip_audit():
-            steps.append(("Security: Python deps", pip_audit, None))
-        else:
-            print(f"{YELLOW}Skipping pip-audit (could not install pip-audit){RESET}")
-
-    # Tests (if newsroom/tests/ exists)
-    if (ROOT / "newsroom" / "tests").exists():
-        # pytest-xdist is baked into the CI image (newsroom/Dockerfile.ci), not a local install.
-        shard = ["-n", "auto"] if IN_DOCKER else []
-        steps.append(("Tests: Python", py_cmd("pytest", "-v", *shard, "newsroom/tests/"), None))
-
-    # Run all steps
-    results = [run_step(name, cmd, cwd) for name, cmd, cwd in steps]
-
-    # Summary
-    print()
-    passed, total = sum(results), len(results)
-    success = all(results)
-
-    color = GREEN if success else RED
-    status = "passed" if success else "failed"
-    print(f"{color}CI {status} ({passed}/{total}){RESET}")
-    return 0 if success else 1
-
-
 def main() -> int:
-    fix_mode = "--fix" in sys.argv
-    full_mode = "--full" in sys.argv
-    local_mode = "--local" in sys.argv
-
-    # Re-exec in Docker unless --local or already in Docker
-    if not IN_DOCKER and not local_mode:
-        return run_in_docker()
-
-    return run_checks(fix_mode, full_mode)
+    return run_in_docker()
 
 
 if __name__ == "__main__":

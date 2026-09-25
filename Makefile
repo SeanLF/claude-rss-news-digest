@@ -2,8 +2,8 @@
 # Run `make` or `make help` to see available targets
 
 .DEFAULT_GOAL := help
-.PHONY: ci ci-fix ci-full test eval eval-stages eval-coherence eval-repair eval-select-order replay digest a11y lighthouse web-check deploy deploy-dry migrate migrate-status \
-        ssh db-clone usage usage-daily analytics analytics-list analytics-q versions preview anatomy prompt search-eval help
+.PHONY: ci ci-fix a11y lighthouse web-check deploy deploy-dry ssh db-clone usage usage-daily analytics \
+        analytics-list analytics-q versions search-eval help
 
 # Default window for the analytics queries; override with RUNS=N
 RUNS ?= 30
@@ -13,30 +13,8 @@ ci: ## Run all checks (in Docker)
 	bin/ci
 ci-fix: ## Auto-fix style issues
 	bin/ci --fix
-ci-full: ## Full CI including pip-audit
-	bin/ci --full
 
-## Test
-test: ## Run Python tests only (in Docker)
-	docker compose run --rm --build ci pytest -v newsroom/tests/
-eval: ## Run the offline eval-floor regression gate (no model calls)
-	bin/eval-regression
-eval-stages: ## Grade each subagent's recorded output (per-stage L1, no model calls)
-	bin/eval-stages
-eval-coherence: ## Harness-faithful COHERENCE recall/false-drop eval (MAKES model calls; opt-in)
-	bin/eval-coherence
-eval-repair: ## Harness-faithful REPAIR error-removal/preservation eval (MAKES model calls; opt-in)
-	bin/eval-repair
-eval-select-order: ## SELECT order-dependence harness on one archived run (MAKES model calls; usage: make eval-select-order RUN=298)
-	bin/eval-select-order fetch $(RUN) && bin/eval-select-order run $(RUN) --reps 5 --arms fixed,shuffled,sorted
-replay: ## Replay a finished run's render tail from its archived artifacts (no model calls; usage: make replay RUN=285)
-	bin/replay $(RUN)
-# --build, because `docker compose run digest-newsroom` on its own runs whatever the image was
-# last built from: on 2026-09-17 that was a day-old tree, and it reported a working feature as
-# broken. The pipeline keeps src BAKED (no mount) so a local run stays prod-faithful; --build
-# only makes the bake current.
-digest: ## Run the pipeline locally against the CURRENT tree (usage: make digest ARGS="--dry-run")
-	docker compose run --rm --build digest-newsroom $(ARGS)
+## Web gates
 a11y: ## Fast structural a11y invariant check (no browser; suitable per-commit)
 	bin/a11y-check
 lighthouse: ## Lighthouse a11y/BP/SEO gate on the design mockups (pre-deploy; needs headless Chrome)
@@ -51,10 +29,6 @@ deploy-dry: ## Preview deployment without changes
 	bin/deploy --dry-run
 
 ## Database
-migrate: ## Apply pending database migrations
-	bin/migrate
-migrate-status: ## Show migration status
-	bin/migrate --status
 db-clone: ## Clone production database locally
 	bin/db-clone
 usage: ## Token usage breakdown (requires db-clone)
@@ -77,26 +51,9 @@ endif
 ssh: ## SSH to production server
 	bin/ssh
 
-## Development
-preview: ## Render + screenshot the digest locally, no Docker (usage: make preview [FIXTURE=path])
-	bin/render-preview $(FIXTURE)
-
-anatomy: ## Regenerate the pipeline anatomy page + README diagram (usage: make anatomy [RUN=284] [DB=path])
-	docker compose run --rm --build --entrypoint python3 ci newsroom/tools/pipeline_anatomy.py \
-		--html docs/pipeline-anatomy.html --svg-dir docs --readme README.md \
-		--code-version $(shell git rev-parse --short HEAD) \
-		$(if $(RUN),--run $(RUN),) $(if $(DB),--db $(DB),)
-
 ## Checks
 versions: ## Check for dependency updates
 	bin/check-versions
-
-## Prompts
-prompt: ## Run prompt experiment (usage: make prompt NAME=baseline)
-ifndef NAME
-	$(error NAME is required. Usage: make prompt NAME=baseline)
-endif
-	bin/test-prompt run $(NAME)
 
 ## Help
 help: ## Show this help
@@ -115,7 +72,7 @@ DEV_BUILD = digest-migrate digest-worker python-worker digest-site resend-fake
 PG_NETWORK = $$(docker inspect -f '{{range $$k, $$v := .NetworkSettings.Networks}}{{$$k}}{{end}}' $$($(COMPOSE) ps -q digest-pg))
 
 dev-up: ## Start the dev stack: pipeline on Temporal, site, resend-fake, one product database (keeps its data)
-	docker volume create news-digest_claude-sessions >/dev/null  # the login volume the newsroom stack owns; a no-op once it exists
+	docker volume create news-digest_claude-sessions >/dev/null  # the worker's Claude Code login, shared by every project; a no-op once it exists
 	$(COMPOSE) build $(DEV_BUILD)
 	$(COMPOSE) up -d --wait $(DEV_SERVICES)
 	$(COMPOSE) exec -T digest-worker node dist/cli/set-current.js  # a versioned worker gets no runs until its build is current
@@ -188,9 +145,9 @@ import-check: ## Import a copy of the prod clone into a fresh Postgres and hold 
 	  -e PARITY_DATABASE_URL="postgres://postgres:digest@ci-pg:5432/$$db?sslmode=disable" \
 	  ci-ts npx vitest run src/store/import.clone.test.ts src/prepare/prepare.parity.test.ts; status=$$?; rm -f "$$copy"; exit $$status
 
-threads-parity: ## Replay the TypeScript thread layer against the Python oracle, each case imported fresh (ORACLE=data/replay/threads-oracle from bin/threads-oracle; host-only)
+threads-parity: ## Replay the TypeScript thread layer against the recorded Python oracle, each case imported fresh (ORACLE=data/replay/threads-oracle; its recorder retired with the Python pipeline; host-only)
 	@oracle=$$(cd "$${ORACLE:-data/replay/threads-oracle}" 2>/dev/null && pwd) && ls "$$oracle"/*/pre.db >/dev/null 2>&1 || \
-	  { echo "no oracle cases: DB=<prod clone> bin/threads-oracle 300 301 302 303 304"; exit 2; }; \
+	  { echo "no oracle cases in $${ORACLE:-data/replay/threads-oracle} (recorded before the Python pipeline retired; nothing can record new ones)"; exit 2; }; \
 	image=$${COMPOSE_PROJECT_NAME:-news-digest}-threads-import:local; \
 	docker build -q -f digest/Dockerfile --build-arg GIT_SHA=import -t "$$image" . >/dev/null && \
 	docker compose up -d --wait ci-pg && \
@@ -222,9 +179,6 @@ judges: ## Two judge families x5 (REPS=5) on a gate fixture (FIXTURE=day-300, or
 
 planted: ## COHERENCE planted-defect band on the new runner via promptfoo, in the worker container (REPS=3; ~$1/rep)
 	@stamp=$$(date -u +%Y%m%dT%H%M%SZ); $(DIGEST_RUN) npx --yes promptfoo@0.123.1 eval -c gate/planted.yaml --repeat $${REPS:-3} -j 1 --no-cache -o ../data/planted-$$stamp.json
-
-fulltext-pages: ## Fulltext fork corpus: fetch production's candidates for runs >= 300 once, with trafilatura (DB=data/digest.db)
-	@stamp=$$(date -u +%Y%m%dT%H%M%SZ); docker compose run --rm --build -v "$(CURDIR)/newsroom/src:/app/src:ro" -v "$(CURDIR)/newsroom/tools:/app/tools:ro" -e PYTHONPATH=/app/src --entrypoint /app/.venv/bin/python3 digest-newsroom /app/tools/fulltext_fork_pages.py /app/$${DB:-data/digest.db} /app/data/fulltext-fork-$$stamp
 
 fulltext-fork: ## Fulltext fork: every extractor arm over a saved corpus via promptfoo, on the host (DIR=data/fulltext-fork-<stamp>)
 	@test -n "$(DIR)" || { echo "DIR=data/fulltext-fork-<stamp> is required"; exit 2; }
