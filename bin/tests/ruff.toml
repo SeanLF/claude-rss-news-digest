@@ -1,0 +1,11 @@
+line-length = 120
+target-version = "py314"
+
+[lint]
+select = ["E", "W", "F", "I", "B", "C4", "UP", "SIM", "PTH", "RUF"]
+ignore = [
+    "E501",   # line too long (the formatter handles it)
+    "SIM108", # ternary operator (sometimes if/else is clearer)
+    "PTH123", # open() vs Path.open(): open() is fine
+    "RUF001", # ambiguous unicode
+]

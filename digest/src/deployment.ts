@@ -74,7 +74,7 @@ export async function waitingRuns(client: Client): Promise<string[]> {
   return waiting;
 }
 
-// set-current's line for them, which bin/deploy matches (newsroom/tests/test_deploy_run_guard.py).
+// set-current's line for them, which bin/deploy matches (bin/tests/test_deploy_run_guard.py).
 export const waitingLine = (ids: string[]): string => `waiting: ${ids.join(" ")} -- no worker has taken these; they start once a polling build is current`;
 
 // The running digests pinned to a build other than `buildId`. On this one-worker box that build's

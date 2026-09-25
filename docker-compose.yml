@@ -48,6 +48,15 @@ services:
       - .:/app
     entrypoint: ["python3", "bin/ci"]
 
+  # The operator scripts' tests (bin/tests): the tree mounted, pytest and ruff in the image.
+  ci-scripts:
+    build:
+      context: .
+      dockerfile: bin/tests/Dockerfile
+    working_dir: /app
+    volumes:
+      - .:/app
+
   ci-ts:
     build:
       context: .

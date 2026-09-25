@@ -17,8 +17,8 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
-PYTHON, RUST, TS, WORKER = "python", "rust", "ts", "worker"
-ALL_SUITES = frozenset({PYTHON, RUST, TS, WORKER})
+PYTHON, RUST, TS, WORKER, SCRIPTS = "python", "rust", "ts", "worker", "scripts"
+ALL_SUITES = frozenset({PYTHON, RUST, TS, WORKER, SCRIPTS})
 
 # A path narrows the run only when it clearly belongs to one suite's inputs; every other path runs
 # everything. First match wins, so the shared paths sit above the prefixes that would claim them.
@@ -30,19 +30,23 @@ _SCOPE: tuple[tuple[str, frozenset[str]], ...] = (
     ("digest/catalogue/", ALL_SUITES),
     ("digest/src/render/fixtures/kitchensink_selections.json", ALL_SUITES),
     ("newsroom/Dockerfile.ci", ALL_SUITES),  # the ci image runs bin/ci itself
+    # bin/tests/test_sbom_exceptions.py holds the SBOM gate's pins and exceptions to these
+    # pyprojects and lockfiles.
+    ("newsroom/pyproject.toml", frozenset({PYTHON, SCRIPTS})),
     ("newsroom/", frozenset({PYTHON})),
-    # Read by newsroom tests: test_markdown_chrome_contract.py, and test_sbom_exceptions.py, which
-    # holds the SBOM gate's pins and exceptions to these lockfiles.
+    # Read by a newsroom test, test_markdown_chrome_contract.py.
     ("circulation/src/markdown.rs", frozenset({RUST, PYTHON})),
-    ("circulation/Cargo.lock", frozenset({RUST, PYTHON})),
-    ("digest/package-lock.json", frozenset({TS, PYTHON})),
-    ("digest/python/pyproject.toml", frozenset({WORKER, TS, PYTHON})),
+    ("circulation/Cargo.lock", frozenset({RUST, SCRIPTS})),
+    ("digest/package-lock.json", frozenset({TS, SCRIPTS})),
+    ("digest/python/pyproject.toml", frozenset({WORKER, TS, SCRIPTS})),
     ("circulation/", frozenset({RUST})),
     # The ci-ts image COPYs all of digest/, python/ included.
     ("digest/python/", frozenset({WORKER, TS})),
-    # bin/ops's Postgres payloads: executed in ci-ts, and read by newsroom/tests/test_ops.py.
-    ("digest/db/ops/", frozenset({TS, PYTHON})),
+    # bin/ops's Postgres payloads: executed in ci-ts, and read by bin/tests/test_ops.py.
+    ("digest/db/ops/", frozenset({TS, SCRIPTS})),
     ("digest/", frozenset({TS})),
+    # The operator scripts' own tests; the scripts they test sit in bin/ and so reach everything.
+    ("bin/tests/", frozenset({SCRIPTS})),
 )
 
 
@@ -104,14 +108,30 @@ def suite_commands(fix_mode: bool, full_mode: bool, ci_args: list[str]) -> dict[
             "docker", "compose", "run", "--rm", "--build", "ci-python",
             "python", "-m", "pytest", "-q", "-p", "no:cacheprovider", "/app/tests",
         ],
+        SCRIPTS: ["docker", "compose", "run", "--rm", "--build", "ci-scripts", "sh", "-c", scripts_cmd(fix_mode)],
     }
+
+
+def scripts_cmd(fix_mode: bool) -> str:
+    """bin/tests: ruff, then pytest; every step runs, so one failure hides no other."""
+    if fix_mode:
+        lint = "ruff check --fix bin/tests; r=$?; ruff format bin/tests; f=$?"
+    else:
+        lint = "ruff check bin/tests; r=$?; ruff format --check bin/tests; f=$?"
+    return f"{lint}; pytest -q -n auto -p no:cacheprovider bin/tests; t=$?; [ $r -eq 0 ] && [ $f -eq 0 ] && [ $t -eq 0 ]"
 
 
 # Typecheck and lint (about 1 s together) run before vitest, not in its wake; every step runs, so
 # one failure hides no other. A tsgolint killed for memory shows only "Error running tsgolint".
 TS_CMD = "npm run typecheck; t=$?; npm run lint; l=$?; npm test; v=$?; [ $t -eq 0 ] && [ $l -eq 0 ] && [ $v -eq 0 ]"
 
-SUITE_NAMES = {PYTHON: "Python CI", RUST: "Rust CI", TS: "TypeScript CI", WORKER: "Python worker CI"}
+SUITE_NAMES = {
+    PYTHON: "Python CI",
+    RUST: "Rust CI",
+    TS: "TypeScript CI",
+    WORKER: "Python worker CI",
+    SCRIPTS: "bin/ scripts CI",
+}
 
 
 def run_in_docker() -> int:

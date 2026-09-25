@@ -6,7 +6,7 @@ import { migrate } from "../store/schema.js";
 // bin/ops reads production over SSH by piping one of these psql scripts into psql inside the box's
 // Postgres container. Two guarantees stand between them and production data: the role (digest_ro,
 // SELECT only, digest_ro.sql) and the session (PGOPTIONS default_transaction_read_only=on, which
-// bin/ops sends; newsroom/tests/test_ops.py holds the command to it). Each is shown here to refuse a
+// bin/ops sends; bin/tests/test_ops.py holds the command to it). Each is shown here to refuse a
 // write with the other one absent, against the Postgres CI runs beside the tests.
 const ADMIN = process.env["DIGEST_TEST_DATABASE_URL"];
 const OPS_DIR = new URL("../../db/ops/", import.meta.url).pathname;

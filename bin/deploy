@@ -1510,7 +1510,7 @@ main() {
   [[ -x "$SCRIPT_DIR/check-versions" ]] && "$SCRIPT_DIR/check-versions" --quiet || true
 }
 
-# Sourced by newsroom/tests/test_deploy_run_guard.py, which calls the guard functions alone.
+# Sourced by bin/tests/test_deploy_run_guard.py, which calls the guard functions alone.
 if [[ ${BASH_SOURCE[0]} == "$0" ]]; then
   main
 fi

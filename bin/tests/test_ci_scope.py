@@ -2,7 +2,7 @@
 
 The property under test is that a staged path can never skip a suite that reads it. Each suite's
 inputs are fixed by its container: ci-ts and ci-python COPY theirs in, ci-rust bind-mounts its
-own, and the newsroom ci container sees the whole tree. The tests below read those lists from the
+own, and the newsroom ci and ci-scripts containers mount the whole tree. The tests below read those lists from the
 Dockerfiles and compose file themselves, so a new COPY or mount that bin/ci does not route fails
 here rather than in a commit that skipped it.
 """
@@ -28,7 +28,7 @@ def _load():
 
 ci = _load()
 ALL = ci.ALL_SUITES
-PY, RUST, TS, WORKER = ci.PYTHON, ci.RUST, ci.TS, ci.WORKER
+PY, RUST, TS, WORKER, SCRIPTS = ci.PYTHON, ci.RUST, ci.TS, ci.WORKER, ci.SCRIPTS
 
 
 @pytest.mark.parametrize(
@@ -36,7 +36,10 @@ PY, RUST, TS, WORKER = ci.PYTHON, ci.RUST, ci.TS, ci.WORKER
     [
         ("newsroom/src/db.py", {PY}),
         ("newsroom/tests/test_db.py", {PY}),
-        ("newsroom/pyproject.toml", {PY}),
+        ("newsroom/pyproject.toml", {PY, SCRIPTS}),
+        ("bin/tests/test_ops.py", {SCRIPTS}),
+        ("digest/package-lock.json", {TS, SCRIPTS}),
+        ("digest/db/ops/digest_ro.sql", {TS, SCRIPTS}),
         ("circulation/src/main.rs", {RUST}),
         ("circulation/Cargo.toml", {RUST}),
         ("digest/src/workflow/digest.ts", {TS}),
@@ -70,6 +73,7 @@ def test_a_path_one_suite_owns_runs_only_that_suite(path, suites):
         "lefthook.yml",
         "Makefile",
         "newsroom/Dockerfile.ci",
+        "bin/tests/Dockerfile",
         # Container definitions, which the routing tests below parse: under a narrow prefix too.
         "digest/Dockerfile.ci",
         "digest/Dockerfile",
@@ -163,15 +167,15 @@ def test_the_copy_parser_sees_the_shared_inputs():
 
 
 _CROSS_REF = re.compile(
-    r"""["'](circulation|digest)["']((?:\s*/\s*["'][^"']+["'])+)|["']((?:circulation|digest)/[\w./-]+)["']"""
+    r"""["'](circulation|digest|newsroom)["']((?:\s*/\s*["'][^"']+["'])+)|["']((?:circulation|digest|newsroom)/[\w./-]+)["']"""
 )
 
 
-def _newsroom_reads_into_other_suites() -> list[str]:
-    """Paths under circulation/ or digest/ that newsroom code builds, as Path joins or literals."""
+def _reads_into_other_suites(dirs: list[Path]) -> list[str]:
+    """Paths under circulation/, digest/ or newsroom/ that the code in dirs builds, as Path joins or literals."""
     found = []
-    # The newsroom's own code only: a local .venv holds third-party files in other encodings.
-    files = [py for d in ("src", "tests", "tools") for py in (ROOT / "newsroom" / d).rglob("*.py")]
+    # The code itself only: a local .venv holds third-party files in other encodings.
+    files = [py for d in dirs for py in d.rglob("*.py")]
     for py in files:
         if py.resolve() == Path(__file__).resolve():  # this file's own example paths
             continue
@@ -185,10 +189,21 @@ def _newsroom_reads_into_other_suites() -> list[str]:
 
 
 def test_a_file_the_newsroom_tests_read_elsewhere_routes_to_python():
-    refs = _newsroom_reads_into_other_suites()
+    refs = [
+        r
+        for r in _reads_into_other_suites([ROOT / "newsroom" / d for d in ("src", "tests", "tools")])
+        if not r.startswith("newsroom/")
+    ]
     assert "circulation/src/markdown.rs" in refs  # the parser's negative control
     unrouted = [r for r in refs if PY not in ci.suites_for([r])]
     assert not unrouted, f"newsroom reads these, so a change to them must run the Python suite: {unrouted}"
+
+
+def test_a_file_the_script_tests_read_elsewhere_routes_to_them():
+    refs = _reads_into_other_suites([ROOT / "bin" / "tests"])
+    assert "digest/python/pyproject.toml" in refs  # the parser's negative control
+    unrouted = [r for r in refs if SCRIPTS not in ci.suites_for([r])]
+    assert not unrouted, f"bin/tests reads these, so a change to them must run the scripts suite: {unrouted}"
 
 
 def test_staged_paths_splits_renames_and_reads_nul_separated(monkeypatch):

@@ -27,7 +27,7 @@ describe("deploymentOptions", () => {
 });
 
 describe("waitingLine", () => {
-  it("is the line bin/deploy matches: newsroom/tests/test_deploy_run_guard.py plays this exact text", () => {
+  it("is the line bin/deploy matches: bin/tests/test_deploy_run_guard.py plays this exact text", () => {
     expect(waitingLine(["digest-2026-10-05"])).toBe("waiting: digest-2026-10-05 -- no worker has taken these; they start once a polling build is current");
   });
 });

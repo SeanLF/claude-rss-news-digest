@@ -11,7 +11,7 @@ Cargo.lock `source = "git+..."`, package-lock `resolved` values starting `git+` 
 fetched from any host but registry.npmjs.org.
 
 Exit 0: none, or only listed exceptions (each printed as unaudited). Exit 1: an unlisted one.
-Exit 2: an input could not be read. Tested by newsroom/tests/test_sbom_exceptions.py.
+Exit 2: an input could not be read. Tested by bin/tests/test_sbom_exceptions.py.
 """
 
 import json
