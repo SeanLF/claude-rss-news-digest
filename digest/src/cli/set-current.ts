@@ -1,6 +1,6 @@
 // usage: set-current   makes this image's build (GIT_SHA) the current worker deployment version on
-// the Temporal at TEMPORAL_ADDRESS, once its worker polls. seanfloyd-infra's bin/deploy-digest runs it (kamal app exec --reuse) inside the running
-// worker container, so the build made current is the one that is running.
+// the Temporal at TEMPORAL_ADDRESS, once its worker polls. seanfloyd-infra's bin/deploy-digest runs it
+// inside the running worker (kamal app exec --reuse), so the build made current is the one running.
 // Exit 0: current, and no running digest is pinned to another build. 2: current, and the runs listed
 // are pinned to a build whose worker is gone (runbook, "Stranded runs"). 3: current, but the running
 // digests could not be listed. Anything else: not made current; any run no worker has taken yet is
