@@ -1247,6 +1247,29 @@ keep_images_on_box() {
 # fix is a forward deploy, and the deployment is marked failed so the record says it was not
 # verified. Needs jq, like the SBOM gate; checked here because --skip-build skips that gate.
 # Takes an explicit base URL for testing the function outside a deploy (see docs/lessons).
+site_smoke() {
+  local url="$1" today path
+  log_step "Smoking the site on $url..."
+  dry_run_skip "curl $url/health, /, /feed.xml, /issues/<latest>, its .md" && return 0
+  if ! wait_for_condition "site answering" 180 curl -fsS -o /dev/null --max-time 2 "$url/health"; then
+    log_error "the site is not answering on $url/health"
+    return 1
+  fi
+  # The newest issue, from the feed the site serves (not today's date: before 10:25Z today has none).
+  today=$(curl -fsS --max-time 15 "$url/feed.xml" | grep -oE '/issues/[0-9]{4}-[0-9]{2}-[0-9]{2}' | head -1) || today=""
+  if [ -z "$today" ]; then
+    log_error "the site's feed names no issue at $url/feed.xml"
+    return 1
+  fi
+  for path in / "$today" "$today.md"; do
+    if ! curl -fsS -o /dev/null --max-time 15 "$url$path"; then
+      log_error "the site does not serve $url$path"
+      return 1
+    fi
+  done
+  log_success "site serving on $url: health, home, feed, $today and its Markdown"
+}
+
 mcp_smoke() {
   local url="${1:-}"
   if [ -z "$url" ]; then
@@ -1266,6 +1289,13 @@ mcp_smoke() {
       return 1
     fi
     url="https://$domain"
+  fi
+
+  # The TypeScript site retired /mcp and /ask (docs/2026-09-24-web-tier-and-ops-decisions.md): in
+  # temporal mode the smoke is the pages readers and agents fetch, not the MCP contract.
+  if [[ ${PIPELINE_MODE:-python} == temporal ]]; then
+    site_smoke "$url"
+    return
   fi
 
   log_step "Smoking the MCP contract on $url..."
