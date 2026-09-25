@@ -87,8 +87,5 @@
     "lightningcss-darwin-arm64": "1.33.0",
     "lightningcss-linux-arm64-gnu": "1.33.0",
     "lightningcss-linux-x64-gnu": "1.33.0"
-  },
-  "overrides": {
-    "@anthropic-ai/sdk": "0.127.0"
   }
 }
