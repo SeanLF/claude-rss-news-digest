@@ -1,27 +1,24 @@
 # Operations Reference
 
-Command reference and environment notes for running news-digest. Migrated from
-the untracked `.claude/learnings.md` so it survives outside one machine.
+Command reference and environment notes for running news-digest: the TypeScript worker and site on
+Temporal, the Python full-text worker, one Postgres (see `CLAUDE.md` for the map). Operating the box
+(units, memory, backups, stranded runs) is in `docs/2026-09-23-temporal-cutover-runbook.md`.
 
-Reusable *lessons* live in [`docs/lessons/`](solutions/); incident narratives
-live in [`docs/postmortems/`](postmortems/). This file is the how-to.
+Reusable *lessons* live in [`docs/lessons/`](lessons/); incident narratives live in
+[`docs/postmortems/`](postmortems/). This file is the how-to.
 
-## Containers
-
-The newsroom container is **one-shot**: it runs and exits. There is no
-persistent container to `exec` into.
+## Deploying
 
 ```bash
-# Run the pipeline (entrypoint passes flags to run.py)
-docker compose run --rm digest-newsroom --dry-run
-
-# Query the production DB (no sqlite3 binary on the server)
-docker run --rm -v news-digest-data:/app/data <image> python3 -c "..."
+bin/deploy --dry-run   # what it would do
+bin/deploy             # build, audit and push the worker, Python worker and site images; apply terraform
 ```
 
-- Production volume: `news-digest-data`
-- Session JSONL volume: `news-digest-claude` (`/home/appuser/.claude/`)
-- Systemd unit: `news-digest.service`
+It runs the web gate (`bin/web-check`, on the dev stack's site) first, refuses while a `DigestWorkflow`
+runs and from 12:00 to 13:45 Europe/Paris (`--force` overrides both, loudly), pauses the schedule, has the box take a fresh `pg_dump` and copies it to the Mac
+(seanfloyd.dev's `bin/backup-volumes --fresh-digest-dump`), applies terraform, makes the new worker's
+build the current Temporal version, restores the schedule and smokes the site. The worker applies the
+product schema's dbmate migrations (`digest/db/migrations`) as it starts; they are forward-only.
 
 ## Rolling back a deploy
 
@@ -35,22 +32,17 @@ bin/deploy --rollback=deploy/2026-09-18-053727Z        # add --dry-run to previe
 bin/ssh "docker ps -a --filter label=news-digest.keep" # the images the box holds
 ```
 
-`--rollback` runs every gate a deploy runs (run window, run in flight, schedule pause, backup),
-builds nothing and skips migrations: they are forward-only, so the old code runs against the
-current schema. A repository the tag records no digest for runs `:latest`, and the deploy says
-which ones.
+`--rollback` runs every gate a deploy runs (run window, run in flight, schedule pause, backup) and
+builds nothing. Migrations are forward-only, so the old code runs against the current schema. A
+repository the tag records no digest for runs `:latest`, and the deploy says which ones; a tag from
+before the cut-over also names `digest-newsroom` and `digest-circulation`, which are ignored.
 
 ## Database
 
-```bash
-bin/migrate            # apply pending (local, runs in Docker)
-bin/migrate --status   # check status
-bin/ssh bin/migrate    # production
-```
-
-New migrations: `migrations/YYYYMMDDHHMMSS_description.sql`. The baseline uses
-`CREATE TABLE IF NOT EXISTS`, so it is safe on existing databases with no
-bootstrap step.
+The product database is `digest` in the box's Postgres (`news-digest-temporal-postgres`). Its schema
+is dbmate migrations in `digest/db/migrations`, named `YYYYMMDDHHMMSS_description.sql`; the worker
+applies them at start (`node dist/cli/migrate.js`), and `make schema-types` regenerates
+`digest/src/store/schema.gen.ts` from them (CI fails while it is stale).
 
 ### Reading production
 
@@ -64,30 +56,24 @@ bin/ops journal [--since 6h] [--lines 200] [--grep PAT]
 bin/ops <any> --print-command             # show what would run, run nothing
 ```
 
-Read-only twice over. On SQLite the volume is mounted `:ro` and SQLite opens with
-`mode=ro`, both negative-controlled against the live database
-(`docs/2026-09-03-ops-access-review.md`). That doc also records why this is a
-CLI and not a Tailscale-only route on circulation. On Postgres psql logs in as
-`digest_ro` (SELECT only, `digest/db/ops/digest_ro.sql`) in a read-only session;
-`digest/src/ops/ops-payloads.test.ts` shows each refusing a write without the
-other. `bin/lib/prod-store` names the store production runs on; the cut-over
-flips it from `sqlite` to `postgres` (`DIGEST_PROD_STORE` overrides it for one
-command).
+Read-only twice over: psql logs in as `digest_ro` (SELECT only, `digest/db/ops/digest_ro.sql`) in a
+read-only session; `digest/src/ops/ops-payloads.test.ts` shows each refusing a write without the
+other. `docs/2026-09-03-ops-access-review.md` records why this is a CLI over SSH and not a
+Tailscale-only route on the site.
 
-Clone only when you need the whole database offline -- a replay harness, or
-analysis across many runs. `bin/db-clone` prefers the newest verified backup (so
-it is **stale** until the next deploy or nightly dump; `--live` forces a wire
-copy) and fills the local Postgres clone (`digest_clone` in the dev stack's
-`digest-pg`; `DIGEST_CLONE_URL` and `DIGEST_CLONE_NETWORK` point it
-elsewhere), building it as `digest_clone_new` and renaming it over the old one
-only once it verifies. Before the cut-over it also lands the SQLite file at
-`data/digest.db` (checked with `integrity_check` and
-`page_count x page_size == file size`) and imports it with `bin/import-legacy`;
-after it, it restores the `digest.pg.dump` backup, or a live `pg_dump` as
-`digest_ro`. `bin/usage`, `bin/trace` and `bin/analytics` read the clone through
-`bin/psql`, read-only; `bin/psql` alone opens it.
+Clone only when you need the whole database offline -- analysis across many runs, or a dev stack on
+real data. `bin/db-clone` restores the newest verified `digest.pg.dump` backup (so it is **stale**
+until the next deploy or nightly dump; `--live` takes a `pg_dump` as `digest_ro` over the wire) into
+the local Postgres clone (`digest_clone` in the dev stack's `digest-pg`; `DIGEST_CLONE_URL` and
+`DIGEST_CLONE_NETWORK` point it elsewhere), building it as `digest_clone_new` and renaming it over
+the old one only once it verifies. `bin/usage`, `bin/trace` and `bin/analytics` read the clone
+through `bin/psql`, read-only; `bin/psql` alone opens it.
 
-## The dev stack (TypeScript pipeline, site, mail)
+The last SQLite database (`digest.db`, the Python pipeline's, frozen at the cut-over) is imported
+into Postgres by `bin/import-legacy`, which `make dev-import`, `make import-check`,
+`make threads-parity`, `bin/site-parity` and `bin/search-eval` still use on their recorded clones.
+
+## The dev stack (pipeline, site, mail)
 
 One compose project, `docker-compose.yml`, driven by `make`: Temporal and the worker, the TypeScript
 site, and `resend-fake`, over one product database (`digest` in `digest-pg`, on a volume). The worker
@@ -142,166 +128,10 @@ Several projects at once (worktrees): give each its own name and host ports, e.g
 `COMPOSE="docker compose -p mine"` with `DIGEST_SITE_PORT`, `TEMPORAL_PORT`, `TEMPORAL_UI_PORT`,
 `DIGEST_PG_PORT` and `RESEND_FAKE_PORT` exported in the shell (`make band` reads the ports from the
 shell, not `.env`). The OrbStack names follow the project. `make band` recreates the worker on the
-band's copy with broadcasting off, so do not run it while a dev run is in flight. The legacy
-`digest-newsroom` and `digest-circulation` services in the same file still take `.env`'s real
-Resend key.
-
-## Local development (the Python pipeline)
-
-```bash
-CLAUDE_CODE_OAUTH_TOKEN=$(op item get "seanfloyd.dev" \
-  --fields NEWS_DIGEST_CLAUDE_OAUTH_TOKEN --reveal) \
-  docker compose run --rm digest-newsroom .venv/bin/python src/run.py --dry-run
-```
-
-Requires `.env` (see `.env.example`). For `--dry-run` only display settings are
-needed. Output lands in `data/output/digest-*.html`.
-
-Run-mode flags:
-
-- `--dry-run` -- no email, no DB writes; truncates to 20 articles
-- `--no-email` -- full pipeline minus broadcast (still writes to the DB)
-- `--write-only` -- re-render from existing selections
-- `--force` -- override the duplicate-run guard (which fails closed)
-- Use `--no-email --no-record --force` for a full-size test run
-
-## Prompt test harness
-
-```bash
-bin/test-prompt snapshot                        # save current input
-bin/test-prompt run baseline                    # run with the production prompt
-bin/test-prompt run baseline --model opus --limit 5
-bin/test-prompt diff <run1> <run2>
-```
-
-Custom prompts go in `newsroom/prompts/<name>.md`.
-
-Use the `bin/test-prompt` wrapper rather than the `ci` service directly -- `ci`
-mounts the host `.venv`, whose macOS symlinks break inside the container.
-
-**The harness overwrites `data/claude_input/selections.json`**, a shared path,
-so concurrent test runs clobber each other. To compare against production:
-
-```bash
-bin/ssh "sudo cat /var/lib/docker/volumes/news-digest-data/_data/claude_input/selections.json" \
-  > /tmp/prod_selections.json
-bin/test-prompt run <prompt> --model opus
-diff <(jq --sort-keys . /tmp/prod_selections.json) \
-     <(jq --sort-keys . data/runs/<run_id>/selections.json)
-```
-
-Runs are also copied to `data/runs/<run_id>/`.
-
-### Debugging a hung harness
-
-```bash
-docker exec <container> ps aux
-```
-
-`0:00` CPU time after several minutes means stuck, most likely on auth/login.
-Increasing CPU time means it is genuinely working. Stuck containers block new
-`docker compose run` invocations -- kill them first.
+band's copy with broadcasting off, so do not run it while a dev run is in flight.
 
 ## Environment notes
 
-- `CLAUDE_CODE_EAGER_FLUSH=1` is required for usage tracking and is set in
-  terraform, not in `docker-compose.yml`. See
-  [`solutions/integration-issues/buffered-sdk-logs-need-eager-flush-before-reading.md`](solutions/integration-issues/buffered-sdk-logs-need-eager-flush-before-reading.md).
-- `MODEL_NAME` controls model attribution; update via terraform tfvars.
-- MCP tool unavailable locally: check `.mcp.json` uses `.venv/bin/python`, not
-  `python3`.
-- `ModuleNotFoundError` in production: systemd/terraform must not override the
-  Docker `CMD` -- dependencies live in the venv, not global python. Do not append
-  `python3 run.py` to the docker run command in `news-digest.tf`.
 - Claude Code intentionally has no temperature/determinism setting
   ([claude-code#3370](https://github.com/anthropics/claude-code/issues/3370)).
   Use the API directly if a pipeline needs determinism.
-
----
-
-## Superseded measurements
-
-Kept for history. **Do not act on these** -- they describe the pre-Agent-SDK
-dispatcher and have been contradicted by later work.
-
-<details>
-<summary><strong>MCP tool reliability by model (2026-02-02) -- SUPERSEDED</strong></summary>
-
-Measured against the old thin-dispatcher architecture, which used an MCP
-`write_selections` tool. Reported Opus 100%, Haiku 50-75%, Sonnet 0-25% tool-call
-success on large contexts, and recommended Opus for production curation.
-
-**Why it no longer applies:** the pipeline moved to Python-orchestrated
-file-based subagents via the Agent SDK (`orchestrate.py`). Stages write files;
-there is no large-context MCP tool call to fail. Production runs
-CLUSTER/SELECT/WRITE/COHERENCE on `claude-sonnet-4-6` and RECAP on
-`claude-haiku-4-5` reliably. The "use Opus for curation" recommendation is
-stale and would roughly triple cost for no reliability gain.
-
-The mitigation it proposed (an explicit "CRITICAL INSTRUCTION / you MUST call
-the tool" block) is still a valid technique for forcing tool invocation in
-small models, if that situation ever recurs.
-
-</details>
-
-<details>
-<summary><strong>Clustering PoC results (2026-03-19) -- SUPERSEDED</strong></summary>
-
-Compared TF-IDF, MiniLM (sbert), and model2vec against Claude's clustering over
-runs 106-108. Best was MiniLM at ARI 0.497, purity 0.892, coverage 0.836,
-642 MB RAM. Concluded that automated clustering could not replace editorial
-judgment at 50% agreement.
-
-**Superseded by** `docs/2026-06-26-cluster-eval-methodology.md`,
-`docs/2026-06-26-cluster-eval-noground-truth-literature.md`, and the
-extract-then-join CLUSTER stage shipped 2026-07-02
-(`cluster_extractjoin.py`). Critically, the later work established that
-Sonnet-vs-Sonnet ARI self-agreement is only 0.60-0.88, so the 0.497 figure was
-being compared against a reference whose own reproducibility was never measured.
-See [[a-tuned-composite-score-with-no-ground-truth-is-taste]].
-
-The durable finding that survives: CLUSTER performs **editorial narrative
-grouping, not deduplication**, so it cannot be cheaply replaced by a similarity
-threshold.
-
-</details>
-
-<details>
-<summary><strong>Language and convention notes -- moved</strong></summary>
-
-Python 3.14 restored `except A, B:` syntax (catches both; ruff prefers the comma
-form at 3.14 target). Rust unit tests live in a `#[cfg(test)]` module at the
-bottom of the file they test; `tests/` is for integration tests only; small Rust
-apps can stay in `main.rs` until roughly 1000 lines.
-
-These are general language conventions rather than lessons from this codebase.
-
-</details>
-
-## /ask provider (circulation)
-
-`ASK_ENABLED=true` plus `ASK_API_KEY` switch the question box on; either alone leaves it off
-and the page says so. `ASK_OPENROUTER_MODELS` (comma list, walked in order) selects
-OpenRouter: the base defaults to `https://openrouter.ai/api/v1`, the key is an OpenRouter key,
-every request carries the whole list (`models`) so the gateway fails over inside the call,
-sends `provider.data_collection=deny` so no host that trains on prompts is routed to, and
-circulation retries from the next leg when a leg fails before any answer text (HTTP 429, 5xx,
-an error object inside a 200 stream, or no first token within 30 s). The SSE `model` event
-and `/ask.json`'s `model` field name the leg that answered. Change legs with the env, not a
-code edit; model ids expire.
-
-At most 3 legs: OpenRouter 400s a longer `models` array, which fails every request rather
-than one leg, so circulation truncates and warns. Nothing in code checks price — a paid id
-here WILL be billed; the guard is the key's own OpenRouter spend cap. There is no built-in
-model list: ids expire, so they live in the deploy env (`news_digest_ask_openrouter_models`)
-and an unset list leaves `/ask` off. `ASK_REFERER`/`ASK_TITLE` set the OpenRouter activity-log
-attribution independently of `DIGEST_DOMAIN`.
-
-Free-model quota is per ACCOUNT, not per key (1000 req/day), so news-digest and seanfloyd.dev
-share one bucket and a burst on either rate-limits the other. Each has its own key for
-attribution, revocation and spend caps only.
-
-`make ask-eval` (`bin/ask-eval`) gates a candidate list on the planted-injection archive with
-real calls: `ASK_OPENROUTER_MODELS=a,b bin/ask-eval`; the key comes from `OPENROUTER_API_KEY`
-or 1Password's "OpenRouter" item.
-

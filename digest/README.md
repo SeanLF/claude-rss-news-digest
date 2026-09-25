@@ -1,6 +1,8 @@
 # digest
 
-The TypeScript-on-Temporal rewrite of the pipeline (spec: `docs/superpowers/specs/2026-09-21-four-systems-rewrite-design.md`).
+The pipeline and the site, TypeScript on Temporal, in production since 2026-09-25 (spec:
+`docs/superpowers/specs/2026-09-21-four-systems-rewrite-design.md`, as amended by
+`docs/2026-09-24-web-tier-and-ops-decisions.md`).
 Node 26, Postgres through node-postgres (schema: `db/migrations`, applied by dbmate; tests on in-process PGlite),
 the Agent SDK for model stages, Temporal for sequencing, signals and the run budget.
 
@@ -43,8 +45,8 @@ First end-to-end run on stubs: `{"runId":1,"stories":3,"broadcast":"sent"}`, 122
 docker compose run --rm --build --no-deps digest-worker node dist/cli/smoke-stage.js
 ```
 
-2026-09-22: `{"structured":{"ok":true},"costUsd":0.0017,"numTurns":2}`. The worker authenticates like the newsroom
-container does, with `CLAUDE_CODE_OAUTH_TOKEN` from the repo-root `.env`; a nested Claude Code session cannot run
+2026-09-22: `{"structured":{"ok":true},"costUsd":0.0017,"numTurns":2}`. The worker authenticates with
+`CLAUDE_CODE_OAUTH_TOKEN` from the repo-root `.env`; a nested Claude Code session cannot run
 it on the host.
 
 ## Port checks on run 300 (scratch DB `data/digest-a2.db`, `make digest-start DATE=2026-09-18 ARGS="--resume 300 --force"`)
@@ -62,8 +64,9 @@ scrubbing at prepare is owed on the Python side.
 ## The curation span on run 300, all stages real (2026-09-22)
 
 RECAP, CLUSTER, SELECT, WRITE, PREHEADER, COHERENCE, REPAIR and ASSEMBLE ran as activities through the
-workflow on a scratch copy of the database (`--resume 300`), and `replay.py` rendered the result with the
-scratch DB mounted read-only over `/app/data/digest.db`:
+workflow on a scratch copy of the database (`--resume 300`), and the Python pipeline's `replay.py` (deleted
+since; its tree is at `ae5f03d`) rendered the result with the scratch DB mounted read-only over
+`/app/data/digest.db`:
 
 ```
 docker compose run --rm --build -v "$(pwd)/newsroom/src:/app/src:ro" -v "$(pwd)/data/digest-a2.db:/app/data/digest.db:ro" \

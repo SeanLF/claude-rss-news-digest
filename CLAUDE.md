@@ -2,109 +2,75 @@
 
 ## Project
 
-Automated news digest: RSS feeds → Claude curation → HTML email via Resend.
+Automated news digest: RSS feeds → Claude curation → HTML email via Resend, and a web archive.
+TypeScript on Temporal since the cut-over of 2026-09-25; the Python pipeline (`newsroom/`) and the Rust
+web server (`circulation/`) are deleted (last in `ae5f03d`).
 
-**Architecture:**
-- `newsroom/` - Python pipeline (fetch, curate, render, email)
-- `circulation/` - Rust web server for "View in browser" links and archive
-- `data/` - Runtime data (SQLite database, logs, intermediate files)
-- `migrations/` - Database schema migrations
+Where things were decided: `docs/2026-09-24-web-tier-and-ops-decisions.md` (the decision record, which
+wins over the spec it supersedes), `docs/superpowers/specs/2026-09-21-four-systems-rewrite-design.md` (the
+spec), `docs/2026-09-23-temporal-cutover-runbook.md` (operating the Temporal side on the box),
+`docs/2026-09-23-data-model-design.md` (the Postgres schema).
 
-**Curation pipeline (Python-orchestrated subagents):**
+**Architecture** (one box, one Postgres; infra in seanfloyd.dev `news-digest-temporal.tf`):
+- `digest/` — the TypeScript worker (`DigestWorkflow` and its activities) and the site (Hono), one
+  Dockerfile with `worker`, `site` and `dev` targets. Node 26, npm.
+- `digest/python/` — the Python worker: full-text extraction (trafilatura) only, on the `python` task
+  queue. A run goes on without full text if it is down.
+- Postgres database `digest` — the worker writes it; the site and `bin/ops` read it as `digest_ro`.
 
-Claude never sees URLs. Python assigns opaque article IDs (A1, A2...) and builds `article_index.json`. `orchestrate.py` runs the file-based subagents deterministically in a fixed order, invoking each one through the Claude Agent SDK wrapper (`claude_cli.py`):
+**A run** (`digest/src/workflow/digest.workflow.ts`, daily at 12:25 Europe/Paris): fetch → prepare
+(dedup, opaque article ids) → weekly recap → recap and cluster (extract, then a deterministic join) →
+select → full text (Python) → write, one call per story → preheader → coherence → repair → assemble →
+threads and Google News link decoding → render (web and MJML email) → pre-send checks (a failure holds
+the run 15 min for approve or reject) → broadcast → record.
 
-1. **CLUSTER** -- group articles by story
-2. **RECAP** -- summarise recent RSS titles (Haiku)
-3. **SELECT** -- editorial judgment: tiers, regions, representative articles
-4. **WRITE** -- one call per selected story: headline, summary, and for must_know a why_it_matters (references article IDs only; briefs render no why_it_matters)
-5. **PREHEADER** -- the one cross-story field, from the assembled headlines (Haiku)
-6. **COHERENCE** -- verify headlines vs source articles
-7. **REPAIR** -- regenerate and re-check a flagged field instead of dropping the story
-
-After the stages complete, Python (`merge.py:assemble_selections`) reads `draft_selections.json` and `coherence_report.json`, drops headlines whose coherence entry has `pass: false`, validates against `schema.SELECTIONS_SCHEMA`, and writes `selections.json`. Python then resolves article IDs to URLs/source/bias via `resolve_article_ids()` in `digest.py`.
-
-**Intermediate files** (in `data/claude_input/`): `clusters.json`, `recap.txt`, `selected.json`, `article_fulltext.json` (Python-fetched full text for SELECTED stories, best-effort), `cluster_cohesion.json` (the cohesion gate's verdicts, or `skipped`), `draft_selections.json`, `coherence_report.json`, `article_index.json`, `selections.json` (assembled by Python).
-
-WRITE fans out: `write_fanout.py` builds one `write_branches/sNN/` input dir per selected story, holding only that story and its cluster's articles, and WRITE is run once against each. Python fans the branch drafts back into `draft_selections.json` in SELECT's order, and a `preheader` agent (Haiku) writes `preheader.txt` — the one cross-story field. `run_usage` gets one `write` row; the per-branch breakdown is the `write_branches.json` run artifact.
-
-After COHERENCE, repair-not-drop runs: a flagged repairable field is regenerated from its own cited sources and re-checked, and only what still fails is dropped (`repair.py`, `.claude/agents/repair.md`). Best-effort — any failure falls back to dropping the story.
-
-**Dedup strategy:** TF-IDF pre-filter on RSS titles (not editorial). `recent_rss_titles.csv` + RECAP subagent + `weekly_recap.txt` replace the old `recent_headlines.csv` feedback loop.
+Claude never sees URLs: the model works on article ids (`A1`, `A2`, ...) and the workflow resolves
+them to URL, source and bias afterwards. Stage prompts are `digest/agents/*.md`.
 
 ## Commands
 
-Run `make help` for the full list. Key commands:
-- **CI**: `make ci` (all checks in Docker), `make ci-fix` (auto-fix), `make ci-full` (+ cargo audit)
-- **Tests only**: `make test`
-- **Deploy**: `make deploy` (full pipeline), `make deploy-dry` (preview)
-- **Migrate**: `make migrate`, `make migrate-status`
-- **Database**: `make db-clone` (pull prod DB), `make usage` / `make usage-daily`
-- **Server**: `make ssh`
-- **Run digest**: `make digest ARGS="--dry-run"` (uses `--build`, so it cannot run a stale image; a bare `docker compose run digest-newsroom` runs whatever the image was last built from)
-- **Replay a run**: `make replay RUN=285` — re-renders a finished run's tail from its archived artifacts (thread links, coherence kinds, invariants) with no model calls and no DB writes
-- **Test prompts**: `make prompt NAME=baseline`
-- **Versions**: `make versions`
+`make help` lists them all.
+- **CI**: `make ci` (`bin/ci`: the TypeScript, Python worker and `bin/` scripts suites, each in its
+  container, in parallel); the pre-commit hook runs `bin/ci --staged`.
+- **Dev stack**: `make dev-up` / `dev-down` / `dev-urls`; `make dev-import` loads a prod clone;
+  `make digest-start` runs today; `make digest-approve` / `digest-reject` during a hold. Mail goes
+  to resend-fake, never Resend (`docs/operations.md`, "The dev stack").
+- **Evals** (model calls, promptfoo in the worker image): `make band`, `make judges`, `make planted`,
+  `make fulltext-fork`.
+- **Schema**: migrations are dbmate files in `digest/db/migrations`, applied by the worker at start
+  (`node dist/cli/migrate.js`); after one, `make schema-types` regenerates the row types.
+- **Deploy**: `make deploy` / `make deploy-dry` (`bin/deploy`: builds and audits the three images,
+  pauses the schedule, snapshots the database, applies terraform, smokes the site; refuses during a
+  run and 12:00-13:45 Europe/Paris). `bin/deploy --rollback=deploy/<stamp>` redeploys a tag's digests.
+- **Production reads**: `bin/ops run|usage|health|artifacts|journal` (read-only, over SSH);
+  `make db-clone` then `bin/psql`, `make usage`, `make analytics`.
+- **Server**: `make ssh`.
 
-## Database
+## Key paths
 
-SQLite at `data/digest.db`. Schema managed by migrations in `migrations/`.
+- `digest/src/workflow/` — the workflow, its signals and policies (Temporal replays this code).
+- `digest/src/activities/` — every stage with I/O; `real.ts` wires them for the worker.
+- `digest/src/runner/` — one model stage over the Claude Agent SDK.
+- `digest/src/store/` — Postgres access; `schema.gen.ts` is generated.
+- `digest/src/site/` — the web tier; `digest/src/render/` — web and email rendering.
+- `digest/catalogue/sources.json` — the feed catalogue (served at `/sources`, read by fetch).
+- `digest/templates/` — the issue's web template and `digest.css`; `design/tokens.css` — design tokens.
+- `digest/db/ops/` — `bin/ops`'s payloads and `digest_ro.sql`, whose path terraform reads: do not move it.
+- `bin/` — operator scripts, tested in `bin/tests` (ci-scripts).
 
-**Tables:**
-- `digest_runs` - run metadata (run_at, articles_fetched, completed_at, git_sha)
-- `shown_narratives` - headlines shown with tier, source_id, and original_title (RSS title for dedup)
-- `source_health` - feed fetch results for monitoring
-- `digests` - HTML digest blobs keyed by date
-- `run_usage` - per-subagent token usage and API-equivalent costs per run
+## Layering
 
-**Migrations:**
-- Applied automatically on each run via `db.init()`
-- `make migrate-status` / `make migrate` for inspection and application
-- New migrations: `migrations/YYYYMMDDHHMMSS_description.sql`
-- Production: also auto-applied; `make ssh` then `bin/migrate` for manual use
-
-## Key Files
-
-- `newsroom/src/run.py` - CLI + pipeline orchestration (delegates to focused modules)
-- `newsroom/src/` - modules: config, feeds, prepare, claude, digest, render, broadcast, db, usage, utils
-- `newsroom/src/orchestrate.py` - Python orchestration of the 5 curation stages (replaced the old `/news-digest-select` LLM dispatcher); reads `.claude/agents/*.md`
-- `newsroom/src/write_fanout.py` - per-story WRITE branch inputs and fan-in
-- `newsroom/src/replay.py` - replays a finished run's render tail from `run_artifacts` (`bin/replay`)
-- `newsroom/src/merge.py` - post-orchestration assembly (drop coherence-failed entries, validate, write selections.json)
-- `newsroom/src/schema.py` - SELECTIONS_SCHEMA used to validate the assembled output
-- `newsroom/templates/digest-template.html` - HTML template for digest output
-- `newsroom/templates/digest.css` - CSS styles (minified and injected at runtime)
-- `newsroom/sources.json` - RSS feed definitions
-- `circulation/` - Rust (Axum) web server for "View in browser" links and archive
-
-## Module Layering
-
-`newsroom/src/` imports flow one direction. Do not introduce a cycle.
-
-```
-config, schema, write_fanout, prompts    no internal imports — keep them leaf modules
-  -> run_health         schema only
-  -> db, feeds, utils
-  -> render, merge, repair
-  -> render_email       db + render
-  -> prepare, digest, orchestrate
-  -> replay             config, db, digest, render, render_email, run_health
-  -> claude
-  -> run                entry point; the only module that may import broadly
-```
-
-`run.py` is the CLI and may import anything. Everything else imports downward
-only. If a low-level module needs something from a higher one, the dependency
-is pointing the wrong way — pass it in instead.
+Workflow code (`digest/src/workflow`) imports activity types and pure helpers only: Temporal replays it,
+so anything with I/O or a clock belongs in an activity. A change to a workflow's command sequence needs
+a patch or a new worker build (`digest/src/deployment.ts`, the runbook's "Stranded runs").
 
 ## Working Docs
 
-- `docs/lessons/` — reusable lessons, one per file, named for the lesson.
-  Write one when closing an incident or landing a non-obvious fix, as its own
-  commit. Convention in `docs/lessons/README.md`.
+- `docs/lessons/` — reusable lessons, one per file, named for the lesson. Write one when closing an
+  incident or landing a non-obvious fix, as its own commit. Convention in `docs/lessons/README.md`.
 - `docs/operations.md` — command reference and environment notes.
 - `docs/postmortems/` — incident narratives.
-- `docs/` (dated files) — design docs, evals, handoffs.
+- `docs/` (dated files) — design docs, evals, handoffs; history, stale by default.
 
 ## Persistent TODO
 
