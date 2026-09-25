@@ -127,6 +127,7 @@ describe("finishRun", () => {
     const { url, store, db } = await setup();
     await db.exec("INSERT INTO source_fetches (source_id, is_success, articles_fetched, articles_kept, run_id) VALUES ('a', true, 40, 30, 300)");
     await db.exec("INSERT INTO model_calls (run_id, stage, request_model, api_cost_usd) VALUES (300, 'select', 'm', 0.5), (300, 'write', 'm', 0.25)");
+    await db.exec("INSERT INTO run_attempts (run_id, pipeline) VALUES (300, 'temporal')"); // startRun's, still running
     const events: [string, Record<string, unknown>][] = [];
     const run = runActivities({ store, dbUrl: url, sourcesFile: "/dev/null", track: (e, p) => void events.push([e, p]) });
     await run.finishRun(300, { stories: 17, broadcast: "sent", recipients: 12 });
@@ -134,6 +135,15 @@ describe("finishRun", () => {
     expect(events[0]![0]).toBe("digest_run_finished");
     expect(events[0]![1]).toMatchObject({ run_id: 300, outcome: "sent", stories: 17, recipients: 12, articles_kept: 30, cost_usd: 0.75 });
     expect(typeof events[0]![1]["duration_s"]).toBe("number");
+  });
+  it("a retried ending (its record already written) sends no second event", async () => {
+    const { url, store, db } = await setup();
+    await db.exec("INSERT INTO run_attempts (run_id, pipeline) VALUES (300, 'temporal')");
+    const events: string[] = [];
+    const run = runActivities({ store, dbUrl: url, sourcesFile: "/dev/null", track: (e) => void events.push(e) });
+    await run.finishRun(300, { stories: 17, broadcast: "sent", recipients: 12 });
+    await run.finishRun(300, { stories: 17, broadcast: "sent", recipients: 12 });
+    expect(events).toEqual(["digest_run_finished"]);
   });
   it("a tracking failure never fails the run's ending", async () => {
     const { url, store, db } = await setup();

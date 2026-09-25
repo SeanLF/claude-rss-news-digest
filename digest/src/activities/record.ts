@@ -67,11 +67,11 @@ export function recordActivities(deps: RecordDeps) {
     // Marked, never deleted: a run that failed after its send keeps its record (2026-06-16). Only a
     // running run fails; a completed one keeps its outcome, and the attempt carries the error.
     abortRun: async (runId: number, error: string): Promise<void> => {
-      await db().tx(async (t) => {
+      const closed = await db().tx(async (t) => {
         await t.run("UPDATE runs SET status='failed', error=$1 WHERE id=$2 AND status='running'", [error, runId]);
-        await endAttempt(t, runId, "failed", error);
+        return endAttempt(t, runId, "failed", error);
       });
-      await tellEnding(deps.track, db(), runId, { outcome: "failed", error }, "digest_run_failed");
+      if (closed) await tellEnding(deps.track, db(), runId, { outcome: "failed", error }, "digest_run_failed");
     },
   };
 }

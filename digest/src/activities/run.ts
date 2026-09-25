@@ -56,11 +56,12 @@ const recordAttempt = (db: Sql, runId: number, execution: { workflowId: string; 
     [runId, execution.workflowId, execution.runId, process.env["GIT_SHA"] ?? null, forced],
   );
 
-// The attempt a run's ending closes: this execution's, else the run's latest.
-export async function endAttempt(db: Sql, runId: number, status: "completed" | "failed", error: string | null = null): Promise<void> {
+// The attempt a run's ending closes: this execution's, else the run's latest. True when this call closed
+// it, false when it was already closed (a retried activity whose first try committed).
+export async function endAttempt(db: Sql, runId: number, status: "completed" | "failed", error: string | null = null): Promise<boolean> {
   const execution = currentExecution();
   const where = execution ? "workflow_run_id = $3" : "id = (SELECT max(id) FROM run_attempts WHERE run_id = $3::bigint)";
-  await db.run(`UPDATE run_attempts SET status = $1, error = COALESCE($2, error), ended_at = now() WHERE ${where} AND status = 'running'`, [status, error, execution ? execution.runId : runId]);
+  return 0 < await db.run(`UPDATE run_attempts SET status = $1, error = COALESCE($2, error), ended_at = now() WHERE ${where} AND status = 'running'`, [status, error, execution ? execution.runId : runId]);
 }
 
 export function runActivities(deps: RunDeps) {
@@ -166,13 +167,14 @@ export function runActivities(deps: RunDeps) {
     // the send's. A sent run's outcome is never rewritten. db.complete_run: articles_kept is the
     // fetch-time count, SUM(source_fetches.articles_kept), as the Python snapshots it.
     finishRun: async (runId: number, out: Omit<DigestOutput, "runId">): Promise<void> => {
-      await db().tx(async (t) => {
+      const closed = await db().tx(async (t) => {
         if (out.broadcast === "sent")
           await t.run("UPDATE runs SET status='completed', outcome='sent', articles_kept=(SELECT SUM(articles_kept) FROM source_fetches WHERE run_id=$1) WHERE id=$1", [runId]);
         else await t.run("UPDATE runs SET status='completed', outcome=$1 WHERE id=$2 AND outcome IS DISTINCT FROM 'sent'", [out.broadcast, runId]);
-        await endAttempt(t, runId, "completed");
+        return endAttempt(t, runId, "completed");
       });
-      await tellEnding(deps.track, db(), runId, { outcome: out.broadcast, stories: out.stories, recipients: out.recipients });
+      // Once per run: a retry after the first try committed closes nothing, and sends nothing.
+      if (closed) await tellEnding(deps.track, db(), runId, { outcome: out.broadcast, stories: out.stories, recipients: out.recipients });
     },
   };
 }
