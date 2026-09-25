@@ -162,12 +162,9 @@ def test_thread_id_scan_ignores_non_detail_links(body):
 
 # --- the gate's exit code, not just its route list -------------------------------
 #
-# Every test above grades discover_routes. The bug that survived the first round
-# lived past it: with zero resolved routes the gate invoked `bin/a11y-check` with
-# no --url flags at all, which falls back to globbing the design mockups and exits
-# 0. So the gate printed "passed" having verified nothing -- and, because scratch/
-# is gitignored, it failed CLOSED on a fresh clone and OPEN on the machine that
-# actually deploys. These drive main() and assert on the exit status.
+# Every test above grades discover_routes. With zero resolved routes the gate would
+# hand pa11y-ci no URLs, and it exits 0 having checked nothing ("0/0 URLs passed").
+# These drive main() and assert on the exit status.
 
 
 @pytest.fixture
@@ -176,7 +173,6 @@ def stub_main(monkeypatch):
     calls = []
     monkeypatch.setattr(web_check, "wait_for_health", lambda base, timeout=90: (True, None))
     monkeypatch.setattr(web_check, "run_gate", lambda name, cmd: calls.append(cmd) or True)
-    monkeypatch.setattr(web_check, "check_page_weight", lambda urls, max_kb: True)
     monkeypatch.setattr(sys, "argv", ["web-check", "--base", "http://localhost:8080", "--fast"])
     return calls
 
@@ -192,7 +188,7 @@ def test_zero_resolved_routes_fails_the_gate_instead_of_grading_mockups(stub_mai
         web_check.main()
 
     assert e.value.code != 0
-    assert stub_main == [], "must not invoke a sub-gate with an empty --url list"
+    assert stub_main == [], "must not invoke a tool with an empty URL list"
 
 
 def test_a_route_that_does_not_serve_aborts_before_the_sub_gates_run(stub_main, monkeypatch):
@@ -222,5 +218,29 @@ def test_benign_warnings_alone_still_pass(stub_main, monkeypatch):
 
     web_check.main()  # must not raise
 
-    assert len(stub_main) == 1
-    assert stub_main[0].count("--url") == 2
+    assert len(stub_main) == 1, "--fast runs pa11y-ci only"
+    assert stub_main[0][-2:] == ["http://localhost:8080/", "http://localhost:8080/stats"]
+
+
+def test_without_fast_both_tools_grade_every_page(stub_main, monkeypatch):
+    urls = ["http://localhost:8080/", "http://localhost:8080/stats"]
+    monkeypatch.setattr(web_check, "discover_routes", _routes(urls))
+    monkeypatch.setattr(sys, "argv", ["web-check", "--base", "http://localhost:8080"])
+
+    web_check.main()
+
+    pa11y, lhci = stub_main
+    assert "pa11y-ci" in pa11y and pa11y[-2:] == urls
+    assert "lhci" in lhci and [a for a in lhci if a.startswith("--collect.url=")] == [
+        f"--collect.url={u}" for u in urls
+    ]
+
+
+def test_a_failing_tool_fails_the_gate(stub_main, monkeypatch):
+    monkeypatch.setattr(web_check, "discover_routes", _routes(["http://localhost:8080/"]))
+    monkeypatch.setattr(web_check, "run_gate", lambda name, cmd: False)
+
+    with pytest.raises(SystemExit) as e:
+        web_check.main()
+
+    assert e.value.code != 0

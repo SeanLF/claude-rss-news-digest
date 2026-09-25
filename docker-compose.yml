@@ -199,6 +199,12 @@ services:
     mem_limit: 256m
     cpus: 2
 
+  # bin/web-check's tools. Host networking so they reach whatever base URL the gate was given.
+  web-check:
+    build: { context: web-check }
+    profiles: [tools]
+    network_mode: host
+
 volumes:
   digest-pg:
   temporal-data:

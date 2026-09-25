@@ -1,20 +1,18 @@
 #!/usr/bin/env python3
-"""Pre-deploy web gate -- run the a11y + Lighthouse checks against what the site
+"""Pre-deploy web gate -- pa11y-ci and Lighthouse CI against what the site
 (digest/src/site, the dev stack's digest-site) actually serves.
 
-Both gates existed before this and both pointed at `scratch/chrome-mockups/*.html`,
-so they graded the design mockups rather than the pages that ship. This brings the
-site up on a local port, discovers the real route set (including the latest issue
-and a thread detail, which only exist at runtime), and runs:
+Brings the site up on a local port, discovers the real route set (including the
+latest issue and a thread detail, which only exist at runtime), and hands it to
+the two tools in the web-check image (web-check/, its configs beside it):
 
-  1. bin/a11y-check --url ...   structural invariants, seconds, always
-  2. bin/lighthouse --url ...   a11y/best-practices/SEO scores, ~15s/page, opt-out
+  1. pa11y-ci       axe, WCAG 2 AA and best practice, seconds, always
+  2. Lighthouse CI  a11y/best-practices/SEO scores and a page-size budget, ~15s/page, opt-out
 
 Usage:
     bin/web-check                     # compose up, check, tear down
-    bin/web-check --fast              # skip Lighthouse (a11y invariants only)
+    bin/web-check --fast              # skip Lighthouse CI (pa11y-ci only)
     bin/web-check --base http://localhost:8080   # check an already-running server
-    bin/web-check --min 95
 """
 
 import argparse
@@ -35,14 +33,9 @@ SERVICE = "digest-site"
 DEFAULT_BASE = "http://127.0.0.1:8080"
 
 # Every server-rendered HTML page. Non-HTML routes (/feed.xml, /og-image.png,
-# /robots.txt, /health) have nothing for either gate to assert.
+# /robots.txt, /health) have nothing for either tool to assert.
 STATIC_ROUTES = ["/", "/sources", "/stats", "/threads", "/search", "/feedback", "/privacy"]
 
-# Measured 2026-07-28: 17 kB (/feedback) to 149 kB (/threads), which lists every
-# thread and so grows with content. 200 kB is a creep detector with headroom, not a
-# performance target -- when /threads reaches it, the answer is pagination, not a
-# bigger number.
-DEFAULT_MAX_KB = 200
 
 THREAD_LINK = re.compile(r'href=["\']/thread/([A-Za-z0-9_-]+)["\']')
 
@@ -172,47 +165,14 @@ def run_gate(name, cmd):
     return subprocess.run(cmd, cwd=REPO, check=False).returncode == 0
 
 
-def check_page_weight(urls, max_kb):
-    """Cap the served HTML per page.
-
-    Every page inlines the full chrome CSS, the design tokens and its own CSS into
-    one critical <style> (digest/src/site/assets.ts), which is the right call for render
-    performance but means page weight creeps with nothing watching it. Lighthouse
-    would only see this under the performance category, which this gate does not
-    run; measuring the served bytes directly costs one request we already make.
-    """
-    print(f"\n=== Page weight (max {max_kb} kB) ===")
-    ok = True
-    for url in urls:
-        try:
-            with urllib.request.urlopen(url, timeout=20) as r:
-                kb = len(r.read()) / 1024
-        except Exception as e:
-            print(f"  [FAIL] {url}  could not measure: {e}")
-            ok = False
-            continue
-        over = kb > max_kb
-        if over:
-            ok = False
-        print(f"  [{'FAIL' if over else ' ok '}] {url:52} {kb:6.1f} kB")
-    if not ok:
-        print("\nPage weight gate FAILED.")
-    return ok
-
-
-def url_args(urls):
-    """['http://a', 'http://b'] -> ['--url', 'http://a', '--url', 'http://b']."""
-    return [arg for url in urls for arg in ("--url", url)]
+# `run` builds the image when it is missing; --build also rebuilds it after a config change.
+TOOLS = ["docker", "compose", "run", "--rm", "--build", "-T", "web-check"]
 
 
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--base", help="check an already-running server instead of starting one")
-    ap.add_argument("--fast", action="store_true", help="skip Lighthouse (structural a11y only)")
-    ap.add_argument("--min", type=int, default=100, help="minimum Lighthouse score (default 100)")
-    ap.add_argument(
-        "--max-kb", type=int, default=DEFAULT_MAX_KB, help=f"max served HTML per page (default {DEFAULT_MAX_KB})"
-    )
+    ap.add_argument("--fast", action="store_true", help="skip Lighthouse CI (pa11y-ci only)")
     args = ap.parse_args()
 
     # Subprocess output goes straight to the terminal; without this our own prints
@@ -247,20 +207,18 @@ def main():
 
         if failures:
             sys.exit(f"\nWeb gate FAILED: {len(failures)} route(s) did not serve.")
-        # Never hand an empty --url list to the sub-gates: with no targets they fall
-        # back to globbing the design mockups and exit 0, so the gate would report
-        # success having verified nothing. That failed OPEN on a box where scratch/
-        # exists and closed on a fresh clone, which is the worst of both.
+        # Never hand the tools an empty URL list: pa11y-ci then prints "0/0 URLs passed"
+        # and exits 0, so the gate would report success having verified nothing.
         if not urls:
             sys.exit(f"\nWeb gate FAILED: resolved 0 checkable pages on {base}.")
 
         print(f"\nChecking {len(urls)} pages on {base}")
-        ok = run_gate("a11y invariants", [sys.executable, "bin/a11y-check", *url_args(urls)])
-        ok &= check_page_weight(urls, args.max_kb)
+        ok = run_gate("pa11y-ci", [*TOOLS, "pa11y-ci", "--config", ".pa11yci.json", *urls])
         if args.fast:
-            print("\n=== Lighthouse === skipped (--fast)")
+            print("\n=== Lighthouse CI === skipped (--fast)")
         else:
-            ok &= run_gate("Lighthouse", [sys.executable, "bin/lighthouse", "--min", str(args.min), *url_args(urls)])
+            collect = [f"--collect.url={url}" for url in urls]
+            ok &= run_gate("Lighthouse CI", [*TOOLS, "lhci", "autorun", "--config=lighthouserc.json", *collect])
     finally:
         if started:
             rc = compose("stop", SERVICE).returncode

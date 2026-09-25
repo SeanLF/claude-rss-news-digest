@@ -2,7 +2,7 @@
 # Run `make` or `make help` to see available targets
 
 .DEFAULT_GOAL := help
-.PHONY: ci ci-fix a11y lighthouse web-check deploy ssh db-clone usage usage-daily analytics \
+.PHONY: ci ci-fix web-check deploy ssh db-clone usage usage-daily analytics \
         analytics-list analytics-q help
 
 # Default window for the analytics queries; override with RUNS=N
@@ -15,11 +15,7 @@ ci-fix: ## Auto-fix style issues
 	bin/ci --fix
 
 ## Web gates
-a11y: ## Fast structural a11y invariant check (no browser; suitable per-commit)
-	bin/a11y-check
-lighthouse: ## Lighthouse a11y/BP/SEO gate on the design mockups (pre-deploy; needs headless Chrome)
-	bin/lighthouse
-web-check: ## Both gates against the pages the site (digest-site) really serves (pre-deploy; use FAST=1 to skip Lighthouse)
+web-check: ## pa11y-ci and Lighthouse CI against the pages the site (digest-site) really serves (pre-deploy; FAST=1 skips Lighthouse CI)
 	bin/web-check $(if $(FAST),--fast,)
 
 ## Deploy

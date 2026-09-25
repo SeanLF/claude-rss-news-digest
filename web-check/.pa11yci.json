@@ -1,0 +1,18 @@
+{
+  "defaults": {
+    "standard": "WCAG2AA",
+    "runners": [
+      "axe"
+    ],
+    "includeWarnings": true,
+    "levelCapWhenNeedsReview": "notice",
+    "timeout": 60000,
+    "chromeLaunchConfig": {
+      "executablePath": "/usr/bin/chromium",
+      "args": [
+        "--no-sandbox",
+        "--headless=new"
+      ]
+    }
+  }
+}

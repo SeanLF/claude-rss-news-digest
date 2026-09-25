@@ -15,6 +15,17 @@ updates:
       minor-and-patch:
         update-types: [minor, patch]
 
+  # bin/web-check's tools. The lighthouse override in its package.json is not Dependabot's to move.
+  - package-ecosystem: npm
+    directory: /web-check
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    groups:
+      minor-and-patch:
+        update-types: [minor, patch]
+
   - package-ecosystem: uv
     directory: /digest/python
     schedule:
@@ -26,7 +37,7 @@ updates:
         update-types: [minor, patch]
 
   - package-ecosystem: docker
-    directories: [/digest, /digest/python, /bin/tests]
+    directories: [/digest, /digest/python, /bin/tests, /web-check]
     schedule:
       interval: weekly
 
