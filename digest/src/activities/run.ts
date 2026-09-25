@@ -4,6 +4,7 @@ import { ApplicationFailure } from "@temporalio/common";
 import { NETWORK_MAX_ATTEMPTS } from "../workflow/policy.js";
 import { parse } from "csv-parse/sync";
 import { activeSources, newerThan, parseArticles, type CatalogueSource } from "../fetch/feeds.js";
+import { fetchBounded, type BoundedResponse } from "../fetch/safe-fetch.js";
 import { toCsv, type Fetched } from "../prepare/prepare.js";
 import type { ArtifactStore } from "../store/artifacts.js";
 import { openDb, type RowOf, type Sql } from "../store/db.js";
@@ -11,6 +12,8 @@ import type { DigestInput, DigestOutput } from "./index.js";
 
 export const SOURCES_HEADER = ["id", "name", "bias", "factuality", "perspective"] as const;
 export const FETCH_TIMEOUT_MS = 15_000;
+export const FEED_MAX_BYTES = 5 * 2 ** 20;
+const getFeed = (url: string): Promise<BoundedResponse> => fetchBounded(url, { timeoutMs: FETCH_TIMEOUT_MS, maxBytes: FEED_MAX_BYTES, headers: { "User-Agent": "Mozilla/5.0" } });
 const SENT = "id IN (SELECT run_id FROM sent_runs)";
 const lastSent = async (db: Sql, before?: string): Promise<string | null> =>
   (before
@@ -21,7 +24,7 @@ export interface RunDeps {
   store: ArtifactStore;
   dbUrl: string;
   sourcesFile: string;
-  fetch?: typeof fetch;
+  get?: (url: string) => Promise<Pick<BoundedResponse, "status" | "body">>;
   maxAttempts?: number;
 }
 
@@ -129,9 +132,9 @@ export function runActivities(deps: RunDeps) {
       if (!source) throw ApplicationFailure.nonRetryable(`${sourceId} is not an active source`, "BadInput");
       let body: string;
       try {
-        const res = await (deps.fetch ?? fetch)(source.url, { headers: { "User-Agent": "Mozilla/5.0" }, signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        body = await res.text();
+        const res = await (deps.get ?? getFeed)(source.url);
+        if (res.status < 200 || res.status > 299) throw new Error(`HTTP ${res.status}`);
+        body = res.body;
       } catch (e) {
         // Every source's outcome is recorded, as the Python records it: retry while attempts remain,
         // and on the last one write the failure so health and alerting see it.

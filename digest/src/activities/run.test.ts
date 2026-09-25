@@ -17,12 +17,12 @@ async function setup(body = RSS) {
   const sourcesFile = join(mkdtempSync(join(tmpdir(), "src-")), "sources.json");
   writeFileSync(sourcesFile, JSON.stringify([{ id: "f", name: "F", url: "https://f.test/rss", bias: "center", factuality: "high", perspective: "global" }, { id: "p", name: "P", url: "https://p.test/rss", bias: "center", factuality: "high", perspective: "global", active: false, inactive_reason: "blocked" }]));
   let calls = 0;
-  const fake = (() => {
+  const fake = () => {
     calls++;
-    return Promise.resolve(new Response(body));
-  }) as unknown as typeof fetch;
+    return Promise.resolve({ status: 200, body });
+  };
   const store = new ArtifactStore(url);
-  return { url, db: openDb(url), store, acts: runActivities({ store, dbUrl: url, sourcesFile, fetch: fake }), calls: () => calls };
+  return { url, db: openDb(url), store, acts: runActivities({ store, dbUrl: url, sourcesFile, get: fake }), calls: () => calls };
 }
 
 describe("run lifecycle", () => {
@@ -49,8 +49,7 @@ describe("run lifecycle", () => {
     const url = await freshDb([]);
     const sourcesFile = join(mkdtempSync(join(tmpdir(), "src-")), "sources.json");
     writeFileSync(sourcesFile, JSON.stringify([{ id: "f", name: "F", url: "https://f.test/rss", bias: "center", factuality: "high", perspective: "global" }]));
-    const down = (() => Promise.reject(new Error("ECONNREFUSED"))) as unknown as typeof fetch;
-    const acts = runActivities({ store: new ArtifactStore(url), dbUrl: url, sourcesFile, fetch: down });
+    const acts = runActivities({ store: new ArtifactStore(url), dbUrl: url, sourcesFile, get: () => Promise.reject(new Error("ECONNREFUSED")) });
     const { runId } = await acts.startRun({ runDate: "2026-09-19" });
     expect(await acts.fetchFeed(runId, "f", null)).toMatchObject({ ok: false, fetched: 0, kept: 0 });
     expect(await openDb(url).one("SELECT is_success, error AS e FROM source_fetches WHERE run_id=$1", [runId])).toMatchObject({ is_success: false });
