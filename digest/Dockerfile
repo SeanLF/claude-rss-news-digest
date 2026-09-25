@@ -64,3 +64,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates
 USER appuser
 
 FROM app AS worker
+# Healthy while the worker polls (worker.ts touches the file each 5 s while RUNNING), so Kamal counts
+# a new worker deployed only then. No network call: find prints the file only when under a minute old.
+# The start period covers the migration below.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=300s --start-interval=2s \
+  CMD test -n "$(find /tmp/worker-alive -mmin -1)"
+# The schema first: a failed migration exits the container before the worker polls, so it never turns
+# healthy and Kamal stops the deploy with the old worker still running.
+CMD ["sh", "-c", "node dist/cli/migrate.js && exec node dist/worker.js"]

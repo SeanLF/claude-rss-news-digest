@@ -35,6 +35,37 @@ def test_the_namespace_is_temporal_namespace_so_production_uses_the_repos_own(mo
     assert worker.namespace() == "default"
 
 
+def test_touches_the_alive_file_only_while_the_worker_runs(tmp_path):
+    # The image's HEALTHCHECK reads the file's age: fresh while polling, stale once stopped.
+    import asyncio
+
+    alive = tmp_path / "worker-alive"
+
+    class FakeWorker:
+        is_running = False
+
+    async def scenario():
+        w = FakeWorker()
+        task = asyncio.create_task(worker.touch_while_running(w, alive, 0.01))
+        try:
+            await asyncio.sleep(0.05)
+            assert not alive.exists()
+            w.is_running = True
+            await asyncio.sleep(0.05)
+            running = alive.stat().st_mtime_ns
+            await asyncio.sleep(0.05)
+            assert alive.stat().st_mtime_ns > running
+            w.is_running = False
+            await asyncio.sleep(0.03)
+            stopped = alive.stat().st_mtime_ns
+            await asyncio.sleep(0.05)
+            assert alive.stat().st_mtime_ns == stopped
+        finally:
+            task.cancel()
+
+    asyncio.run(scenario())
+
+
 def test_sigterm_stops_the_worker_cleanly(tmp_path):
     # systemd stops the unit with SIGTERM on every deploy; dying of it exits 143, which OnFailure
     # mails as a failure. The worker must shut down and exit 0, as the TypeScript one does.
@@ -48,6 +79,7 @@ def test_sigterm_stops_the_worker_cleanly(tmp_path):
     script = f"""
 import asyncio, pathlib, worker
 class FakeWorker:
+    is_running = True
     def __init__(self, *a, **kw): pass
     async def __aenter__(self):
         pathlib.Path({str(ready)!r}).touch()

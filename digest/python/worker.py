@@ -9,6 +9,7 @@ import asyncio
 import os
 import signal
 from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
 
 from temporalio import activity
 from temporalio.client import Client
@@ -18,6 +19,9 @@ import fulltext
 import settings
 
 TASK_QUEUE = "python"
+# The image's HEALTHCHECK passes while this file is under a minute old, so Kamal counts a new worker
+# deployed only once it polls.
+ALIVE_FILE = Path("/tmp/worker-alive")
 
 
 @activity.defn(name="fetchFulltext")  # the name the TypeScript workflow calls
@@ -36,6 +40,13 @@ def namespace() -> str:
     return os.environ.get("TEMPORAL_NAMESPACE", "default")
 
 
+async def touch_while_running(worker: Worker, path: Path = ALIVE_FILE, every_s: float = 5.0) -> None:
+    while True:
+        if worker.is_running:
+            path.touch()
+        await asyncio.sleep(every_s)
+
+
 async def main() -> None:
     # systemd stops the unit with SIGTERM: shut down and exit 0, or every deploy mails a failure.
     stop = asyncio.Event()
@@ -44,8 +55,10 @@ async def main() -> None:
     client = await Client.connect(os.environ.get("TEMPORAL_ADDRESS", "localhost:7233"), namespace=namespace())
     with ThreadPoolExecutor(max_workers=2) as pool:
         activities = [fetch_fulltext]
-        async with Worker(client, task_queue=TASK_QUEUE, activities=activities, activity_executor=pool):
+        async with Worker(client, task_queue=TASK_QUEUE, activities=activities, activity_executor=pool) as w:
+            touching = asyncio.create_task(touch_while_running(w))
             await stop.wait()
+            touching.cancel()
 
 
 if __name__ == "__main__":

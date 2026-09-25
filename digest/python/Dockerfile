@@ -38,4 +38,8 @@ ARG OCI_REVISION=""
 LABEL org.opencontainers.image.revision="${OCI_REVISION}"
 USER appuser
 WORKDIR /app/src
+# Healthy while the worker polls (worker.py touches the file each 5 s while running), so Kamal counts
+# a new worker deployed only then. No network call: find prints the file only when under a minute old.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --start-interval=2s \
+  CMD test -n "$(find /tmp/worker-alive -mmin -1)"
 CMD ["python", "worker.py"]

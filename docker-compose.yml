@@ -127,7 +127,7 @@ services:
       <<: *dev-mail
       TEMPORAL_ADDRESS: "temporal:7233"
       CLAUDE_CODE_OAUTH_TOKEN: "${CLAUDE_CODE_OAUTH_TOKEN:-}" # from the repo-root .env
-      DIGEST_DATABASE_URL: "postgres://postgres:digest@digest-pg:5432/${DIGEST_DB_NAME:-digest}" # make band points it at its copy
+      DIGEST_DATABASE_URL: "postgres://postgres:digest@digest-pg:5432/${DIGEST_DB_NAME:-digest}?sslmode=disable" # make band points it at its copy
       # On: a dev run goes through the hold, its notification, approve or reject, and the send, all into
       # resend-fake. make band turns it off: a curation band has no send.
       BROADCAST_ENABLED: "${BROADCAST_ENABLED:-true}"
