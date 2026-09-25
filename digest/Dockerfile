@@ -35,8 +35,13 @@ COPY digest/ ./
 # the worker takes its node_modules from prod-deps.
 RUN npm run build && npm run bundle:site && npm run sbom:site && rm -rf node_modules
 
-# The web tier: the bundle, its assets and the two files it reads, and no node_modules.
-FROM base AS site
+# The web tier: the bundle, its assets and the two files it reads, and no node_modules. It needs node
+# and nothing else (no shell, npm or apt), so it runs on distroless's Node, which is the same Debian and
+# Node major as `base`, as distroless's own non-root user (the site writes nothing, and reaches Postgres
+# over the network). `node` is put on PATH so `docker exec <site> node ...` works as before.
+FROM gcr.io/distroless/nodejs26-debian13:nonroot AS site
+ENV PATH=/nodejs/bin:$PATH
+WORKDIR /app/digest
 COPY --from=build /app/digest/bundle/dist ./dist
 COPY --from=build /app/digest/bundle/site.cdx.json /app/digest/bundle/meta.json ./
 # Read relative to the bundle (site/assets.ts): dist/site/main.js -> ../../assets/site.
@@ -45,7 +50,7 @@ COPY digest/catalogue/sources.json /app/sources.json
 COPY design/tokens.css /app/design/tokens.css
 ARG OCI_REVISION=""
 LABEL org.opencontainers.image.revision="${OCI_REVISION}"
-USER appuser
+ENTRYPOINT []
 CMD ["node", "dist/site/main.js"]
 
 FROM base AS app
