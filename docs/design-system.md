@@ -231,7 +231,7 @@ section is the **app chrome** (index/sources/stats/threads/feedback), a document
 `--ink2 #3b3a36/#cbc9bd`, `--muted #6f6d65/#9d9a8e`, **alpha hairlines** `--line rgba(ink,.12)/rgba(paper,.13)`
 + `--line-strong .22/.24` + `--wash .035/.05` (one token pair works both themes over any bg),
 `--accent #b1352a/#e2675b` (marks/live), `--accent-ink #8f2a20/#ec7d72` (text/links) + `--accent-wash`,
-status `--ok #2f9b5e/#46c184` (+`--ok-ink`), `--warn #a8760c/#d9b34d` (+`--warn-ink`), bias
+status `--ok #2f9b5e/#46c184` + `--ok-ink #1f7a47/#46c184`, `--warn #a8760c/#d9b34d` + `--warn-ink #8a5f00/#d9b34d` (the -ink pair is text, AA on every light ground), bias
 `--bias-l #5f7391/#8194b3` `--bias-c #928f86/#a5a196` `--bias-r #b0604e/#cf7a68`. Radius `--r-input:6px`
 (inputs/buttons/segmented) `--r-card:8px` (cards); badges/pills full-round; everything else flat.
 

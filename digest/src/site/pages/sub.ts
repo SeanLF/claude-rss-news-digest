@@ -216,8 +216,8 @@ export function statsPage(ctx: PageCtx, days: number, s: Stats, m: Metrics, name
   const opt = (d: number, label: string) => `<a href="?days=${d}" aria-current="${d === days}">${label}</a>`;
   const toggle = `<div class="toolbar"><div class="seg" role="group" aria-label="Reporting period">${opt(7, "7 days")}${opt(30, "30 days")}${opt(90, "90 days")}</div></div>`;
   const inner = `${subMasthead(brand(ctx), "Stats", `Editorial health &middot; last ${days} days`, `<b>${s.cost.runs}</b> runs &middot; <b>${s.cost.recipientsLatest}</b> subscribers &middot; <b>$${fixed(s.cost.costTotal, 2)}</b> API-equiv.`)}
-    ${toggle}
     <main id="main">
+    ${toggle}
     ${balance(m)}
     ${geographic(m)}
     ${concentration(m, s.neverSelected, days)}

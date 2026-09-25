@@ -45,8 +45,8 @@
   --line-strong:rgba(25,25,23,.22);
   --wash:       rgba(25,25,23,.035);/* hover / today-row tint */
   --accent-wash:rgba(177,53,42,.06);
-  --ok:         #2f9b5e;  --ok-ink:  #2f9b5e;  /* status axis — RAG, chrome-only */
-  --warn:       #a8760c;  --warn-ink:#a8760c;
+  --ok:         #2f9b5e;  --ok-ink:  #1f7a47;  /* status axis — RAG, chrome-only */
+  --warn:       #a8760c;  --warn-ink:#8a5f00;
   --r-input:    6px;      /* inputs / buttons / segmented control */
   --r-card:     8px;      /* cards */
 }
@@ -90,6 +90,6 @@
   --panel:#ffffff; --panel-2:#f4f3ee;
   --line:rgba(25,25,23,.12); --line-strong:rgba(25,25,23,.22); --wash:rgba(25,25,23,.035);
   --accent-wash:rgba(177,53,42,.06);
-  --ok:#2f9b5e; --ok-ink:#2f9b5e; --warn:#a8760c; --warn-ink:#a8760c;
+  --ok:#2f9b5e; --ok-ink:#1f7a47; --warn:#a8760c; --warn-ink:#8a5f00;
   --hair:#dddcd4;
 }

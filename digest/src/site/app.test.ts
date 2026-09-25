@@ -376,3 +376,26 @@ describe("hostile requests", () => {
     expect((await testApp(fakeData()).request(path)).status).toBe(400);
   });
 });
+
+describe("the top bar", () => {
+  // axe's region rule: the subscribe link, translate pill and theme toggle sat in a bare div, outside
+  // every landmark. The masthead is the page's banner, so a second <header> would fail another rule.
+  it.each(["/", "/sources", "/issues/2026-09-01"])("keeps every control inside a named nav on %s", async (path) => {
+    const html = await (await get(testApp(withIssue()), path)).text();
+    expect(html).toMatch(/<div class="topbar"><nav class="topnav" aria-label="Site navigation">.*?<\/nav><nav class="topright" aria-label="Reader tools">.*?<\/nav><\/div>/s);
+  });
+});
+
+describe("landmarks (axe's region rule)", () => {
+  it("puts the stats period toolbar inside <main>", async () => {
+    const html = await (await get(testApp(withIssue()), "/stats")).text();
+    expect(html.indexOf('<main id="main">')).toBeGreaterThan(-1);
+    expect(html.indexOf('<div class="toolbar">')).toBeGreaterThan(html.indexOf('<main id="main">'));
+  });
+
+  it("wraps the issue masthead in the page's one <header>", async () => {
+    const html = await (await get(testApp(withIssue()), "/issues/2026-09-01")).text();
+    expect(html).toMatch(/<header>\s*<table role="presentation" class="masthead"/);
+    expect(html.match(/<header[\s>]/g)).toHaveLength(1);
+  });
+});

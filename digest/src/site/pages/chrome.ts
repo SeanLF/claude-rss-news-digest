@@ -32,7 +32,7 @@ const navRow = (items: [string, string][]): string =>
 export const translatePill = (href: string): string => `<a class="pill" href="${href}"><span class="g" aria-hidden="true">文A</span> Translate</a>`;
 
 export const topbar = (nav: [string, string][], right: string): string =>
-  `<div class="topbar"><nav class="topnav" aria-label="Site navigation">${navRow(nav)}</nav><div class="topright">${right}</div></div>`;
+  `<div class="topbar"><nav class="topnav" aria-label="Site navigation">${navRow(nav)}</nav><nav class="topright" aria-label="Reader tools">${right}</nav></div>`;
 
 export const footer = (links: [string, string][], tagline: string): string =>
   `<footer class="site-foot"><div class="row">${navRow(links)}</div><p style="margin:0;">${tagline}</p></footer>`;
