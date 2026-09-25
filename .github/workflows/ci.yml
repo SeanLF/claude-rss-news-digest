@@ -1,0 +1,31 @@
+# The repo's CI on every push to main: the tests and the dependency scan. seanfloyd-infra's
+# bin/deploy-digest (make deploy) builds and deploys a commit only once this passed for it.
+name: ci
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  # The repo's own CI (bin/ci): the TypeScript, Python worker and bin/ scripts suites, each in its container.
+  test:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - run: bin/ci
+
+  scan:
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
+    uses: google/osv-scanner-action/.github/workflows/osv-scanner-reusable.yml@a345acffa64b0eaede81a3d9aae6141214d9c8fc # v2.6.0
+    with:
+      scan-args: |-
+        --lockfile=digest/package-lock.json
+        --lockfile=digest/python/uv.lock

@@ -10,21 +10,21 @@ Reusable *lessons* live in [`docs/lessons/`](lessons/); incident narratives live
 ## Deploying
 
 ```bash
-make deploy                                   # HEAD, once CI (.github/workflows/images.yml) built it
+make deploy                                   # HEAD, once CI (.github/workflows/ci.yml) passed for it
 $INFRA_DIR/bin/deploy-digest <sha> --force    # inside the run window or during a run, loudly
 $INFRA_DIR/bin/deploy-digest --rollback <sha> # to a version the box still holds
 ```
 
-CI builds the three images on every push to main: tests and osv-scanner first, then each image with an
-SBOM and a provenance attestation, tagged by the full SHA. `make deploy` hands HEAD to seanfloyd-infra's
-`bin/deploy-digest`, which Kamal-deploys them (design: seanfloyd-infra
-`docs/2026-09-25-news-digest-kamal-design.md`): it checks the SHA is on main, CI passed and each image's
-attestation verifies; refuses while a `DigestWorkflow` runs and from 12:00 to 13:45 Europe/Paris (the
-guard runs in the live worker); dumps Postgres alongside the Python worker's deploy; then deploys the
-worker and the site in parallel. The worker applies the product schema's dbmate migrations as it starts
-and is healthy only once it polls, so a failed migration fails the deploy with the old worker still
-running; its build is then made the current Temporal version, and one that never becomes current is
-rolled back. Migrations only add (a rollback runs old code on the new schema).
+CI (`.github/workflows/ci.yml`) runs the tests and osv-scanner on every push to main. `make deploy`
+hands HEAD to seanfloyd-infra's `bin/deploy-digest` (design: seanfloyd-infra
+`docs/2026-09-25-news-digest-kamal-design.md`), which checks this checkout is clean, at that SHA, on
+origin/main and green in CI; builds the three images here with Kamal and pushes them to the box's
+registry; refuses while a `DigestWorkflow` runs and from 12:00 to 13:45 Europe/Paris (the guard runs in
+the live worker); dumps Postgres alongside the Python worker's deploy; then deploys the worker and the
+site in parallel. The worker applies the product schema's dbmate migrations as it starts and is healthy
+only once it polls, so a failed migration fails the deploy with the old worker still running; its build
+is then made the current Temporal version, and one that never becomes current is rolled back.
+Migrations only add (a rollback runs old code on the new schema).
 
 Kamal keeps the running container and the three before it per service, so a rollback to any of those
 needs no registry. Container logs: `kamal app logs -c config/deploy/digest-worker.yml` in seanfloyd-infra.

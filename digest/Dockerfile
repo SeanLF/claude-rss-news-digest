@@ -48,7 +48,7 @@ COPY --from=prod-deps /app/digest/node_modules ./node_modules
 COPY digest/catalogue/sources.json /app/sources.json
 COPY design/tokens.css /app/design/tokens.css
 # Below the build: these change every commit. GIT_SHA is what runs.git_sha records;
-# the revision label names the commit (CI's attestation covers the image).
+# the revision label names the commit.
 ARG GIT_SHA
 ENV GIT_SHA=${GIT_SHA}
 ARG OCI_REVISION=""
