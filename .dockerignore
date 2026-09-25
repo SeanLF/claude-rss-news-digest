@@ -14,3 +14,7 @@ digest/node_modules/
 digest/dist/
 digest/bundle/
 digest/sbom.cdx.json
+# Local, gitignored artefacts under digest/ that the worker image COPYs wholesale: eval run configs
+# and the fulltext fork corpus. Not secrets today, but nothing local belongs in a prod image.
+digest/gate/*.run.yaml
+digest/fulltext/
