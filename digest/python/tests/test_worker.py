@@ -33,3 +33,41 @@ def test_the_namespace_is_temporal_namespace_so_production_uses_the_repos_own(mo
     assert worker.namespace() == "news-digest"
     monkeypatch.delenv("TEMPORAL_NAMESPACE")
     assert worker.namespace() == "default"
+
+
+def test_sigterm_stops_the_worker_cleanly(tmp_path):
+    # systemd stops the unit with SIGTERM on every deploy; dying of it exits 143, which OnFailure
+    # mails as a failure. The worker must shut down and exit 0, as the TypeScript one does.
+    import signal
+    import subprocess
+    import sys
+    import time
+    from pathlib import Path
+
+    ready = tmp_path / "ready"
+    script = f"""
+import asyncio, pathlib, worker
+class FakeWorker:
+    def __init__(self, *a, **kw): pass
+    async def __aenter__(self):
+        pathlib.Path({str(ready)!r}).touch()
+        return self
+    async def __aexit__(self, *exc): pass
+    async def run(self):
+        pathlib.Path({str(ready)!r}).touch()
+        await asyncio.Event().wait()
+async def connect(*a, **kw): return object()
+worker.Worker = FakeWorker
+worker.Client.connect = connect
+asyncio.run(worker.main())
+"""
+    proc = subprocess.Popen([sys.executable, "-c", script], cwd=Path(worker.__file__).parent)
+    try:
+        deadline = time.monotonic() + 10
+        while not ready.exists():
+            assert proc.poll() is None and time.monotonic() < deadline, "worker never started"
+            time.sleep(0.05)
+        proc.send_signal(signal.SIGTERM)
+        assert proc.wait(timeout=10) == 0
+    finally:
+        proc.kill()

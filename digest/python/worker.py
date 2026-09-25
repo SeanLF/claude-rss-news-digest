@@ -7,6 +7,7 @@ SIGKILL are the bound. The TypeScript workflow calls it by name and does the pla
 
 import asyncio
 import os
+import signal
 from concurrent.futures import ThreadPoolExecutor
 
 from temporalio import activity
@@ -36,10 +37,15 @@ def namespace() -> str:
 
 
 async def main() -> None:
+    # systemd stops the unit with SIGTERM: shut down and exit 0, or every deploy mails a failure.
+    stop = asyncio.Event()
+    for sig in (signal.SIGTERM, signal.SIGINT):
+        asyncio.get_running_loop().add_signal_handler(sig, stop.set)
     client = await Client.connect(os.environ.get("TEMPORAL_ADDRESS", "localhost:7233"), namespace=namespace())
     with ThreadPoolExecutor(max_workers=2) as pool:
         activities = [fetch_fulltext]
-        await Worker(client, task_queue=TASK_QUEUE, activities=activities, activity_executor=pool).run()
+        async with Worker(client, task_queue=TASK_QUEUE, activities=activities, activity_executor=pool):
+            await stop.wait()
 
 
 if __name__ == "__main__":
