@@ -92,6 +92,7 @@ dev-import: ## Replace the dev stack's product database with a copy of the prod 
 	$(COMPOSE) exec -T digest-pg psql -q -U postgres -v ON_ERROR_STOP=1 -tAc "SELECT 1 FROM pg_database WHERE datname = 'digest_clone'" | grep -q 1 \
 	  || { echo "no digest_clone in the dev stack (make db-clone)"; exit 2; }; \
 	$(COMPOSE) stop digest-site digest-worker >/dev/null 2>&1; \
+	$(COMPOSE) exec -T digest-pg psql -qtA -U postgres -v ON_ERROR_STOP=1 -c "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = 'digest_clone'" >/dev/null && \
 	$(COMPOSE) exec -T digest-pg psql -q -U postgres -v ON_ERROR_STOP=1 -c "DROP DATABASE IF EXISTS digest WITH (FORCE)" -c "CREATE DATABASE digest TEMPLATE digest_clone" && \
 	$(MAKE) --no-print-directory dev-up COMPOSE='$(COMPOSE)' DEV_BUILD='$(filter-out resend-fake,$(DEV_BUILD))'
 
