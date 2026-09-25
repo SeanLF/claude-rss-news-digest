@@ -41,7 +41,7 @@ a11y: ## Fast structural a11y invariant check (no browser; suitable per-commit)
 	bin/a11y-check
 lighthouse: ## Lighthouse a11y/BP/SEO gate on the design mockups (pre-deploy; needs headless Chrome)
 	bin/lighthouse
-web-check: ## Both gates against the pages circulation really serves (pre-deploy; use FAST=1 to skip Lighthouse)
+web-check: ## Both gates against the pages the site (digest-site) really serves (pre-deploy; use FAST=1 to skip Lighthouse)
 	bin/web-check $(if $(FAST),--fast,)
 
 ## Deploy

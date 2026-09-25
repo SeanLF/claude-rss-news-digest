@@ -1,4 +1,4 @@
-"""Tests for the pre-deploy web gate (bin/web-check -> tools/web_check.py).
+"""Tests for the pre-deploy web gate (bin/web-check).
 
 Pins route discovery, because that is where the gate can silently under-check: if
 `/today` or `/threads` stops yielding a target, the run must SAY it checked fewer
@@ -6,12 +6,15 @@ pages rather than quietly passing on the static routes alone.
 """
 
 import sys
+from importlib.machinery import SourceFileLoader
+from importlib.util import module_from_spec, spec_from_loader
 from pathlib import Path
 
 import pytest
 
-sys.path.insert(0, str(Path(__file__).parent.parent / "tools"))
-import web_check
+_loader = SourceFileLoader("web_check", str(Path(__file__).resolve().parents[1] / "web-check"))
+web_check = module_from_spec(spec_from_loader("web_check", _loader))
+_loader.exec_module(web_check)
 
 
 def fake_fetch(pages):

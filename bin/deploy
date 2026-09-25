@@ -185,7 +185,7 @@ check_docker() {
   return 1
 }
 
-# Grades the pages circulation actually renders (a11y invariants + Lighthouse),
+# Grades the pages the site actually renders (a11y invariants + Lighthouse),
 # not the design mockups the two gates pointed at before. Catches the class of
 # regression that ships silently because nothing is broken enough to 500.
 check_web() {
