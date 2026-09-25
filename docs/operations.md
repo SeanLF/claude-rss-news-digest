@@ -16,7 +16,7 @@ bin/deploy             # build, audit and push the worker, Python worker and sit
 
 It runs the web gate (`bin/web-check`, on the dev stack's site) first, refuses while a `DigestWorkflow`
 runs and from 12:00 to 13:45 Europe/Paris (`--force` overrides both, loudly), pauses the schedule, has the box take a fresh `pg_dump` and copies it to the Mac
-(seanfloyd.dev's `bin/backup-volumes --fresh-digest-dump`), applies terraform, makes the new worker's
+(seanfloyd-infra's `bin/backup-volumes --fresh-digest-dump`), applies terraform, makes the new worker's
 build the current Temporal version, restores the schedule and smokes the site. The worker applies the
 product schema's dbmate migrations (`digest/db/migrations`) as it starts; they are forward-only.
 

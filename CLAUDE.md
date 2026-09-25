@@ -11,7 +11,7 @@ wins over the spec it supersedes), `docs/superpowers/specs/2026-09-21-four-syste
 spec), `docs/2026-09-23-temporal-cutover-runbook.md` (operating the Temporal side on the box),
 `docs/2026-09-23-data-model-design.md` (the Postgres schema).
 
-**Architecture** (one box, one Postgres; infra in seanfloyd.dev `news-digest-temporal.tf`):
+**Architecture** (one box, one Postgres; infra in seanfloyd-infra `tofu/news-digest-temporal.tf`):
 - `digest/` — the TypeScript worker (`DigestWorkflow` and its activities) and the site (Hono), one
   Dockerfile with `worker`, `site` and `dev` targets. Node 26, npm.
 - `digest/python/` — the Python worker: full-text extraction (trafilatura) only, on the `python` task

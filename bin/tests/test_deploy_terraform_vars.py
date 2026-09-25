@@ -1,6 +1,6 @@
 """bin/deploy's terraform plan: which resources it targets and which variables it passes.
 
-seanfloyd.dev's news-digest.tf and news-digest-temporal.tf describe the Temporal pipeline alone since
+seanfloyd-infra's tofu/news-digest.tf and tofu/news-digest-temporal.tf describe the Temporal pipeline alone since
 the cut-over. Terraform refuses a -var for a variable it does not declare, so the Python pipeline's
 and circulation's digests and the importer's path must not be passed, and a -target of a resource it
 no longer has would only plan its destroy.
@@ -69,7 +69,7 @@ def test_the_targets_are_the_temporal_pipeline_and_the_site_swap(tmp_path):
 
 
 def test_each_image_is_pinned_by_the_digest_it_was_pushed_at(tmp_path):
-    # seanfloyd.dev news-digest-temporal.tf runs each image at its digest, and :latest when it is empty.
+    # seanfloyd-infra tofu/news-digest-temporal.tf runs each image at its digest, and :latest when it is empty.
     digests = tmp_path / "digests"
     digests.mkdir()
     for name, c in (("digest-site", "a"), ("digest-worker", "b"), ("digest-python", "c")):

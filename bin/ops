@@ -38,7 +38,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-# The product database in the Postgres Temporal runs (seanfloyd.dev news-digest-temporal.tf),
+# The product database in the Postgres Temporal runs (seanfloyd-infra tofu/news-digest-temporal.tf),
 # reached over the container's local socket, and the worker's unit.
 PG_CONTAINER = "news-digest-temporal-postgres"
 PG_ROLE = "digest_ro"

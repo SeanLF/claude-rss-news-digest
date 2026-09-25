@@ -794,7 +794,7 @@ check_database_url() {
   local why
   why=$(sed $'s/\x1b\\[[0-9;]*m//g' "$err" | grep -m1 -o 'Error: .*' || true)
   rm -f "$err"
-  log_error "terraform does not give the worker a DIGEST_DATABASE_URL with a password (tf console exit $rc, answer '$(printf '%.40s' "$(tail -n 1 <<<"$out")")'${why:+, $why}) -- the worker would refuse to start. Apply infra that has the product database (seanfloyd.dev news-digest-temporal.tf, local.news_digest_worker_env_content) and check NEWS_DIGEST_DB_PASSWORD in op://Private/seanfloyd.dev"
+  log_error "terraform does not give the worker a DIGEST_DATABASE_URL with a password (tf console exit $rc, answer '$(printf '%.40s' "$(tail -n 1 <<<"$out")")'${why:+, $why}) -- the worker would refuse to start. Apply infra that has the product database (seanfloyd-infra tofu/news-digest-temporal.tf, local.news_digest_worker_env_content) and check NEWS_DIGEST_DB_PASSWORD in op://Private/seanfloyd.dev"
   return 1
 }
 

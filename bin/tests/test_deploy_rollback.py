@@ -1,6 +1,6 @@
 """The box keeps the last three images of each repository, and bin/deploy --rollback deploys one.
 
-The box's weekly cleanup (seanfloyd.dev scripts/server/cleanup.sh) runs `docker image prune -af`,
+The box's weekly cleanup (seanfloyd-infra server/cleanup.sh) runs `docker image prune -af`,
 which removes every image no container references, stopped or not, so a replaced worker's or site's
 image never survives a week. bin/deploy leaves a stopped container per pushed image, labelled by repository, and removes all
 but the newest three, so a rollback by digest finds its image on the box. Here the box is played by

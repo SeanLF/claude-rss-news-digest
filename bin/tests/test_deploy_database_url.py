@@ -1,7 +1,7 @@
 """bin/deploy refuses a deploy whose terraform gives the worker no DIGEST_DATABASE_URL.
 
 The worker dies at startup without it (digest/src/worker.ts), so the deploy would apply, and the
-day's run would never start. Terraform writes the worker's env (seanfloyd.dev news-digest-temporal.tf,
+day's run would never start. Terraform writes the worker's env (seanfloyd-infra tofu/news-digest-temporal.tf,
 local.news_digest_worker_env_content); bin/deploy asks `bin/tf console` for it, stubbed here.
 """
 
