@@ -48,13 +48,14 @@ export function parseStartArgs(argv: string[], today = new Date().toISOString().
   return { date: date ?? today, opts: { force, ...(resumeRun !== undefined ? { resumeRun } : {}) } };
 }
 
-// 10:25Z daily; overlap: skip; catch-up: one day. Replaces the systemd timer and reboot catch-up.
+// 12:25 Europe/Paris daily, as the systemd timer ran (10:25Z in summer, 11:25Z in winter), so a clock
+// change needs no watcher; overlap: skip; catch-up: one day. Replaces the timer and reboot catch-up.
 // The scheduled action's workflowId is fixed; plan A2's startRun derives the run date from the
 // start time when runDate is empty, and the overlap policy covers scheduled starts.
 export function scheduleOptions(): ScheduleOptions {
   return {
     scheduleId: SCHEDULE_ID,
-    spec: { calendars: [{ hour: 10, minute: 25 }] },
+    spec: { calendars: [{ hour: 12, minute: 25 }], timezone: "Europe/Paris" },
     policies: { overlap: ScheduleOverlapPolicy.SKIP, catchupWindow: "1 day" },
     // Created paused; only the deploy's live-pipeline switch unpauses it. The update in
     // ensureSchedule keeps whatever state the schedule already has.

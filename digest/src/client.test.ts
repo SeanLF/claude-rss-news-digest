@@ -53,10 +53,12 @@ describe("make digest-start's arguments", () => {
 });
 
 describe("the daily schedule", () => {
-  it("runs at 10:25Z, skips overlap, catches up one day", () => {
+  it("runs at 12:25 Paris time (the Python timer's), skips overlap, catches up one day", () => {
     const o = scheduleOptions();
     expect(o.scheduleId).toBe(SCHEDULE_ID);
-    expect(o.spec.calendars).toEqual([{ hour: 10, minute: 25 }]);
+    // In the zone, not in UTC: 10:25Z in summer and 11:25Z in winter, as the systemd timer ran.
+    expect(o.spec.calendars).toEqual([{ hour: 12, minute: 25 }]);
+    expect(o.spec.timezone).toBe("Europe/Paris");
     expect(o.policies).toEqual({ overlap: ScheduleOverlapPolicy.SKIP, catchupWindow: "1 day" });
   });
   it("is created paused: only the live-pipeline switch unpauses it", () => {

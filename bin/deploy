@@ -11,7 +11,7 @@
 #   --skip-sbom-audit Skip the still_active vulnerability gate on the generated SBOMs
 #   -y, --yes     Skip confirmation prompt
 #   --dry-run     Show what would be done without making changes
-#   --force       Deploy inside the Temporal run window (10:00-11:45Z) when the Temporal pipeline is live,
+#   --force       Deploy inside the Temporal run window (12:00-13:45 Europe/Paris) when the Temporal pipeline is live,
 #                 or while a digest workflow is running (staged or temporal)
 #   --rollback=TAG  Deploy the images an earlier deploy tag recorded, by digest, through every gate
 #                 above, without building or migrating. The box keeps the last 3 images of each
@@ -900,18 +900,19 @@ check_database_url() {
 }
 
 # A paused schedule drops the slot it misses, and a deploy restarts the worker under a run, so with
-# Temporal live a deploy is refused from 10:00Z (before the 10:25Z start) to 11:45Z (past a normal
-# run's end). digest-schedule sync still starts a missed day once if a --force deploy spans 10:25Z.
+# Temporal live a deploy is refused from 12:00 (before the 12:25 start) to 13:45 Europe/Paris (past a normal
+# run's end). digest-schedule sync still starts a missed day once if a --force deploy spans the start.
 check_run_window() {
   [[ $PIPELINE_MODE == temporal ]] || return 0
+  # The schedule fires at 12:25 Europe/Paris (digest/src/client.ts): 10:25Z in summer, 11:25Z in winter.
   local now
-  now=$(date -u +%H%M)
-  if (( 10#$now >= 1000 && 10#$now < 1145 )); then
+  now=$(TZ=Europe/Paris date +%H%M)
+  if (( 10#$now >= 1200 && 10#$now < 1345 )); then
     if [[ $FORCE == true ]]; then
-      log_error "deploying inside the Temporal run window (${now}Z) under --force"
+      log_error "deploying inside the Temporal run window (${now} Europe/Paris) under --force"
       return 0
     fi
-    log_error "${now}Z is inside the Temporal run window (10:00-11:45Z) -- deploy after it, or pass --force"
+    log_error "${now} Europe/Paris is inside the Temporal run window (12:00-13:45 Europe/Paris) -- deploy after it, or pass --force"
     return 1
   fi
 }
@@ -928,7 +929,7 @@ SCHEDULE_PAUSED=false
 # it warns and deploys: a Temporal problem must not block Python's deploy.
 # It asks twice: before the builds, to fail fast, and after the pause, so the schedule cannot start a
 # run between the answer and the restart. One path still can: the apply restarts the bootstrap
-# (digest-schedule sync) before the workers, and on a day with no run yet after 10:25Z its missed-day
+# (digest-schedule sync) before the workers, and on a day with no run yet after the start its missed-day
 # trigger starts one on the old worker. Terraform cannot order it after them (the workers depend on
 # it: it creates the namespace). point_current_at_new_build makes such a run wait for the new build;
 # set_current_version names any run still stranded.
@@ -1082,7 +1083,7 @@ set_current_version() {
 }
 
 # The bootstrap unit, not a bare unpause: it knows the mode, so a "staged" deploy leaves the
-# schedule paused, and in "temporal" it starts today's run once if 10:25Z passed while paused. It
+# schedule paused, and in "temporal" it starts today's run once if 12:25 Europe/Paris passed while paused. It
 # also re-runs ensureSchedule from the new image.
 resume_schedule() {
   [[ $SCHEDULE_PAUSED == true ]] || return 0
